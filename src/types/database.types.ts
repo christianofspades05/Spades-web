@@ -8,6 +8,7 @@
  */
 
 export type ProductStatus = 'draft' | 'active' | 'archived'
+export type CollectionMatchType = 'all' | 'any'
 export type ProductType =
   | 'tee'
   | 'polo'
@@ -19,6 +20,7 @@ export type ProductType =
   | 'other'
 
 export type CartStatus = 'active' | 'converted' | 'abandoned'
+export type CustomerAuthProvider = 'email' | 'google'
 
 export type OrderStatus =
   | 'pending_payment'
@@ -33,8 +35,15 @@ export type OrderStatus =
 
 export type OrderSource = 'storefront' | 'admin' | 'tiktok_shop' | 'shopee'
 
-export type PaymentProvider = 'cod' | 'gcash' | 'paymaya' | 'card' | 'bank_transfer' | 'other'
-export type PaymentStatus = 'pending' | 'authorized' | 'captured' | 'failed' | 'refunded' | 'partially_refunded'
+export type PaymentProvider =
+  'cod' | 'gcash' | 'paymaya' | 'card' | 'bank_transfer' | 'other'
+export type PaymentStatus =
+  | 'pending'
+  | 'authorized'
+  | 'captured'
+  | 'failed'
+  | 'refunded'
+  | 'partially_refunded'
 
 export type ShipmentStatus =
   | 'pending'
@@ -45,12 +54,17 @@ export type ShipmentStatus =
   | 'failed'
   | 'returned_to_sender'
 
-export type ReturnStatus = 'requested' | 'approved' | 'rejected' | 'received' | 'refunded'
+export type ReturnStatus =
+  'requested' | 'approved' | 'rejected' | 'received' | 'refunded'
 
 export type DiscountType = 'percentage' | 'fixed_amount' | 'free_shipping'
+export type DiscountKind = 'code' | 'automatic'
 export type DiscountScope = 'all' | 'collection' | 'product' | 'variant'
+export type CodRestrictionScope = 'collection' | 'product'
+export type ReviewStatus = 'pending' | 'approved' | 'rejected'
 
-export type StaffRole = 'super_admin' | 'admin' | 'manager' | 'packer' | 'support'
+export type StaffRole =
+  'super_admin' | 'admin' | 'manager' | 'packer' | 'support'
 
 export type InventoryMovementType =
   | 'purchase_in'
@@ -65,7 +79,8 @@ export type MarketplaceName = 'tiktok_shop' | 'shopee' | 'other'
 export type MarketplaceConnectionStatus = 'active' | 'expired' | 'revoked'
 export type MarketplaceSyncStatus = 'synced' | 'pending' | 'error'
 
-export type WebhookSource = 'payment_provider' | 'tiktok_shop' | 'shopee' | 'shipmate' | 'other'
+export type WebhookSource =
+  'payment_provider' | 'tiktok_shop' | 'shopee' | 'shipmate' | 'other'
 export type WebhookStatus = 'received' | 'processing' | 'processed' | 'failed'
 
 export type ActivityActorType = 'staff' | 'customer' | 'system' | 'webhook'
@@ -89,6 +104,12 @@ export interface Database {
           is_high_risk: boolean
           cod_blocked: boolean
           risk_notes: string | null
+          auth_provider: CustomerAuthProvider | null
+          google_id: string | null
+          phone_number: string | null
+          email_verified: boolean
+          phone_verified: boolean
+          last_login_at: string | null
           created_at: string
           updated_at: string
         }
@@ -96,6 +117,7 @@ export interface Database {
           email: string
         }
         Update: Partial<Database['public']['Tables']['customers']['Row']>
+        Relationships: []
       }
       customer_addresses: {
         Row: {
@@ -117,7 +139,9 @@ export interface Database {
           created_at: string
           updated_at: string
         }
-        Insert: Partial<Database['public']['Tables']['customer_addresses']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['customer_addresses']['Row']
+        > & {
           customer_id: string
           recipient_name: string
           phone: string
@@ -127,7 +151,10 @@ export interface Database {
           barangay: string
           address_line1: string
         }
-        Update: Partial<Database['public']['Tables']['customer_addresses']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['customer_addresses']['Row']
+        >
+        Relationships: []
       }
       collections: {
         Row: {
@@ -138,6 +165,10 @@ export interface Database {
           image_url: string | null
           is_active: boolean
           sort_order: number
+          hide_out_of_stock_products: boolean
+          match_type: CollectionMatchType
+          rules: unknown
+          sort_by: string
           created_at: string
           updated_at: string
         }
@@ -146,6 +177,7 @@ export interface Database {
           name: string
         }
         Update: Partial<Database['public']['Tables']['collections']['Row']>
+        Relationships: []
       }
       products: {
         Row: {
@@ -156,6 +188,7 @@ export interface Database {
           product_type: ProductType
           status: ProductStatus
           images: string[]
+          tags: string[]
           seo_title: string | null
           seo_description: string | null
           created_at: string
@@ -166,6 +199,7 @@ export interface Database {
           name: string
         }
         Update: Partial<Database['public']['Tables']['products']['Row']>
+        Relationships: []
       }
       product_variants: {
         Row: {
@@ -177,18 +211,30 @@ export interface Database {
           style: string | null
           price_cents: number
           compare_at_price_cents: number | null
+          cost_cents: number | null
           weight_grams: number | null
           barcode: string | null
           is_active: boolean
           created_at: string
           updated_at: string
         }
-        Insert: Partial<Database['public']['Tables']['product_variants']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['product_variants']['Row']
+        > & {
           product_id: string
           sku: string
           price_cents: number
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Row']>
+        Relationships: [
+          {
+            foreignKeyName: 'product_variants_product_id_fkey'
+            columns: ['product_id']
+            isOneToOne: false
+            referencedRelation: 'products'
+            referencedColumns: ['id']
+          },
+        ]
       }
       product_collections: {
         Row: {
@@ -197,7 +243,10 @@ export interface Database {
           sort_order: number
         }
         Insert: Database['public']['Tables']['product_collections']['Row']
-        Update: Partial<Database['public']['Tables']['product_collections']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['product_collections']['Row']
+        >
+        Relationships: []
       }
       inventory: {
         Row: {
@@ -214,6 +263,15 @@ export interface Database {
           variant_id: string
         }
         Update: Partial<Database['public']['Tables']['inventory']['Row']>
+        Relationships: [
+          {
+            foreignKeyName: 'inventory_variant_id_fkey'
+            columns: ['variant_id']
+            isOneToOne: false
+            referencedRelation: 'product_variants'
+            referencedColumns: ['id']
+          },
+        ]
       }
       inventory_movements: {
         Row: {
@@ -228,12 +286,17 @@ export interface Database {
           created_by: string | null
           created_at: string
         }
-        Insert: Partial<Database['public']['Tables']['inventory_movements']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['inventory_movements']['Row']
+        > & {
           variant_id: string
           movement_type: InventoryMovementType
           quantity_delta: number
         }
-        Update: Partial<Database['public']['Tables']['inventory_movements']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['inventory_movements']['Row']
+        >
+        Relationships: []
       }
       carts: {
         Row: {
@@ -242,12 +305,14 @@ export interface Database {
           session_token: string | null
           status: CartStatus
           currency: string
+          discount_id: string | null
           created_at: string
           updated_at: string
           expires_at: string | null
         }
         Insert: Partial<Database['public']['Tables']['carts']['Row']>
         Update: Partial<Database['public']['Tables']['carts']['Row']>
+        Relationships: []
       }
       cart_items: {
         Row: {
@@ -266,6 +331,15 @@ export interface Database {
           price_cents_snapshot: number
         }
         Update: Partial<Database['public']['Tables']['cart_items']['Row']>
+        Relationships: [
+          {
+            foreignKeyName: 'cart_items_variant_id_fkey'
+            columns: ['variant_id']
+            isOneToOne: false
+            referencedRelation: 'product_variants'
+            referencedColumns: ['id']
+          },
+        ]
       }
       orders: {
         Row: {
@@ -291,15 +365,20 @@ export interface Database {
           placed_at: string
           cancelled_at: string | null
           notes: string | null
+          review_requested_at: string | null
+          review_request_sent: boolean
+          review_token: string | null
+          review_token_expires_at: string | null
+          review_token_used_at: string | null
           created_at: string
           updated_at: string
         }
         Insert: Partial<Database['public']['Tables']['orders']['Row']> & {
-          order_number: string
           customer_id: string
           shipping_address: Record<string, unknown>
         }
         Update: Partial<Database['public']['Tables']['orders']['Row']>
+        Relationships: []
       }
       order_items: {
         Row: {
@@ -326,6 +405,7 @@ export interface Database {
           line_total_cents: number
         }
         Update: Partial<Database['public']['Tables']['order_items']['Row']>
+        Relationships: []
       }
       payments: {
         Row: {
@@ -349,6 +429,7 @@ export interface Database {
           amount_cents: number
         }
         Update: Partial<Database['public']['Tables']['payments']['Row']>
+        Relationships: []
       }
       shipments: {
         Row: {
@@ -356,6 +437,7 @@ export interface Database {
           order_id: string
           carrier: string | null
           tracking_number: string | null
+          tracking_url: string | null
           status: ShipmentStatus
           packed_by: string | null
           label_url: string | null
@@ -369,6 +451,7 @@ export interface Database {
           order_id: string
         }
         Update: Partial<Database['public']['Tables']['shipments']['Row']>
+        Relationships: []
       }
       returns: {
         Row: {
@@ -392,11 +475,12 @@ export interface Database {
           reason: string
         }
         Update: Partial<Database['public']['Tables']['returns']['Row']>
+        Relationships: []
       }
       discounts: {
         Row: {
           id: string
-          code: string
+          code: string | null
           type: DiscountType
           value: number
           scope: DiscountScope
@@ -408,15 +492,76 @@ export interface Database {
           starts_at: string | null
           ends_at: string | null
           is_active: boolean
+          kind: DiscountKind
+          title: string
+          excluded_collection_ids: string[]
           created_at: string
           updated_at: string
         }
         Insert: Partial<Database['public']['Tables']['discounts']['Row']> & {
-          code: string
           type: DiscountType
           value: number
+          title: string
         }
         Update: Partial<Database['public']['Tables']['discounts']['Row']>
+        Relationships: []
+      }
+      cod_restrictions: {
+        Row: {
+          id: string
+          title: string
+          scope: CodRestrictionScope
+          scope_ids: string[]
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['cod_restrictions']['Row']
+        > & {
+          title: string
+          scope: CodRestrictionScope
+        }
+        Update: Partial<Database['public']['Tables']['cod_restrictions']['Row']>
+        Relationships: []
+      }
+      reviews: {
+        Row: {
+          id: string
+          product_id: string
+          order_id: string
+          customer_email: string
+          customer_name: string | null
+          rating: number
+          review_text: string | null
+          photo_urls: string[]
+          status: ReviewStatus
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<Database['public']['Tables']['reviews']['Row']> & {
+          product_id: string
+          order_id: string
+          customer_email: string
+          rating: number
+        }
+        Update: Partial<Database['public']['Tables']['reviews']['Row']>
+        Relationships: [
+          {
+            foreignKeyName: 'reviews_product_id_fkey'
+            columns: ['product_id']
+            isOneToOne: false
+            referencedRelation: 'products'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'reviews_order_id_fkey'
+            columns: ['order_id']
+            isOneToOne: false
+            referencedRelation: 'orders'
+            referencedColumns: ['id']
+          },
+        ]
       }
       staff_users: {
         Row: {
@@ -433,6 +578,7 @@ export interface Database {
           full_name: string
         }
         Update: Partial<Database['public']['Tables']['staff_users']['Row']>
+        Relationships: []
       }
       activity_logs: {
         Row: {
@@ -447,11 +593,14 @@ export interface Database {
           ip_address: string | null
           created_at: string
         }
-        Insert: Partial<Database['public']['Tables']['activity_logs']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['activity_logs']['Row']
+        > & {
           actor_type: ActivityActorType
           action: string
         }
         Update: Partial<Database['public']['Tables']['activity_logs']['Row']>
+        Relationships: []
       }
       marketplace_connections: {
         Row: {
@@ -467,10 +616,15 @@ export interface Database {
           created_at: string
           updated_at: string
         }
-        Insert: Partial<Database['public']['Tables']['marketplace_connections']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['marketplace_connections']['Row']
+        > & {
           marketplace: MarketplaceName
         }
-        Update: Partial<Database['public']['Tables']['marketplace_connections']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['marketplace_connections']['Row']
+        >
+        Relationships: []
       }
       marketplace_product_mappings: {
         Row: {
@@ -485,12 +639,17 @@ export interface Database {
           created_at: string
           updated_at: string
         }
-        Insert: Partial<Database['public']['Tables']['marketplace_product_mappings']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['marketplace_product_mappings']['Row']
+        > & {
           marketplace_connection_id: string
           variant_id: string
           external_variant_id: string
         }
-        Update: Partial<Database['public']['Tables']['marketplace_product_mappings']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['marketplace_product_mappings']['Row']
+        >
+        Relationships: []
       }
       webhook_events: {
         Row: {
@@ -504,14 +663,117 @@ export interface Database {
           processed_at: string | null
           error_message: string | null
         }
-        Insert: Partial<Database['public']['Tables']['webhook_events']['Row']> & {
+        Insert: Partial<
+          Database['public']['Tables']['webhook_events']['Row']
+        > & {
           source: WebhookSource
           event_type: string
           external_event_id: string
           payload: Record<string, unknown>
         }
         Update: Partial<Database['public']['Tables']['webhook_events']['Row']>
+        Relationships: []
+      }
+      storefront_visits: {
+        Row: {
+          id: string
+          visitor_id: string
+          path: string
+          event_type: string
+          product_id: string | null
+          metadata: Record<string, unknown>
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['storefront_visits']['Row']
+        > & {
+          visitor_id: string
+          path: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['storefront_visits']['Row']
+        >
+        Relationships: []
+      }
+      store_feedback: {
+        Row: {
+          id: string
+          name: string | null
+          email: string
+          phone: string | null
+          comment: string | null
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['store_feedback']['Row']
+        > & {
+          email: string
+        }
+        Update: Partial<Database['public']['Tables']['store_feedback']['Row']>
+        Relationships: []
       }
     }
+    Views: {
+      storefront_product_listing: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          description: string | null
+          product_type: ProductType
+          images: string[]
+          tags: string[]
+          created_at: string
+          updated_at: string
+          min_price_cents: number
+          total_stock: number
+        }
+        Relationships: []
+      }
+    }
+    Functions: {
+      reserve_variant_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
+          p_location_code?: string
+          p_reference_type?: string | null
+          p_reference_id?: string | null
+        }
+        Returns: boolean
+      }
+      release_variant_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
+          p_location_code?: string
+          p_reference_type?: string | null
+          p_reference_id?: string | null
+        }
+        Returns: undefined
+      }
+      commit_variant_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
+          p_location_code?: string
+          p_reference_type?: string | null
+          p_reference_id?: string | null
+        }
+        Returns: undefined
+      }
+      restock_variant_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
+          p_location_code?: string
+          p_reference_type?: string | null
+          p_reference_id?: string | null
+        }
+        Returns: undefined
+      }
+    }
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
   }
 }

@@ -1,28 +1,24 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { listActiveCollections } from '#/server/collections/queries'
+import { loadStorefrontCollectionSections } from '#/server/collections/sections'
+import { CollectionSections } from '#/components/storefront/CollectionSections'
 
 export const Route = createFileRoute('/collections/')({
-  loader: () => listActiveCollections(),
+  loader: async () => {
+    const sections = await loadStorefrontCollectionSections()
+    return { sections }
+  },
   component: CollectionsPage,
 })
 
 function CollectionsPage() {
-  const collections = Route.useLoaderData()
+  const { sections } = Route.useLoaderData()
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
-      <h1 className="mb-8 text-3xl font-bold">Collections</h1>
-      {collections.length === 0 ? (
-        <p className="text-neutral-500">No collections yet.</p>
-      ) : (
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {collections.map((collection) => (
-            <li key={collection.id} className="rounded-lg border border-neutral-200 p-4">
-              {collection.name}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
+      <h1 className="mb-12 text-3xl font-black uppercase tracking-tight">
+        Collections
+      </h1>
+      <CollectionSections sections={sections} />
     </div>
   )
 }

@@ -1,47 +1,106 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { listActiveCollections } from '#/server/collections/queries'
+import { listActiveProducts } from '#/server/products/queries'
+import { ProductGrid } from '#/components/storefront/ProductGrid'
+import { buttonPrimaryClassName } from '#/components/storefront/ui'
+import { toListingProduct } from '#/lib/utils/product-shape'
+import { loadStorefrontCollectionSections } from '#/server/collections/sections'
+import { CollectionSections } from '#/components/storefront/CollectionSections'
+
+const FEATURED_PAGE_SIZE = 5
+const BEST_SELLERS_SLUG = 'best-sellers'
 
 export const Route = createFileRoute('/')({
-  loader: () => listActiveCollections(),
+  loader: async () => {
+    const [bestSellers, collectionSections] = await Promise.all([
+      listActiveProducts({
+        data: { collectionSlug: BEST_SELLERS_SLUG, limit: FEATURED_PAGE_SIZE },
+      }),
+      loadStorefrontCollectionSections(),
+    ])
+    return {
+      featured: bestSellers.map(toListingProduct),
+      collectionSections,
+    }
+  },
   component: Home,
 })
 
 function Home() {
-  const collections = Route.useLoaderData()
+  const { featured, collectionSections } = Route.useLoaderData()
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
-      <header className="mb-12">
-        <p className="text-sm uppercase tracking-[0.3em] text-neutral-500">
-          Philippine Streetwear
-        </p>
-        <h1 className="mt-2 text-5xl font-black tracking-tight">SPADES</h1>
-        <p className="mt-4 max-w-xl text-neutral-600">
-          The foundation is live. Collections, products, cart, and checkout are
-          built next on top of this scaffold.
-        </p>
-      </header>
+    <div className="bg-white dark:bg-neutral-950">
+      {/* Hero */}
+      <Link
+        to="/products"
+        search={{ sort: 'newest', page: 1 }}
+        className="block"
+      >
+        <img
+          src="/home/hero.jpg"
+          alt="Bet on yourself — Spades"
+          className="h-auto w-full object-cover"
+        />
+      </Link>
 
-      <section>
-        <h2 className="mb-4 text-lg font-semibold">Collections</h2>
-        {collections.length === 0 ? (
-          <p className="text-neutral-500">
-            No collections yet — add some in Supabase to see them here.
+      {/* Tagline / statement */}
+      <section className="bg-neutral-950 py-12 text-center text-white sm:py-16">
+        <div className="mx-auto max-w-2xl px-6">
+          <h2 className="text-2xl font-black uppercase tracking-tight sm:text-3xl">
+            Official Web Store
+          </h2>
+          <p className="mt-3 text-sm text-neutral-300 sm:text-base">
+            Everyone has an ambitious goal that we must gamble our own time to
+            achieve
           </p>
-        ) : (
-          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-            {collections.map((collection) => (
-              <li key={collection.id}>
-                <Link
-                  to="/collections"
-                  className="block rounded-lg border border-neutral-200 p-4 hover:border-neutral-400"
-                >
-                  {collection.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        </div>
+      </section>
+
+      {/* Photo collage */}
+      <img
+        src="/home/collage.jpg"
+        alt="Spades apparel"
+        className="h-auto w-full object-cover"
+      />
+
+      {/* Best sellers */}
+      <section className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
+        <h2 className="mb-8 text-center text-sm font-bold uppercase tracking-[0.2em] text-neutral-950 dark:text-white">
+          Best Sellers
+        </h2>
+        <ProductGrid
+          products={featured}
+          emptyMessage="No products yet."
+          columns={5}
+        />
+        <div className="mt-10 flex justify-center">
+          <Link
+            to="/collections/$slug"
+            params={{ slug: BEST_SELLERS_SLUG }}
+            className={buttonPrimaryClassName}
+          >
+            View all
+          </Link>
+        </div>
+      </section>
+
+      {/* Gamblers Club statement */}
+      <video
+        src="/home/statement.mp4"
+        poster="/home/statement-poster.jpg"
+        className="aspect-video w-full object-cover"
+        autoPlay
+        loop
+        muted
+        playsInline
+      />
+
+      {/* Collections */}
+      <section className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
+        <h2 className="mb-12 text-center text-2xl font-black uppercase tracking-tight dark:text-white">
+          Collections
+        </h2>
+        <CollectionSections sections={collectionSections} />
       </section>
     </div>
   )

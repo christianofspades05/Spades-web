@@ -13,7 +13,8 @@
     "test": "vitest run",
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
-    "check": "prettier --check ."
+    "check": "prettier --check .",
+    "migrate:shopify-images": "node --env-file=.env scripts/migrate-shopify-images.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.1",

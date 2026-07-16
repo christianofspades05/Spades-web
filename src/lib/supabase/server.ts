@@ -12,7 +12,11 @@
  * it reads cookies off the in-flight request via @tanstack/react-start.
  */
 import { createServerClient } from '@supabase/ssr'
-import { deleteCookie, getCookies, setCookie } from '@tanstack/react-start/server'
+import {
+  deleteCookie,
+  getCookies,
+  setCookie,
+} from '@tanstack/react-start/server'
 import type { Database } from '#/types/database.types'
 
 export function getSupabaseServerClient() {

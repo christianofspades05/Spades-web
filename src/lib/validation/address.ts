@@ -12,7 +12,10 @@ export const philippineAddressSchema = z.object({
   phone: z
     .string()
     .trim()
-    .regex(/^(\+63|0)9\d{9}$/, 'Enter a valid PH mobile number, e.g. 09171234567'),
+    .regex(
+      /^(\+63|0)9\d{9}$/,
+      'Enter a valid PH mobile number, e.g. 09171234567',
+    ),
   region: z.string().trim().min(1).max(120),
   province: z.string().trim().min(1).max(120),
   city: z.string().trim().min(1).max(120),

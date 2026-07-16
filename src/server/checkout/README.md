@@ -6,7 +6,7 @@ When built, this is where the COD-eligibility and risk logic from the
 project brief lives:
 
 1. Recompute the cart total server-side from `product_variants.price_cents`
-   — the submitted cart is only used to know *which* variants/quantities,
+   — the submitted cart is only used to know _which_ variants/quantities,
    never their price.
 2. Call `reserve_variant_stock()` (see the SQL migration) for every line
    item inside one flow, rolling back reservations if any line fails —

@@ -25,11 +25,15 @@ export async function requireCustomer(): Promise<Customer> {
   return customer
 }
 
-export async function requireStaff(allowedRoles?: Array<StaffRole>): Promise<StaffUser> {
+export async function requireStaff(
+  allowedRoles?: Array<StaffRole>,
+): Promise<StaffUser> {
   const staff = await getCurrentStaffUser()
   if (!staff) throw new UnauthorizedError('Staff sign in required')
   if (allowedRoles && !allowedRoles.includes(staff.role)) {
-    throw new ForbiddenError(`Requires one of roles: ${allowedRoles.join(', ')}`)
+    throw new ForbiddenError(
+      `Requires one of roles: ${allowedRoles.join(', ')}`,
+    )
   }
   return staff
 }

@@ -1,0 +1,134 @@
+import { createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
+import { requireStaff } from '#/lib/auth/guards'
+import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { previousPeriod } from '#/lib/utils/date-range'
+
+const VOID_STATUSES = new Set(['cancelled', 'failed'])
+
+export interface DailyPoint {
+  date: string
+  orders: number
+  salesCents: number
+  visitors: number
+}
+
+export interface DashboardAnalytics {
+  range: { from: string; to: string }
+  sales: { cents: number; previousCents: number }
+  orders: { count: number; previousCount: number }
+  visitors: { count: number; previousCount: number }
+  conversionRate: { rate: number | null; previousRate: number | null }
+  daily: DailyPoint[]
+}
+
+export const getDashboardAnalytics = createServerFn({ method: 'GET' })
+  .validator(z.object({ from: z.string(), to: z.string() }))
+  .handler(async ({ data }): Promise<DashboardAnalytics> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const prev = previousPeriod(data.from, data.to)
+    const rangeStart = `${data.from}T00:00:00.000Z`
+    const rangeEnd = `${data.to}T23:59:59.999Z`
+    const prevStart = `${prev.from}T00:00:00.000Z`
+    const prevEnd = `${prev.to}T23:59:59.999Z`
+
+    const [current, previous, visitsCurrent, visitsPrevious] =
+      await Promise.all([
+        admin
+          .from('orders')
+          .select('placed_at, total_cents, status')
+          .gte('placed_at', rangeStart)
+          .lte('placed_at', rangeEnd),
+        admin
+          .from('orders')
+          .select('total_cents, status')
+          .gte('placed_at', prevStart)
+          .lte('placed_at', prevEnd),
+        admin
+          .from('storefront_visits')
+          .select('visitor_id, created_at')
+          .eq('event_type', 'page_view')
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd),
+        admin
+          .from('storefront_visits')
+          .select('visitor_id')
+          .eq('event_type', 'page_view')
+          .gte('created_at', prevStart)
+          .lte('created_at', prevEnd),
+      ])
+
+    if (current.error) throw current.error
+    if (previous.error) throw previous.error
+    if (visitsCurrent.error) throw visitsCurrent.error
+    if (visitsPrevious.error) throw visitsPrevious.error
+
+    const dailyMap = new Map<string, DailyPoint>()
+    const dailyVisitorSets = new Map<string, Set<string>>()
+    for (
+      const d = new Date(`${data.from}T00:00:00`);
+      d <= new Date(`${data.to}T00:00:00`);
+      d.setDate(d.getDate() + 1)
+    ) {
+      const key = d.toISOString().slice(0, 10)
+      dailyMap.set(key, { date: key, orders: 0, salesCents: 0, visitors: 0 })
+      dailyVisitorSets.set(key, new Set())
+    }
+
+    let salesCents = 0
+    for (const order of current.data) {
+      const day = order.placed_at.slice(0, 10)
+      const bucket = dailyMap.get(day)
+      const isVoid = VOID_STATUSES.has(order.status)
+      if (bucket) {
+        bucket.orders += 1
+        if (!isVoid) bucket.salesCents += order.total_cents
+      }
+      if (!isVoid) salesCents += order.total_cents
+    }
+
+    const previousSalesCents = previous.data
+      .filter((o) => !VOID_STATUSES.has(o.status))
+      .reduce((sum, o) => sum + o.total_cents, 0)
+
+    const uniqueVisitors = new Set<string>()
+    for (const visit of visitsCurrent.data) {
+      uniqueVisitors.add(visit.visitor_id)
+      const day = visit.created_at.slice(0, 10)
+      dailyVisitorSets.get(day)?.add(visit.visitor_id)
+    }
+    for (const [day, set] of dailyVisitorSets) {
+      const bucket = dailyMap.get(day)
+      if (bucket) bucket.visitors = set.size
+    }
+
+    const previousUniqueVisitors = new Set(
+      visitsPrevious.data.map((v) => v.visitor_id),
+    )
+
+    const ordersCount = current.data.length
+    const previousOrdersCount = previous.data.length
+    const conversionRate =
+      uniqueVisitors.size > 0 ? (ordersCount / uniqueVisitors.size) * 100 : null
+    const previousConversionRate =
+      previousUniqueVisitors.size > 0
+        ? (previousOrdersCount / previousUniqueVisitors.size) * 100
+        : null
+
+    return {
+      range: { from: data.from, to: data.to },
+      sales: { cents: salesCents, previousCents: previousSalesCents },
+      orders: { count: ordersCount, previousCount: previousOrdersCount },
+      visitors: {
+        count: uniqueVisitors.size,
+        previousCount: previousUniqueVisitors.size,
+      },
+      conversionRate: {
+        rate: conversionRate,
+        previousRate: previousConversionRate,
+      },
+      daily: Array.from(dailyMap.values()),
+    }
+  })

@@ -14,21 +14,27 @@
  *     payments) must be validated server-side first — this client trusts
  *     whatever it's told, by design.
  *
- * The runtime guard below is defense-in-depth: it throws immediately if
- * this module is ever evaluated in a browser context.
+ * The runtime guard below is defense-in-depth: it throws if this client is
+ * ever actually requested from a browser context. It deliberately lives
+ * inside getSupabaseAdminClient() rather than at module top-level — a
+ * throw-on-import would crash the whole page's hydration if this module
+ * ever ends up merely *imported* into a client bundle by accident (e.g. a
+ * route file that transitively reaches it), even without the function
+ * being called. Throwing only on actual use keeps the real protection
+ * (this client can never actually run client-side) without that blast radius.
  */
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '#/types/database.types'
 
-if (typeof window !== 'undefined') {
-  throw new Error(
-    'lib/supabase/admin.ts was imported into a browser bundle. The service-role client must never run client-side.',
-  )
-}
-
 let adminClient: ReturnType<typeof createClient<Database>> | undefined
 
 export function getSupabaseAdminClient() {
+  if (typeof window !== 'undefined') {
+    throw new Error(
+      'getSupabaseAdminClient() was called from a browser context. The service-role client must never run client-side.',
+    )
+  }
+
   if (adminClient) return adminClient
 
   const url = process.env.SUPABASE_URL

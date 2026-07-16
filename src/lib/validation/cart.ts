@@ -21,6 +21,13 @@ export const removeCartItemSchema = z.object({
   cartItemId: z.string().uuid(),
 })
 
+export const applyDiscountCodeSchema = z.object({
+  code: z.string().trim().min(1).max(50),
+})
+
 export type AddCartItemInput = z.infer<typeof addCartItemSchema>
-export type UpdateCartItemQuantityInput = z.infer<typeof updateCartItemQuantitySchema>
+export type UpdateCartItemQuantityInput = z.infer<
+  typeof updateCartItemQuantitySchema
+>
 export type RemoveCartItemInput = z.infer<typeof removeCartItemSchema>
+export type ApplyDiscountCodeInput = z.infer<typeof applyDiscountCodeSchema>
