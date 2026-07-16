@@ -54,19 +54,24 @@ function SignInForm() {
     setSubmitting(true)
     setError(null)
 
-    const { error: signInError } =
-      await getSupabaseBrowserClient().auth.signInWithPassword({
-        email,
-        password,
-      })
+    try {
+      const { error: signInError } =
+        await getSupabaseBrowserClient().auth.signInWithPassword({
+          email,
+          password,
+        })
 
-    if (signInError) {
-      setError(signInError.message)
+      if (signInError) {
+        setError(signInError.message)
+        setSubmitting(false)
+        return
+      }
+
+      await navigate({ to: '/admin' })
+    } catch (err) {
+      setError(getErrorMessage(err))
       setSubmitting(false)
-      return
     }
-
-    await navigate({ to: '/admin' })
   }
 
   return (
