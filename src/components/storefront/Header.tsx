@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Search, ShoppingBag, User } from 'lucide-react'
+import { Menu, Search, ShoppingBag, User, X } from 'lucide-react'
 import { useCart } from '#/lib/cart/CartContext'
 import { ThemeToggle } from '#/components/storefront/ThemeToggle'
 
@@ -13,6 +14,7 @@ const NAV_LINKS = [
 
 export function Header() {
   const { itemCount } = useCart()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   return (
     <header>
@@ -22,18 +24,32 @@ export function Header() {
       </div>
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link to="/" className="flex items-center">
-            <img
-              src="/logo-black.png"
-              alt="Spades"
-              className="h-6 w-auto dark:hidden"
-            />
-            <img
-              src="/logo-white.png"
-              alt="Spades"
-              className="hidden h-6 w-auto dark:block"
-            />
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              className="text-neutral-600 hover:text-neutral-950 lg:hidden dark:text-neutral-400 dark:hover:text-white"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Menu className="h-5 w-5" />
+              )}
+            </button>
+            <Link to="/" className="flex items-center">
+              <img
+                src="/logo-black.png"
+                alt="Spades"
+                className="h-6 w-auto dark:hidden"
+              />
+              <img
+                src="/logo-white.png"
+                alt="Spades"
+                className="hidden h-6 w-auto dark:block"
+              />
+            </Link>
+          </div>
           <nav className="hidden items-center gap-5 text-xs font-medium uppercase tracking-wide lg:flex lg:gap-6">
             {NAV_LINKS.map((link) => (
               <Link
@@ -79,6 +95,24 @@ export function Header() {
             <ThemeToggle />
           </div>
         </div>
+
+        {mobileMenuOpen && (
+          <nav className="flex flex-col gap-1 border-t border-neutral-200 px-6 py-3 text-sm font-medium uppercase tracking-wide lg:hidden dark:border-neutral-800">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.to}
+                to={link.to}
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-md px-2 py-2.5 text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
+                activeProps={{
+                  className: 'text-neutral-950 dark:text-white',
+                }}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </div>
     </header>
   )

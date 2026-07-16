@@ -92,26 +92,13 @@ function ProductPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
       <div className="grid grid-cols-1 gap-10 md:grid-cols-4">
-        {/* Description */}
+        {/* Title + rating */}
         <div className="md:col-span-1">
           <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
           <ProductRatingSummary
             averageRating={reviews.averageRating}
             reviewCount={reviews.reviewCount}
           />
-          {product.description && (
-            <div
-              dir="rtl"
-              className="mt-6 md:max-h-[70vh] md:overflow-y-auto md:pl-3"
-            >
-              <p
-                dir="ltr"
-                className="whitespace-pre-line text-neutral-600 dark:text-neutral-400"
-              >
-                {product.description}
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Mockup */}
@@ -175,7 +162,28 @@ function ProductPage() {
           )}
 
           <PaymentBadges />
+        </div>
 
+        {/* Description — placed after the buy box/payment badges in the mobile
+            stacking order (this is the 4th DOM child), but pinned back into
+            column 1 on desktop via an explicit column-start so the md:4-col
+            layout looks exactly as it did before. */}
+        {product.description && (
+          <div
+            dir="rtl"
+            className="md:col-start-1 md:max-h-[70vh] md:overflow-y-auto md:pl-3"
+          >
+            <p
+              dir="ltr"
+              className="whitespace-pre-line text-neutral-600 dark:text-neutral-400"
+            >
+              {product.description}
+            </p>
+          </div>
+        )}
+
+        {/* Reviews — same reasoning as Description above, pinned back under the buy box (column 4). */}
+        <div className="md:col-start-4">
           <ProductReviewsList reviews={reviews.reviews} />
         </div>
       </div>
