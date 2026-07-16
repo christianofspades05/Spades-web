@@ -13,6 +13,7 @@ import { recordVisit } from '#/server/analytics/track'
 import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
 import { useCart } from '#/lib/cart/CartContext'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { formatSizeLabel } from '#/lib/utils/size-order'
 import { ImageGallery } from '#/components/storefront/ImageGallery'
 import { VariantSelector } from '#/components/storefront/VariantSelector'
 import type { VariantWithStock } from '#/components/storefront/VariantSelector'
@@ -22,7 +23,17 @@ import {
   ProductRatingSummary,
   ProductReviewsList,
 } from '#/components/storefront/ProductReviews'
+import { AddedToCartPopup } from '#/components/storefront/AddedToCartPopup'
+import type { AddedToCartItem } from '#/components/storefront/AddedToCartPopup'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
+
+function formatVariantLabel(variant: VariantWithStock): string {
+  const parts: string[] = []
+  if (variant.size) parts.push(`Size: ${formatSizeLabel(variant.size)}`)
+  if (variant.color) parts.push(`Color: ${variant.color}`)
+  if (variant.style) parts.push(`Style: ${variant.style}`)
+  return parts.join(', ')
+}
 
 export const Route = createFileRoute('/products/$slug')({
   loader: async ({ params }) => {
@@ -48,7 +59,7 @@ export const Route = createFileRoute('/products/$slug')({
 function ProductPage() {
   const { product, related, reviews } = Route.useLoaderData()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { addItem } = useCart()
+  const { addItem, itemCount } = useCart()
 
   const [selectedVariant, setSelectedVariant] = useState<
     VariantWithStock | undefined
@@ -56,7 +67,7 @@ function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [isAdding, setIsAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [added, setAdded] = useState(false)
+  const [addedItem, setAddedItem] = useState<AddedToCartItem | null>(null)
 
   const availableStock =
     selectedVariant?.inventory.reduce(
@@ -68,11 +79,15 @@ function ProductPage() {
   async function handleAddToCart() {
     if (!selectedVariant || outOfStock) return
     setError(null)
-    setAdded(false)
+    setAddedItem(null)
     setIsAdding(true)
     try {
       await addItem(selectedVariant.id, quantity)
-      setAdded(true)
+      setAddedItem({
+        image: product.images[0] ?? null,
+        productName: product.name,
+        variantLabel: formatVariantLabel(selectedVariant),
+      })
       void recordVisit({
         data: {
           visitorId: getOrCreateVisitorId(),
@@ -91,6 +106,14 @@ function ProductPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
+      {addedItem && (
+        <AddedToCartPopup
+          item={addedItem}
+          itemCount={itemCount}
+          onClose={() => setAddedItem(null)}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-10 md:grid-cols-4">
         {/* Title + rating */}
         <div className="md:col-span-1">
@@ -150,11 +173,6 @@ function ProductPage() {
             </button>
           </div>
 
-          {added && (
-            <p className="mt-3 text-sm text-green-700 dark:text-green-400">
-              Added to cart.
-            </p>
-          )}
           {error && (
             <p className="mt-3 text-sm text-red-700 dark:text-red-400">
               {error}
