@@ -399,8 +399,8 @@ function OrdersPage() {
                       onChange={toggleAll}
                     />
                   </th>
-                  <th className={tableHeadClassName}>Order</th>
-                  <th className={tableHeadClassName}>Date</th>
+                  <th className={`${tableHeadClassName} w-24`}>Order</th>
+                  <th className={`${tableHeadClassName} w-28`}>Date</th>
                   <th className={tableHeadClassName}>Customer</th>
                   <th className={tableHeadClassName}>Channel</th>
                   <th className={`${tableHeadClassName} text-right`}>Total</th>
@@ -472,10 +472,18 @@ function OrdersPage() {
                       <td
                         className={`${tableCellClassName} text-neutral-500 whitespace-nowrap`}
                       >
-                        {new Date(order.placed_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
+                        <p>
+                          {new Date(order.placed_at).toLocaleDateString(
+                            'en-US',
+                            { month: 'short', day: 'numeric' },
+                          )}
+                        </p>
+                        <p className="text-xs text-neutral-400">
+                          {new Date(order.placed_at).toLocaleTimeString(
+                            'en-US',
+                            { hour: 'numeric', minute: '2-digit' },
+                          )}
+                        </p>
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {order.customer.full_name ?? order.customer.email}
