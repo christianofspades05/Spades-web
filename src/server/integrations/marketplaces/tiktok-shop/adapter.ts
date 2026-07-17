@@ -262,6 +262,14 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     return toOAuthTokens(token)
   },
 
+  /**
+   * Field name fixed via a live "Inventory of Skus[0] is a required field"
+   * error (code 36009004) — the request originally sent `stock_infos` /
+   * `available_stock`, but TikTok's real field is `inventory` / `quantity`.
+   * No warehouse_id sent (single-warehouse assumption); if a seller with
+   * multiple TikTok warehouses hits a new required-field error here, that's
+   * the next thing to add.
+   */
   async pushInventory(
     connection: MarketplaceConnection,
     externalProductId: string,
@@ -280,9 +288,9 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         skus: [
           {
             id: externalVariantId,
-            stock_infos: [
+            inventory: [
               {
-                available_stock: quantity,
+                quantity,
               },
             ],
           },
