@@ -163,6 +163,10 @@ function ChannelsPage() {
             connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
               ?.status === 'active'
           }
+          inventorySyncEnabled={
+            connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
+              ?.inventory_sync_enabled ?? false
+          }
           onChanged={() => router.invalidate()}
         />
       </div>
@@ -335,12 +339,14 @@ function ProductSyncSection({
   search,
   sortBy,
   connected,
+  inventorySyncEnabled,
   onChanged,
 }: {
   products: ProductSyncRow[]
   search: string
   sortBy: ProductSort
   connected: boolean
+  inventorySyncEnabled: boolean
   onChanged: () => void
 }) {
   const [bulkSyncing, setBulkSyncing] = useState(false)
@@ -456,6 +462,7 @@ function ProductSyncSection({
                 key={product.productId}
                 product={product}
                 connected={connected}
+                inventorySyncEnabled={inventorySyncEnabled}
                 onChanged={onChanged}
                 onPush={() => setOpenProductId(product.productId)}
                 onConnect={() => setConnectingProductId(product.productId)}
@@ -500,12 +507,14 @@ function ProductSyncSection({
 function ProductGroupRow({
   product,
   connected,
+  inventorySyncEnabled,
   onChanged,
   onPush,
   onConnect,
 }: {
   product: GroupedProduct
   connected: boolean
+  inventorySyncEnabled: boolean
   onChanged: () => void
   onPush: () => void
   onConnect: () => void
@@ -599,11 +608,20 @@ function ProductGroupRow({
         {mappedVariants.length > 0 ? (
           <button
             type="button"
-            disabled={submitting}
+            disabled={submitting || !inventorySyncEnabled}
             onClick={handleSyncNow}
-            className="text-xs font-medium text-neutral-900 underline disabled:opacity-50"
+            title={
+              inventorySyncEnabled
+                ? undefined
+                : 'Inventory sync is off for this channel — turn it on above first.'
+            }
+            className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
           >
-            {submitting ? 'Syncing…' : 'Sync now'}
+            {submitting
+              ? 'Syncing…'
+              : inventorySyncEnabled
+                ? 'Sync now'
+                : 'Sync now (off)'}
           </button>
         ) : (
           <div className="flex justify-end gap-2">
