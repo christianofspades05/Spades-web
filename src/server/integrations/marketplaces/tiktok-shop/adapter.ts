@@ -307,6 +307,10 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       pageToken = page.next_page_token
     } while (pageToken)
 
+    // TEMP debug: investigating tracking info not showing up after a
+    // seller-arranged shipment.
+    console.log('[debug] pullOrders raw orders:', JSON.stringify(orders))
+
     return orders
   },
 
