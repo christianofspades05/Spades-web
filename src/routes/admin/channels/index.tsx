@@ -91,6 +91,14 @@ const SORT_LABELS: Record<ProductSort, string> = {
   created_desc: 'Newest first',
 }
 
+type ConnectionFilter = 'all' | 'connected' | 'not_connected'
+
+const CONNECTION_FILTER_LABELS: Record<ConnectionFilter, string> = {
+  all: 'All statuses',
+  connected: 'Connected',
+  not_connected: 'Not connected',
+}
+
 function ChannelsPage() {
   const { connections, products, logs, collections } = Route.useLoaderData()
   const { collectionId } = Route.useSearch()
@@ -99,6 +107,8 @@ function ChannelsPage() {
 
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<ProductSort>('name_asc')
+  const [connectionFilter, setConnectionFilter] =
+    useState<ConnectionFilter>('all')
 
   return (
     <div className="w-full px-8 py-10">
@@ -144,6 +154,21 @@ function ChannelsPage() {
             </option>
           ))}
         </select>
+        <select
+          value={connectionFilter}
+          onChange={(e) =>
+            setConnectionFilter(e.target.value as ConnectionFilter)
+          }
+          className={inputClassName}
+        >
+          {(Object.keys(CONNECTION_FILTER_LABELS) as ConnectionFilter[]).map(
+            (key) => (
+              <option key={key} value={key}>
+                {CONNECTION_FILTER_LABELS[key]}
+              </option>
+            ),
+          )}
+        </select>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -161,6 +186,7 @@ function ChannelsPage() {
           products={products}
           search={search}
           sortBy={sortBy}
+          connectionFilter={connectionFilter}
           connected={
             connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
               ?.status === 'active'
@@ -340,6 +366,7 @@ function ProductSyncSection({
   products,
   search,
   sortBy,
+  connectionFilter,
   connected,
   inventorySyncEnabled,
   onChanged,
@@ -347,6 +374,7 @@ function ProductSyncSection({
   products: ProductSyncRow[]
   search: string
   sortBy: ProductSort
+  connectionFilter: ConnectionFilter
   connected: boolean
   inventorySyncEnabled: boolean
   onChanged: () => void
@@ -365,13 +393,20 @@ function ProductSyncSection({
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
     const grouped = groupByProduct(products)
-    const filtered = query
+    const searched = query
       ? grouped.filter(
           (p) =>
             p.productName.toLowerCase().includes(query) ||
             p.variants.some((v) => v.sku.toLowerCase().includes(query)),
         )
       : grouped
+    const filtered =
+      connectionFilter === 'all'
+        ? searched
+        : searched.filter((p) => {
+            const isConnected = p.variants.some((v) => v.mapping)
+            return connectionFilter === 'connected' ? isConnected : !isConnected
+          })
 
     return [...filtered].sort((a, b) => {
       if (sortBy === 'name_asc')
@@ -383,7 +418,7 @@ function ProductSyncSection({
         new Date(a.productCreatedAt).getTime()
       )
     })
-  }, [products, search, sortBy])
+  }, [products, search, sortBy, connectionFilter])
 
   async function handleBulkSync() {
     setBulkSyncing(true)
