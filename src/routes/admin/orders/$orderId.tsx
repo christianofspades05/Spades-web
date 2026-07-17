@@ -46,6 +46,15 @@ const CANCELLABLE_STATUSES = new Set<OrderStatus>([
   'packed',
 ])
 
+type CancellationReason =
+  'failed_delivery' | 'customer_request' | 'out_of_stock'
+
+const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
+  failed_delivery: 'Failed delivery',
+  customer_request: 'Customer request',
+  out_of_stock: 'Out of stock',
+}
+
 const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'in_transit',
   'out_for_delivery',
@@ -309,16 +318,21 @@ function CancelOrderPanel({
 }) {
   const [open, setOpen] = useState(false)
   const [restock, setRestock] = useState(true)
+  const [reason, setReason] = useState<CancellationReason | ''>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   if (!CANCELLABLE_STATUSES.has(status)) return null
 
   async function handleCancel() {
+    if (!reason) {
+      setError('Please select a reason for cancelling.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
-      await cancelOrder({ data: { orderId, restock } })
+      await cancelOrder({ data: { orderId, restock, reason } })
       onCancelled()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -350,10 +364,26 @@ function CancelOrderPanel({
             />
             Restock these items back into inventory
           </label>
+          <select
+            value={reason}
+            onChange={(e) =>
+              setReason(e.target.value as CancellationReason | '')
+            }
+            className={inputClassName}
+          >
+            <option value="">Reason for cancellation…</option>
+            {(
+              Object.keys(CANCELLATION_REASON_LABELS) as CancellationReason[]
+            ).map((r) => (
+              <option key={r} value={r}>
+                {CANCELLATION_REASON_LABELS[r]}
+              </option>
+            ))}
+          </select>
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || !reason}
               onClick={handleCancel}
               className="inline-flex w-fit items-center justify-center rounded-md bg-red-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             >

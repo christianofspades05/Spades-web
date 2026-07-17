@@ -22,6 +22,12 @@ const SHIPMENT_STATUSES = [
   'returned_to_sender',
 ] as const
 
+const CANCELLATION_REASONS = [
+  'failed_delivery',
+  'customer_request',
+  'out_of_stock',
+] as const
+
 export const orderStatusUpdateSchema = z.object({
   orderId: z.string().uuid(),
   status: z.enum(ORDER_STATUSES),
@@ -38,11 +44,13 @@ export const shipmentUpdateSchema = z.object({
 export const cancelOrderSchema = z.object({
   orderId: z.string().uuid(),
   restock: z.boolean(),
+  reason: z.enum(CANCELLATION_REASONS),
 })
 
 export const bulkCancelOrdersSchema = z.object({
   orderIds: z.array(z.string().uuid()).min(1),
   restock: z.boolean(),
+  reason: z.enum(CANCELLATION_REASONS),
 })
 
 export type OrderStatusUpdateInput = z.infer<typeof orderStatusUpdateSchema>

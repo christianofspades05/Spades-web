@@ -549,7 +549,11 @@ export const cancelOrder = createServerFn({ method: 'POST' })
 
     const { data: order, error } = await admin
       .from('orders')
-      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: data.reason,
+      })
       .eq('id', data.orderId)
       .select('*')
       .single()
@@ -558,6 +562,7 @@ export const cancelOrder = createServerFn({ method: 'POST' })
     await logStaffActivity(staff, 'order.cancel', 'orders', order.id, {
       from: currentStatus,
       restocked: data.restock,
+      reason: data.reason,
     })
     return order
   })
@@ -612,12 +617,14 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
           .update({
             status: 'cancelled',
             cancelled_at: new Date().toISOString(),
+            cancellation_reason: data.reason,
           })
           .eq('id', order.id)
 
         await logStaffActivity(staff, 'order.cancel', 'orders', order.id, {
           from: currentStatus,
           restocked: data.restock,
+          reason: data.reason,
           bulk: true,
         })
         cancelled += 1

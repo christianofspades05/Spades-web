@@ -61,6 +61,15 @@ const SOURCE_LABELS: Record<OrderSource, string> = {
   lazada: 'Lazada',
 }
 
+type CancellationReason =
+  'failed_delivery' | 'customer_request' | 'out_of_stock'
+
+const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
+  failed_delivery: 'Failed delivery',
+  customer_request: 'Customer request',
+  out_of_stock: 'Out of stock',
+}
+
 const ZONE_LABELS: Record<ShippingZone, string> = {
   metro_manila: 'Metro Manila',
   luzon: 'Luzon Provinces',
@@ -118,6 +127,7 @@ function OrdersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [openItemsFor, setOpenItemsFor] = useState<string | null>(null)
   const [bulkRestock, setBulkRestock] = useState(true)
+  const [bulkReason, setBulkReason] = useState<CancellationReason | ''>('')
   const [bulkCancelling, setBulkCancelling] = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
 
@@ -161,6 +171,10 @@ function OrdersPage() {
 
   async function handleBulkCancel() {
     if (selected.size === 0) return
+    if (!bulkReason) {
+      setBulkError('Please select a reason for cancelling.')
+      return
+    }
     if (
       !confirm(
         `Cancel ${selected.size} order${selected.size === 1 ? '' : 's'}? This can't be undone.`,
@@ -172,7 +186,11 @@ function OrdersPage() {
     setBulkError(null)
     try {
       const result = await bulkCancelOrders({
-        data: { orderIds: Array.from(selected), restock: bulkRestock },
+        data: {
+          orderIds: Array.from(selected),
+          restock: bulkRestock,
+          reason: bulkReason,
+        },
       })
       if (result.skipped > 0) {
         setBulkError(
@@ -421,9 +439,25 @@ function OrdersPage() {
             />
             Restock inventory
           </label>
+          <select
+            value={bulkReason}
+            onChange={(e) =>
+              setBulkReason(e.target.value as CancellationReason | '')
+            }
+            className={`${inputClassName} w-auto`}
+          >
+            <option value="">Reason for cancellation…</option>
+            {(
+              Object.keys(CANCELLATION_REASON_LABELS) as CancellationReason[]
+            ).map((r) => (
+              <option key={r} value={r}>
+                {CANCELLATION_REASON_LABELS[r]}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
-            disabled={bulkCancelling}
+            disabled={bulkCancelling || !bulkReason}
             onClick={handleBulkCancel}
             className={buttonSecondaryClassName}
           >

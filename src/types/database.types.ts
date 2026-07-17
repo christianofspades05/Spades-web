@@ -33,6 +33,9 @@ export type OrderStatus =
   | 'refunded'
   | 'failed'
 
+export type OrderCancellationReason =
+  'failed_delivery' | 'customer_request' | 'out_of_stock'
+
 export type OrderSource =
   'storefront' | 'admin' | 'tiktok_shop' | 'shopee' | 'lazada'
 
@@ -369,6 +372,7 @@ export interface Database {
           risk_score: number | null
           placed_at: string
           cancelled_at: string | null
+          cancellation_reason: OrderCancellationReason | null
           notes: string | null
           review_requested_at: string | null
           review_request_sent: boolean

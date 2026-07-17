@@ -19,6 +19,7 @@ export type {
   MarketplaceConnectionStatus,
   MarketplaceName,
   MarketplaceSyncStatus,
+  OrderCancellationReason,
   OrderSource,
   OrderStatus,
   PaymentProvider,
