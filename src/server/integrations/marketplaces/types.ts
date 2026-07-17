@@ -134,6 +134,12 @@ export interface MarketplaceProductDetail {
   variants: MarketplaceProductVariantDetail[]
 }
 
+/** One entry from the platform's product catalog — just enough to match against our own product titles. */
+export interface MarketplaceProductSummary {
+  externalProductId: string
+  name: string
+}
+
 export interface MarketplaceAdapter {
   readonly marketplace: MarketplaceName
 
@@ -193,6 +199,11 @@ export interface MarketplaceAdapter {
     connection: MarketplaceConnection,
     externalProductId: string,
   ) => Promise<MarketplaceProductDetail>
+
+  /** Lists every product currently listed on the platform's own catalog (title + id only) — used to auto-match against our local product titles instead of requiring staff to paste in each external product id by hand. */
+  listProducts: (
+    connection: MarketplaceConnection,
+  ) => Promise<MarketplaceProductSummary[]>
 }
 
 export class MarketplaceNotConnectedError extends Error {

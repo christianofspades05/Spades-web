@@ -30,4 +30,5 @@ export const shopeeAdapter: MarketplaceAdapter = {
   createProduct: notImplemented,
   updateFulfillment: notImplemented,
   getProductByExternalId: notImplemented,
+  listProducts: notImplemented,
 }

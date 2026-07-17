@@ -847,3 +847,120 @@ export async function connectExistingProductToMarketplace(
     throw err
   }
 }
+
+export interface AutoConnectByTitleResult {
+  connected: {
+    productId: string
+    productName: string
+    externalProductId: string
+    connectedVariants: number
+  }[]
+  skipped: { productId: string; productName: string; reason: string }[]
+}
+
+/**
+ * Auto-connects every currently-unlinked local product to a same-titled
+ * listing on the platform, so staff only need to review the leftovers
+ * instead of pasting in every external product id by hand. Delegates the
+ * actual linking to connectExistingProductToMarketplace above so the
+ * exact-match/variant rules stay in exactly one place — this only decides
+ * which pairs are worth attempting (case-insensitively, since that's more
+ * forgiving for a first pass; connectExistingProductToMarketplace still
+ * enforces an exact, case-sensitive match and reports back if that fails).
+ */
+export async function autoConnectProductsByTitle(
+  marketplace: MarketplaceName,
+): Promise<AutoConnectByTitleResult> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+  const remoteProducts = await adapter.listProducts(fresh)
+
+  const remoteByTitle = new Map<string, typeof remoteProducts>()
+  for (const p of remoteProducts) {
+    const key = p.name.trim().toLowerCase()
+    const bucket = remoteByTitle.get(key) ?? []
+    bucket.push(p)
+    remoteByTitle.set(key, bucket)
+  }
+
+  const { data: mappings, error: mappingsError } = await admin
+    .from('marketplace_product_mappings')
+    .select('variant_id')
+    .eq('marketplace_connection_id', connection.id)
+  if (mappingsError) throw mappingsError
+  const linkedVariantIds = new Set(mappings.map((m) => m.variant_id))
+
+  const { data: variants, error: variantsError } = await admin
+    .from('product_variants')
+    .select('id, product_id')
+    .eq('is_active', true)
+  if (variantsError) throw variantsError
+
+  const linkedProductIds = new Set(
+    variants.filter((v) => linkedVariantIds.has(v.id)).map((v) => v.product_id),
+  )
+  const unlinkedProductIds = Array.from(
+    new Set(
+      variants
+        .filter((v) => !linkedProductIds.has(v.product_id))
+        .map((v) => v.product_id),
+    ),
+  )
+
+  const { data: products, error: productsError } =
+    unlinkedProductIds.length > 0
+      ? await admin
+          .from('products')
+          .select('id, name')
+          .in('id', unlinkedProductIds)
+      : { data: [], error: null }
+  if (productsError) throw productsError
+
+  const result: AutoConnectByTitleResult = { connected: [], skipped: [] }
+
+  for (const product of products) {
+    const matches = remoteByTitle.get(product.name.trim().toLowerCase()) ?? []
+    if (matches.length === 0) {
+      result.skipped.push({
+        productId: product.id,
+        productName: product.name,
+        reason: 'No TikTok product with a matching title.',
+      })
+      continue
+    }
+    if (matches.length > 1) {
+      result.skipped.push({
+        productId: product.id,
+        productName: product.name,
+        reason: `${matches.length} TikTok products share this title — connect manually.`,
+      })
+      continue
+    }
+
+    try {
+      const connectResult = await connectExistingProductToMarketplace(
+        marketplace,
+        product.id,
+        matches[0].externalProductId,
+      )
+      result.connected.push({
+        productId: product.id,
+        productName: product.name,
+        externalProductId: matches[0].externalProductId,
+        connectedVariants: connectResult.connectedVariants,
+      })
+    } catch (err) {
+      result.skipped.push({
+        productId: product.id,
+        productName: product.name,
+        reason: getErrorMessage(err),
+      })
+    }
+  }
+
+  return result
+}

@@ -25,4 +25,5 @@ export const lazadaAdapter: MarketplaceAdapter = {
   createProduct: notImplemented,
   updateFulfillment: notImplemented,
   getProductByExternalId: notImplemented,
+  listProducts: notImplemented,
 }

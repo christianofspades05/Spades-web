@@ -32,6 +32,7 @@ import type {
   MarketplaceCategoryAttribute,
   MarketplaceFulfillmentUpdate,
   MarketplaceProductDetail,
+  MarketplaceProductSummary,
   NewMarketplaceProduct,
   NormalizedOrder,
   OAuthTokens,
@@ -578,5 +579,45 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
           .filter((v): v is string => Boolean(v)),
       })),
     }
+  },
+
+  /**
+   * Not exercised against a live shop yet (see the file-level caveat) —
+   * TikTok's product search response shape is a best-effort reconstruction
+   * from their docs. If titles come back empty, check the real response body
+   * (surfaced via sync_logs on failure, or add a temporary debug log here)
+   * against Partner Center's reference and adjust the field names below.
+   */
+  async listProducts(
+    connection: MarketplaceConnection,
+  ): Promise<MarketplaceProductSummary[]> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+
+    const products: MarketplaceProductSummary[] = []
+    let pageToken: string | undefined
+    do {
+      const page = await callTikTokApi<{
+        products?: { id: string; title?: string; status?: string }[]
+        next_page_token?: string
+      }>({
+        method: 'POST',
+        path: '/product/202309/products/search',
+        accessToken: connection.access_token_encrypted,
+        shopCipher: connection.shop_cipher ?? undefined,
+        query: {
+          page_size: '100',
+          ...(pageToken ? { page_token: pageToken } : {}),
+        },
+        body: {},
+      })
+      for (const p of page.products ?? []) {
+        products.push({ externalProductId: p.id, name: p.title ?? '' })
+      }
+      pageToken = page.next_page_token
+    } while (pageToken)
+
+    return products
   },
 }

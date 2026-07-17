@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { z } from 'zod'
 import {
+  autoConnectProducts,
   bulkSyncChannel,
   connectExistingProduct,
   disconnectChannel,
@@ -19,6 +20,7 @@ import type {
   ChannelConnectionInfo,
   ProductSyncRow,
 } from '#/server/admin/channels'
+import type { AutoConnectByTitleResult } from '#/server/integrations/marketplaces/sync-engine'
 import { listAllCollections } from '#/server/admin/collections'
 import type {
   MarketplaceCategory,
@@ -351,6 +353,9 @@ function ProductSyncSection({
 }) {
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [pulling, setPulling] = useState(false)
+  const [autoConnecting, setAutoConnecting] = useState(false)
+  const [autoConnectResult, setAutoConnectResult] =
+    useState<AutoConnectByTitleResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openProductId, setOpenProductId] = useState<string | null>(null)
   const [connectingProductId, setConnectingProductId] = useState<string | null>(
@@ -408,6 +413,23 @@ function ProductSyncSection({
     }
   }
 
+  async function handleAutoConnect() {
+    setAutoConnecting(true)
+    setError(null)
+    setAutoConnectResult(null)
+    try {
+      const result = await autoConnectProducts({
+        data: { marketplace: 'tiktok_shop' },
+      })
+      setAutoConnectResult(result)
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setAutoConnecting(false)
+    }
+  }
+
   const openProduct = visibleProducts.find((p) => p.productId === openProductId)
   const connectingProduct = visibleProducts.find(
     (p) => p.productId === connectingProductId,
@@ -430,6 +452,15 @@ function ProductSyncSection({
           </button>
           <button
             type="button"
+            disabled={!connected || autoConnecting}
+            onClick={handleAutoConnect}
+            className={buttonSecondaryClassName}
+            title="Automatically links every unlinked product to a TikTok listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually."
+          >
+            {autoConnecting ? 'Matching…' : 'Auto-connect by title'}
+          </button>
+          <button
+            type="button"
             disabled={!connected || bulkSyncing}
             onClick={handleBulkSync}
             className={buttonPrimaryClassName}
@@ -444,6 +475,41 @@ function ProductSyncSection({
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+      {autoConnectResult && (
+        <Card className="mt-4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-neutral-900">
+              Connected {autoConnectResult.connected.length} product
+              {autoConnectResult.connected.length === 1 ? '' : 's'} by matching
+              title.
+              {autoConnectResult.skipped.length > 0 &&
+                ` ${autoConnectResult.skipped.length} need${
+                  autoConnectResult.skipped.length === 1 ? 's' : ''
+                } manual review.`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setAutoConnectResult(null)}
+              className="text-xs font-medium text-neutral-500 underline"
+            >
+              Dismiss
+            </button>
+          </div>
+          {autoConnectResult.skipped.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-1.5 text-xs text-neutral-600">
+              {autoConnectResult.skipped.map((s) => (
+                <li key={s.productId}>
+                  <span className="font-medium text-neutral-900">
+                    {s.productName}
+                  </span>{' '}
+                  — {s.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <div className={`${tableWrapperClassName} mt-4`}>
         <table className="w-full">

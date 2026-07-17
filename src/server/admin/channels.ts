@@ -6,6 +6,7 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
 import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/registry'
 import {
+  autoConnectProductsByTitle,
   connectExistingProductToMarketplace,
   getCategoryAttributesForMarketplace,
   listCategoriesForMarketplace,
@@ -14,6 +15,7 @@ import {
   pushInventoryForVariant,
   pushNewProductToMarketplace,
 } from '#/server/integrations/marketplaces/sync-engine'
+import type { AutoConnectByTitleResult } from '#/server/integrations/marketplaces/sync-engine'
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
@@ -323,6 +325,28 @@ export const connectExistingProduct = createServerFn({ method: 'POST' })
       'products',
       data.productId,
       { marketplace: data.marketplace, ...result },
+    )
+    return result
+  })
+
+/**
+ * Auto-connects every currently-unlinked product to a same-titled TikTok
+ * listing in one pass — staff only need to manually review whatever's left
+ * in `skipped` (no match, an ambiguous multi-match, or a title/variant
+ * mismatch caught by connectExistingProductToMarketplace's own exact-match
+ * rule) via the existing "Connect existing" flow.
+ */
+export const autoConnectProducts = createServerFn({ method: 'POST' })
+  .validator(z.object({ marketplace: marketplaceSchema }))
+  .handler(async ({ data }): Promise<AutoConnectByTitleResult> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const result = await autoConnectProductsByTitle(data.marketplace)
+    await logStaffActivity(
+      staff,
+      'channel.auto_connect_products',
+      'marketplace_connections',
+      data.marketplace,
+      { connected: result.connected.length, skipped: result.skipped.length },
     )
     return result
   })
