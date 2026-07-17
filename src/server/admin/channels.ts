@@ -399,7 +399,9 @@ export const bulkSyncChannel = createServerFn({ method: 'POST' })
   .validator(z.object({ marketplace: marketplaceSchema }))
   .handler(async ({ data }): Promise<{ attempted: number }> => {
     const staff = await requireStaff(MANAGE_ROLES)
-    const result = await pushInventoryForAllProducts(data.marketplace)
+    const result = await pushInventoryForAllProducts(data.marketplace, {
+      force: true,
+    })
     await logStaffActivity(
       staff,
       'channel.bulk_sync',

@@ -253,9 +253,15 @@ export async function pushInventoryForVariant(
   }
 }
 
-/** Re-pushes every synced mapping for a marketplace — used by the reconcile cron and the admin "Sync all" button. */
+/**
+ * Re-pushes every mapping for a marketplace — used by the reconcile cron
+ * (respects inventory_sync_enabled, the normal opt-in gate) and the admin
+ * "Sync all products" button (force:true — a deliberate manual click,
+ * same reasoning as syncProductNow's single-item force).
+ */
 export async function pushInventoryForAllProducts(
   marketplace: MarketplaceName,
+  options?: { force?: boolean },
 ): Promise<{ attempted: number }> {
   const admin = getSupabaseAdminClient()
   const connection = await getActiveConnection(marketplace)
@@ -279,6 +285,7 @@ export async function pushInventoryForAllProducts(
       connection,
       mapping,
       inventoryRow?.quantity_available ?? 0,
+      options,
     )
   }
 
