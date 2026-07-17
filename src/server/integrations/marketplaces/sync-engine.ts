@@ -7,8 +7,14 @@
  */
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { getErrorMessage } from '#/lib/utils/errors'
-import { getAdapter } from './registry'
-import type { NormalizedOrder, SyncableMarketplace } from './types'
+import { getAdapter, IMPLEMENTED_MARKETPLACES } from './registry'
+import type {
+  MarketplaceCategory,
+  MarketplaceCategoryAttribute,
+  MarketplaceCategoryAttributeAnswer,
+  NormalizedOrder,
+  SyncableMarketplace,
+} from './types'
 import { MarketplaceNotConnectedError } from './types'
 import type { MarketplaceConnection, MarketplaceName } from '#/types/entities'
 
@@ -430,4 +436,189 @@ export async function pullOrdersForMarketplace(
   })
 
   return { scanned: rawOrders.length, imported, failed }
+}
+
+// ---------------------------------------------------------------------------
+// Product creation — creating a brand-new listing on a channel, as opposed to
+// pushInventoryFor* above which only update stock on an already-linked one.
+// ---------------------------------------------------------------------------
+
+export async function listCategoriesForMarketplace(
+  marketplace: MarketplaceName,
+  query: string,
+): Promise<MarketplaceCategory[]> {
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+  return adapter.listCategories(fresh, query)
+}
+
+export async function getCategoryAttributesForMarketplace(
+  marketplace: MarketplaceName,
+  categoryId: string,
+): Promise<MarketplaceCategoryAttribute[]> {
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+  return adapter.getCategoryAttributes(fresh, categoryId)
+}
+
+export async function pushNewProductToMarketplace(
+  marketplace: MarketplaceName,
+  productId: string,
+  categoryId: string,
+  attributeValues: MarketplaceCategoryAttributeAnswer[],
+): Promise<{ externalProductId: string }> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const { data: product, error: productError } = await admin
+    .from('products')
+    .select('id, name, description, images')
+    .eq('id', productId)
+    .single()
+  if (productError) throw productError
+
+  const { data: variants, error: variantsError } = await admin
+    .from('product_variants')
+    .select(
+      'id, sku, size, color, style, price_cents, inventory(quantity_available)',
+    )
+    .eq('product_id', productId)
+    .eq('is_active', true)
+  if (variantsError) throw variantsError
+  if (variants.length === 0) {
+    throw new Error('This product has no active variants to push.')
+  }
+
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+
+  try {
+    const result = await adapter.createProduct(fresh, {
+      name: product.name,
+      description: product.description ?? '',
+      images: product.images,
+      categoryId,
+      attributeValues,
+      variants: variants.map((v) => ({
+        variantId: v.id,
+        sku: v.sku,
+        size: v.size,
+        color: v.color,
+        style: v.style,
+        priceCents: v.price_cents,
+        quantityAvailable: v.inventory[0]?.quantity_available ?? 0,
+      })),
+    })
+
+    const now = new Date().toISOString()
+    const skuByVariantId = new Map(variants.map((v) => [v.id, v.sku]))
+    for (const v of result.variants) {
+      if (!v.externalVariantId) continue
+      await admin.from('marketplace_product_mappings').upsert(
+        {
+          marketplace_connection_id: connection.id,
+          variant_id: v.variantId,
+          external_variant_id: v.externalVariantId,
+          external_sku: skuByVariantId.get(v.variantId) ?? null,
+          sync_status: 'synced',
+          last_synced_at: now,
+        },
+        { onConflict: 'marketplace_connection_id,external_variant_id' },
+      )
+    }
+
+    await logSync(marketplace, 'push_new_product', 'success', {
+      productId,
+      externalProductId: result.externalProductId,
+      variantCount: result.variants.length,
+    })
+    return { externalProductId: result.externalProductId }
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'push_new_product',
+      'failed',
+      { productId, categoryId },
+      getErrorMessage(err),
+    )
+    throw err
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fulfillment status push
+// ---------------------------------------------------------------------------
+
+const FULFILLMENT_PUSH_STATUS: Partial<
+  Record<string, 'shipped' | 'delivered'>
+> = {
+  in_transit: 'shipped',
+  delivered: 'delivered',
+}
+
+/**
+ * Tells the order's originating channel (if it came from one, and is still
+ * connected) that it's shipped/delivered, so the platform doesn't keep
+ * showing "unfulfilled" forever. Called after every shipment update (see
+ * admin/orders.ts's upsertShipment); no-ops quietly for storefront/admin
+ * orders or shipment statuses that aren't shipped/delivered yet, since
+ * there's nothing meaningful to tell the platform before then.
+ */
+export async function pushFulfillmentUpdate(orderId: string): Promise<void> {
+  const admin = getSupabaseAdminClient()
+
+  const { data: order, error } = await admin
+    .from('orders')
+    .select('source, external_order_id')
+    .eq('id', orderId)
+    .single()
+  if (error) throw error
+
+  if (order.source === 'storefront' || order.source === 'admin') return
+  if (!order.external_order_id) return
+  if (!IMPLEMENTED_MARKETPLACES.includes(order.source)) return
+  const marketplace = order.source
+
+  const { data: shipment, error: shipmentError } = await admin
+    .from('shipments')
+    .select('carrier, tracking_number, status')
+    .eq('order_id', orderId)
+    .maybeSingle()
+  if (shipmentError) throw shipmentError
+  if (!shipment) return
+
+  const pushStatus = FULFILLMENT_PUSH_STATUS[shipment.status]
+  if (!pushStatus) return
+
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) return
+
+  const adapter = getAdapter(marketplace)
+  try {
+    const fresh = await ensureFreshConnection(connection)
+    await adapter.updateFulfillment(fresh, {
+      externalOrderId: order.external_order_id,
+      carrier: shipment.carrier,
+      trackingNumber: shipment.tracking_number,
+      status: pushStatus,
+    })
+    await logSync(marketplace, 'push_fulfillment', 'success', {
+      orderId,
+      status: pushStatus,
+    })
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'push_fulfillment',
+      'failed',
+      { orderId, status: pushStatus },
+      getErrorMessage(err),
+    )
+    throw err
+  }
 }

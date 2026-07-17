@@ -11,11 +11,26 @@
  * against the field names read here and adjust. The full raw payload is
  * always kept (orders.platform_order_data), so nothing is lost even if a
  * normalized field comes through wrong or empty in the meantime.
+ *
+ * Same caveat applies, more so, to listCategories/getCategoryAttributes/
+ * createProduct/updateFulfillment: TikTok's Product/Fulfillment/Logistics
+ * APIs are considerably more involved than inventory/order sync (category
+ * trees, per-category required attributes, a separate image upload step,
+ * package-level shipping), and the exact field names below are a best-effort
+ * reconstruction, not something exercised against a live shop. Expect the
+ * first real "Push to TikTok" attempt to surface a field-name or shape
+ * mismatch — check the response body (surfaced via sync_logs) against
+ * Partner Center's own API reference and adjust.
  */
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import type { MarketplaceConnection } from '#/types/entities'
 import type {
+  CreatedMarketplaceProduct,
   MarketplaceAdapter,
+  MarketplaceCategory,
+  MarketplaceCategoryAttribute,
+  MarketplaceFulfillmentUpdate,
+  NewMarketplaceProduct,
   NormalizedOrder,
   OAuthTokens,
 } from '#/server/integrations/marketplaces/types'
@@ -90,6 +105,79 @@ const PAID_STATUSES = new Set([
 function centsFromAmountString(amount: string | undefined): number {
   if (!amount) return 0
   return Math.round(Number.parseFloat(amount) * 100)
+}
+
+interface TikTokCategoryNode {
+  id: string
+  local_display_name?: string
+  name?: string
+  is_leaf?: boolean
+}
+
+interface TikTokCategoryAttributeValue {
+  id: string
+  name: string
+}
+
+interface TikTokCategoryAttributeNode {
+  id: string
+  name: string
+  is_required?: boolean
+  values?: TikTokCategoryAttributeValue[]
+}
+
+interface TikTokShippingProvider {
+  id: string
+  name: string
+}
+
+interface TikTokPackage {
+  id: string
+}
+
+/** Downloads one of our own hosted product images and re-uploads it through TikTok's Image Upload API, returning the `uri` TikTok expects in a product's main_images. */
+async function uploadProductImage(
+  accessToken: string,
+  shopCipher: string | undefined,
+  imageUrl: string,
+): Promise<string> {
+  const res = await fetch(imageUrl)
+  if (!res.ok) {
+    throw new Error(`Failed to download image for TikTok upload: ${imageUrl}`)
+  }
+  const buffer = Buffer.from(await res.arrayBuffer())
+  const { uri } = await callTikTokApi<{ uri: string }>({
+    method: 'POST',
+    path: '/product/202309/images/upload',
+    accessToken,
+    shopCipher,
+    body: {
+      data: buffer.toString('base64'),
+      use_case: 'MAIN_IMAGE',
+    },
+  })
+  return uri
+}
+
+/** TikTok's fulfillment API wants a shipping_provider_id, not a free-text carrier name — this fuzzy-matches our shipment's carrier string against TikTok's provider list by name. Returns undefined (rather than throwing) on no match, since a shipment update shouldn't fail outright just because the carrier name doesn't line up exactly. */
+async function findShippingProviderId(
+  accessToken: string,
+  shopCipher: string | undefined,
+  carrier: string | null,
+): Promise<string | undefined> {
+  if (!carrier) return undefined
+  const { shipping_providers } = await callTikTokApi<{
+    shipping_providers: TikTokShippingProvider[]
+  }>({
+    method: 'GET',
+    path: '/logistics/202309/shipping_providers',
+    accessToken,
+    shopCipher,
+  })
+  const normalized = carrier.trim().toLowerCase()
+  return shipping_providers.find(
+    (p) => p.name.trim().toLowerCase() === normalized,
+  )?.id
 }
 
 export const tiktokShopAdapter: MarketplaceAdapter = {
@@ -216,5 +304,168 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
     }
+  },
+
+  async listCategories(
+    connection: MarketplaceConnection,
+    query: string,
+  ): Promise<MarketplaceCategory[]> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const { categories } = await callTikTokApi<{
+      categories: TikTokCategoryNode[]
+    }>({
+      method: 'GET',
+      path: '/product/202309/categories',
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.external_shop_id ?? undefined,
+      query: { keyword: query },
+    })
+    return categories
+      .filter((c) => c.is_leaf)
+      .map((c) => ({
+        id: c.id,
+        name: c.local_display_name ?? c.name ?? c.id,
+        isLeaf: true,
+      }))
+  },
+
+  async getCategoryAttributes(
+    connection: MarketplaceConnection,
+    categoryId: string,
+  ): Promise<MarketplaceCategoryAttribute[]> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const { attributes } = await callTikTokApi<{
+      attributes: TikTokCategoryAttributeNode[]
+    }>({
+      method: 'GET',
+      path: `/product/202309/categories/${categoryId}/attributes`,
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.external_shop_id ?? undefined,
+    })
+    return attributes.map((a) => ({
+      id: a.id,
+      name: a.name,
+      required: a.is_required ?? false,
+      values: a.values?.length
+        ? a.values.map((v) => ({ id: v.id, name: v.name }))
+        : null,
+    }))
+  },
+
+  async createProduct(
+    connection: MarketplaceConnection,
+    input: NewMarketplaceProduct,
+  ): Promise<CreatedMarketplaceProduct> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const accessToken = connection.access_token_encrypted
+    const shopCipher = connection.external_shop_id ?? undefined
+
+    const imageUris = await Promise.all(
+      input.images.map((url) =>
+        uploadProductImage(accessToken, shopCipher, url),
+      ),
+    )
+
+    const response = await callTikTokApi<{
+      product_id: string
+      skus: { id: string; seller_sku: string }[]
+    }>({
+      method: 'POST',
+      path: '/product/202309/products',
+      accessToken,
+      shopCipher,
+      body: {
+        category_id: input.categoryId,
+        product_name: input.name,
+        description: input.description,
+        main_images: imageUris.map((uri) => ({ uri })),
+        product_attributes: input.attributeValues.map((a) => ({
+          id: a.attributeId,
+          values: a.valueId ? [{ id: a.valueId }] : [{ name: a.value ?? '' }],
+        })),
+        skus: input.variants.map((v) => ({
+          seller_sku: v.sku,
+          sales_attributes: [
+            v.size ? { attribute_name: 'Size', attribute_value: v.size } : null,
+            v.color
+              ? { attribute_name: 'Color', attribute_value: v.color }
+              : null,
+            v.style
+              ? { attribute_name: 'Style', attribute_value: v.style }
+              : null,
+          ].filter(
+            (a): a is { attribute_name: string; attribute_value: string } =>
+              a !== null,
+          ),
+          price: { amount: (v.priceCents / 100).toFixed(2), currency: 'PHP' },
+          inventory: [{ quantity: v.quantityAvailable }],
+        })),
+      },
+    })
+
+    const externalVariantBySku = new Map(
+      response.skus.map((s) => [s.seller_sku, s.id]),
+    )
+    return {
+      externalProductId: response.product_id,
+      variants: input.variants.map((v) => ({
+        variantId: v.variantId,
+        externalVariantId: externalVariantBySku.get(v.sku) ?? '',
+      })),
+    }
+  },
+
+  async updateFulfillment(
+    connection: MarketplaceConnection,
+    update: MarketplaceFulfillmentUpdate,
+  ): Promise<void> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const accessToken = connection.access_token_encrypted
+    const shopCipher = connection.external_shop_id ?? undefined
+
+    if (update.status === 'delivered') {
+      // TikTok tracks delivery itself once a package carries a real tracking
+      // number — there's no documented seller-side "mark delivered" call, so
+      // there's nothing to push for this status.
+      return
+    }
+
+    const { packages } = await callTikTokApi<{ packages: TikTokPackage[] }>({
+      method: 'GET',
+      path: `/fulfillment/202309/orders/${update.externalOrderId}/packages`,
+      accessToken,
+      shopCipher,
+    })
+    const packageId = packages[0]?.id
+    if (!packageId) {
+      throw new Error(
+        `No TikTok package found for order ${update.externalOrderId}.`,
+      )
+    }
+
+    const shippingProviderId = await findShippingProviderId(
+      accessToken,
+      shopCipher,
+      update.carrier,
+    )
+
+    await callTikTokApi({
+      method: 'POST',
+      path: `/fulfillment/202309/packages/${packageId}/ship`,
+      accessToken,
+      shopCipher,
+      body: {
+        tracking_number: update.trackingNumber ?? undefined,
+        shipping_provider_id: shippingProviderId,
+      },
+    })
   },
 }

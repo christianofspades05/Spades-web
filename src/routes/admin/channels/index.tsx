@@ -1,19 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   bulkSyncChannel,
   disconnectChannel,
+  getMarketplaceCategoryAttributes,
   linkProductToChannel,
   listChannelConnections,
+  listMarketplaceCategories,
   listProductSyncStatus,
   listRecentSyncLogs,
   pullOrdersNow,
+  pushProductToMarketplace,
   syncProductNow,
 } from '#/server/admin/channels'
 import type {
   ChannelConnectionInfo,
   ProductSyncRow,
 } from '#/server/admin/channels'
+import type {
+  MarketplaceCategory,
+  MarketplaceCategoryAttribute,
+} from '#/server/integrations/marketplaces/types'
+import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
@@ -82,6 +90,17 @@ function ChannelsPage() {
             onChanged={() => router.invalidate()}
           />
         ))}
+      </div>
+
+      <div className="mt-10">
+        <NewProductsSection
+          products={products}
+          connected={
+            connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
+              ?.status === 'active'
+          }
+          onChanged={() => router.invalidate()}
+        />
       </div>
 
       <div className="mt-10">
@@ -425,6 +444,330 @@ function ProductSyncRowView({
         {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       </td>
     </tr>
+  )
+}
+
+interface UnlinkedProduct {
+  productId: string
+  productName: string
+  productImage: string | null
+}
+
+function NewProductsSection({
+  products,
+  connected,
+  onChanged,
+}: {
+  products: ProductSyncRow[]
+  connected: boolean
+  onChanged: () => void
+}) {
+  const [openProductId, setOpenProductId] = useState<string | null>(null)
+
+  // A product is "not yet on TikTok" if none of its variants have a mapping.
+  const byProduct = new Map<string, UnlinkedProduct & { hasMapping: boolean }>()
+  for (const row of products) {
+    const existing = byProduct.get(row.productId)
+    const hasMapping = Boolean(row.mapping) || (existing?.hasMapping ?? false)
+    byProduct.set(row.productId, {
+      productId: row.productId,
+      productName: row.productName,
+      productImage: existing?.productImage ?? row.productImage,
+      hasMapping,
+    })
+  }
+  const unlinkedProducts = Array.from(byProduct.values()).filter(
+    (p) => !p.hasMapping,
+  )
+
+  if (unlinkedProducts.length === 0) return null
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-neutral-900">
+        Products not yet on TikTok
+      </h2>
+      <p className="mt-1 text-xs text-neutral-500">
+        Create a brand-new TikTok listing straight from your product data —
+        images, price, and every variant in one go.
+      </p>
+      <ul className="mt-3 flex flex-col divide-y divide-neutral-100 rounded-lg border border-neutral-200">
+        {unlinkedProducts.map((p) => (
+          <li
+            key={p.productId}
+            className="flex items-center justify-between px-4 py-2.5"
+          >
+            <div className="flex items-center gap-2">
+              {p.productImage ? (
+                <img
+                  src={p.productImage}
+                  alt=""
+                  className="size-9 shrink-0 rounded object-cover"
+                />
+              ) : (
+                <div className="size-9 shrink-0 rounded bg-neutral-100" />
+              )}
+              <p className="text-sm font-medium text-neutral-900">
+                {p.productName}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={() => setOpenProductId(p.productId)}
+              className={`${buttonSecondaryClassName} disabled:opacity-50`}
+            >
+              Push to TikTok
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {openProductId && (
+        <PushToTikTokModal
+          productId={openProductId}
+          productName={
+            unlinkedProducts.find((p) => p.productId === openProductId)
+              ?.productName ?? ''
+          }
+          onClose={() => setOpenProductId(null)}
+          onPushed={() => {
+            setOpenProductId(null)
+            onChanged()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PushToTikTokModal({
+  productId,
+  productName,
+  onClose,
+  onPushed,
+}: {
+  productId: string
+  productName: string
+  onClose: () => void
+  onPushed: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const debouncedQuery = useDebouncedValue(query, 300)
+  const [categories, setCategories] = useState<MarketplaceCategory[]>([])
+  const [searching, setSearching] = useState(false)
+  const [category, setCategory] = useState<MarketplaceCategory | null>(null)
+  const [attributes, setAttributes] = useState<MarketplaceCategoryAttribute[]>(
+    [],
+  )
+  const [attributeAnswers, setAttributeAnswers] = useState<
+    Record<string, string | undefined>
+  >({})
+  const [loadingAttributes, setLoadingAttributes] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (category || !debouncedQuery.trim()) {
+      setCategories([])
+      return
+    }
+    let cancelled = false
+    setSearching(true)
+    listMarketplaceCategories({
+      data: { marketplace: 'tiktok_shop', query: debouncedQuery.trim() },
+    })
+      .then((result) => {
+        if (!cancelled) setCategories(result)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [debouncedQuery, category])
+
+  async function handleSelectCategory(selected: MarketplaceCategory) {
+    setCategory(selected)
+    setCategories([])
+    setError(null)
+    setLoadingAttributes(true)
+    try {
+      const result = await getMarketplaceCategoryAttributes({
+        data: { marketplace: 'tiktok_shop', categoryId: selected.id },
+      })
+      setAttributes(result)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setLoadingAttributes(false)
+    }
+  }
+
+  async function handleSubmit() {
+    if (!category) return
+    const missing = attributes.filter(
+      (a) => a.required && !attributeAnswers[a.id]?.trim(),
+    )
+    if (missing.length > 0) {
+      setError(`Please fill in: ${missing.map((a) => a.name).join(', ')}`)
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      await pushProductToMarketplace({
+        data: {
+          marketplace: 'tiktok_shop',
+          productId,
+          categoryId: category.id,
+          attributeValues: attributes.map((a) => {
+            const answer = attributeAnswers[a.id] ?? ''
+            return a.values
+              ? { attributeId: a.id, valueId: answer }
+              : { attributeId: a.id, value: answer }
+          }),
+        },
+      })
+      onPushed()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <Card className="w-full max-w-lg p-6">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Push "{productName}" to TikTok Shop
+        </h2>
+
+        {!category ? (
+          <div className="mt-4">
+            <label className="text-xs font-medium text-neutral-600">
+              TikTok category
+            </label>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search categories, e.g. Women's Dresses"
+              className={`${inputClassName} mt-1 w-full`}
+            />
+            {searching && (
+              <p className="mt-2 text-xs text-neutral-500">Searching…</p>
+            )}
+            {categories.length > 0 && (
+              <ul className="mt-2 max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-neutral-200">
+                {categories.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCategory(c)}
+                      className="w-full px-3 py-2 text-left text-sm text-neutral-900 hover:bg-neutral-50"
+                    >
+                      {c.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4">
+            <div className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+              <span className="text-neutral-900">{category.name}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCategory(null)
+                  setAttributes([])
+                  setAttributeAnswers({})
+                }}
+                className="text-xs font-medium text-neutral-600 underline"
+              >
+                Change
+              </button>
+            </div>
+
+            {loadingAttributes ? (
+              <p className="mt-3 text-xs text-neutral-500">
+                Loading required details…
+              </p>
+            ) : (
+              attributes.length > 0 && (
+                <div className="mt-3 flex flex-col gap-3">
+                  {attributes.map((a) => (
+                    <div key={a.id}>
+                      <label className="text-xs font-medium text-neutral-600">
+                        {a.name}
+                        {a.required && <span className="text-red-600"> *</span>}
+                      </label>
+                      {a.values ? (
+                        <select
+                          value={attributeAnswers[a.id] ?? ''}
+                          onChange={(e) =>
+                            setAttributeAnswers((prev) => ({
+                              ...prev,
+                              [a.id]: e.target.value,
+                            }))
+                          }
+                          className={`${inputClassName} mt-1 w-full`}
+                        >
+                          <option value="">Select…</option>
+                          {a.values.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={attributeAnswers[a.id] ?? ''}
+                          onChange={(e) =>
+                            setAttributeAnswers((prev) => ({
+                              ...prev,
+                              [a.id]: e.target.value,
+                            }))
+                          }
+                          className={`${inputClassName} mt-1 w-full`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={buttonSecondaryClassName}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!category || submitting || loadingAttributes}
+            onClick={handleSubmit}
+            className={`${buttonPrimaryClassName} disabled:opacity-50`}
+          >
+            {submitting ? 'Pushing…' : 'Push to TikTok'}
+          </button>
+        </div>
+      </Card>
+    </div>
   )
 }
 

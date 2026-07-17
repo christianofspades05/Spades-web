@@ -5,10 +5,17 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
 import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/registry'
 import {
+  getCategoryAttributesForMarketplace,
+  listCategoriesForMarketplace,
   pullOrdersForMarketplace,
   pushInventoryForAllProducts,
   pushInventoryForVariant,
+  pushNewProductToMarketplace,
 } from '#/server/integrations/marketplaces/sync-engine'
+import type {
+  MarketplaceCategory,
+  MarketplaceCategoryAttribute,
+} from '#/server/integrations/marketplaces/types'
 import type {
   MarketplaceConnection,
   MarketplaceName,
@@ -254,6 +261,69 @@ export const pullOrdersNow = createServerFn({ method: 'POST' })
       return result
     },
   )
+
+export const listMarketplaceCategories = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      marketplace: marketplaceSchema,
+      query: z.string().trim().min(1),
+    }),
+  )
+  .handler(async ({ data }): Promise<MarketplaceCategory[]> => {
+    await requireStaff(MANAGE_ROLES)
+    return listCategoriesForMarketplace(data.marketplace, data.query)
+  })
+
+export const getMarketplaceCategoryAttributes = createServerFn({
+  method: 'GET',
+})
+  .validator(
+    z.object({ marketplace: marketplaceSchema, categoryId: z.string() }),
+  )
+  .handler(async ({ data }): Promise<MarketplaceCategoryAttribute[]> => {
+    await requireStaff(MANAGE_ROLES)
+    return getCategoryAttributesForMarketplace(
+      data.marketplace,
+      data.categoryId,
+    )
+  })
+
+/** Creates a brand-new listing on the channel from our product data (images, price, variants) — used the first time a product goes to that channel, unlike linkProductToChannel above which only maps to an existing listing. */
+export const pushProductToMarketplace = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      marketplace: marketplaceSchema,
+      productId: z.string().uuid(),
+      categoryId: z.string(),
+      attributeValues: z.array(
+        z.object({
+          attributeId: z.string(),
+          valueId: z.string().optional(),
+          value: z.string().optional(),
+        }),
+      ),
+    }),
+  )
+  .handler(async ({ data }): Promise<{ externalProductId: string }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const result = await pushNewProductToMarketplace(
+      data.marketplace,
+      data.productId,
+      data.categoryId,
+      data.attributeValues,
+    )
+    await logStaffActivity(
+      staff,
+      'channel.push_new_product',
+      'products',
+      data.productId,
+      {
+        marketplace: data.marketplace,
+        externalProductId: result.externalProductId,
+      },
+    )
+    return result
+  })
 
 export interface SyncLogRow {
   id: string

@@ -45,6 +45,65 @@ export interface NormalizedOrder {
   isPaid: boolean
 }
 
+/** A category the platform requires every product to be filed under. Only leaf categories (isLeaf) are selectable when creating a product. */
+export interface MarketplaceCategory {
+  id: string
+  name: string
+  isLeaf: boolean
+}
+
+export interface MarketplaceCategoryAttributeValue {
+  id: string
+  name: string
+}
+
+/** A field the platform requires (or allows) once a category is chosen — e.g. "Material", "Color". If `values` is set, the attribute must be answered from that fixed list rather than free text. */
+export interface MarketplaceCategoryAttribute {
+  id: string
+  name: string
+  required: boolean
+  values: MarketplaceCategoryAttributeValue[] | null
+}
+
+export interface MarketplaceCategoryAttributeAnswer {
+  attributeId: string
+  valueId?: string
+  value?: string
+}
+
+export interface NewMarketplaceProductVariant {
+  variantId: string
+  sku: string
+  size: string | null
+  color: string | null
+  style: string | null
+  priceCents: number
+  quantityAvailable: number
+}
+
+export interface NewMarketplaceProduct {
+  name: string
+  description: string
+  /** Our own hosted image URLs — each adapter is responsible for fetching and re-uploading these through whatever image API the platform requires. */
+  images: string[]
+  categoryId: string
+  attributeValues: MarketplaceCategoryAttributeAnswer[]
+  variants: NewMarketplaceProductVariant[]
+}
+
+export interface CreatedMarketplaceProduct {
+  externalProductId: string
+  /** One entry per input variant (matched by sku), so the caller can create marketplace_product_mappings rows. */
+  variants: { variantId: string; externalVariantId: string }[]
+}
+
+export interface MarketplaceFulfillmentUpdate {
+  externalOrderId: string
+  carrier: string | null
+  trackingNumber: string | null
+  status: 'shipped' | 'delivered'
+}
+
 export interface MarketplaceAdapter {
   readonly marketplace: MarketplaceName
 
@@ -74,6 +133,30 @@ export interface MarketplaceAdapter {
   mapOrderToInternalFormat: (
     platformOrderData: Record<string, unknown>,
   ) => NormalizedOrder
+
+  /** Searches the platform's (usually very deep) category tree by keyword, returning matching leaf categories a product can actually be filed under. */
+  listCategories: (
+    connection: MarketplaceConnection,
+    query: string,
+  ) => Promise<MarketplaceCategory[]>
+
+  /** Fetches the attributes a product must (or can) specify once filed under this category. */
+  getCategoryAttributes: (
+    connection: MarketplaceConnection,
+    categoryId: string,
+  ) => Promise<MarketplaceCategoryAttribute[]>
+
+  /** Creates a brand-new listing on the platform — uploading images, creating every variant — from our product data. Used the first time a product is pushed to this channel, as opposed to pushInventory which only updates stock on an already-linked listing. */
+  createProduct: (
+    connection: MarketplaceConnection,
+    input: NewMarketplaceProduct,
+  ) => Promise<CreatedMarketplaceProduct>
+
+  /** Tells the platform an order has shipped or been delivered, so its own status/tracking display stays accurate instead of showing "unfulfilled" forever. */
+  updateFulfillment: (
+    connection: MarketplaceConnection,
+    update: MarketplaceFulfillmentUpdate,
+  ) => Promise<void>
 }
 
 export class MarketplaceNotConnectedError extends Error {

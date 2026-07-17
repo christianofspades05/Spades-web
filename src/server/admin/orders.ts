@@ -9,6 +9,7 @@ import {
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { previousPeriod } from '#/lib/utils/date-range'
+import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
 import type {
   Customer,
@@ -423,6 +424,13 @@ export const upsertShipment = createServerFn({ method: 'POST' })
         status: data.status,
       },
     )
+
+    // Tell the order's originating channel (TikTok Shop etc.) it's shipped —
+    // best-effort: a failure here (e.g. an unmapped carrier, or the platform
+    // API rejecting the call) shouldn't block staff from recording the
+    // shipment on our own side, so it's swallowed rather than thrown.
+    await pushFulfillmentUpdate(data.orderId).catch(() => {})
+
     return shipment
   })
 
