@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   bulkSyncChannel,
+  connectExistingProduct,
   disconnectChannel,
   getMarketplaceCategoryAttributes,
-  linkProductToChannel,
   listChannelConnections,
   listMarketplaceCategories,
   listProductSyncStatus,
@@ -290,7 +290,6 @@ function ProductSyncSection({
               <ProductSyncRowView
                 key={row.variantId}
                 row={row}
-                connected={connected}
                 onChanged={onChanged}
               />
             ))}
@@ -309,44 +308,17 @@ const SYNC_STATUS_TONE: Record<string, BadgeTone> = {
 
 function ProductSyncRowView({
   row,
-  connected,
   onChanged,
 }: {
   row: ProductSyncRow
-  connected: boolean
   onChanged: () => void
 }) {
-  const [linking, setLinking] = useState(false)
-  const [externalId, setExternalId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const variantLabel = [row.size, row.color, row.style]
     .filter(Boolean)
     .join(' / ')
-
-  async function handleLink(event: React.FormEvent) {
-    event.preventDefault()
-    if (!externalId.trim()) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      await linkProductToChannel({
-        data: {
-          marketplace: 'tiktok_shop',
-          variantId: row.variantId,
-          externalVariantId: externalId.trim(),
-        },
-      })
-      setLinking(false)
-      setExternalId('')
-      onChanged()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   async function handleSyncNow() {
     setSubmitting(true)
@@ -389,32 +361,10 @@ function ProductSyncRowView({
           <span className="text-xs text-neutral-600">
             {row.mapping.externalSku ?? row.mapping.externalVariantId}
           </span>
-        ) : linking ? (
-          <form onSubmit={handleLink} className="flex items-center gap-1.5">
-            <input
-              autoFocus
-              value={externalId}
-              onChange={(e) => setExternalId(e.target.value)}
-              placeholder="TikTok SKU id"
-              className={`${inputClassName} w-32 py-1 text-xs`}
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              className="text-xs font-medium text-neutral-900 underline"
-            >
-              Save
-            </button>
-          </form>
         ) : (
-          <button
-            type="button"
-            disabled={!connected}
-            onClick={() => setLinking(true)}
-            className="text-xs font-medium text-neutral-600 underline disabled:opacity-50"
-          >
-            + Link to TikTok
-          </button>
+          <span className="text-xs text-neutral-400">
+            Use "Push to TikTok" or "Connect existing" above
+          </span>
         )}
       </td>
       <td className={tableCellClassName}>
@@ -463,6 +413,9 @@ function NewProductsSection({
   onChanged: () => void
 }) {
   const [openProductId, setOpenProductId] = useState<string | null>(null)
+  const [connectingProductId, setConnectingProductId] = useState<string | null>(
+    null,
+  )
 
   // A product is "not yet on TikTok" if none of its variants have a mapping.
   const byProduct = new Map<string, UnlinkedProduct & { hasMapping: boolean }>()
@@ -511,14 +464,24 @@ function NewProductsSection({
                 {p.productName}
               </p>
             </div>
-            <button
-              type="button"
-              disabled={!connected}
-              onClick={() => setOpenProductId(p.productId)}
-              className={`${buttonSecondaryClassName} disabled:opacity-50`}
-            >
-              Push to TikTok
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!connected}
+                onClick={() => setConnectingProductId(p.productId)}
+                className={`${buttonSecondaryClassName} disabled:opacity-50`}
+              >
+                Connect existing
+              </button>
+              <button
+                type="button"
+                disabled={!connected}
+                onClick={() => setOpenProductId(p.productId)}
+                className={`${buttonPrimaryClassName} disabled:opacity-50`}
+              >
+                Push to TikTok
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -537,6 +500,105 @@ function NewProductsSection({
           }}
         />
       )}
+
+      {connectingProductId && (
+        <ConnectExistingProductModal
+          productId={connectingProductId}
+          productName={
+            unlinkedProducts.find((p) => p.productId === connectingProductId)
+              ?.productName ?? ''
+          }
+          onClose={() => setConnectingProductId(null)}
+          onConnected={() => {
+            setConnectingProductId(null)
+            onChanged()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConnectExistingProductModal({
+  productId,
+  productName,
+  onClose,
+  onConnected,
+}: {
+  productId: string
+  productName: string
+  onClose: () => void
+  onConnected: () => void
+}) {
+  const [externalProductId, setExternalProductId] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!externalProductId.trim()) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      await connectExistingProduct({
+        data: {
+          marketplace: 'tiktok_shop',
+          productId,
+          externalProductId: externalProductId.trim(),
+        },
+      })
+      onConnected()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <Card className="w-full max-w-lg p-6">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Connect "{productName}" to an existing TikTok listing
+        </h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          The TikTok product title and every variant (size/color/style) must
+          match exactly, including letter case — otherwise this is refused
+          rather than partially linked.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-4">
+          <label className="text-xs font-medium text-neutral-600">
+            TikTok product ID
+          </label>
+          <input
+            autoFocus
+            value={externalProductId}
+            onChange={(e) => setExternalProductId(e.target.value)}
+            placeholder="e.g. 1729xxxxxxxxxxxxxxx"
+            className={`${inputClassName} mt-1 w-full`}
+          />
+
+          {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+
+          <div className="mt-6 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={buttonSecondaryClassName}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !externalProductId.trim()}
+              className={`${buttonPrimaryClassName} disabled:opacity-50`}
+            >
+              {submitting ? 'Connecting…' : 'Connect'}
+            </button>
+          </div>
+        </form>
+      </Card>
     </div>
   )
 }

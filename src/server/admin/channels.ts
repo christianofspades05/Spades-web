@@ -5,6 +5,7 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
 import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/registry'
 import {
+  connectExistingProductToMarketplace,
   getCategoryAttributesForMarketplace,
   listCategoriesForMarketplace,
   pullOrdersForMarketplace,
@@ -154,58 +155,36 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
     })
   })
 
-/** Manually links one of our variants to a platform's SKU/variant id, so it becomes syncable. */
-export const linkProductToChannel = createServerFn({ method: 'POST' })
+/**
+ * Connects a product to an already-existing listing on the channel by the
+ * platform's own product id. Requires an exact match — same title, same
+ * variant option values including letter case — the same rule enforced by
+ * the seller's existing Shopify-side sync app; refuses (rather than
+ * partially linking) if anything doesn't line up exactly.
+ */
+export const connectExistingProduct = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       marketplace: marketplaceSchema,
-      variantId: z.string().uuid(),
-      externalVariantId: z.string().trim().min(1),
-      externalSku: z.string().trim().optional(),
+      productId: z.string().uuid(),
+      externalProductId: z.string().trim().min(1),
     }),
   )
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data }): Promise<{ connectedVariants: number }> => {
     const staff = await requireStaff(MANAGE_ROLES)
-    const admin = getSupabaseAdminClient()
-
-    const { data: connection, error: connectionError } = await admin
-      .from('marketplace_connections')
-      .select('id')
-      .eq('marketplace', data.marketplace)
-      .maybeSingle()
-    if (connectionError) throw connectionError
-    if (!connection) {
-      throw new Error(`Connect ${data.marketplace} before linking products.`)
-    }
-
-    const { error } = await admin.from('marketplace_product_mappings').upsert(
-      {
-        marketplace_connection_id: connection.id,
-        variant_id: data.variantId,
-        external_variant_id: data.externalVariantId,
-        external_sku: data.externalSku ?? null,
-        sync_status: 'pending',
-      },
-      { onConflict: 'marketplace_connection_id,external_variant_id' },
+    const result = await connectExistingProductToMarketplace(
+      data.marketplace,
+      data.productId,
+      data.externalProductId,
     )
-    if (error) throw error
-
     await logStaffActivity(
       staff,
-      'channel.link_product',
-      'marketplace_product_mappings',
-      data.variantId,
-      {
-        marketplace: data.marketplace,
-        externalVariantId: data.externalVariantId,
-      },
+      'channel.connect_existing_product',
+      'products',
+      data.productId,
+      { marketplace: data.marketplace, ...result },
     )
-
-    // Push current stock right away so a newly-linked product doesn't sit
-    // showing 0/whatever the platform's default is until the next cron run.
-    await pushInventoryForVariant(data.variantId)
-
-    return { ok: true }
+    return result
   })
 
 export const syncProductNow = createServerFn({ method: 'POST' })
@@ -288,7 +267,7 @@ export const getMarketplaceCategoryAttributes = createServerFn({
     )
   })
 
-/** Creates a brand-new listing on the channel from our product data (images, price, variants) — used the first time a product goes to that channel, unlike linkProductToChannel above which only maps to an existing listing. */
+/** Creates a brand-new listing on the channel from our product data (images, price, variants) — used the first time a product goes to that channel, unlike connectExistingProduct above which only maps to an already-existing listing. */
 export const pushProductToMarketplace = createServerFn({ method: 'POST' })
   .validator(
     z.object({

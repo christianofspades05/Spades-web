@@ -30,6 +30,7 @@ import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
   MarketplaceFulfillmentUpdate,
+  MarketplaceProductDetail,
   NewMarketplaceProduct,
   NormalizedOrder,
   OAuthTokens,
@@ -467,5 +468,38 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         shipping_provider_id: shippingProviderId,
       },
     })
+  },
+
+  async getProductByExternalId(
+    connection: MarketplaceConnection,
+    externalProductId: string,
+  ): Promise<MarketplaceProductDetail> {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const response = await callTikTokApi<{
+      product_name?: string
+      skus?: {
+        id: string
+        seller_sku?: string
+        sales_attributes?: { attribute_value?: string }[]
+      }[]
+    }>({
+      method: 'GET',
+      path: `/product/202309/products/${externalProductId}`,
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.external_shop_id ?? undefined,
+    })
+
+    return {
+      name: response.product_name ?? '',
+      variants: (response.skus ?? []).map((sku) => ({
+        externalVariantId: sku.id,
+        externalSku: sku.seller_sku ?? null,
+        optionValues: (sku.sales_attributes ?? [])
+          .map((a) => a.attribute_value)
+          .filter((v): v is string => Boolean(v)),
+      })),
+    }
   },
 }

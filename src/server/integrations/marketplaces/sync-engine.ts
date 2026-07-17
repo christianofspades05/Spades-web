@@ -622,3 +622,150 @@ export async function pushFulfillmentUpdate(orderId: string): Promise<void> {
     throw err
   }
 }
+
+// ---------------------------------------------------------------------------
+// Connecting to an already-existing listing (as opposed to createProduct
+// above, which makes a brand-new one). Requires an exact match — same
+// product title, same variant option values including letter case — the
+// same rule the seller's existing Shopify-side sync app enforces, so a
+// listing never gets silently connected to the wrong product.
+// ---------------------------------------------------------------------------
+
+function variantOptionValues(v: {
+  size: string | null
+  color: string | null
+  style: string | null
+}): string[] {
+  return [v.size, v.color, v.style].filter((x): x is string => Boolean(x))
+}
+
+function optionValuesMatch(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  return sortedA.every((value, i) => value === sortedB[i])
+}
+
+export async function connectExistingProductToMarketplace(
+  marketplace: MarketplaceName,
+  productId: string,
+  externalProductId: string,
+): Promise<{ connectedVariants: number }> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const { data: product, error: productError } = await admin
+    .from('products')
+    .select('id, name')
+    .eq('id', productId)
+    .single()
+  if (productError) throw productError
+
+  const { data: variants, error: variantsError } = await admin
+    .from('product_variants')
+    .select('id, sku, size, color, style')
+    .eq('product_id', productId)
+    .eq('is_active', true)
+  if (variantsError) throw variantsError
+  if (variants.length === 0) {
+    throw new Error('This product has no active variants to connect.')
+  }
+
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+
+  try {
+    const remote = await adapter.getProductByExternalId(
+      fresh,
+      externalProductId,
+    )
+
+    if (remote.name !== product.name) {
+      throw new Error(
+        `Title doesn't match exactly — ours: "${product.name}", theirs: "${remote.name}".`,
+      )
+    }
+
+    const usedExternalIds = new Set<string>()
+    const matches: {
+      variantId: string
+      externalVariantId: string
+      externalSku: string | null
+    }[] = []
+    const unmatched: string[] = []
+
+    for (const v of variants) {
+      const ourValues = variantOptionValues(v)
+      const match = remote.variants.find(
+        (rv) =>
+          !usedExternalIds.has(rv.externalVariantId) &&
+          optionValuesMatch(ourValues, rv.optionValues),
+      )
+      if (!match) {
+        const caseInsensitiveMatch = remote.variants.find((rv) =>
+          optionValuesMatch(
+            ourValues.map((x) => x.toLowerCase()),
+            rv.optionValues.map((x) => x.toLowerCase()),
+          ),
+        )
+        unmatched.push(
+          caseInsensitiveMatch
+            ? `${v.sku} (${ourValues.join('/')}) — theirs is "${caseInsensitiveMatch.optionValues.join('/')}", letter case must match exactly`
+            : `${v.sku} (${ourValues.join('/') || 'no options'}) — no matching variant found`,
+        )
+        continue
+      }
+      usedExternalIds.add(match.externalVariantId)
+      matches.push({
+        variantId: v.id,
+        externalVariantId: match.externalVariantId,
+        externalSku: match.externalSku,
+      })
+    }
+
+    if (unmatched.length > 0) {
+      throw new Error(`Variant mismatch: ${unmatched.join('; ')}`)
+    }
+
+    const now = new Date().toISOString()
+    for (const m of matches) {
+      const { error: upsertError } = await admin
+        .from('marketplace_product_mappings')
+        .upsert(
+          {
+            marketplace_connection_id: connection.id,
+            variant_id: m.variantId,
+            external_variant_id: m.externalVariantId,
+            external_sku: m.externalSku,
+            sync_status: 'pending',
+            last_synced_at: now,
+          },
+          { onConflict: 'marketplace_connection_id,external_variant_id' },
+        )
+      if (upsertError) throw upsertError
+    }
+
+    // Push current stock right away so a newly-connected product doesn't sit
+    // showing a stale count until the next sync.
+    for (const m of matches) {
+      await pushInventoryForVariant(m.variantId)
+    }
+
+    await logSync(marketplace, 'connect_existing_product', 'success', {
+      productId,
+      externalProductId,
+      connectedVariants: matches.length,
+    })
+    return { connectedVariants: matches.length }
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'connect_existing_product',
+      'failed',
+      { productId, externalProductId },
+      getErrorMessage(err),
+    )
+    throw err
+  }
+}

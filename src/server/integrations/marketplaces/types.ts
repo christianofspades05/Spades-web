@@ -104,6 +104,18 @@ export interface MarketplaceFulfillmentUpdate {
   status: 'shipped' | 'delivered'
 }
 
+export interface MarketplaceProductVariantDetail {
+  externalVariantId: string
+  externalSku: string | null
+  /** The platform's own variant option values (e.g. ["S"], or ["S", "Red"] for a size+color combo), in whatever order the platform returns them. Matched against our variant's size/color/style by exact, case-sensitive value equality — connecting to an existing listing requires every value to line up exactly, the same way it works in the seller's existing Shopify-side sync app. */
+  optionValues: string[]
+}
+
+export interface MarketplaceProductDetail {
+  name: string
+  variants: MarketplaceProductVariantDetail[]
+}
+
 export interface MarketplaceAdapter {
   readonly marketplace: MarketplaceName
 
@@ -157,6 +169,12 @@ export interface MarketplaceAdapter {
     connection: MarketplaceConnection,
     update: MarketplaceFulfillmentUpdate,
   ) => Promise<void>
+
+  /** Fetches an existing listing's title and variants by the platform's own product id — used to validate an exact title/variant match before connecting to it, rather than trusting a manually-typed SKU id. Throws if no such product exists. */
+  getProductByExternalId: (
+    connection: MarketplaceConnection,
+    externalProductId: string,
+  ) => Promise<MarketplaceProductDetail>
 }
 
 export class MarketplaceNotConnectedError extends Error {
