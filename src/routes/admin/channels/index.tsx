@@ -457,9 +457,17 @@ function ProductSyncSection({
   }
 
   async function handleAutoConnect(mode: 'title' | 'sku') {
+    if (
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'default'
+    ) {
+      void Notification.requestPermission()
+    }
+
     setAutoConnecting(mode)
     setError(null)
     setAutoConnectResult(null)
+    const modeLabel = mode === 'title' ? 'title' : 'SKU'
     try {
       const result =
         mode === 'title'
@@ -467,8 +475,25 @@ function ProductSyncSection({
           : await autoConnectBySku({ data: { marketplace: 'tiktok_shop' } })
       setAutoConnectResult({ mode, result })
       onChanged()
+      if (
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      ) {
+        new Notification('Auto-connect by ' + modeLabel + ' finished', {
+          body: `Connected ${result.connected.length} product${result.connected.length === 1 ? '' : 's'}.${result.skipped.length > 0 ? ` ${result.skipped.length} need manual review.` : ''}`,
+        })
+      }
     } catch (err) {
-      setError(getErrorMessage(err))
+      const message = getErrorMessage(err)
+      setError(message)
+      if (
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      ) {
+        new Notification('Auto-connect by ' + modeLabel + ' failed', {
+          body: message,
+        })
+      }
     } finally {
       setAutoConnecting(null)
     }
@@ -499,7 +524,7 @@ function ProductSyncSection({
             disabled={!connected || autoConnecting !== null}
             onClick={() => handleAutoConnect('title')}
             className={buttonSecondaryClassName}
-            title="Automatically links every unlinked product to a TikTok listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually."
+            title="Automatically links every unlinked product to a TikTok listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually. Allow browser notifications to get pinged when this finishes."
           >
             {autoConnecting === 'title' ? 'Matching…' : 'Auto-connect by title'}
           </button>
@@ -508,7 +533,7 @@ function ProductSyncSection({
             disabled={!connected || autoConnecting !== null}
             onClick={() => handleAutoConnect('sku')}
             className={buttonSecondaryClassName}
-            title="Automatically links every unlinked product to a TikTok listing whose full set of variant SKUs matches exactly — useful when titles were never kept in sync."
+            title="Automatically links every unlinked product to a TikTok listing whose full set of variant SKUs matches exactly — useful when titles were never kept in sync. Allow browser notifications to get pinged when this finishes."
           >
             {autoConnecting === 'sku' ? 'Matching…' : 'Auto-connect by SKU'}
           </button>
