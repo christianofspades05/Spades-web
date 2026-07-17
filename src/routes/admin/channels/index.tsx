@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { z } from 'zod'
 import {
+  autoConnectBySku,
   autoConnectProducts,
   bulkSyncChannel,
   connectExistingProduct,
@@ -20,7 +21,10 @@ import type {
   ChannelConnectionInfo,
   ProductSyncRow,
 } from '#/server/admin/channels'
-import type { AutoConnectByTitleResult } from '#/server/integrations/marketplaces/sync-engine'
+import type {
+  AutoConnectByTitleResult,
+  AutoConnectBySkuResult,
+} from '#/server/integrations/marketplaces/sync-engine'
 import { listAllCollections } from '#/server/admin/collections'
 import type {
   MarketplaceCategory,
@@ -381,9 +385,13 @@ function ProductSyncSection({
 }) {
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [pulling, setPulling] = useState(false)
-  const [autoConnecting, setAutoConnecting] = useState(false)
-  const [autoConnectResult, setAutoConnectResult] =
-    useState<AutoConnectByTitleResult | null>(null)
+  const [autoConnecting, setAutoConnecting] = useState<'title' | 'sku' | null>(
+    null,
+  )
+  const [autoConnectResult, setAutoConnectResult] = useState<{
+    mode: 'title' | 'sku'
+    result: AutoConnectByTitleResult | AutoConnectBySkuResult
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openProductId, setOpenProductId] = useState<string | null>(null)
   const [connectingProductId, setConnectingProductId] = useState<string | null>(
@@ -448,20 +456,21 @@ function ProductSyncSection({
     }
   }
 
-  async function handleAutoConnect() {
-    setAutoConnecting(true)
+  async function handleAutoConnect(mode: 'title' | 'sku') {
+    setAutoConnecting(mode)
     setError(null)
     setAutoConnectResult(null)
     try {
-      const result = await autoConnectProducts({
-        data: { marketplace: 'tiktok_shop' },
-      })
-      setAutoConnectResult(result)
+      const result =
+        mode === 'title'
+          ? await autoConnectProducts({ data: { marketplace: 'tiktok_shop' } })
+          : await autoConnectBySku({ data: { marketplace: 'tiktok_shop' } })
+      setAutoConnectResult({ mode, result })
       onChanged()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
-      setAutoConnecting(false)
+      setAutoConnecting(null)
     }
   }
 
@@ -487,12 +496,21 @@ function ProductSyncSection({
           </button>
           <button
             type="button"
-            disabled={!connected || autoConnecting}
-            onClick={handleAutoConnect}
+            disabled={!connected || autoConnecting !== null}
+            onClick={() => handleAutoConnect('title')}
             className={buttonSecondaryClassName}
             title="Automatically links every unlinked product to a TikTok listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually."
           >
-            {autoConnecting ? 'Matching…' : 'Auto-connect by title'}
+            {autoConnecting === 'title' ? 'Matching…' : 'Auto-connect by title'}
+          </button>
+          <button
+            type="button"
+            disabled={!connected || autoConnecting !== null}
+            onClick={() => handleAutoConnect('sku')}
+            className={buttonSecondaryClassName}
+            title="Automatically links every unlinked product to a TikTok listing whose full set of variant SKUs matches exactly — useful when titles were never kept in sync."
+          >
+            {autoConnecting === 'sku' ? 'Matching…' : 'Auto-connect by SKU'}
           </button>
           <button
             type="button"
@@ -515,12 +533,12 @@ function ProductSyncSection({
         <Card className="mt-4 p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-neutral-900">
-              Connected {autoConnectResult.connected.length} product
-              {autoConnectResult.connected.length === 1 ? '' : 's'} by matching
-              title.
-              {autoConnectResult.skipped.length > 0 &&
-                ` ${autoConnectResult.skipped.length} need${
-                  autoConnectResult.skipped.length === 1 ? 's' : ''
+              Connected {autoConnectResult.result.connected.length} product
+              {autoConnectResult.result.connected.length === 1 ? '' : 's'} by
+              matching {autoConnectResult.mode === 'title' ? 'title' : 'SKU'}.
+              {autoConnectResult.result.skipped.length > 0 &&
+                ` ${autoConnectResult.result.skipped.length} need${
+                  autoConnectResult.result.skipped.length === 1 ? 's' : ''
                 } manual review.`}
             </p>
             <button
@@ -531,9 +549,9 @@ function ProductSyncSection({
               Dismiss
             </button>
           </div>
-          {autoConnectResult.skipped.length > 0 && (
+          {autoConnectResult.result.skipped.length > 0 && (
             <ul className="mt-3 flex flex-col gap-1.5 text-xs text-neutral-600">
-              {autoConnectResult.skipped.map((s) => (
+              {autoConnectResult.result.skipped.map((s) => (
                 <li key={s.productId}>
                   <span className="font-medium text-neutral-900">
                     {s.productName}

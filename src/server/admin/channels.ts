@@ -7,6 +7,7 @@ import { logStaffActivity } from './activity-log'
 import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/registry'
 import {
   autoConnectProductsByTitle,
+  autoConnectProductsBySku,
   connectExistingProductToMarketplace,
   getCategoryAttributesForMarketplace,
   listCategoriesForMarketplace,
@@ -15,7 +16,10 @@ import {
   pushInventoryForVariant,
   pushNewProductToMarketplace,
 } from '#/server/integrations/marketplaces/sync-engine'
-import type { AutoConnectByTitleResult } from '#/server/integrations/marketplaces/sync-engine'
+import type {
+  AutoConnectByTitleResult,
+  AutoConnectBySkuResult,
+} from '#/server/integrations/marketplaces/sync-engine'
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
@@ -344,6 +348,26 @@ export const autoConnectProducts = createServerFn({ method: 'POST' })
     await logStaffActivity(
       staff,
       'channel.auto_connect_products',
+      'marketplace_connections',
+      data.marketplace,
+      { connected: result.connected.length, skipped: result.skipped.length },
+    )
+    return result
+  })
+
+/**
+ * Same as autoConnectProducts, but matches on a product's full set of
+ * variant SKUs instead of its title — for products whose TikTok listing
+ * title was never kept in sync with the website but whose SKUs still are.
+ */
+export const autoConnectBySku = createServerFn({ method: 'POST' })
+  .validator(z.object({ marketplace: marketplaceSchema }))
+  .handler(async ({ data }): Promise<AutoConnectBySkuResult> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const result = await autoConnectProductsBySku(data.marketplace)
+    await logStaffActivity(
+      staff,
+      'channel.auto_connect_products_by_sku',
       'marketplace_connections',
       data.marketplace,
       { connected: result.connected.length, skipped: result.skipped.length },
