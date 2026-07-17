@@ -1066,6 +1066,37 @@ export interface AutoConnectBySkuResult {
   skipped: { productId: string; productName: string; reason: string }[]
 }
 
+const DETAIL_FETCH_CONCURRENCY = 5
+
+/**
+ * Runs `fn` over `items` with at most `concurrency` in flight at once.
+ * Fetching one remote product's detail at a time (see autoConnectProductsBySku
+ * below) was slow enough on a real catalog to run past the serverless
+ * function's time limit — the whole run got killed mid-request even though
+ * most products had already connected successfully (visible as several
+ * logged successes but the client only ever seeing a generic network
+ * failure). Fanning the same calls out concurrently cuts wall-clock time by
+ * roughly `concurrency`x.
+ */
+async function mapWithConcurrency<T, TResult>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<TResult>,
+): Promise<TResult[]> {
+  const results: TResult[] = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+  )
+  return results
+}
+
 /**
  * Same idea as autoConnectProductsByTitle, but trusts variant SKUs instead
  * of the product title — for products whose local and TikTok titles were
@@ -1104,32 +1135,39 @@ export async function autoConnectProductsBySku(
     throw err
   }
 
-  const remoteDetails: {
+  type RemoteDetail = {
     externalProductId: string
     skuSet: Set<string>
     variants: { externalVariantId: string; externalSku: string | null }[]
-  }[] = []
-  for (const p of remoteProducts) {
-    try {
-      const detail = await adapter.getProductByExternalId(
-        fresh,
-        p.externalProductId,
-      )
-      const skus = detail.variants
-        .map((v) => v.externalSku?.trim())
-        .filter((s): s is string => Boolean(s))
-      if (skus.length === 0) continue
-      remoteDetails.push({
-        externalProductId: p.externalProductId,
-        skuSet: new Set(skus),
-        variants: detail.variants,
-      })
-    } catch {
-      // Can't compare SKUs for a product TikTok won't return detail for —
-      // it just won't be found as a match for anything below.
-      continue
-    }
   }
+  const detailResults = await mapWithConcurrency(
+    remoteProducts,
+    DETAIL_FETCH_CONCURRENCY,
+    async (p): Promise<RemoteDetail | null> => {
+      try {
+        const detail = await adapter.getProductByExternalId(
+          fresh,
+          p.externalProductId,
+        )
+        const skus = detail.variants
+          .map((v) => v.externalSku?.trim())
+          .filter((s): s is string => Boolean(s))
+        if (skus.length === 0) return null
+        return {
+          externalProductId: p.externalProductId,
+          skuSet: new Set(skus),
+          variants: detail.variants,
+        }
+      } catch {
+        // Can't compare SKUs for a product TikTok won't return detail for —
+        // it just won't be found as a match for anything below.
+        return null
+      }
+    },
+  )
+  const remoteDetails = detailResults.filter(
+    (d): d is RemoteDetail => d !== null,
+  )
 
   const products = await getUnlinkedProducts(admin, connection.id)
   const result: AutoConnectBySkuResult = { connected: [], skipped: [] }
