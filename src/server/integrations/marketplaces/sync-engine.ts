@@ -877,7 +877,20 @@ export async function autoConnectProductsByTitle(
 
   const adapter = getAdapter(marketplace)
   const fresh = await ensureFreshConnection(connection)
-  const remoteProducts = await adapter.listProducts(fresh)
+
+  let remoteProducts: Awaited<ReturnType<typeof adapter.listProducts>>
+  try {
+    remoteProducts = await adapter.listProducts(fresh)
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'auto_connect_products',
+      'failed',
+      { stage: 'listProducts' },
+      getErrorMessage(err),
+    )
+    throw err
+  }
 
   const remoteByTitle = new Map<string, typeof remoteProducts>()
   for (const p of remoteProducts) {
@@ -961,6 +974,13 @@ export async function autoConnectProductsByTitle(
       })
     }
   }
+
+  await logSync(marketplace, 'auto_connect_products', 'success', {
+    remoteProductsFound: remoteProducts.length,
+    candidates: products.length,
+    connected: result.connected.length,
+    skipped: result.skipped.length,
+  })
 
   return result
 }
