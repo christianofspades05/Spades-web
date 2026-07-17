@@ -20,6 +20,12 @@ import type { MarketplaceConnection, MarketplaceName } from '#/types/entities'
 
 const MAX_ATTEMPTS = 3
 const BASE_RETRY_DELAY_MS = 500
+const STATUSES_BEFORE_SHIPPED = new Set([
+  'pending_payment',
+  'paid',
+  'processing',
+  'packed',
+])
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -287,6 +293,20 @@ async function syncTrackingInfo(
     await admin.from('shipments').update(patch).eq('id', shipment.id)
   } else {
     await admin.from('shipments').insert(patch)
+  }
+
+  // Also advance the order's own status (drives the status filter pills on
+  // the admin Orders page, separate from the shipment record above) — only
+  // moving it forward, never overwriting something further along like
+  // delivered, or a cancelled/refunded/failed order.
+  const { data: order, error: orderReadError } = await admin
+    .from('orders')
+    .select('status')
+    .eq('id', orderId)
+    .single()
+  if (orderReadError) throw orderReadError
+  if (STATUSES_BEFORE_SHIPPED.has(order.status)) {
+    await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
   }
 }
 
