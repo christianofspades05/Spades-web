@@ -42,8 +42,7 @@ import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customer
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
-import { Route as ApiCronSyncChannelsReconcileInventoryRouteImport } from './routes/api/cron/sync-channels-reconcile-inventory'
-import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
+import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
 import { Route as ApiCronReviewRequestsRouteImport } from './routes/api/cron/review-requests'
 import { Route as AdminProductsNewRouteImport } from './routes/admin/products/new'
 import { Route as AdminProductsBulkEditRouteImport } from './routes/admin/products/bulk-edit'
@@ -225,16 +224,10 @@ const ApiWebhooksXenditRoute = ApiWebhooksXenditRouteImport.update({
   path: '/api/webhooks/xendit',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCronSyncChannelsReconcileInventoryRoute =
-  ApiCronSyncChannelsReconcileInventoryRouteImport.update({
-    id: '/api/cron/sync-channels-reconcile-inventory',
-    path: '/api/cron/sync-channels-reconcile-inventory',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiCronSyncChannelsPullOrdersRoute =
-  ApiCronSyncChannelsPullOrdersRouteImport.update({
-    id: '/api/cron/sync-channels-pull-orders',
-    path: '/api/cron/sync-channels-pull-orders',
+const ApiCronSyncChannelsDailyRoute =
+  ApiCronSyncChannelsDailyRouteImport.update({
+    id: '/api/cron/sync-channels-daily',
+    path: '/api/cron/sync-channels-daily',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiCronReviewRequestsRoute = ApiCronReviewRequestsRouteImport.update({
@@ -353,8 +346,7 @@ export interface FileRoutesByFullPath {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
-  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
-  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
+  '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -403,8 +395,7 @@ export interface FileRoutesByTo {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
-  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
-  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
+  '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
@@ -456,8 +447,7 @@ export interface FileRoutesById {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
-  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
-  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
+  '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -510,8 +500,7 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
-    | '/api/cron/sync-channels-pull-orders'
-    | '/api/cron/sync-channels-reconcile-inventory'
+    | '/api/cron/sync-channels-daily'
     | '/api/webhooks/xendit'
     | '/admin/channels/'
     | '/admin/collections/'
@@ -560,8 +549,7 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
-    | '/api/cron/sync-channels-pull-orders'
-    | '/api/cron/sync-channels-reconcile-inventory'
+    | '/api/cron/sync-channels-daily'
     | '/api/webhooks/xendit'
     | '/admin/channels'
     | '/admin/collections'
@@ -612,8 +600,7 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
-    | '/api/cron/sync-channels-pull-orders'
-    | '/api/cron/sync-channels-reconcile-inventory'
+    | '/api/cron/sync-channels-daily'
     | '/api/webhooks/xendit'
     | '/admin/channels/'
     | '/admin/collections/'
@@ -650,8 +637,7 @@ export interface RootRouteChildren {
   ProductsIndexRoute: typeof ProductsIndexRoute
   ReviewsIndexRoute: typeof ReviewsIndexRoute
   ApiCronReviewRequestsRoute: typeof ApiCronReviewRequestsRoute
-  ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
-  ApiCronSyncChannelsReconcileInventoryRoute: typeof ApiCronSyncChannelsReconcileInventoryRoute
+  ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
   ApiOauthTiktokCallbackRoute: typeof ApiOauthTiktokCallbackRoute
@@ -891,18 +877,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksXenditRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cron/sync-channels-reconcile-inventory': {
-      id: '/api/cron/sync-channels-reconcile-inventory'
-      path: '/api/cron/sync-channels-reconcile-inventory'
-      fullPath: '/api/cron/sync-channels-reconcile-inventory'
-      preLoaderRoute: typeof ApiCronSyncChannelsReconcileInventoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/cron/sync-channels-pull-orders': {
-      id: '/api/cron/sync-channels-pull-orders'
-      path: '/api/cron/sync-channels-pull-orders'
-      fullPath: '/api/cron/sync-channels-pull-orders'
-      preLoaderRoute: typeof ApiCronSyncChannelsPullOrdersRouteImport
+    '/api/cron/sync-channels-daily': {
+      id: '/api/cron/sync-channels-daily'
+      path: '/api/cron/sync-channels-daily'
+      fullPath: '/api/cron/sync-channels-daily'
+      preLoaderRoute: typeof ApiCronSyncChannelsDailyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/review-requests': {
@@ -1101,9 +1080,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsIndexRoute: ProductsIndexRoute,
   ReviewsIndexRoute: ReviewsIndexRoute,
   ApiCronReviewRequestsRoute: ApiCronReviewRequestsRoute,
-  ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
-  ApiCronSyncChannelsReconcileInventoryRoute:
-    ApiCronSyncChannelsReconcileInventoryRoute,
+  ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
   ApiOauthTiktokCallbackRoute: ApiOauthTiktokCallbackRoute,
