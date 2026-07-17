@@ -64,6 +64,7 @@ export const Route = createFileRoute('/api/oauth/tiktok/callback')({
             marketplace: 'tiktok_shop' as const,
             external_shop_id: tokens.shopId,
             shop_name: tokens.shopName ?? null,
+            shop_cipher: tokens.shopCipher ?? null,
             access_token_encrypted: tokens.accessToken,
             refresh_token_encrypted: tokens.refreshToken,
             token_expires_at: tokens.tokenExpiresAt,

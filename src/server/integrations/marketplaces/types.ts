@@ -18,6 +18,8 @@ export interface OAuthTokens {
   tokenExpiresAt: string
   shopId: string
   shopName?: string
+  /** An opaque per-shop value some platforms (TikTok Shop) require on every signed request in addition to shopId — not every adapter needs this. */
+  shopCipher?: string
 }
 
 export interface NormalizedOrderItem {

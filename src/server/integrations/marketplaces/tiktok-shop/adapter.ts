@@ -42,17 +42,45 @@ import {
   refreshAccessToken,
 } from './client'
 
-function toOAuthTokens(
+interface TikTokAuthorizedShop {
+  id: string
+  name?: string
+  cipher: string
+}
+
+/**
+ * TikTok requires a `shop_cipher` on top of the shop id for every signed
+ * request — a separate opaque value fetched from this endpoint after OAuth,
+ * not the same as the shop id or open_id (reusing either in its place fails
+ * every call with "Invalid shop_cipher", error code 106011). This app
+ * assumes one authorized shop per connection (see sync-engine.ts's comment
+ * on that same assumption) and just takes the first one returned.
+ */
+async function getAuthorizedShops(
+  accessToken: string,
+): Promise<TikTokAuthorizedShop[]> {
+  const { shops } = await callTikTokApi<{ shops: TikTokAuthorizedShop[] }>({
+    method: 'GET',
+    path: '/authorization/202309/shops',
+    accessToken,
+  })
+  return shops
+}
+
+async function toOAuthTokens(
   token: Awaited<ReturnType<typeof exchangeAuthCode>>,
-): OAuthTokens {
+): Promise<OAuthTokens> {
+  const shops = await getAuthorizedShops(token.access_token)
+  const shop = shops.at(0)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     tokenExpiresAt: new Date(
       Date.now() + token.access_token_expire_in * 1000,
     ).toISOString(),
-    shopId: token.open_id ?? '',
-    shopName: token.seller_name,
+    shopId: shop?.id ?? token.open_id ?? '',
+    shopName: shop?.name ?? token.seller_name,
+    shopCipher: shop?.cipher,
   }
 }
 
@@ -210,7 +238,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       method: 'POST',
       path: '/product/202309/inventory/update',
       accessToken: connection.access_token_encrypted,
-      shopCipher: connection.external_shop_id ?? undefined,
+      shopCipher: connection.shop_cipher ?? undefined,
       body: {
         skus: [
           {
@@ -242,7 +270,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         method: 'POST',
         path: '/order/202309/orders/search',
         accessToken: connection.access_token_encrypted,
-        shopCipher: connection.external_shop_id ?? undefined,
+        shopCipher: connection.shop_cipher ?? undefined,
         query: {
           page_size: '50',
           ...(pageToken ? { page_token: pageToken } : {}),
@@ -320,7 +348,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       method: 'GET',
       path: '/product/202309/categories',
       accessToken: connection.access_token_encrypted,
-      shopCipher: connection.external_shop_id ?? undefined,
+      shopCipher: connection.shop_cipher ?? undefined,
       query: { keyword: query },
     })
     return categories
@@ -345,7 +373,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       method: 'GET',
       path: `/product/202309/categories/${categoryId}/attributes`,
       accessToken: connection.access_token_encrypted,
-      shopCipher: connection.external_shop_id ?? undefined,
+      shopCipher: connection.shop_cipher ?? undefined,
     })
     return attributes.map((a) => ({
       id: a.id,
@@ -365,7 +393,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       throw new Error('TikTok Shop connection has no access token.')
     }
     const accessToken = connection.access_token_encrypted
-    const shopCipher = connection.external_shop_id ?? undefined
+    const shopCipher = connection.shop_cipher ?? undefined
 
     const imageUris = await Promise.all(
       input.images.map((url) =>
@@ -430,7 +458,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       throw new Error('TikTok Shop connection has no access token.')
     }
     const accessToken = connection.access_token_encrypted
-    const shopCipher = connection.external_shop_id ?? undefined
+    const shopCipher = connection.shop_cipher ?? undefined
 
     if (update.status === 'delivered') {
       // TikTok tracks delivery itself once a package carries a real tracking
@@ -488,7 +516,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       method: 'GET',
       path: `/product/202309/products/${externalProductId}`,
       accessToken: connection.access_token_encrypted,
-      shopCipher: connection.external_shop_id ?? undefined,
+      shopCipher: connection.shop_cipher ?? undefined,
     })
 
     return {

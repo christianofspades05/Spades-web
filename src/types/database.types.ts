@@ -613,6 +613,7 @@ export interface Database {
           marketplace: MarketplaceName
           shop_name: string | null
           external_shop_id: string | null
+          shop_cipher: string | null
           access_token_encrypted: string | null
           refresh_token_encrypted: string | null
           token_expires_at: string | null
