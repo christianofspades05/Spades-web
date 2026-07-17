@@ -85,6 +85,12 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   captured: 'Paid',
 }
 
+/** Matches the terminology staff already see in TikTok Seller Center, rather than our internal pending/packed column names. */
+const SHIPMENT_STATUS_LABELS: Record<string, string> = {
+  pending: 'Awaiting Shipment',
+  packed: 'Awaiting Collection',
+}
+
 export function StatusBadge({
   status,
   kind,
@@ -96,6 +102,8 @@ export function StatusBadge({
   const label =
     kind === 'payment'
       ? (PAYMENT_STATUS_LABELS[status] ?? status.replace(/_/g, ' '))
-      : status.replace(/_/g, ' ')
+      : kind === 'shipment'
+        ? (SHIPMENT_STATUS_LABELS[status] ?? status.replace(/_/g, ' '))
+        : status.replace(/_/g, ' ')
   return <Badge tone={tone}>{label}</Badge>
 }

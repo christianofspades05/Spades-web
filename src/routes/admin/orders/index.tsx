@@ -79,7 +79,9 @@ export const Route = createFileRoute('/admin/orders/')({
     source: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
-    fulfillment: z.enum(['fulfilled', 'unfulfilled']).optional(),
+    fulfillment: z
+      .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+      .optional(),
     q: z.string().optional(),
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
@@ -374,18 +376,26 @@ function OrdersPage() {
         >
           All
         </Link>
-        {(['unfulfilled', 'fulfilled'] as const).map((f) => (
+        {(
+          [
+            ['unfulfilled', 'Unfulfilled'],
+            ['pending', 'Awaiting Shipment'],
+            ['packed', 'Awaiting Collection'],
+            ['in_transit', 'In Transit'],
+            ['delivered', 'Delivered'],
+          ] as const
+        ).map(([f, label]) => (
           <Link
             key={f}
             to="/admin/orders"
             search={(prev) => ({ ...prev, fulfillment: f })}
-            className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.fulfillment === f
                 ? 'bg-neutral-900 text-white'
                 : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
             }`}
           >
-            {f}
+            {label}
           </Link>
         ))}
       </div>
@@ -458,14 +468,6 @@ function OrdersPage() {
                     b.created_at.localeCompare(a.created_at),
                   )[0]
                   const shipment = order.shipments[0]
-                  const isFulfilled =
-                    !!shipment &&
-                    [
-                      'packed',
-                      'in_transit',
-                      'out_for_delivery',
-                      'delivered',
-                    ].includes(shipment.status)
                   const itemCount = order.order_items.reduce(
                     (sum, i) => sum + i.quantity,
                     0,
@@ -556,7 +558,7 @@ function OrdersPage() {
                       </td>
                       <td className={tableCellClassName}>
                         <StatusBadge
-                          status={isFulfilled ? 'fulfilled' : 'unfulfilled'}
+                          status={shipment?.status ?? 'unfulfilled'}
                           kind="shipment"
                         />
                       </td>

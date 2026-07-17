@@ -26,6 +26,7 @@ import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import type { MarketplaceConnection } from '#/types/entities'
 import type {
   CreatedMarketplaceProduct,
+  ImportedFulfillmentStatus,
   MarketplaceAdapter,
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
@@ -147,11 +148,23 @@ const PAID_STATUSES = new Set([
   'COMPLETED',
 ])
 
-/** A tracking number can exist before the courier actually collects the
- * parcel (e.g. right after staff prints a label) — only treat the order as
- * fulfilled once the courier has actually picked it up, same distinction
- * the seller's existing Shopify-side sync app makes. */
-const PICKED_UP_STATUSES = new Set(['IN_TRANSIT', 'DELIVERED', 'COMPLETED'])
+/** Maps TikTok's own order status onto our shipment lifecycle, so the
+ * admin Orders page can show the same granularity TikTok Seller Center
+ * does (awaiting shipment vs. awaiting courier collection vs. in transit)
+ * instead of a single binary fulfilled/unfulfilled flag. A tracking number
+ * can exist before the courier actually collects the parcel (right after
+ * staff prints a label) — this is why AWAITING_COLLECTION maps to 'packed',
+ * not something that reads as fulfilled. */
+const TIKTOK_STATUS_TO_FULFILLMENT = new Map<string, ImportedFulfillmentStatus>(
+  [
+    ['AWAITING_SHIPMENT', 'pending'],
+    ['AWAITING_COLLECTION', 'packed'],
+    ['PARTIALLY_SHIPPING', 'in_transit'],
+    ['IN_TRANSIT', 'in_transit'],
+    ['DELIVERED', 'delivered'],
+    ['COMPLETED', 'delivered'],
+  ],
+)
 
 function centsFromAmountString(amount: string | undefined): number {
   if (!amount) return 0
@@ -348,6 +361,9 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     const subtotalCents = centsFromAmountString(order.payment?.sub_total)
     const shippingCents = centsFromAmountString(order.payment?.shipping_fee)
     const totalCents = centsFromAmountString(order.payment?.total_amount)
+    const fulfillmentStatus = order.status
+      ? TIKTOK_STATUS_TO_FULFILLMENT.get(order.status)
+      : undefined
 
     return {
       externalOrderId: order.id,
@@ -358,13 +374,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
-      trackingInfo:
-        order.tracking_number && PICKED_UP_STATUSES.has(order.status ?? '')
-          ? {
-              carrier: order.shipping_provider ?? null,
-              trackingNumber: order.tracking_number,
-            }
-          : null,
+      fulfillmentInfo: fulfillmentStatus
+        ? {
+            status: fulfillmentStatus,
+            carrier: order.shipping_provider ?? null,
+            trackingNumber: order.tracking_number ?? null,
+          }
+        : null,
     }
   },
 

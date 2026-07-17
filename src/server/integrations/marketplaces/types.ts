@@ -6,7 +6,17 @@
  * engine or the admin UI.
  */
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
-import type { MarketplaceConnection, MarketplaceName } from '#/types/entities'
+import type {
+  MarketplaceConnection,
+  MarketplaceName,
+  ShipmentStatus,
+} from '#/types/entities'
+
+/** The subset of our shipment lifecycle a platform's own order status can drive automatically — excludes states like 'failed'/'returned_to_sender' that only make sense from a manual staff action or a delivery exception, not a normal status progression. */
+export type ImportedFulfillmentStatus = Exclude<
+  ShipmentStatus,
+  'failed' | 'returned_to_sender' | 'out_for_delivery'
+>
 
 /** MarketplaceName minus 'other' — every marketplace an adapter can actually implement doubles as a valid orders.source value. 'other' is a data-entry catch-all, never something the sync engine connects to. */
 export type SyncableMarketplace = Exclude<MarketplaceName, 'other'>
@@ -45,8 +55,12 @@ export interface NormalizedOrder {
   /** True if the platform has already collected payment (the normal case —
    *  we're importing a completed sale, not taking payment ourselves). */
   isPaid: boolean
-  /** Set when the seller has already arranged shipment on the platform's own seller dashboard (not through us) — imported so our shipments table reflects it without staff re-entering it. */
-  trackingInfo: { carrier: string | null; trackingNumber: string } | null
+  /** Reflects wherever the order actually is in the platform's own fulfillment lifecycle (awaiting shipment, awaiting courier collection, in transit, delivered) — not just whether a tracking number exists, since a platform can assign one before the courier actually collects the parcel. Null if the platform gave us nothing to go on. */
+  fulfillmentInfo: {
+    status: ImportedFulfillmentStatus
+    carrier: string | null
+    trackingNumber: string | null
+  } | null
 }
 
 /** A category the platform requires every product to be filed under. Only leaf categories (isLeaf) are selectable when creating a product. */

@@ -22,8 +22,11 @@ import type {
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager', 'packer'] as const
 
+// 'packed' deliberately excluded — a tracking label/courier assignment can
+// exist before the courier actually collects the parcel, and that's not
+// "fulfilled" yet (matches the same distinction the seller's Shopify-side
+// sync app makes; see sync-engine.ts's syncFulfillmentInfo).
 const FULFILLED_SHIPMENT_STATUSES = new Set([
-  'packed',
   'in_transit',
   'out_for_delivery',
   'delivered',
@@ -92,7 +95,9 @@ export const listOrders = createServerFn({ method: 'GET' })
     z.object({
       status: z.string().optional(),
       source: z.string().optional(),
-      fulfillment: z.enum(['fulfilled', 'unfulfilled']).optional(),
+      fulfillment: z
+        .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+        .optional(),
       q: z.string().optional(),
     }),
   )
@@ -170,9 +175,9 @@ export const listOrders = createServerFn({ method: 'GET' })
     const orders = data.fulfillment
       ? rawOrders.filter((o) => {
           const shipment = o.shipments[0]
-          const isFulfilled =
-            !!shipment && FULFILLED_SHIPMENT_STATUSES.has(shipment.status)
-          return data.fulfillment === 'fulfilled' ? isFulfilled : !isFulfilled
+          return data.fulfillment === 'unfulfilled'
+            ? !shipment
+            : shipment?.status === data.fulfillment
         })
       : rawOrders
 

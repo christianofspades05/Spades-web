@@ -261,33 +261,42 @@ export async function pushInventoryForAllProducts(
  * 0001_init_schema.sql). Returns false without erroring if it's a repeat,
  * so pulling the same time window twice is always safe.
  */
+const PICKED_UP_FULFILLMENT_STATUSES = new Set(['in_transit', 'delivered'])
+
 /**
- * Records tracking info the seller already entered directly on the
- * platform's own seller dashboard (not through us) — a no-op if there's
- * nothing new to record, so it's safe to call on every pull, not just the
- * first time an order is seen.
+ * Records the order's fulfillment progress (pending/packed/in_transit/
+ * delivered) as reported by the platform's own dashboard — safe to call on
+ * every pull, not just the first time an order is seen, since it no-ops
+ * once nothing's changed since the last call.
  */
-async function syncTrackingInfo(
+async function syncFulfillmentInfo(
   orderId: string,
-  trackingInfo: NormalizedOrder['trackingInfo'],
+  fulfillmentInfo: NormalizedOrder['fulfillmentInfo'],
 ): Promise<void> {
-  if (!trackingInfo) return
+  if (!fulfillmentInfo) return
   const admin = getSupabaseAdminClient()
 
   const { data: shipment, error: shipmentError } = await admin
     .from('shipments')
-    .select('id, tracking_number')
+    .select('id, status, tracking_number')
     .eq('order_id', orderId)
     .maybeSingle()
   if (shipmentError) throw shipmentError
-  if (shipment?.tracking_number === trackingInfo.trackingNumber) return
+  if (
+    shipment?.status === fulfillmentInfo.status &&
+    shipment.tracking_number === fulfillmentInfo.trackingNumber
+  ) {
+    return
+  }
 
+  const now = new Date().toISOString()
   const patch = {
     order_id: orderId,
-    carrier: trackingInfo.carrier,
-    tracking_number: trackingInfo.trackingNumber,
-    status: 'in_transit' as const,
-    shipped_at: new Date().toISOString(),
+    carrier: fulfillmentInfo.carrier,
+    tracking_number: fulfillmentInfo.trackingNumber,
+    status: fulfillmentInfo.status,
+    shipped_at: fulfillmentInfo.status === 'in_transit' ? now : undefined,
+    delivered_at: fulfillmentInfo.status === 'delivered' ? now : undefined,
   }
   if (shipment) {
     await admin.from('shipments').update(patch).eq('id', shipment.id)
@@ -297,16 +306,21 @@ async function syncTrackingInfo(
 
   // Also advance the order's own status (drives the status filter pills on
   // the admin Orders page, separate from the shipment record above) — only
-  // moving it forward, never overwriting something further along like
-  // delivered, or a cancelled/refunded/failed order.
-  const { data: order, error: orderReadError } = await admin
-    .from('orders')
-    .select('status')
-    .eq('id', orderId)
-    .single()
-  if (orderReadError) throw orderReadError
-  if (STATUSES_BEFORE_SHIPPED.has(order.status)) {
-    await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
+  // once the courier has actually picked it up (matching the distinction
+  // the seller's existing Shopify-side sync app makes: arranging shipment
+  // isn't the same as being fulfilled), and only moving it forward, never
+  // overwriting something further along like delivered, or a cancelled/
+  // refunded/failed order.
+  if (PICKED_UP_FULFILLMENT_STATUSES.has(fulfillmentInfo.status)) {
+    const { data: order, error: orderReadError } = await admin
+      .from('orders')
+      .select('status')
+      .eq('id', orderId)
+      .single()
+    if (orderReadError) throw orderReadError
+    if (STATUSES_BEFORE_SHIPPED.has(order.status)) {
+      await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
+    }
   }
 }
 
@@ -325,7 +339,7 @@ async function importOrder(
     .maybeSingle()
   if (existingError) throw existingError
   if (existing) {
-    await syncTrackingInfo(existing.id, normalized.trackingInfo)
+    await syncFulfillmentInfo(existing.id, normalized.fulfillmentInfo)
     return false
   }
 
@@ -460,7 +474,7 @@ async function importOrder(
     }
   }
 
-  await syncTrackingInfo(order.id, normalized.trackingInfo)
+  await syncFulfillmentInfo(order.id, normalized.fulfillmentInfo)
 
   return true
 }
