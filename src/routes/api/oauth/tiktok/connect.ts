@@ -37,7 +37,14 @@ export const Route = createFileRoute('/api/oauth/tiktok/connect')({
           maxAge: 600,
         })
 
-        return Response.redirect(adapter.getAuthorizationUrl(state), 302)
+        // Response.redirect() returns a Response with immutable headers per
+        // the Fetch spec, which crashes when the framework tries to merge in
+        // the Set-Cookie header from setCookie() above. Build it manually
+        // instead so the headers stay mutable.
+        return new Response(null, {
+          status: 302,
+          headers: { Location: adapter.getAuthorizationUrl(state) },
+        })
       },
     },
   },

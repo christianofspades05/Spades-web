@@ -9,6 +9,14 @@ import { createFileRoute } from '@tanstack/react-router'
 
 const OAUTH_STATE_COOKIE = 'spades_oauth_state'
 
+// Response.redirect() returns a Response with immutable headers per the
+// Fetch spec, which crashes when the framework tries to merge in the
+// deleteCookie()/setCookie() header above. Build redirects manually instead
+// so the headers stay mutable.
+function redirectTo(location: string): Response {
+  return new Response(null, { status: 302, headers: { Location: location } })
+}
+
 export const Route = createFileRoute('/api/oauth/tiktok/callback')({
   server: {
     handlers: {
@@ -34,16 +42,10 @@ export const Route = createFileRoute('/api/oauth/tiktok/callback')({
         deleteCookie(OAUTH_STATE_COOKIE, { path: '/' })
 
         if (!code) {
-          return Response.redirect(
-            `${url.origin}/admin/channels?error=missing_code`,
-            302,
-          )
+          return redirectTo(`${url.origin}/admin/channels?error=missing_code`)
         }
         if (!state || state !== expectedState) {
-          return Response.redirect(
-            `${url.origin}/admin/channels?error=invalid_state`,
-            302,
-          )
+          return redirectTo(`${url.origin}/admin/channels?error=invalid_state`)
         }
 
         const adapter = getAdapter('tiktok_shop')
@@ -80,16 +82,12 @@ export const Route = createFileRoute('/api/oauth/tiktok/callback')({
         } catch (err) {
           const message =
             err instanceof Error ? err.message : 'Connection failed'
-          return Response.redirect(
+          return redirectTo(
             `${url.origin}/admin/channels?error=${encodeURIComponent(message)}`,
-            302,
           )
         }
 
-        return Response.redirect(
-          `${url.origin}/admin/channels?connected=tiktok_shop`,
-          302,
-        )
+        return redirectTo(`${url.origin}/admin/channels?connected=tiktok_shop`)
       },
     },
   },
