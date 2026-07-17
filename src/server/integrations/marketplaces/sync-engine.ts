@@ -995,65 +995,76 @@ export async function autoConnectProductsByTitle(
     throw err
   }
 
-  const remoteByTitle = new Map<string, typeof remoteProducts>()
-  for (const p of remoteProducts) {
-    const key = p.name.trim().toLowerCase()
-    const bucket = remoteByTitle.get(key) ?? []
-    bucket.push(p)
-    remoteByTitle.set(key, bucket)
+  try {
+    const remoteByTitle = new Map<string, typeof remoteProducts>()
+    for (const p of remoteProducts) {
+      const key = p.name.trim().toLowerCase()
+      const bucket = remoteByTitle.get(key) ?? []
+      bucket.push(p)
+      remoteByTitle.set(key, bucket)
+    }
+
+    const products = await getUnlinkedProducts(admin, connection.id)
+    const result: AutoConnectByTitleResult = { connected: [], skipped: [] }
+
+    for (const product of products) {
+      const matches = remoteByTitle.get(product.name.trim().toLowerCase()) ?? []
+      if (matches.length === 0) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: 'No TikTok product with a matching title.',
+        })
+        continue
+      }
+      if (matches.length > 1) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: `${matches.length} TikTok products share this title — connect manually.`,
+        })
+        continue
+      }
+
+      try {
+        const connectResult = await connectExistingProductToMarketplace(
+          marketplace,
+          product.id,
+          matches[0].externalProductId,
+        )
+        result.connected.push({
+          productId: product.id,
+          productName: product.name,
+          externalProductId: matches[0].externalProductId,
+          connectedVariants: connectResult.connectedVariants,
+        })
+      } catch (err) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: getErrorMessage(err),
+        })
+      }
+    }
+
+    await logSync(marketplace, 'auto_connect_products', 'success', {
+      remoteProductsFound: remoteProducts.length,
+      candidates: products.length,
+      connected: result.connected.length,
+      skipped: result.skipped.length,
+    })
+
+    return result
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'auto_connect_products',
+      'failed',
+      { stage: 'matching' },
+      getErrorMessage(err),
+    )
+    throw err
   }
-
-  const products = await getUnlinkedProducts(admin, connection.id)
-  const result: AutoConnectByTitleResult = { connected: [], skipped: [] }
-
-  for (const product of products) {
-    const matches = remoteByTitle.get(product.name.trim().toLowerCase()) ?? []
-    if (matches.length === 0) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: 'No TikTok product with a matching title.',
-      })
-      continue
-    }
-    if (matches.length > 1) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: `${matches.length} TikTok products share this title — connect manually.`,
-      })
-      continue
-    }
-
-    try {
-      const connectResult = await connectExistingProductToMarketplace(
-        marketplace,
-        product.id,
-        matches[0].externalProductId,
-      )
-      result.connected.push({
-        productId: product.id,
-        productName: product.name,
-        externalProductId: matches[0].externalProductId,
-        connectedVariants: connectResult.connectedVariants,
-      })
-    } catch (err) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: getErrorMessage(err),
-      })
-    }
-  }
-
-  await logSync(marketplace, 'auto_connect_products', 'success', {
-    remoteProductsFound: remoteProducts.length,
-    candidates: products.length,
-    connected: result.connected.length,
-    skipped: result.skipped.length,
-  })
-
-  return result
 }
 
 export interface AutoConnectBySkuResult {
@@ -1135,144 +1146,165 @@ export async function autoConnectProductsBySku(
     throw err
   }
 
-  type RemoteDetail = {
-    externalProductId: string
-    skuSet: Set<string>
-    variants: { externalVariantId: string; externalSku: string | null }[]
-  }
-  const detailResults = await mapWithConcurrency(
-    remoteProducts,
-    DETAIL_FETCH_CONCURRENCY,
-    async (p): Promise<RemoteDetail | null> => {
-      try {
-        const detail = await adapter.getProductByExternalId(
-          fresh,
-          p.externalProductId,
-        )
-        const skus = detail.variants
-          .map((v) => v.externalSku?.trim())
-          .filter((s): s is string => Boolean(s))
-        if (skus.length === 0) return null
-        return {
-          externalProductId: p.externalProductId,
-          skuSet: new Set(skus),
-          variants: detail.variants,
-        }
-      } catch {
-        // Can't compare SKUs for a product TikTok won't return detail for —
-        // it just won't be found as a match for anything below.
-        return null
-      }
-    },
-  )
-  const remoteDetails = detailResults.filter(
-    (d): d is RemoteDetail => d !== null,
-  )
-
-  const products = await getUnlinkedProducts(admin, connection.id)
-  const result: AutoConnectBySkuResult = { connected: [], skipped: [] }
-
-  for (const product of products) {
-    const localSkus = product.variants.map((v) => v.sku.trim()).filter(Boolean)
-    if (localSkus.length === 0) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: 'This product has no SKUs to match.',
-      })
-      continue
-    }
-    const localSkuSet = new Set(localSkus)
-
-    const matches = remoteDetails.filter(
-      (r) =>
-        r.skuSet.size === localSkuSet.size &&
-        localSkus.every((sku) => r.skuSet.has(sku)),
-    )
-
-    if (matches.length === 0) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: 'No TikTok product with the exact same set of variant SKUs.',
-      })
-      continue
-    }
-    if (matches.length > 1) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: `${matches.length} TikTok products share this exact SKU set — connect manually.`,
-      })
-      continue
-    }
-
-    const match = matches[0]
-    const skuToVariant = new Map(
-      match.variants
-        .filter((v): v is { externalVariantId: string; externalSku: string } =>
-          Boolean(v.externalSku),
-        )
-        .map((v) => [v.externalSku.trim(), v]),
-    )
-
-    const matchedVariants: {
-      variantId: string
-      externalVariantId: string
-      externalSku: string | null
+  try {
+    type RemoteDetail = {
       externalProductId: string
-    }[] = []
-    let unresolved = false
-    for (const v of product.variants) {
-      const remoteVariant = skuToVariant.get(v.sku.trim())
-      if (!remoteVariant) {
-        unresolved = true
-        break
+      skuSet: Set<string>
+      variants: { externalVariantId: string; externalSku: string | null }[]
+    }
+    const detailResults = await mapWithConcurrency(
+      remoteProducts,
+      DETAIL_FETCH_CONCURRENCY,
+      async (p): Promise<RemoteDetail | null> => {
+        try {
+          const detail = await adapter.getProductByExternalId(
+            fresh,
+            p.externalProductId,
+          )
+          const skus = detail.variants
+            .map((v) => v.externalSku?.trim())
+            .filter((s): s is string => Boolean(s))
+          if (skus.length === 0) return null
+          return {
+            externalProductId: p.externalProductId,
+            skuSet: new Set(skus),
+            variants: detail.variants,
+          }
+        } catch {
+          // Can't compare SKUs for a product TikTok won't return detail for —
+          // it just won't be found as a match for anything below.
+          return null
+        }
+      },
+    )
+    const remoteDetails = detailResults.filter(
+      (d): d is RemoteDetail => d !== null,
+    )
+
+    const products = await getUnlinkedProducts(admin, connection.id)
+    const result: AutoConnectBySkuResult = { connected: [], skipped: [] }
+
+    for (const product of products) {
+      const localSkus = product.variants
+        .map((v) => v.sku.trim())
+        .filter(Boolean)
+      if (localSkus.length === 0) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: 'This product has no SKUs to match.',
+        })
+        continue
       }
-      matchedVariants.push({
-        variantId: v.id,
-        externalVariantId: remoteVariant.externalVariantId,
-        externalSku: remoteVariant.externalSku,
-        externalProductId: match.externalProductId,
-      })
-    }
-    if (unresolved) {
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: 'Could not map every variant to a distinct TikTok SKU.',
-      })
-      continue
-    }
+      const localSkuSet = new Set(localSkus)
 
-    try {
-      await upsertVariantMappings(admin, connection.id, matchedVariants)
-      await logSync(marketplace, 'auto_connect_by_sku', 'success', {
-        productId: product.id,
-        externalProductId: match.externalProductId,
-        connectedVariants: matchedVariants.length,
-      })
-      result.connected.push({
-        productId: product.id,
-        productName: product.name,
-        externalProductId: match.externalProductId,
-        connectedVariants: matchedVariants.length,
-      })
-    } catch (err) {
-      await logSync(
-        marketplace,
-        'auto_connect_by_sku',
-        'failed',
-        { productId: product.id, externalProductId: match.externalProductId },
-        getErrorMessage(err),
+      const matches = remoteDetails.filter(
+        (r) =>
+          r.skuSet.size === localSkuSet.size &&
+          localSkus.every((sku) => r.skuSet.has(sku)),
       )
-      result.skipped.push({
-        productId: product.id,
-        productName: product.name,
-        reason: getErrorMessage(err),
-      })
-    }
-  }
 
-  return result
+      if (matches.length === 0) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: 'No TikTok product with the exact same set of variant SKUs.',
+        })
+        continue
+      }
+      if (matches.length > 1) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: `${matches.length} TikTok products share this exact SKU set — connect manually.`,
+        })
+        continue
+      }
+
+      const match = matches[0]
+      const skuToVariant = new Map(
+        match.variants
+          .filter(
+            (v): v is { externalVariantId: string; externalSku: string } =>
+              Boolean(v.externalSku),
+          )
+          .map((v) => [v.externalSku.trim(), v]),
+      )
+
+      const matchedVariants: {
+        variantId: string
+        externalVariantId: string
+        externalSku: string | null
+        externalProductId: string
+      }[] = []
+      let unresolved = false
+      for (const v of product.variants) {
+        const remoteVariant = skuToVariant.get(v.sku.trim())
+        if (!remoteVariant) {
+          unresolved = true
+          break
+        }
+        matchedVariants.push({
+          variantId: v.id,
+          externalVariantId: remoteVariant.externalVariantId,
+          externalSku: remoteVariant.externalSku,
+          externalProductId: match.externalProductId,
+        })
+      }
+      if (unresolved) {
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: 'Could not map every variant to a distinct TikTok SKU.',
+        })
+        continue
+      }
+
+      try {
+        await upsertVariantMappings(admin, connection.id, matchedVariants)
+        await logSync(marketplace, 'auto_connect_by_sku', 'success', {
+          productId: product.id,
+          externalProductId: match.externalProductId,
+          connectedVariants: matchedVariants.length,
+        })
+        result.connected.push({
+          productId: product.id,
+          productName: product.name,
+          externalProductId: match.externalProductId,
+          connectedVariants: matchedVariants.length,
+        })
+      } catch (err) {
+        await logSync(
+          marketplace,
+          'auto_connect_by_sku',
+          'failed',
+          { productId: product.id, externalProductId: match.externalProductId },
+          getErrorMessage(err),
+        )
+        result.skipped.push({
+          productId: product.id,
+          productName: product.name,
+          reason: getErrorMessage(err),
+        })
+      }
+    }
+
+    await logSync(marketplace, 'auto_connect_by_sku', 'success', {
+      remoteProductsFound: remoteProducts.length,
+      candidates: products.length,
+      connected: result.connected.length,
+      skipped: result.skipped.length,
+    })
+
+    return result
+  } catch (err) {
+    await logSync(
+      marketplace,
+      'auto_connect_by_sku',
+      'failed',
+      { stage: 'matching' },
+      getErrorMessage(err),
+    )
+    throw err
+  }
 }
