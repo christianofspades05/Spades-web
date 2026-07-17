@@ -38,7 +38,7 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
-import type { Collection, MarketplaceName } from '#/types/entities'
+import type { MarketplaceName } from '#/types/entities'
 
 const MARKETPLACE_LABELS: Record<MarketplaceName, string> = {
   tiktok_shop: 'TikTok Shop',
@@ -80,11 +80,22 @@ export const Route = createFileRoute('/admin/channels/')({
   component: ChannelsPage,
 })
 
+type ProductSort = 'name_asc' | 'name_desc' | 'created_desc'
+
+const SORT_LABELS: Record<ProductSort, string> = {
+  name_asc: 'Name (A–Z)',
+  name_desc: 'Name (Z–A)',
+  created_desc: 'Newest first',
+}
+
 function ChannelsPage() {
   const { connections, products, logs, collections } = Route.useLoaderData()
   const { collectionId } = Route.useSearch()
   const navigate = Route.useNavigate()
   const router = useRouter()
+
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<ProductSort>('name_asc')
 
   return (
     <div className="w-full px-8 py-10">
@@ -93,7 +104,46 @@ function ChannelsPage() {
         subtitle="Connect Spades to marketplace sales channels — inventory syncs out, orders sync in."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by product name or SKU…"
+          className={`${inputClassName} w-64`}
+        />
+        <select
+          value={collectionId ?? ''}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                collectionId: e.target.value || undefined,
+              }),
+            })
+          }
+          className={inputClassName}
+        >
+          <option value="">All collections</option>
+          {collections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as ProductSort)}
+          className={inputClassName}
+        >
+          {(Object.keys(SORT_LABELS) as ProductSort[]).map((key) => (
+            <option key={key} value={key}>
+              {SORT_LABELS[key]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {connections.map((info) => (
           <ConnectionCard
             key={info.marketplace}
@@ -104,24 +154,10 @@ function ChannelsPage() {
       </div>
 
       <div className="mt-10">
-        <NewProductsSection
-          products={products}
-          connected={
-            connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
-              ?.status === 'active'
-          }
-          onChanged={() => router.invalidate()}
-        />
-      </div>
-
-      <div className="mt-10">
         <ProductSyncSection
           products={products}
-          collections={collections}
-          collectionId={collectionId}
-          onCollectionChange={(id) =>
-            navigate({ search: (prev) => ({ ...prev, collectionId: id }) })
-          }
+          search={search}
+          sortBy={sortBy}
           connected={
             connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
               ?.status === 'active'
@@ -216,44 +252,64 @@ function ConnectionCard({
   )
 }
 
-type ProductSort = 'name_asc' | 'name_desc' | 'created_desc'
+interface GroupedProduct {
+  productId: string
+  productName: string
+  productImage: string | null
+  productCreatedAt: string
+  variants: ProductSyncRow[]
+}
 
-const SORT_LABELS: Record<ProductSort, string> = {
-  name_asc: 'Name (A–Z)',
-  name_desc: 'Name (Z–A)',
-  created_desc: 'Newest first',
+function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
+  const byProduct = new Map<string, GroupedProduct>()
+  for (const row of rows) {
+    const existing = byProduct.get(row.productId)
+    if (existing) {
+      existing.variants.push(row)
+    } else {
+      byProduct.set(row.productId, {
+        productId: row.productId,
+        productName: row.productName,
+        productImage: row.productImage,
+        productCreatedAt: row.productCreatedAt,
+        variants: [row],
+      })
+    }
+  }
+  return Array.from(byProduct.values())
 }
 
 function ProductSyncSection({
   products,
-  collections,
-  collectionId,
-  onCollectionChange,
+  search,
+  sortBy,
   connected,
   onChanged,
 }: {
   products: ProductSyncRow[]
-  collections: Collection[]
-  collectionId: string | undefined
-  onCollectionChange: (collectionId: string | undefined) => void
+  search: string
+  sortBy: ProductSort
   connected: boolean
   onChanged: () => void
 }) {
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<ProductSort>('name_asc')
+  const [openProductId, setOpenProductId] = useState<string | null>(null)
+  const [connectingProductId, setConnectingProductId] = useState<string | null>(
+    null,
+  )
 
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
+    const grouped = groupByProduct(products)
     const filtered = query
-      ? products.filter(
+      ? grouped.filter(
           (p) =>
             p.productName.toLowerCase().includes(query) ||
-            p.sku.toLowerCase().includes(query),
+            p.variants.some((v) => v.sku.toLowerCase().includes(query)),
         )
-      : products
+      : grouped
 
     return [...filtered].sort((a, b) => {
       if (sortBy === 'name_asc')
@@ -295,6 +351,11 @@ function ProductSyncSection({
     }
   }
 
+  const openProduct = visibleProducts.find((p) => p.productId === openProductId)
+  const connectingProduct = visibleProducts.find(
+    (p) => p.productId === connectingProductId,
+  )
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -327,56 +388,26 @@ function ProductSyncSection({
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by product name or SKU…"
-          className={`${inputClassName} w-64`}
-        />
-        <select
-          value={collectionId ?? ''}
-          onChange={(e) => onCollectionChange(e.target.value || undefined)}
-          className={inputClassName}
-        >
-          <option value="">All collections</option>
-          {collections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as ProductSort)}
-          className={inputClassName}
-        >
-          {(Object.keys(SORT_LABELS) as ProductSort[]).map((key) => (
-            <option key={key} value={key}>
-              {SORT_LABELS[key]}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <div className={`${tableWrapperClassName} mt-4`}>
         <table className="w-full">
           <thead>
             <tr>
               <th className={tableHeadClassName}>Product</th>
-              <th className={tableHeadClassName}>Our SKU</th>
+              <th className={tableHeadClassName}>Variants</th>
               <th className={tableHeadClassName}>Stock</th>
-              <th className={tableHeadClassName}>TikTok link</th>
-              <th className={tableHeadClassName}>Status</th>
+              <th className={tableHeadClassName}>TikTok status</th>
               <th className={tableHeadClassName} />
             </tr>
           </thead>
           <tbody>
-            {visibleProducts.map((row) => (
-              <ProductSyncRowView
-                key={row.variantId}
-                row={row}
+            {visibleProducts.map((product) => (
+              <ProductGroupRow
+                key={product.productId}
+                product={product}
+                connected={connected}
                 onChanged={onChanged}
+                onPush={() => setOpenProductId(product.productId)}
+                onConnect={() => setConnectingProductId(product.productId)}
               />
             ))}
           </tbody>
@@ -387,203 +418,11 @@ function ProductSyncSection({
           </p>
         )}
       </div>
-    </div>
-  )
-}
 
-const SYNC_STATUS_TONE: Record<string, BadgeTone> = {
-  synced: 'success',
-  pending: 'warning',
-  error: 'critical',
-}
-
-function ProductSyncRowView({
-  row,
-  onChanged,
-}: {
-  row: ProductSyncRow
-  onChanged: () => void
-}) {
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const variantLabel = [row.size, row.color, row.style]
-    .filter(Boolean)
-    .join(' / ')
-
-  async function handleSyncNow() {
-    setSubmitting(true)
-    setError(null)
-    try {
-      await syncProductNow({ data: { variantId: row.variantId } })
-      onChanged()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <tr className={tableRowClassName}>
-      <td className={tableCellClassName}>
-        <div className="flex items-center gap-2">
-          {row.productImage ? (
-            <img
-              src={row.productImage}
-              alt=""
-              className="size-9 shrink-0 rounded object-cover"
-            />
-          ) : (
-            <div className="size-9 shrink-0 rounded bg-neutral-100" />
-          )}
-          <div>
-            <p className="font-medium text-neutral-900">{row.productName}</p>
-            {variantLabel && (
-              <p className="text-xs text-neutral-500">{variantLabel}</p>
-            )}
-          </div>
-        </div>
-      </td>
-      <td className={tableCellClassName}>{row.sku}</td>
-      <td className={tableCellClassName}>{row.quantityAvailable}</td>
-      <td className={tableCellClassName}>
-        {row.mapping ? (
-          <span className="text-xs text-neutral-600">
-            {row.mapping.externalSku ?? row.mapping.externalVariantId}
-          </span>
-        ) : (
-          <span className="text-xs text-neutral-400">
-            Use "Push to TikTok" or "Connect existing" above
-          </span>
-        )}
-      </td>
-      <td className={tableCellClassName}>
-        {row.mapping ? (
-          <Badge tone={SYNC_STATUS_TONE[row.mapping.syncStatus] ?? 'neutral'}>
-            {row.mapping.syncStatus === 'synced'
-              ? 'Synced'
-              : row.mapping.syncStatus === 'pending'
-                ? 'Pending'
-                : 'Error'}
-          </Badge>
-        ) : (
-          <Badge tone="neutral">Not linked</Badge>
-        )}
-      </td>
-      <td className={`${tableCellClassName} text-right`}>
-        {row.mapping && (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={handleSyncNow}
-            className="text-xs font-medium text-neutral-900 underline disabled:opacity-50"
-          >
-            {submitting ? 'Syncing…' : 'Sync now'}
-          </button>
-        )}
-        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-      </td>
-    </tr>
-  )
-}
-
-interface UnlinkedProduct {
-  productId: string
-  productName: string
-  productImage: string | null
-}
-
-function NewProductsSection({
-  products,
-  connected,
-  onChanged,
-}: {
-  products: ProductSyncRow[]
-  connected: boolean
-  onChanged: () => void
-}) {
-  const [openProductId, setOpenProductId] = useState<string | null>(null)
-  const [connectingProductId, setConnectingProductId] = useState<string | null>(
-    null,
-  )
-
-  // A product is "not yet on TikTok" if none of its variants have a mapping.
-  const byProduct = new Map<string, UnlinkedProduct & { hasMapping: boolean }>()
-  for (const row of products) {
-    const existing = byProduct.get(row.productId)
-    const hasMapping = Boolean(row.mapping) || (existing?.hasMapping ?? false)
-    byProduct.set(row.productId, {
-      productId: row.productId,
-      productName: row.productName,
-      productImage: existing?.productImage ?? row.productImage,
-      hasMapping,
-    })
-  }
-  const unlinkedProducts = Array.from(byProduct.values()).filter(
-    (p) => !p.hasMapping,
-  )
-
-  if (unlinkedProducts.length === 0) return null
-
-  return (
-    <div>
-      <h2 className="text-sm font-semibold text-neutral-900">
-        Products not yet on TikTok
-      </h2>
-      <p className="mt-1 text-xs text-neutral-500">
-        Create a brand-new TikTok listing straight from your product data —
-        images, price, and every variant in one go.
-      </p>
-      <ul className="mt-3 flex flex-col divide-y divide-neutral-100 rounded-lg border border-neutral-200">
-        {unlinkedProducts.map((p) => (
-          <li
-            key={p.productId}
-            className="flex items-center justify-between px-4 py-2.5"
-          >
-            <div className="flex items-center gap-2">
-              {p.productImage ? (
-                <img
-                  src={p.productImage}
-                  alt=""
-                  className="size-9 shrink-0 rounded object-cover"
-                />
-              ) : (
-                <div className="size-9 shrink-0 rounded bg-neutral-100" />
-              )}
-              <p className="text-sm font-medium text-neutral-900">
-                {p.productName}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={!connected}
-                onClick={() => setConnectingProductId(p.productId)}
-                className={`${buttonSecondaryClassName} disabled:opacity-50`}
-              >
-                Connect existing
-              </button>
-              <button
-                type="button"
-                disabled={!connected}
-                onClick={() => setOpenProductId(p.productId)}
-                className={`${buttonPrimaryClassName} disabled:opacity-50`}
-              >
-                Push to TikTok
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      {openProductId && (
+      {openProduct && (
         <PushToTikTokModal
-          productId={openProductId}
-          productName={
-            unlinkedProducts.find((p) => p.productId === openProductId)
-              ?.productName ?? ''
-          }
+          productId={openProduct.productId}
+          productName={openProduct.productName}
           onClose={() => setOpenProductId(null)}
           onPushed={() => {
             setOpenProductId(null)
@@ -592,13 +431,10 @@ function NewProductsSection({
         />
       )}
 
-      {connectingProductId && (
+      {connectingProduct && (
         <ConnectExistingProductModal
-          productId={connectingProductId}
-          productName={
-            unlinkedProducts.find((p) => p.productId === connectingProductId)
-              ?.productName ?? ''
-          }
+          productId={connectingProduct.productId}
+          productName={connectingProduct.productName}
           onClose={() => setConnectingProductId(null)}
           onConnected={() => {
             setConnectingProductId(null)
@@ -607,6 +443,140 @@ function NewProductsSection({
         />
       )}
     </div>
+  )
+}
+
+function ProductGroupRow({
+  product,
+  connected,
+  onChanged,
+  onPush,
+  onConnect,
+}: {
+  product: GroupedProduct
+  connected: boolean
+  onChanged: () => void
+  onPush: () => void
+  onConnect: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const mappedVariants = product.variants.filter((v) => v.mapping)
+  const totalStock = product.variants.reduce(
+    (sum, v) => sum + v.quantityAvailable,
+    0,
+  )
+
+  async function handleSyncNow() {
+    setSubmitting(true)
+    setError(null)
+    try {
+      for (const v of mappedVariants) {
+        await syncProductNow({ data: { variantId: v.variantId } })
+      }
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  let statusTone: BadgeTone = 'neutral'
+  let statusLabel = 'Not linked'
+  if (mappedVariants.length > 0) {
+    if (mappedVariants.length < product.variants.length) {
+      statusTone = 'warning'
+      statusLabel = `Partially linked (${mappedVariants.length}/${product.variants.length})`
+    } else if (mappedVariants.some((v) => v.mapping?.syncStatus === 'error')) {
+      statusTone = 'critical'
+      statusLabel = 'Error'
+    } else if (
+      mappedVariants.some((v) => v.mapping?.syncStatus === 'pending')
+    ) {
+      statusTone = 'warning'
+      statusLabel = 'Pending'
+    } else {
+      statusTone = 'success'
+      statusLabel = 'Synced'
+    }
+  }
+
+  return (
+    <tr className={tableRowClassName}>
+      <td className={tableCellClassName}>
+        <div className="flex items-center gap-2">
+          {product.productImage ? (
+            <img
+              src={product.productImage}
+              alt=""
+              className="size-9 shrink-0 rounded object-cover"
+            />
+          ) : (
+            <div className="size-9 shrink-0 rounded bg-neutral-100" />
+          )}
+          <p className="font-medium text-neutral-900">{product.productName}</p>
+        </div>
+      </td>
+      <td className={tableCellClassName}>
+        <ul className="flex flex-col gap-0.5 text-xs text-neutral-600">
+          {product.variants.map((v) => {
+            const variantLabel = [v.size, v.color, v.style]
+              .filter(Boolean)
+              .join(' / ')
+            return (
+              <li key={v.variantId}>
+                {v.sku}
+                {variantLabel && ` (${variantLabel})`}
+                {v.mapping && (
+                  <span className="text-neutral-400">
+                    {' '}
+                    — {v.mapping.externalSku ?? v.mapping.externalVariantId}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </td>
+      <td className={tableCellClassName}>{totalStock}</td>
+      <td className={tableCellClassName}>
+        <Badge tone={statusTone}>{statusLabel}</Badge>
+      </td>
+      <td className={`${tableCellClassName} text-right`}>
+        {mappedVariants.length > 0 ? (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleSyncNow}
+            className="text-xs font-medium text-neutral-900 underline disabled:opacity-50"
+          >
+            {submitting ? 'Syncing…' : 'Sync now'}
+          </button>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={onConnect}
+              className={`${buttonSecondaryClassName} disabled:opacity-50`}
+            >
+              Connect existing
+            </button>
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={onPush}
+              className={`${buttonPrimaryClassName} disabled:opacity-50`}
+            >
+              Push to TikTok
+            </button>
+          </div>
+        )}
+        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      </td>
+    </tr>
   )
 }
 
