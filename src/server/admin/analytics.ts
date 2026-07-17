@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import type { OrderSource } from '#/types/entities'
+import type { OrderCancellationReason, OrderSource } from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 
@@ -156,6 +156,113 @@ async function computeChannelSales(
 
   return { channels, totals }
 }
+
+export interface CancelledReturnsResult {
+  range: { from: string; to: string }
+  totalCancelled: number
+  daily: { date: string; count: number }[]
+  byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
+  byChannel: { source: OrderSource; count: number }[]
+  returns: {
+    totalCount: number
+    totalRefundCents: number
+    byChannel: { source: OrderSource; count: number }[]
+  }
+}
+
+export const getCancelledAndReturns = createServerFn({ method: 'GET' })
+  .validator(z.object({ from: z.string(), to: z.string() }))
+  .handler(async ({ data }): Promise<CancelledReturnsResult> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const rangeStart = `${data.from}T00:00:00.000Z`
+    const rangeEnd = `${data.to}T23:59:59.999Z`
+
+    const { data: cancelledOrders, error: cancelledError } = await admin
+      .from('orders')
+      .select('id, source, cancellation_reason, cancelled_at')
+      .eq('status', 'cancelled')
+      .gte('cancelled_at', rangeStart)
+      .lte('cancelled_at', rangeEnd)
+    if (cancelledError) throw cancelledError
+
+    const dailyMap = new Map<string, number>()
+    for (
+      const d = new Date(`${data.from}T00:00:00`);
+      d <= new Date(`${data.to}T00:00:00`);
+      d.setDate(d.getDate() + 1)
+    ) {
+      dailyMap.set(d.toISOString().slice(0, 10), 0)
+    }
+    const byReasonMap = new Map<
+      OrderCancellationReason | 'unspecified',
+      number
+    >()
+    const byChannelMap = new Map<OrderSource, number>()
+
+    for (const order of cancelledOrders) {
+      if (order.cancelled_at) {
+        const day = order.cancelled_at.slice(0, 10)
+        dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1)
+      }
+      const reasonKey = order.cancellation_reason ?? 'unspecified'
+      byReasonMap.set(reasonKey, (byReasonMap.get(reasonKey) ?? 0) + 1)
+      byChannelMap.set(order.source, (byChannelMap.get(order.source) ?? 0) + 1)
+    }
+
+    const { data: returns, error: returnsError } = await admin
+      .from('returns')
+      .select('id, order_id, refund_amount_cents, requested_at')
+      .gte('requested_at', rangeStart)
+      .lte('requested_at', rangeEnd)
+    if (returnsError) throw returnsError
+
+    const returnOrderIds = Array.from(new Set(returns.map((r) => r.order_id)))
+    const { data: returnOrders, error: returnOrdersError } =
+      returnOrderIds.length > 0
+        ? await admin
+            .from('orders')
+            .select('id, source')
+            .in('id', returnOrderIds)
+        : { data: [], error: null }
+    if (returnOrdersError) throw returnOrdersError
+    const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
+
+    const returnsByChannelMap = new Map<OrderSource, number>()
+    let totalRefundCents = 0
+    for (const ret of returns) {
+      totalRefundCents += ret.refund_amount_cents ?? 0
+      const source = sourceByOrderId.get(ret.order_id)
+      if (source) {
+        returnsByChannelMap.set(
+          source,
+          (returnsByChannelMap.get(source) ?? 0) + 1,
+        )
+      }
+    }
+
+    return {
+      range: { from: data.from, to: data.to },
+      totalCancelled: cancelledOrders.length,
+      daily: Array.from(dailyMap.entries())
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+      byReason: Array.from(byReasonMap.entries())
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count),
+      byChannel: Array.from(byChannelMap.entries())
+        .map(([source, count]) => ({ source, count }))
+        .sort((a, b) => b.count - a.count),
+      returns: {
+        totalCount: returns.length,
+        totalRefundCents,
+        byChannel: Array.from(returnsByChannelMap.entries())
+          .map(([source, count]) => ({ source, count }))
+          .sort((a, b) => b.count - a.count),
+      },
+    }
+  })
 
 export const getSalesByChannel = createServerFn({ method: 'GET' })
   .validator(
