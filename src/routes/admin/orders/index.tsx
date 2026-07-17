@@ -403,7 +403,6 @@ function OrdersPage() {
                   <th className={tableHeadClassName}>Date</th>
                   <th className={tableHeadClassName}>Customer</th>
                   <th className={tableHeadClassName}>Channel</th>
-                  <th className={tableHeadClassName}>Order ID</th>
                   <th className={`${tableHeadClassName} text-right`}>Total</th>
                   <th className={tableHeadClassName}>Payment status</th>
                   <th className={tableHeadClassName}>Fulfillment status</th>
@@ -461,7 +460,9 @@ function OrdersPage() {
                           {order.order_number}
                         </Link>
                       </td>
-                      <td className={`${tableCellClassName} text-neutral-500`}>
+                      <td
+                        className={`${tableCellClassName} text-neutral-500 whitespace-nowrap`}
+                      >
                         {new Date(order.placed_at).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -471,11 +472,11 @@ function OrdersPage() {
                         {order.customer.full_name ?? order.customer.email}
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
-                        {SOURCE_LABELS[order.source]}
-                      </td>
-                      <td className={`${tableCellClassName} text-neutral-500`}>
-                        {order.external_order_id ?? (
-                          <span className="text-neutral-400">—</span>
+                        <p>{SOURCE_LABELS[order.source]}</p>
+                        {order.external_order_id && (
+                          <p className="text-xs text-neutral-400">
+                            {order.external_order_id}
+                          </p>
                         )}
                       </td>
                       <td
