@@ -70,8 +70,19 @@ async function getAuthorizedShops(
 async function toOAuthTokens(
   token: Awaited<ReturnType<typeof exchangeAuthCode>>,
 ): Promise<OAuthTokens> {
-  const shops = await getAuthorizedShops(token.access_token)
-  const shop = shops.at(0)
+  // Best-effort: if the app/token doesn't (yet) have whatever permission
+  // this specific endpoint needs, don't block the whole connect flow over
+  // it — save the connection without a shop_cipher rather than refusing to
+  // connect at all. Every call that actually needs shop_cipher will still
+  // fail on its own and log to sync_logs, which is a much easier thing to
+  // debug than never getting connected in the first place.
+  let shop: TikTokAuthorizedShop | undefined
+  try {
+    shop = (await getAuthorizedShops(token.access_token)).at(0)
+  } catch {
+    shop = undefined
+  }
+
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,

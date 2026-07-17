@@ -219,6 +219,13 @@ function ConnectionCard({
           {info.connection.shop_name}
         </p>
       )}
+      {status === 'active' && !info.connection?.shop_cipher && (
+        <p className="mt-2 text-xs text-amber-600">
+          Connected, but missing a required permission — product/order sync will
+          fail until that's resolved with TikTok. Disconnect and reconnect after
+          fixing app permissions.
+        </p>
+      )}
 
       <div className="mt-4">
         {!info.implemented ? (
