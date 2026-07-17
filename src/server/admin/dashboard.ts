@@ -65,22 +65,46 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     if (visitsCurrent.error) throw visitsCurrent.error
     if (visitsPrevious.error) throw visitsPrevious.error
 
+    // A single-day range (e.g. "Today") gets bucketed by hour instead of by
+    // day — one data point for the whole day would be a flat, useless
+    // chart. Anything wider stays bucketed by day, same as before.
+    const isSingleDay = data.from === data.to
+    const bucketKey = (iso: string) =>
+      isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
+
     const dailyMap = new Map<string, DailyPoint>()
     const dailyVisitorSets = new Map<string, Set<string>>()
-    for (
-      const d = new Date(`${data.from}T00:00:00`);
-      d <= new Date(`${data.to}T00:00:00`);
-      d.setDate(d.getDate() + 1)
-    ) {
-      const key = d.toISOString().slice(0, 10)
-      dailyMap.set(key, { date: key, orders: 0, salesCents: 0, visitors: 0 })
-      dailyVisitorSets.set(key, new Set())
+    if (isSingleDay) {
+      for (let hour = 0; hour < 24; hour++) {
+        const hh = String(hour).padStart(2, '0')
+        const key = `${data.from}T${hh}`
+        const label = new Date(`${data.from}T${hh}:00:00`).toLocaleTimeString(
+          'en-US',
+          { hour: 'numeric' },
+        )
+        dailyMap.set(key, {
+          date: label,
+          orders: 0,
+          salesCents: 0,
+          visitors: 0,
+        })
+        dailyVisitorSets.set(key, new Set())
+      }
+    } else {
+      for (
+        const d = new Date(`${data.from}T00:00:00`);
+        d <= new Date(`${data.to}T00:00:00`);
+        d.setDate(d.getDate() + 1)
+      ) {
+        const key = d.toISOString().slice(0, 10)
+        dailyMap.set(key, { date: key, orders: 0, salesCents: 0, visitors: 0 })
+        dailyVisitorSets.set(key, new Set())
+      }
     }
 
     let salesCents = 0
     for (const order of current.data) {
-      const day = order.placed_at.slice(0, 10)
-      const bucket = dailyMap.get(day)
+      const bucket = dailyMap.get(bucketKey(order.placed_at))
       const isVoid = VOID_STATUSES.has(order.status)
       if (bucket) {
         bucket.orders += 1
@@ -96,11 +120,10 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     const uniqueVisitors = new Set<string>()
     for (const visit of visitsCurrent.data) {
       uniqueVisitors.add(visit.visitor_id)
-      const day = visit.created_at.slice(0, 10)
-      dailyVisitorSets.get(day)?.add(visit.visitor_id)
+      dailyVisitorSets.get(bucketKey(visit.created_at))?.add(visit.visitor_id)
     }
-    for (const [day, set] of dailyVisitorSets) {
-      const bucket = dailyMap.get(day)
+    for (const [key, set] of dailyVisitorSets) {
+      const bucket = dailyMap.get(key)
       if (bucket) bucket.visitors = set.size
     }
 

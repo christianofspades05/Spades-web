@@ -187,13 +187,25 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       .lte('cancelled_at', rangeEnd)
     if (cancelledError) throw cancelledError
 
+    // A single-day range (e.g. "Today") gets bucketed by hour instead of by
+    // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
+    const isSingleDay = data.from === data.to
+    const bucketKey = (iso: string) =>
+      isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
+
     const dailyMap = new Map<string, number>()
-    for (
-      const d = new Date(`${data.from}T00:00:00`);
-      d <= new Date(`${data.to}T00:00:00`);
-      d.setDate(d.getDate() + 1)
-    ) {
-      dailyMap.set(d.toISOString().slice(0, 10), 0)
+    if (isSingleDay) {
+      for (let hour = 0; hour < 24; hour++) {
+        dailyMap.set(`${data.from}T${String(hour).padStart(2, '0')}`, 0)
+      }
+    } else {
+      for (
+        const d = new Date(`${data.from}T00:00:00`);
+        d <= new Date(`${data.to}T00:00:00`);
+        d.setDate(d.getDate() + 1)
+      ) {
+        dailyMap.set(d.toISOString().slice(0, 10), 0)
+      }
     }
     const byReasonMap = new Map<
       OrderCancellationReason | 'unspecified',
@@ -203,8 +215,8 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
 
     for (const order of cancelledOrders) {
       if (order.cancelled_at) {
-        const day = order.cancelled_at.slice(0, 10)
-        dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1)
+        const key = bucketKey(order.cancelled_at)
+        dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1)
       }
       const reasonKey = order.cancellation_reason ?? 'unspecified'
       byReasonMap.set(reasonKey, (byReasonMap.get(reasonKey) ?? 0) + 1)
