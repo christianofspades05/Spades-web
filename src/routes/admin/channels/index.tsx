@@ -756,19 +756,30 @@ function ProductGroupRow({
       </td>
       <td className={`${tableCellClassName} text-right`}>
         {mappedVariants.length > 0 ? (
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={handleSyncNow}
-            title={
-              inventorySyncEnabled
-                ? undefined
-                : 'Automatic sync is off for this channel — this pushes this product once, right now, without turning that on.'
-            }
-            className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
-          >
-            {submitting ? 'Syncing…' : 'Sync now'}
-          </button>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleSyncNow}
+              title={
+                inventorySyncEnabled
+                  ? undefined
+                  : 'Automatic sync is off for this channel — this pushes this product once, right now, without turning that on.'
+              }
+              className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
+            >
+              {submitting ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={onConnect}
+              title="Re-link this product to a TikTok listing by pasting its product id — use this to repair a broken or mismatched connection."
+              className="text-xs font-medium text-neutral-600 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
+            >
+              Reconnect
+            </button>
+          </div>
         ) : (
           <div className="flex justify-end gap-2">
             <button
