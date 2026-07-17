@@ -45,7 +45,7 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   failed: [],
 }
 
-interface OrderWithCustomer extends Order {
+export interface OrderWithCustomer extends Order {
   customer: Pick<Customer, 'id' | 'email' | 'full_name'>
   order_items: (Pick<
     OrderItem,
@@ -174,7 +174,7 @@ export const listOrders = createServerFn({ method: 'GET' })
 
     const orders = data.fulfillment
       ? rawOrders.filter((o) => {
-          const shipment = o.shipments[0]
+          const shipment = o.shipments.at(0)
           return data.fulfillment === 'unfulfilled'
             ? !shipment
             : shipment?.status === data.fulfillment
@@ -276,7 +276,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
 
       itemsOrdered += order.order_items.reduce((sum, i) => sum + i.quantity, 0)
 
-      const shipment = order.shipments[0]
+      const shipment = order.shipments.at(0)
       if (shipment && FULFILLED_SHIPMENT_STATUSES.has(shipment.status)) {
         fulfilled += 1
       }
@@ -297,13 +297,13 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
         (sum, i) => sum + i.quantity,
         0,
       )
-      const shipment = order.shipments[0]
+      const shipment = order.shipments.at(0)
       if (shipment && FULFILLED_SHIPMENT_STATUSES.has(shipment.status)) {
         previousFulfilled += 1
       }
     }
     const previousDelivered = previous.data.filter(
-      (o) => o.shipments[0]?.status === 'delivered',
+      (o) => o.shipments.at(0)?.status === 'delivered',
     ).length
 
     return {

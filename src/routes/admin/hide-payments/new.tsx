@@ -23,7 +23,7 @@ function NewCodRestrictionPage() {
   }
 
   return (
-    <div className="w-full max-w-2xl px-8 py-10">
+    <div className="w-full max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader title="Hide Cash on Delivery" />
       <CodRestrictionForm
         collections={collections.filter((c) => c.is_active)}

@@ -3,8 +3,10 @@ import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Search } from 'lucide-react'
 import { listCustomers } from '#/server/admin/customers'
+import type { CustomerListRow } from '#/server/admin/customers'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
+import { CustomerCard } from '#/components/admin/CustomerCard'
 import {
   inputClassName,
   tableCellClassName,
@@ -23,7 +25,7 @@ export const Route = createFileRoute('/admin/customers/')({
 })
 
 function CustomersPage() {
-  const customers = Route.useLoaderData()
+  const customers: CustomerListRow[] = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [searchInput, setSearchInput] = useState(search.q ?? '')
@@ -36,7 +38,7 @@ function CustomersPage() {
   }
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Customers"
         subtitle={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
@@ -59,7 +61,30 @@ function CustomersPage() {
         </form>
       </div>
 
-      <div className={tableWrapperClassName}>
+      {customers.length === 0 && (
+        <p className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+          No customers found.
+        </p>
+      )}
+
+      {customers.length > 0 && (
+        <div className="flex flex-col gap-3 md:hidden">
+          {customers.map((customer) => (
+            <CustomerCard
+              key={customer.id}
+              customer={customer}
+              onOpen={() =>
+                navigate({
+                  to: '/admin/customers/$customerId',
+                  params: { customerId: customer.id },
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      <div className={`${tableWrapperClassName} hidden md:block`}>
         {customers.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">No customers found.</p>
         ) : (

@@ -48,7 +48,7 @@ function DiscountsPage() {
   const discounts = Route.useLoaderData()
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Discounts"
         subtitle={`${discounts.length} ${discounts.length === 1 ? 'discount' : 'discounts'}`}

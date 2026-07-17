@@ -95,7 +95,7 @@ function BulkFulfillPage() {
   ).length
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Bulk fulfillment"
         subtitle={`${orders.length} ${orders.length === 1 ? 'order' : 'orders'} selected`}

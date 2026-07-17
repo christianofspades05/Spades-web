@@ -12,6 +12,7 @@ import {
   getOrdersOverview,
   listOrders,
 } from '#/server/admin/orders'
+import type { OrderWithCustomer, OrdersOverview } from '#/server/admin/orders'
 import type { OrderSource } from '#/types/entities'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -28,6 +29,7 @@ import { Card } from '#/components/admin/Card'
 import { Badge, StatusBadge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { SparkLine } from '#/components/admin/LineChart'
+import { OrderCard } from '#/components/admin/OrderCard'
 import {
   buttonSecondaryClassName,
   inputClassName,
@@ -119,7 +121,11 @@ export const Route = createFileRoute('/admin/orders/')({
 })
 
 function OrdersPage() {
-  const { orders, overview } = Route.useLoaderData()
+  const {
+    orders,
+    overview,
+  }: { orders: OrderWithCustomer[]; overview: OrdersOverview } =
+    Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -322,6 +328,7 @@ function OrdersPage() {
         <div className="flex flex-wrap gap-2">
           <Link
             to="/admin/orders"
+            from={Route.fullPath}
             search={(prev) => ({ ...prev, status: undefined })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               !search.status
@@ -335,6 +342,7 @@ function OrdersPage() {
             <Link
               key={s}
               to="/admin/orders"
+              from={Route.fullPath}
               search={(prev) => ({ ...prev, status: s })}
               className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
                 search.status === s
@@ -354,6 +362,7 @@ function OrdersPage() {
         </span>
         <Link
           to="/admin/orders"
+          from={Route.fullPath}
           search={(prev) => ({ ...prev, source: undefined })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.source
@@ -367,6 +376,7 @@ function OrdersPage() {
           <Link
             key={s}
             to="/admin/orders"
+            from={Route.fullPath}
             search={(prev) => ({ ...prev, source: s })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.source === s
@@ -385,6 +395,7 @@ function OrdersPage() {
         </span>
         <Link
           to="/admin/orders"
+          from={Route.fullPath}
           search={(prev) => ({ ...prev, fulfillment: undefined })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.fulfillment
@@ -406,6 +417,7 @@ function OrdersPage() {
           <Link
             key={f}
             to="/admin/orders"
+            from={Route.fullPath}
             search={(prev) => ({ ...prev, fulfillment: f })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.fulfillment === f
@@ -469,7 +481,32 @@ function OrdersPage() {
         </div>
       )}
 
-      <div className={tableWrapperClassName}>
+      {orders.length === 0 && (
+        <p className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+          No orders found.
+        </p>
+      )}
+
+      {orders.length > 0 && (
+        <div className="flex flex-col gap-3 md:hidden">
+          {orders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              checked={selected.has(order.id)}
+              onToggle={() => toggleOne(order.id)}
+              onOpen={() =>
+                navigate({
+                  to: '/admin/orders/$orderId',
+                  params: { orderId: order.id },
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      <div className={`${tableWrapperClassName} hidden md:block`}>
         {orders.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">No orders found.</p>
         ) : (
@@ -498,10 +535,10 @@ function OrdersPage() {
               </thead>
               <tbody>
                 {orders.map((order) => {
-                  const latestPayment = [...order.payments].sort((a, b) =>
-                    b.created_at.localeCompare(a.created_at),
-                  )[0]
-                  const shipment = order.shipments[0]
+                  const latestPayment = [...order.payments]
+                    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                    .at(0)
+                  const shipment = order.shipments.at(0)
                   const itemCount = order.order_items.reduce(
                     (sum, i) => sum + i.quantity,
                     0,

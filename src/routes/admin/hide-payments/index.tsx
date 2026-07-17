@@ -19,7 +19,7 @@ function HidePaymentsPage() {
   const restrictions = Route.useLoaderData()
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Hide Payments"
         subtitle="Block Cash on Delivery for specific collections or products — e.g. a Clearance Sale that must be paid online."

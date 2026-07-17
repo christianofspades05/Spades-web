@@ -8,55 +8,57 @@ import type { Customer, CustomerAddress, Order } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
 
+export interface CustomerListRow extends Customer {
+  orders_count: number
+}
+
 export const listCustomers = createServerFn({ method: 'GET' })
   .validator(z.object({ q: z.string().optional() }))
-  .handler(
-    async ({ data }): Promise<(Customer & { orders_count: number })[]> => {
-      await requireStaff()
-      const admin = getSupabaseAdminClient()
+  .handler(async ({ data }): Promise<CustomerListRow[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
 
-      let query = admin
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false })
+    let query = admin
+      .from('customers')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-      const search = data.q?.trim()
-      if (search) {
-        query = query.or(
-          `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`,
-        )
-      }
+    const search = data.q?.trim()
+    if (search) {
+      query = query.or(
+        `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`,
+      )
+    }
 
-      const { data: customers, error } = await query
-      if (error) throw error
-      if (customers.length === 0) return []
+    const { data: customers, error } = await query
+    if (error) throw error
+    if (customers.length === 0) return []
 
-      // successful_orders_count is a risk-tracking counter nothing currently
-      // maintains — count real rows instead so "Orders" reflects how many
-      // times the customer has actually bought.
-      const { data: orders, error: ordersError } = await admin
-        .from('orders')
-        .select('customer_id')
-        .in(
-          'customer_id',
-          customers.map((c) => c.id),
-        )
-      if (ordersError) throw ordersError
+    // successful_orders_count is a risk-tracking counter nothing currently
+    // maintains — count real rows instead so "Orders" reflects how many
+    // times the customer has actually bought.
+    const { data: orders, error: ordersError } = await admin
+      .from('orders')
+      .select('customer_id')
+      .in(
+        'customer_id',
+        customers.map((c) => c.id),
+      )
+    if (ordersError) throw ordersError
 
-      const countMap = new Map<string, number>()
-      for (const order of orders) {
-        countMap.set(
-          order.customer_id,
-          (countMap.get(order.customer_id) ?? 0) + 1,
-        )
-      }
+    const countMap = new Map<string, number>()
+    for (const order of orders) {
+      countMap.set(
+        order.customer_id,
+        (countMap.get(order.customer_id) ?? 0) + 1,
+      )
+    }
 
-      return customers.map((customer) => ({
-        ...customer,
-        orders_count: countMap.get(customer.id) ?? 0,
-      }))
-    },
-  )
+    return customers.map((customer) => ({
+      ...customer,
+      orders_count: countMap.get(customer.id) ?? 0,
+    }))
+  })
 
 interface CustomerWithDetails extends Customer {
   addresses: CustomerAddress[]
@@ -98,7 +100,7 @@ export const getCustomerById = createServerFn({ method: 'GET' })
     if (addressesError) throw addressesError
     if (ordersError) throw ordersError
 
-    return { ...customer, addresses: addresses ?? [], orders: orders ?? [] }
+    return { ...customer, addresses, orders }
   })
 
 export const updateCustomerRisk = createServerFn({ method: 'POST' })

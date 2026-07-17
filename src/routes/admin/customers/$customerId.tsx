@@ -32,7 +32,7 @@ function CustomerDetailPage() {
   const router = useRouter()
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title={customer.full_name ?? customer.email}
         subtitle={customer.email}

@@ -278,7 +278,7 @@ function BulkEditPage() {
   let variantRowIndex = -1
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title={`Editing ${products.length} ${products.length === 1 ? 'product' : 'products'}`}
         action={

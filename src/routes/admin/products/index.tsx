@@ -12,6 +12,10 @@ import {
   getProductsOverview,
   listAllProducts,
 } from '#/server/admin/products'
+import type {
+  ProductsOverview,
+  ProductWithCollectionNames,
+} from '#/server/admin/products'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
@@ -20,6 +24,7 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { StatusBadge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
+import { ProductCard } from '#/components/admin/ProductCard'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -85,7 +90,11 @@ export const Route = createFileRoute('/admin/products/')({
 })
 
 function ProductsPage() {
-  const { products, overview } = Route.useLoaderData()
+  const {
+    products,
+    overview,
+  }: { products: ProductWithCollectionNames[]; overview: ProductsOverview } =
+    Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -191,7 +200,7 @@ function ProductsPage() {
   }, [products, search.sort, search.dir])
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Products"
         subtitle={`${products.length} ${products.length === 1 ? 'product' : 'products'}`}
@@ -278,6 +287,7 @@ function ProductsPage() {
         <div className="flex flex-wrap gap-2">
           <Link
             to="/admin/products"
+            from={Route.fullPath}
             search={(prev) => ({ ...prev, status: undefined })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               !search.status
@@ -291,6 +301,7 @@ function ProductsPage() {
             <Link
               key={s}
               to="/admin/products"
+              from={Route.fullPath}
               search={(prev) => ({ ...prev, status: s })}
               className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
                 search.status === s
@@ -396,7 +407,36 @@ function ProductsPage() {
         </div>
       )}
 
-      <div className={tableWrapperClassName}>
+      {rows.length === 0 && (
+        <p className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+          No products found.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-3 md:hidden">
+          {rows.map(({ product, onHand, isLowStock, categories }) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              onHand={onHand}
+              isLowStock={isLowStock}
+              categories={categories}
+              variantCount={product.variants.length}
+              checked={selected.has(product.id)}
+              onToggle={() => toggleSelected(product.id)}
+              onOpen={() =>
+                navigate({
+                  to: '/admin/products/$productId',
+                  params: { productId: product.id },
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      <div className={`${tableWrapperClassName} hidden md:block`}>
         {rows.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">No products found.</p>
         ) : (

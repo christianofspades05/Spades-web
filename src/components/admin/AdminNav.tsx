@@ -29,7 +29,13 @@ const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
 ] as const
 
-export function AdminNav() {
+export function AdminNav({
+  className = '',
+  onNavigate,
+}: {
+  className?: string
+  onNavigate?: () => void
+}) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [expanded, setExpanded] = useState(false)
@@ -45,15 +51,18 @@ export function AdminNav() {
   }
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-white">
+    <aside
+      className={`flex flex-col border-neutral-200 bg-white ${className}`}
+    >
       <div className="px-4 py-5">
         <img src="/logo-black.png" alt="Spades" className="h-5 w-auto" />
         <p className="mt-1 text-xs text-neutral-500">Admin</p>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 px-2">
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
         <Link
           to="/admin"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname === '/admin'
               ? 'bg-neutral-100 text-neutral-950'
@@ -83,6 +92,7 @@ export function AdminNav() {
         >
           <Link
             to="/admin/products"
+            onClick={onNavigate}
             className="flex flex-1 items-center gap-2.5 px-3 py-2 text-sm font-medium"
           >
             <Package size={17} strokeWidth={2} />
@@ -110,6 +120,7 @@ export function AdminNav() {
                 <Link
                   key={link.to}
                   to={link.to}
+                  onClick={onNavigate}
                   className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                     isActive
                       ? 'bg-neutral-100 text-neutral-950'
@@ -125,6 +136,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/orders"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/orders')
               ? 'bg-neutral-100 text-neutral-950'
@@ -137,6 +149,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/customers"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/customers')
               ? 'bg-neutral-100 text-neutral-950'
@@ -149,6 +162,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/channels"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/channels')
               ? 'bg-neutral-100 text-neutral-950'
@@ -170,6 +184,7 @@ export function AdminNav() {
             <Link
               key={link.to}
               to={link.to}
+              onClick={onNavigate}
               className={`rounded-md px-3 py-2 text-sm font-medium ${
                 isActive
                   ? 'bg-neutral-100 text-neutral-950'
@@ -187,6 +202,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/discounts"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/discounts')
               ? 'bg-neutral-100 text-neutral-950'
@@ -199,6 +215,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/hide-payments"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/hide-payments')
               ? 'bg-neutral-100 text-neutral-950'
@@ -211,6 +228,7 @@ export function AdminNav() {
 
         <Link
           to="/admin/reviews"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/reviews')
               ? 'bg-neutral-100 text-neutral-950'
@@ -225,6 +243,7 @@ export function AdminNav() {
       <div className="border-t border-neutral-200 p-2">
         <Link
           to="/admin/settings"
+          onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
             pathname.startsWith('/admin/settings')
               ? 'bg-neutral-100 text-neutral-950'

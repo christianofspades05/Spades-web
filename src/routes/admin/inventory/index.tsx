@@ -58,7 +58,7 @@ function InventoryPage() {
   ).length
 
   return (
-    <div className="w-full px-8 py-10">
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Inventory"
         subtitle={`${rows.length} ${rows.length === 1 ? 'variant' : 'variants'} · ${totalAvailable} available · ${lowStockCount} low stock`}

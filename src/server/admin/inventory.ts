@@ -51,7 +51,7 @@ export const listInventory = createServerFn({ method: 'GET' })
     if (error) throw error
 
     return variants.map((v) => {
-      const inv = v.inventory[0]
+      const inv = v.inventory.at(0)
       return {
         variantId: v.id,
         sku: v.sku,

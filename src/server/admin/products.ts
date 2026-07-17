@@ -29,7 +29,7 @@ interface ProductWithDetails extends Product {
   variants: VariantWithInventory[]
   collections: Array<{ collection_id: string }>
 }
-interface ProductWithCollectionNames extends ProductWithDetails {
+export interface ProductWithCollectionNames extends ProductWithDetails {
   collections: Array<{ collection_id: string; collection: { name: string } }>
 }
 
