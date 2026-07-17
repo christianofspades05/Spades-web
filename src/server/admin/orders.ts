@@ -46,7 +46,11 @@ interface OrderWithCustomer extends Order {
   customer: Pick<Customer, 'id' | 'email' | 'full_name'>
   order_items: (Pick<
     OrderItem,
-    'id' | 'product_name_snapshot' | 'variant_label_snapshot' | 'quantity'
+    | 'id'
+    | 'product_name_snapshot'
+    | 'variant_label_snapshot'
+    | 'quantity'
+    | 'variant_id'
   > & { image_url: string | null })[]
   payments: Pick<Payment, 'status' | 'created_at'>[]
   shipments: Pick<Shipment, 'status' | 'carrier' | 'tracking_number'>[]

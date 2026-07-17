@@ -403,6 +403,7 @@ function OrdersPage() {
                   <th className={tableHeadClassName}>Date</th>
                   <th className={tableHeadClassName}>Customer</th>
                   <th className={tableHeadClassName}>Channel</th>
+                  <th className={tableHeadClassName}>Order ID</th>
                   <th className={`${tableHeadClassName} text-right`}>Total</th>
                   <th className={tableHeadClassName}>Payment status</th>
                   <th className={tableHeadClassName}>Fulfillment status</th>
@@ -472,6 +473,11 @@ function OrdersPage() {
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {SOURCE_LABELS[order.source]}
                       </td>
+                      <td className={`${tableCellClassName} text-neutral-500`}>
+                        {order.external_order_id ?? (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
                       <td
                         className={`${tableCellClassName} text-right font-medium`}
                       >
@@ -537,6 +543,11 @@ function OrdersPage() {
                                     <div className="min-w-0 flex-1">
                                       <p className="truncate font-medium text-neutral-900">
                                         {item.product_name_snapshot}
+                                        {!item.variant_id && (
+                                          <span className="ml-1 font-normal text-amber-600">
+                                            (Not Connected)
+                                          </span>
+                                        )}
                                       </p>
                                       <div className="flex items-center justify-between text-neutral-500">
                                         <span>
