@@ -438,13 +438,22 @@ function OrdersPage() {
                   return (
                     <tr
                       key={order.id}
+                      onClick={() =>
+                        navigate({
+                          to: '/admin/orders/$orderId',
+                          params: { orderId: order.id },
+                        })
+                      }
                       className={
                         order.status === 'cancelled'
-                          ? `${tableRowClassName} opacity-60 line-through decoration-2`
-                          : tableRowClassName
+                          ? `${tableRowClassName} cursor-pointer opacity-60 line-through decoration-2`
+                          : `${tableRowClassName} cursor-pointer`
                       }
                     >
-                      <td className={tableCellClassName}>
+                      <td
+                        className={tableCellClassName}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <input
                           type="checkbox"
                           checked={selected.has(order.id)}
@@ -504,6 +513,7 @@ function OrdersPage() {
                       </td>
                       <td
                         className={`${tableCellClassName} relative text-right`}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <button
                           type="button"
