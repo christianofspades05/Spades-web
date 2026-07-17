@@ -6,6 +6,7 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import { getCustomerById, updateCustomerRisk } from '#/server/admin/customers'
+import type { CustomerWithDetails } from '#/server/admin/customers'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
@@ -28,7 +29,7 @@ export const Route = createFileRoute('/admin/customers/$customerId')({
 })
 
 function CustomerDetailPage() {
-  const customer = Route.useLoaderData()
+  const customer: CustomerWithDetails = Route.useLoaderData()
   const router = useRouter()
 
   return (

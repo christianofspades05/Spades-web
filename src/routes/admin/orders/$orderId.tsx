@@ -1,11 +1,17 @@
 import { useState } from 'react'
-import { createFileRoute, notFound, useRouter } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  Link,
+  notFound,
+  useRouter,
+} from '@tanstack/react-router'
 import {
   cancelOrder,
   getOrderById,
   updateOrderStatus,
   upsertShipment,
 } from '#/server/admin/orders'
+import type { OrderWithDetails } from '#/server/admin/orders'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
@@ -73,7 +79,7 @@ export const Route = createFileRoute('/admin/orders/$orderId')({
 })
 
 function OrderDetailPage() {
-  const order = Route.useLoaderData()
+  const order: OrderWithDetails = Route.useLoaderData()
   const router = useRouter()
   const address = order.shipping_address as unknown as OrderShippingAddress
   const fullAddress = formatShippingAddress(address)
@@ -193,7 +199,31 @@ function OrderDetailPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
               Customer
             </h2>
-            <div className="flex flex-col gap-2 text-sm text-neutral-700">
+            <Link
+              to="/admin/customers/$customerId"
+              params={{ customerId: order.customer.id }}
+              className="text-sm font-medium text-neutral-900 hover:underline"
+            >
+              {order.customer.full_name ?? order.customer.email}
+            </Link>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
+              <Link
+                to="/admin/customers/$customerId"
+                params={{ customerId: order.customer.id }}
+                className="hover:underline"
+              >
+                {order.customerStats.ordersCount}{' '}
+                {order.customerStats.ordersCount === 1 ? 'order' : 'orders'}
+              </Link>
+              <span>·</span>
+              <span>
+                {order.customerStats.ordersCount -
+                  order.customerStats.failedDeliveryCount}
+                /{order.customerStats.ordersCount} delivery rate
+              </span>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 text-sm text-neutral-700">
               <Row label={address.recipientName}>
                 <CopyButton
                   value={address.recipientName}

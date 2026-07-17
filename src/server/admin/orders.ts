@@ -58,11 +58,15 @@ export interface OrderWithCustomer extends Order {
   payments: Pick<Payment, 'status' | 'created_at'>[]
   shipments: Pick<Shipment, 'status' | 'carrier' | 'tracking_number'>[]
 }
-interface OrderWithDetails extends Order {
+export interface OrderWithDetails extends Order {
   customer: Customer
   order_items: (OrderItem & { image_url: string | null })[]
   payments: Payment[]
   shipments: Shipment[]
+  /** Computed live from the customer's real order history, not the
+   *  customers table's own counter columns — nothing currently keeps those
+   *  maintained (see the same note in listCustomers below). */
+  customerStats: { ordersCount: number; failedDeliveryCount: number }
 }
 
 /**
@@ -354,7 +358,20 @@ export const getOrderById = createServerFn({ method: 'GET' })
           .filter((v): v is string => !!v),
       ),
     )
-    const imageMap = await getProductImagesByVariantId(admin, variantIds)
+    const [imageMap, { data: customerOrders, error: customerOrdersError }] =
+      await Promise.all([
+        getProductImagesByVariantId(admin, variantIds),
+        admin
+          .from('orders')
+          .select('status, cancellation_reason')
+          .eq('customer_id', order.customer_id),
+      ])
+    if (customerOrdersError) throw customerOrdersError
+
+    const failedDeliveryCount = customerOrders.filter(
+      (o) =>
+        o.status === 'cancelled' && o.cancellation_reason === 'failed_delivery',
+    ).length
 
     return {
       ...order,
@@ -364,6 +381,10 @@ export const getOrderById = createServerFn({ method: 'GET' })
           ? (imageMap.get(item.variant_id) ?? null)
           : null,
       })),
+      customerStats: {
+        ordersCount: customerOrders.length,
+        failedDeliveryCount,
+      },
     }
   })
 
