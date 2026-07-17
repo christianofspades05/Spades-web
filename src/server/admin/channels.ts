@@ -218,26 +218,38 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
       .eq('marketplace', data.marketplace)
       .maybeSingle()
 
-    const { data: variants, error } = await admin
-      .from('product_variants')
-      .select(
-        'id, sku, size, color, style, product:products(id, name, images, created_at), inventory(quantity_available)',
-      )
-      .eq('is_active', true)
-      .order('sku', { ascending: true })
-    if (error) throw error
-
-    // TEMP debug: investigating a product missing from this list.
-    console.log(
-      '[debug] listProductSyncStatus variant count:',
-      variants.length,
-      'mad hustler matches:',
-      JSON.stringify(
-        variants
-          .filter((v) => v.product.name.toLowerCase().includes('mad hustler'))
-          .map((v) => ({ sku: v.sku, product: v.product.name })),
-      ),
-    )
+    // Supabase/PostgREST caps a single response at 1000 rows by default —
+    // with 1000+ active variants in the catalog, an unpaginated query
+    // silently truncated (ordered by sku, so anything sorting past the
+    // cutoff just never came back). Page through everything explicitly.
+    const PAGE_SIZE = 1000
+    const variants: {
+      id: string
+      sku: string
+      size: string | null
+      color: string | null
+      style: string | null
+      product: {
+        id: string
+        name: string
+        images: string[]
+        created_at: string
+      }
+      inventory: { quantity_available: number }[]
+    }[] = []
+    for (let page = 0; ; page++) {
+      const { data: batch, error } = await admin
+        .from('product_variants')
+        .select(
+          'id, sku, size, color, style, product:products(id, name, images, created_at), inventory(quantity_available)',
+        )
+        .eq('is_active', true)
+        .order('sku', { ascending: true })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      if (error) throw error
+      variants.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
 
     const { data: mappings } = connection
       ? await admin
