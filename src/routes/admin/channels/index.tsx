@@ -12,6 +12,7 @@ import {
   listRecentSyncLogs,
   pullOrdersNow,
   pushProductToMarketplace,
+  setInventorySyncEnabled,
   syncProductNow,
 } from '#/server/admin/channels'
 import type {
@@ -181,8 +182,10 @@ function ConnectionCard({
   onChanged: () => void
 }) {
   const [submitting, setSubmitting] = useState(false)
+  const [togglingSync, setTogglingSync] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const status = info.connection?.status ?? 'revoked'
+  const inventorySyncEnabled = info.connection?.inventory_sync_enabled ?? false
 
   async function handleDisconnect() {
     setSubmitting(true)
@@ -196,6 +199,24 @@ function ConnectionCard({
       setError(getErrorMessage(err))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleToggleInventorySync() {
+    setTogglingSync(true)
+    setError(null)
+    try {
+      await setInventorySyncEnabled({
+        data: {
+          marketplace: info.marketplace as 'tiktok_shop',
+          enabled: !inventorySyncEnabled,
+        },
+      })
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setTogglingSync(false)
     }
   }
 
@@ -225,6 +246,29 @@ function ConnectionCard({
           fail until that's resolved with TikTok. Disconnect and reconnect after
           fixing app permissions.
         </p>
+      )}
+
+      {(status === 'active' || status === 'expired') && (
+        <label className="mt-3 flex items-start gap-2 text-xs text-neutral-600">
+          <input
+            type="checkbox"
+            checked={inventorySyncEnabled}
+            disabled={togglingSync}
+            onChange={handleToggleInventorySync}
+            className="mt-0.5"
+          />
+          <span>
+            Automatically sync inventory to this channel
+            {!inventorySyncEnabled && (
+              <span className="block text-neutral-400">
+                Off by default — turn on once you're ready, e.g. after turning
+                off any other tool (like Shopify) that already syncs stock here.
+                Turning this on immediately pushes stock for every connected
+                product.
+              </span>
+            )}
+          </span>
+        </label>
       )}
 
       <div className="mt-4">

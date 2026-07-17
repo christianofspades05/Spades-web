@@ -79,6 +79,39 @@ export const disconnectChannel = createServerFn({ method: 'POST' })
     return { ok: true }
   })
 
+/**
+ * Inventory sync is off by default (see sync-engine.ts's pushOneMapping
+ * comment on why) — turning it on here also immediately pushes every
+ * currently-connected product's stock once, so enabling isn't a silent
+ * no-op until the next scheduled sync.
+ */
+export const setInventorySyncEnabled = createServerFn({ method: 'POST' })
+  .validator(z.object({ marketplace: marketplaceSchema, enabled: z.boolean() }))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('marketplace_connections')
+      .update({ inventory_sync_enabled: data.enabled })
+      .eq('marketplace', data.marketplace)
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'channel.set_inventory_sync_enabled',
+      'marketplace_connections',
+      data.marketplace,
+      { enabled: data.enabled },
+    )
+
+    if (data.enabled) {
+      await pushInventoryForAllProducts(data.marketplace)
+    }
+
+    return { ok: true }
+  })
+
 export interface ProductSyncRow {
   variantId: string
   productId: string

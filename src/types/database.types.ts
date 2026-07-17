@@ -618,6 +618,7 @@ export interface Database {
           refresh_token_encrypted: string | null
           token_expires_at: string | null
           status: MarketplaceConnectionStatus
+          inventory_sync_enabled: boolean
           connected_by: string | null
           created_at: string
           updated_at: string

@@ -124,6 +124,12 @@ async function pushOneMapping(
   mapping: MappingRow,
   quantity: number,
 ): Promise<void> {
+  // Inventory sync is an explicit per-channel opt-in (off by default) — a
+  // channel connected here may already have its stock managed by another
+  // tool (e.g. an existing Shopify sync app), and pushing our numbers
+  // uninvited risks visibly overwriting whatever that other tool just set.
+  if (!connection.inventory_sync_enabled) return
+
   const admin = getSupabaseAdminClient()
   const adapter = getAdapter(connection.marketplace)
 
@@ -746,11 +752,9 @@ export async function connectExistingProductToMarketplace(
       if (upsertError) throw upsertError
     }
 
-    // Push current stock right away so a newly-connected product doesn't sit
-    // showing a stale count until the next sync.
-    for (const m of matches) {
-      await pushInventoryForVariant(m.variantId)
-    }
+    // Deliberately doesn't push inventory here — connecting only links the
+    // product; inventory sync is a separate, explicit opt-in per channel
+    // (see pushOneMapping's comment on why).
 
     await logSync(marketplace, 'connect_existing_product', 'success', {
       productId,
