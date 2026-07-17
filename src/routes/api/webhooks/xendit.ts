@@ -98,13 +98,19 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
           if (itemsError) throw itemsError
 
           if (payload.status === 'PAID' && order.status !== 'paid') {
-            for (const item of orderItems) {
-              if (!item.variant_id) continue
-              await admin.rpc('commit_variant_stock', {
-                p_variant_id: item.variant_id,
-                p_quantity: item.quantity,
-              })
-            }
+            await Promise.all(
+              orderItems
+                .filter(
+                  (item): item is typeof item & { variant_id: string } =>
+                    item.variant_id !== null,
+                )
+                .map((item) =>
+                  admin.rpc('commit_variant_stock', {
+                    p_variant_id: item.variant_id,
+                    p_quantity: item.quantity,
+                  }),
+                ),
+            )
 
             await admin
               .from('orders')
@@ -125,13 +131,19 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
             (payload.status === 'EXPIRED' || payload.status === 'FAILED') &&
             order.status === 'pending_payment'
           ) {
-            for (const item of orderItems) {
-              if (!item.variant_id) continue
-              await admin.rpc('release_variant_stock', {
-                p_variant_id: item.variant_id,
-                p_quantity: item.quantity,
-              })
-            }
+            await Promise.all(
+              orderItems
+                .filter(
+                  (item): item is typeof item & { variant_id: string } =>
+                    item.variant_id !== null,
+                )
+                .map((item) =>
+                  admin.rpc('release_variant_stock', {
+                    p_variant_id: item.variant_id,
+                    p_quantity: item.quantity,
+                  }),
+                ),
+            )
 
             await admin
               .from('orders')

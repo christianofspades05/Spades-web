@@ -57,15 +57,21 @@ export const placeOrder = createServerFn({ method: 'POST' })
       const cart = await loadCartWithItems(admin, cartRow.id)
       if (cart.items.length === 0) throw new Error('Your cart is empty')
 
-      // Re-verify stock right now — the cart's snapshot may be stale.
-      for (const item of cart.items) {
-        const stock = await getActiveVariantStock(admin, item.variant_id)
+      // Re-verify stock right now — the cart's snapshot may be stale. Checked
+      // in parallel rather than one round-trip per line — with a multi-item
+      // cart, doing this sequentially was adding real, avoidable latency to
+      // every checkout.
+      const stockChecks = await Promise.all(
+        cart.items.map((item) => getActiveVariantStock(admin, item.variant_id)),
+      )
+      cart.items.forEach((item, i) => {
+        const stock = stockChecks[i]
         if (!stock || stock.availableStock < item.quantity) {
           throw new Error(
             `"${item.variant.product.name}" no longer has enough stock`,
           )
         }
-      }
+      })
 
       // Never trust the client's payment method choice alone — a stale page
       // (or a hand-crafted request) could still submit 'cod' after a staff
@@ -151,21 +157,34 @@ export const placeOrder = createServerFn({ method: 'POST' })
         }
       }
 
-      try {
-        for (const item of cart.items) {
-          const { data: ok, error: reserveError } = await admin.rpc(
-            'reserve_variant_stock',
-            { p_variant_id: item.variant_id, p_quantity: item.quantity },
-          )
-          if (reserveError) throw reserveError
-          if (!ok) {
-            throw new Error(`"${item.variant.product.name}" just sold out`)
-          }
-          reserved.push({ variantId: item.variant_id, quantity: item.quantity })
+      // Reserved concurrently, not one row at a time — each RPC call locks
+      // only its own variant's row, so there's no cross-item contention to
+      // avoid by going sequentially, and a multi-item cart was paying a full
+      // network round-trip per line for no benefit.
+      const reserveResults = await Promise.all(
+        cart.items.map(async (item) => {
+          const { data: ok, error } = await admin.rpc('reserve_variant_stock', {
+            p_variant_id: item.variant_id,
+            p_quantity: item.quantity,
+          })
+          return { item, ok, error }
+        }),
+      )
+
+      for (const r of reserveResults) {
+        if (!r.error && r.ok) {
+          reserved.push({
+            variantId: r.item.variant_id,
+            quantity: r.item.quantity,
+          })
         }
-      } catch (err) {
+      }
+
+      const failed = reserveResults.find((r) => r.error || !r.ok)
+      if (failed) {
         await releaseAllReserved()
-        throw err
+        if (failed.error) throw failed.error
+        throw new Error(`"${failed.item.variant.product.name}" just sold out`)
       }
 
       const shippingAddress = {
@@ -301,35 +320,34 @@ export const placeOrder = createServerFn({ method: 'POST' })
         .update({ status: 'converted' })
         .eq('id', cart.id)
 
-      // Best-effort — a notification failure should never block checkout,
-      // and this is silently skipped entirely if no owner address is set.
+      // Best-effort and explicitly NOT awaited — this is a notification
+      // for staff, not something the customer's response should ever wait
+      // on. Silently skipped entirely if no owner address is set.
       const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
       if (storeOwnerEmail) {
-        try {
-          const origin = getRequestUrl().origin
-          await sendEmail({
-            to: storeOwnerEmail,
-            subject: newOrderEmailSubject(order.order_number),
-            html: newOrderEmailHtml({
-              orderNumber: order.order_number,
-              customerName: data.contact.recipientName,
-              customerEmail: email,
-              totalCents,
-              isCod: data.paymentProvider === 'cod',
-              items: cart.items.map((item) => ({
-                name: item.variant.product.name,
-                variantLabel:
-                  [item.variant.size, item.variant.color, item.variant.style]
-                    .filter(Boolean)
-                    .join(' / ') || null,
-                quantity: item.quantity,
-              })),
-              orderUrl: `${origin}/admin/orders/${order.id}`,
-            }),
-          })
-        } catch (err) {
+        const origin = getRequestUrl().origin
+        void sendEmail({
+          to: storeOwnerEmail,
+          subject: newOrderEmailSubject(order.order_number),
+          html: newOrderEmailHtml({
+            orderNumber: order.order_number,
+            customerName: data.contact.recipientName,
+            customerEmail: email,
+            totalCents,
+            isCod: data.paymentProvider === 'cod',
+            items: cart.items.map((item) => ({
+              name: item.variant.product.name,
+              variantLabel:
+                [item.variant.size, item.variant.color, item.variant.style]
+                  .filter(Boolean)
+                  .join(' / ') || null,
+              quantity: item.quantity,
+            })),
+            orderUrl: `${origin}/admin/orders/${order.id}`,
+          }),
+        }).catch((err: unknown) => {
           console.error('Failed to send new-order notification email:', err)
-        }
+        })
       }
 
       return { orderId: order.id, orderNumber: order.order_number, invoiceUrl }

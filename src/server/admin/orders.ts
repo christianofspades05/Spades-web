@@ -506,18 +506,28 @@ async function restockCancelledOrder(
   items: Pick<OrderItem, 'variant_id' | 'quantity'>[],
 ) {
   const wasCommitted = currentStatus !== 'pending_payment'
+  const rpcName = wasCommitted
+    ? 'restock_variant_stock'
+    : 'release_variant_stock'
+  const itemsWithVariant: { variant_id: string; quantity: number }[] = []
   for (const item of items) {
-    if (!item.variant_id) continue
-    const rpcName = wasCommitted
-      ? 'restock_variant_stock'
-      : 'release_variant_stock'
-    await admin.rpc(rpcName, {
-      p_variant_id: item.variant_id,
-      p_quantity: item.quantity,
-      p_reference_type: 'order_cancel',
-      p_reference_id: orderId,
-    })
+    if (item.variant_id) {
+      itemsWithVariant.push({
+        variant_id: item.variant_id,
+        quantity: item.quantity,
+      })
+    }
   }
+  await Promise.all(
+    itemsWithVariant.map((item) =>
+      admin.rpc(rpcName, {
+        p_variant_id: item.variant_id,
+        p_quantity: item.quantity,
+        p_reference_type: 'order_cancel',
+        p_reference_id: orderId,
+      }),
+    ),
+  )
 }
 
 export const cancelOrder = createServerFn({ method: 'POST' })
@@ -594,41 +604,46 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
         itemsByOrder.set(item.order_id, list)
       }
 
-      let cancelled = 0
-      let skipped = 0
-      for (const order of orders) {
-        const currentStatus = order.status
-        if (!ALLOWED_TRANSITIONS[currentStatus].includes('cancelled')) {
-          skipped += 1
-          continue
-        }
+      // Each order is independent, so cancelling them one at a time bought
+      // nothing but latency — a bulk selection of 20+ orders was paying a
+      // full round trip per order, sequentially.
+      const wasCancelled: boolean[] = await Promise.all(
+        orders.map(async (order) => {
+          const currentStatus = order.status
+          if (!ALLOWED_TRANSITIONS[currentStatus].includes('cancelled')) {
+            return false
+          }
 
-        if (data.restock) {
-          await restockCancelledOrder(
-            admin,
-            order.id,
-            currentStatus,
-            itemsByOrder.get(order.id) ?? [],
-          )
-        }
+          if (data.restock) {
+            await restockCancelledOrder(
+              admin,
+              order.id,
+              currentStatus,
+              itemsByOrder.get(order.id) ?? [],
+            )
+          }
 
-        await admin
-          .from('orders')
-          .update({
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString(),
-            cancellation_reason: data.reason,
+          await admin
+            .from('orders')
+            .update({
+              status: 'cancelled',
+              cancelled_at: new Date().toISOString(),
+              cancellation_reason: data.reason,
+            })
+            .eq('id', order.id)
+
+          await logStaffActivity(staff, 'order.cancel', 'orders', order.id, {
+            from: currentStatus,
+            restocked: data.restock,
+            reason: data.reason,
+            bulk: true,
           })
-          .eq('id', order.id)
+          return true
+        }),
+      )
 
-        await logStaffActivity(staff, 'order.cancel', 'orders', order.id, {
-          from: currentStatus,
-          restocked: data.restock,
-          reason: data.reason,
-          bulk: true,
-        })
-        cancelled += 1
-      }
+      const cancelled = wasCancelled.filter(Boolean).length
+      const skipped = wasCancelled.length - cancelled
 
       return { cancelled, skipped }
     },

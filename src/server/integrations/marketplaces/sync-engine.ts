@@ -1014,44 +1014,65 @@ export async function autoConnectProductsByTitle(
     const products = await getUnlinkedProducts(admin, connection.id)
     const result: AutoConnectByTitleResult = { connected: [], skipped: [] }
 
-    for (const product of products) {
-      const matches = remoteByTitle.get(product.name.trim().toLowerCase()) ?? []
-      if (matches.length === 0) {
-        result.skipped.push({
-          productId: product.id,
-          productName: product.name,
-          reason: 'No TikTok product with a matching title.',
-        })
-        continue
-      }
-      if (matches.length > 1) {
-        result.skipped.push({
-          productId: product.id,
-          productName: product.name,
-          reason: `${matches.length} TikTok products share this title — connect manually.`,
-        })
-        continue
-      }
+    // Fanned out concurrently, not one product at a time — each connect
+    // attempt makes its own external TikTok API call, and going sequentially
+    // on a catalog with many unmatched products risked the same serverless
+    // timeout autoConnectProductsBySku's concurrency fix (below) already
+    // addresses for that mode.
+    const outcomes = await mapWithConcurrency(
+      products,
+      DETAIL_FETCH_CONCURRENCY,
+      async (product) => {
+        const matches =
+          remoteByTitle.get(product.name.trim().toLowerCase()) ?? []
+        if (matches.length === 0) {
+          return {
+            skipped: {
+              productId: product.id,
+              productName: product.name,
+              reason: 'No TikTok product with a matching title.',
+            },
+          }
+        }
+        if (matches.length > 1) {
+          return {
+            skipped: {
+              productId: product.id,
+              productName: product.name,
+              reason: `${matches.length} TikTok products share this title — connect manually.`,
+            },
+          }
+        }
 
-      try {
-        const connectResult = await connectExistingProductToMarketplace(
-          marketplace,
-          product.id,
-          matches[0].externalProductId,
-        )
-        result.connected.push({
-          productId: product.id,
-          productName: product.name,
-          externalProductId: matches[0].externalProductId,
-          connectedVariants: connectResult.connectedVariants,
-        })
-      } catch (err) {
-        result.skipped.push({
-          productId: product.id,
-          productName: product.name,
-          reason: getErrorMessage(err),
-        })
-      }
+        try {
+          const connectResult = await connectExistingProductToMarketplace(
+            marketplace,
+            product.id,
+            matches[0].externalProductId,
+          )
+          return {
+            connected: {
+              productId: product.id,
+              productName: product.name,
+              externalProductId: matches[0].externalProductId,
+              connectedVariants: connectResult.connectedVariants,
+            },
+          }
+        } catch (err) {
+          return {
+            skipped: {
+              productId: product.id,
+              productName: product.name,
+              reason: getErrorMessage(err),
+            },
+          }
+        }
+      },
+    )
+
+    for (const outcome of outcomes) {
+      if (outcome.connected) result.connected.push(outcome.connected)
+      else result.skipped.push(outcome.skipped)
     }
 
     await logSync(marketplace, 'auto_connect_products', 'success', {

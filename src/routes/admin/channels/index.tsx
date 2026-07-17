@@ -682,9 +682,11 @@ function ProductGroupRow({
     setSubmitting(true)
     setError(null)
     try {
-      for (const v of mappedVariants) {
-        await syncProductNow({ data: { variantId: v.variantId } })
-      }
+      await Promise.all(
+        mappedVariants.map((v) =>
+          syncProductNow({ data: { variantId: v.variantId } }),
+        ),
+      )
       onChanged()
     } catch (err) {
       setError(getErrorMessage(err))

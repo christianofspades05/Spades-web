@@ -445,34 +445,43 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
     }
 
     if (data.duplicateVariants) {
-      for (const variant of original.variants) {
-        const sku = await uniqueSku(admin, variant.sku)
-        const { data: newVariant, error: variantError } = await admin
-          .from('product_variants')
-          .insert({
-            product_id: newProduct.id,
-            sku,
-            size: variant.size,
-            color: variant.color,
-            style: variant.style,
-            price_cents: variant.price_cents,
-            compare_at_price_cents: variant.compare_at_price_cents,
-            cost_cents: variant.cost_cents,
-            weight_grams: variant.weight_grams,
-            barcode: null,
-            is_active: variant.is_active,
-          })
-          .select('*')
-          .single()
-        if (variantError) throw variantError
+      // Each variant's SKU is already unique from the others, so their
+      // "-copy" candidates can't collide with each other either — safe to
+      // duplicate every variant concurrently instead of one at a time,
+      // which was the slowest part of duplicating a product with a large
+      // size/color matrix.
+      await Promise.all(
+        original.variants.map(async (variant) => {
+          const sku = await uniqueSku(admin, variant.sku)
+          const { data: newVariant, error: variantError } = await admin
+            .from('product_variants')
+            .insert({
+              product_id: newProduct.id,
+              sku,
+              size: variant.size,
+              color: variant.color,
+              style: variant.style,
+              price_cents: variant.price_cents,
+              compare_at_price_cents: variant.compare_at_price_cents,
+              cost_cents: variant.cost_cents,
+              weight_grams: variant.weight_grams,
+              barcode: null,
+              is_active: variant.is_active,
+            })
+            .select('*')
+            .single()
+          if (variantError) throw variantError
 
-        const { error: inventoryError } = await admin.from('inventory').insert({
-          variant_id: newVariant.id,
-          location_code: 'main',
-          quantity_on_hand: variant.inventory[0]?.quantity_on_hand ?? 0,
-        })
-        if (inventoryError) throw inventoryError
-      }
+          const { error: inventoryError } = await admin
+            .from('inventory')
+            .insert({
+              variant_id: newVariant.id,
+              location_code: 'main',
+              quantity_on_hand: variant.inventory[0]?.quantity_on_hand ?? 0,
+            })
+          if (inventoryError) throw inventoryError
+        }),
+      )
     }
 
     await logStaffActivity(

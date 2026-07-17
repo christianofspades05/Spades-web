@@ -48,7 +48,7 @@ function initialRowState(order: BulkFulfillmentOrder): RowState {
 }
 
 function BulkFulfillPage() {
-  const orders = Route.useLoaderData()
+  const orders: BulkFulfillmentOrder[] = Route.useLoaderData()
   const [rows, setRows] = useState<Record<string, RowState>>(() =>
     Object.fromEntries(orders.map((o) => [o.id, initialRowState(o)])),
   )
@@ -82,11 +82,11 @@ function BulkFulfillPage() {
 
   async function handleSaveAll() {
     setSavingAll(true)
-    for (const order of orders) {
-      if (rows[order.id].trackingNumber.trim()) {
-        await saveRow(order)
-      }
-    }
+    await Promise.all(
+      orders
+        .filter((order) => rows[order.id].trackingNumber.trim())
+        .map((order) => saveRow(order)),
+    )
     setSavingAll(false)
   }
 

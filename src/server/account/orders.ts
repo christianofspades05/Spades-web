@@ -69,15 +69,25 @@ export const cancelMyOrder = createServerFn({ method: 'POST' })
       .eq('order_id', order.id)
     if (itemsError) throw itemsError
 
+    const itemsWithVariant: { variant_id: string; quantity: number }[] = []
     for (const item of items) {
-      if (!item.variant_id) continue
-      await admin.rpc('release_variant_stock', {
-        p_variant_id: item.variant_id,
-        p_quantity: item.quantity,
-        p_reference_type: 'customer_cancel',
-        p_reference_id: order.id,
-      })
+      if (item.variant_id) {
+        itemsWithVariant.push({
+          variant_id: item.variant_id,
+          quantity: item.quantity,
+        })
+      }
     }
+    await Promise.all(
+      itemsWithVariant.map((item) =>
+        admin.rpc('release_variant_stock', {
+          p_variant_id: item.variant_id,
+          p_quantity: item.quantity,
+          p_reference_type: 'customer_cancel',
+          p_reference_id: order.id,
+        }),
+      ),
+    )
 
     const { error: updateError } = await admin
       .from('orders')
