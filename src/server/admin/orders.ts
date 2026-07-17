@@ -84,7 +84,11 @@ async function getProductImagesByVariantId(
 
 export const listOrders = createServerFn({ method: 'GET' })
   .validator(
-    z.object({ status: z.string().optional(), q: z.string().optional() }),
+    z.object({
+      status: z.string().optional(),
+      source: z.string().optional(),
+      q: z.string().optional(),
+    }),
   )
   .handler(async ({ data }): Promise<OrderWithCustomer[]> => {
     await requireStaff()
@@ -98,6 +102,7 @@ export const listOrders = createServerFn({ method: 'GET' })
       .order('placed_at', { ascending: false })
 
     if (data.status) query = query.eq('status', data.status)
+    if (data.source) query = query.eq('source', data.source)
 
     const search = data.q?.trim()
     if (search) {

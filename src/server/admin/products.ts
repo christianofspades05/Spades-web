@@ -16,6 +16,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
+import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
 import type { Inventory, Product, ProductVariant } from '#/types/entities'
 
@@ -740,5 +741,13 @@ export const adjustInventory = createServerFn({ method: 'POST' })
       variantId: data.variantId,
       delta: data.quantityDelta,
     })
+
+    // Awaited (not fire-and-forget) — on serverless, work kicked off after
+    // the response is sent isn't guaranteed to finish. A marketplace being
+    // down/rate-limited still shouldn't fail the actual stock adjustment
+    // though — pushInventoryForVariant already logs its own success/failure
+    // to sync_logs and retries with backoff, so swallow the error here.
+    await pushInventoryForVariant(data.variantId).catch(() => {})
+
     return updated
   })

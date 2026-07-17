@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/review-requests",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/sync-channels-pull-orders",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-channels-reconcile-inventory",
+      "schedule": "0 3 * * *"
     }
   ]
 }

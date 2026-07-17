@@ -33,7 +33,10 @@ export type OrderStatus =
   | 'refunded'
   | 'failed'
 
-export type OrderSource = 'storefront' | 'admin' | 'tiktok_shop' | 'shopee'
+export type OrderSource =
+  'storefront' | 'admin' | 'tiktok_shop' | 'shopee' | 'lazada'
+
+export type SyncLogStatus = 'success' | 'failed'
 
 export type PaymentProvider =
   'cod' | 'gcash' | 'paymaya' | 'card' | 'bank_transfer' | 'other'
@@ -75,8 +78,9 @@ export type InventoryMovementType =
   | 'adjustment'
   | 'marketplace_sync'
 
-export type MarketplaceName = 'tiktok_shop' | 'shopee' | 'other'
-export type MarketplaceConnectionStatus = 'active' | 'expired' | 'revoked'
+export type MarketplaceName = 'tiktok_shop' | 'shopee' | 'lazada' | 'other'
+export type MarketplaceConnectionStatus =
+  'active' | 'expired' | 'revoked' | 'error'
 export type MarketplaceSyncStatus = 'synced' | 'pending' | 'error'
 
 export type WebhookSource =
@@ -349,6 +353,7 @@ export interface Database {
           status: OrderStatus
           source: OrderSource
           external_order_id: string | null
+          platform_order_data: Record<string, unknown> | null
           subtotal_cents: number
           discount_cents: number
           shipping_cents: number
@@ -710,6 +715,24 @@ export interface Database {
           email: string
         }
         Update: Partial<Database['public']['Tables']['store_feedback']['Row']>
+        Relationships: []
+      }
+      sync_logs: {
+        Row: {
+          id: string
+          marketplace: MarketplaceName
+          operation: string
+          status: SyncLogStatus
+          detail: Record<string, unknown>
+          error_message: string | null
+          created_at: string
+        }
+        Insert: Partial<Database['public']['Tables']['sync_logs']['Row']> & {
+          marketplace: MarketplaceName
+          operation: string
+          status: SyncLogStatus
+        }
+        Update: Partial<Database['public']['Tables']['sync_logs']['Row']>
         Relationships: []
       }
     }

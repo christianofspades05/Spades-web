@@ -29,6 +29,7 @@ export type {
   ReviewStatus,
   ShipmentStatus,
   StaffRole,
+  SyncLogStatus,
   WebhookSource,
   WebhookStatus,
 } from './database.types'
@@ -59,6 +60,7 @@ export type MarketplaceConnection =
 export type MarketplaceProductMapping =
   Database['public']['Tables']['marketplace_product_mappings']['Row']
 export type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
+export type SyncLog = Database['public']['Tables']['sync_logs']['Row']
 
 /** A product with its variants attached — the shape most storefront pages need. */
 export interface ProductWithVariants extends Product {

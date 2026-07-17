@@ -8,6 +8,7 @@ import {
   Home,
   LogOut,
   Package,
+  Plug,
   Settings,
   ShoppingBag,
   Star,
@@ -137,6 +138,18 @@ export function AdminNav() {
         >
           <Users size={17} strokeWidth={2} />
           Customers
+        </Link>
+
+        <Link
+          to="/admin/channels"
+          className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+            pathname.startsWith('/admin/channels')
+              ? 'bg-neutral-100 text-neutral-950'
+              : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+          }`}
+        >
+          <Plug size={17} strokeWidth={2} />
+          Channels
         </Link>
 
         <p className="mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">

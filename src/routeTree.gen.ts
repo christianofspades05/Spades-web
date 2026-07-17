@@ -40,7 +40,10 @@ import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-
 import { Route as AdminDiscountsIndexRouteImport } from './routes/admin/discounts/index'
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
+import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
+import { Route as ApiCronSyncChannelsReconcileInventoryRouteImport } from './routes/api/cron/sync-channels-reconcile-inventory'
+import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronReviewRequestsRouteImport } from './routes/api/cron/review-requests'
 import { Route as AdminProductsNewRouteImport } from './routes/admin/products/new'
 import { Route as AdminProductsBulkEditRouteImport } from './routes/admin/products/bulk-edit'
@@ -53,6 +56,8 @@ import { Route as AdminDiscountsNewRouteImport } from './routes/admin/discounts/
 import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/discounts/$discountId'
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
+import { Route as ApiOauthTiktokConnectRouteImport } from './routes/api/oauth/tiktok/connect'
+import { Route as ApiOauthTiktokCallbackRouteImport } from './routes/api/oauth/tiktok/callback'
 import { Route as AccountOrdersOrderIdReviewRouteImport } from './routes/account/orders/$orderId/review'
 
 const CheckoutRoute = CheckoutRouteImport.update({
@@ -210,11 +215,28 @@ const AdminCollectionsIndexRoute = AdminCollectionsIndexRouteImport.update({
   path: '/collections/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminChannelsIndexRoute = AdminChannelsIndexRouteImport.update({
+  id: '/channels/',
+  path: '/channels/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const ApiWebhooksXenditRoute = ApiWebhooksXenditRouteImport.update({
   id: '/api/webhooks/xendit',
   path: '/api/webhooks/xendit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronSyncChannelsReconcileInventoryRoute =
+  ApiCronSyncChannelsReconcileInventoryRouteImport.update({
+    id: '/api/cron/sync-channels-reconcile-inventory',
+    path: '/api/cron/sync-channels-reconcile-inventory',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCronSyncChannelsPullOrdersRoute =
+  ApiCronSyncChannelsPullOrdersRouteImport.update({
+    id: '/api/cron/sync-channels-pull-orders',
+    path: '/api/cron/sync-channels-pull-orders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCronReviewRequestsRoute = ApiCronReviewRequestsRouteImport.update({
   id: '/api/cron/review-requests',
   path: '/api/cron/review-requests',
@@ -279,6 +301,16 @@ const AdminCollectionsCollectionIdRoute =
     path: '/collections/$collectionId',
     getParentRoute: () => AdminRoute,
   } as any)
+const ApiOauthTiktokConnectRoute = ApiOauthTiktokConnectRouteImport.update({
+  id: '/api/oauth/tiktok/connect',
+  path: '/api/oauth/tiktok/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOauthTiktokCallbackRoute = ApiOauthTiktokCallbackRouteImport.update({
+  id: '/api/oauth/tiktok/callback',
+  path: '/api/oauth/tiktok/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountOrdersOrderIdReviewRoute =
   AccountOrdersOrderIdReviewRouteImport.update({
     id: '/account/orders/$orderId/review',
@@ -321,7 +353,10 @@ export interface FileRoutesByFullPath {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
+  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
@@ -332,6 +367,8 @@ export interface FileRoutesByFullPath {
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
+  '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -366,7 +403,10 @@ export interface FileRoutesByTo {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
+  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
   '/admin/discounts': typeof AdminDiscountsIndexRoute
@@ -377,6 +417,8 @@ export interface FileRoutesByTo {
   '/admin/reviews': typeof AdminReviewsIndexRoute
   '/admin/settings': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
+  '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -414,7 +456,10 @@ export interface FileRoutesById {
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
+  '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-channels-reconcile-inventory': typeof ApiCronSyncChannelsReconcileInventoryRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
@@ -425,6 +470,8 @@ export interface FileRoutesById {
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
+  '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -463,7 +510,10 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
+    | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-channels-reconcile-inventory'
     | '/api/webhooks/xendit'
+    | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/customers/'
     | '/admin/discounts/'
@@ -474,6 +524,8 @@ export interface FileRouteTypes {
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/tiktok/callback'
+    | '/api/oauth/tiktok/connect'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -508,7 +560,10 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
+    | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-channels-reconcile-inventory'
     | '/api/webhooks/xendit'
+    | '/admin/channels'
     | '/admin/collections'
     | '/admin/customers'
     | '/admin/discounts'
@@ -519,6 +574,8 @@ export interface FileRouteTypes {
     | '/admin/reviews'
     | '/admin/settings'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/tiktok/callback'
+    | '/api/oauth/tiktok/connect'
   id:
     | '__root__'
     | '/'
@@ -555,7 +612,10 @@ export interface FileRouteTypes {
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
     | '/api/cron/review-requests'
+    | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-channels-reconcile-inventory'
     | '/api/webhooks/xendit'
+    | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/customers/'
     | '/admin/discounts/'
@@ -566,6 +626,8 @@ export interface FileRouteTypes {
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/tiktok/callback'
+    | '/api/oauth/tiktok/connect'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -588,8 +650,12 @@ export interface RootRouteChildren {
   ProductsIndexRoute: typeof ProductsIndexRoute
   ReviewsIndexRoute: typeof ReviewsIndexRoute
   ApiCronReviewRequestsRoute: typeof ApiCronReviewRequestsRoute
+  ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
+  ApiCronSyncChannelsReconcileInventoryRoute: typeof ApiCronSyncChannelsReconcileInventoryRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
+  ApiOauthTiktokCallbackRoute: typeof ApiOauthTiktokCallbackRoute
+  ApiOauthTiktokConnectRoute: typeof ApiOauthTiktokConnectRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -811,11 +877,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollectionsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/channels/': {
+      id: '/admin/channels/'
+      path: '/channels'
+      fullPath: '/admin/channels/'
+      preLoaderRoute: typeof AdminChannelsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/webhooks/xendit': {
       id: '/api/webhooks/xendit'
       path: '/api/webhooks/xendit'
       fullPath: '/api/webhooks/xendit'
       preLoaderRoute: typeof ApiWebhooksXenditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/sync-channels-reconcile-inventory': {
+      id: '/api/cron/sync-channels-reconcile-inventory'
+      path: '/api/cron/sync-channels-reconcile-inventory'
+      fullPath: '/api/cron/sync-channels-reconcile-inventory'
+      preLoaderRoute: typeof ApiCronSyncChannelsReconcileInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/sync-channels-pull-orders': {
+      id: '/api/cron/sync-channels-pull-orders'
+      path: '/api/cron/sync-channels-pull-orders'
+      fullPath: '/api/cron/sync-channels-pull-orders'
+      preLoaderRoute: typeof ApiCronSyncChannelsPullOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/review-requests': {
@@ -902,6 +989,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollectionsCollectionIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/oauth/tiktok/connect': {
+      id: '/api/oauth/tiktok/connect'
+      path: '/api/oauth/tiktok/connect'
+      fullPath: '/api/oauth/tiktok/connect'
+      preLoaderRoute: typeof ApiOauthTiktokConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/oauth/tiktok/callback': {
+      id: '/api/oauth/tiktok/callback'
+      path: '/api/oauth/tiktok/callback'
+      fullPath: '/api/oauth/tiktok/callback'
+      preLoaderRoute: typeof ApiOauthTiktokCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/account/orders/$orderId/review': {
       id: '/account/orders/$orderId/review'
       path: '/account/orders/$orderId/review'
@@ -925,6 +1026,7 @@ interface AdminRouteChildren {
   AdminProductsProductIdRoute: typeof AdminProductsProductIdRoute
   AdminProductsBulkEditRoute: typeof AdminProductsBulkEditRoute
   AdminProductsNewRoute: typeof AdminProductsNewRoute
+  AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
   AdminCustomersIndexRoute: typeof AdminCustomersIndexRoute
   AdminDiscountsIndexRoute: typeof AdminDiscountsIndexRoute
@@ -949,6 +1051,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsProductIdRoute: AdminProductsProductIdRoute,
   AdminProductsBulkEditRoute: AdminProductsBulkEditRoute,
   AdminProductsNewRoute: AdminProductsNewRoute,
+  AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
   AdminCustomersIndexRoute: AdminCustomersIndexRoute,
   AdminDiscountsIndexRoute: AdminDiscountsIndexRoute,
@@ -998,8 +1101,13 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsIndexRoute: ProductsIndexRoute,
   ReviewsIndexRoute: ReviewsIndexRoute,
   ApiCronReviewRequestsRoute: ApiCronReviewRequestsRoute,
+  ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
+  ApiCronSyncChannelsReconcileInventoryRoute:
+    ApiCronSyncChannelsReconcileInventoryRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
+  ApiOauthTiktokCallbackRoute: ApiOauthTiktokCallbackRoute,
+  ApiOauthTiktokConnectRoute: ApiOauthTiktokConnectRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

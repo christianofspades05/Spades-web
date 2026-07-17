@@ -54,6 +54,7 @@ const SOURCE_LABELS: Record<OrderSource, string> = {
   admin: 'Admin (manual)',
   tiktok_shop: 'TikTok Shop',
   shopee: 'Shopee',
+  lazada: 'Lazada',
 }
 
 const ZONE_LABELS: Record<ShippingZone, string> = {
@@ -71,6 +72,9 @@ interface OrderShippingAddress {
 export const Route = createFileRoute('/admin/orders/')({
   validateSearch: z.object({
     status: z.enum(ORDER_STATUSES).optional(),
+    source: z
+      .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+      .optional(),
     q: z.string().optional(),
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
@@ -83,7 +87,9 @@ export const Route = createFileRoute('/admin/orders/')({
       to: deps.to,
     })
     const [orders, overview] = await Promise.all([
-      listOrders({ data: { status: deps.status, q: deps.q } }),
+      listOrders({
+        data: { status: deps.status, source: deps.source, q: deps.q },
+      }),
       getOrdersOverview({ data: resolved }),
     ])
     return { orders, overview }
@@ -310,6 +316,37 @@ function OrdersPage() {
             </Link>
           ))}
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
+          Channel
+        </span>
+        <Link
+          to="/admin/orders"
+          search={(prev) => ({ ...prev, source: undefined })}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            !search.source
+              ? 'bg-neutral-900 text-white'
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+          }`}
+        >
+          All
+        </Link>
+        {(Object.keys(SOURCE_LABELS) as OrderSource[]).map((s) => (
+          <Link
+            key={s}
+            to="/admin/orders"
+            search={(prev) => ({ ...prev, source: s })}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              search.source === s
+                ? 'bg-neutral-900 text-white'
+                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            {SOURCE_LABELS[s]}
+          </Link>
+        ))}
       </div>
 
       {selected.size > 0 && (
