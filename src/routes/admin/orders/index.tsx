@@ -31,11 +31,15 @@ import { SparkLine } from '#/components/admin/LineChart'
 import {
   buttonSecondaryClassName,
   inputClassName,
-  tableCellClassName,
   tableHeadClassName,
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
+
+// Tighter vertical padding than the shared tableCellClassName, scoped to
+// this page only — this table has a lot of rows and staff want more of
+// them visible without scrolling.
+const tableCellClassName = 'px-4 py-1.5 text-sm text-neutral-900'
 
 const ORDER_STATUSES = [
   'pending_payment',
@@ -75,6 +79,7 @@ export const Route = createFileRoute('/admin/orders/')({
     source: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    fulfillment: z.enum(['fulfilled', 'unfulfilled']).optional(),
     q: z.string().optional(),
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
@@ -88,7 +93,12 @@ export const Route = createFileRoute('/admin/orders/')({
     })
     const [orders, overview] = await Promise.all([
       listOrders({
-        data: { status: deps.status, source: deps.source, q: deps.q },
+        data: {
+          status: deps.status,
+          source: deps.source,
+          fulfillment: deps.fulfillment,
+          q: deps.q,
+        },
       }),
       getOrdersOverview({ data: resolved }),
     ])
@@ -345,6 +355,37 @@ function OrdersPage() {
             }`}
           >
             {SOURCE_LABELS[s]}
+          </Link>
+        ))}
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
+          Fulfillment
+        </span>
+        <Link
+          to="/admin/orders"
+          search={(prev) => ({ ...prev, fulfillment: undefined })}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            !search.fulfillment
+              ? 'bg-neutral-900 text-white'
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+          }`}
+        >
+          All
+        </Link>
+        {(['unfulfilled', 'fulfilled'] as const).map((f) => (
+          <Link
+            key={f}
+            to="/admin/orders"
+            search={(prev) => ({ ...prev, fulfillment: f })}
+            className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
+              search.fulfillment === f
+                ? 'bg-neutral-900 text-white'
+                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            {f}
           </Link>
         ))}
       </div>

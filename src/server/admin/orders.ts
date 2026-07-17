@@ -92,6 +92,7 @@ export const listOrders = createServerFn({ method: 'GET' })
     z.object({
       status: z.string().optional(),
       source: z.string().optional(),
+      fulfillment: z.enum(['fulfilled', 'unfulfilled']).optional(),
       q: z.string().optional(),
     }),
   )
@@ -111,21 +112,69 @@ export const listOrders = createServerFn({ method: 'GET' })
 
     const search = data.q?.trim()
     if (search) {
-      const { data: matchingCustomers } = await admin
-        .from('customers')
-        .select('id')
-        .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`)
+      const [
+        { data: matchingCustomers },
+        { data: matchingItems },
+        { data: matchingShipments },
+      ] = await Promise.all([
+        admin
+          .from('customers')
+          .select('id')
+          .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`),
+        admin
+          .from('order_items')
+          .select('order_id')
+          .or(
+            `product_name_snapshot.ilike.%${search}%,sku_snapshot.ilike.%${search}%`,
+          ),
+        admin
+          .from('shipments')
+          .select('order_id')
+          .ilike('tracking_number', `%${search}%`),
+      ])
       const customerIds = (matchingCustomers ?? []).map((c) => c.id)
+      const orderIdsFromItems = (matchingItems ?? []).map((i) => i.order_id)
+      const orderIdsFromShipments = (matchingShipments ?? []).map(
+        (s) => s.order_id,
+      )
+      const matchedOrderIds = Array.from(
+        new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
+      )
 
-      const orFilter =
-        customerIds.length > 0
-          ? `order_number.ilike.%${search}%,customer_id.in.(${customerIds.join(',')})`
-          : `order_number.ilike.%${search}%`
-      query = query.or(orFilter)
+      const orConditions = [
+        `order_number.ilike.%${search}%`,
+        `external_order_id.ilike.%${search}%`,
+      ]
+      if (customerIds.length > 0) {
+        orConditions.push(`customer_id.in.(${customerIds.join(',')})`)
+      }
+      if (matchedOrderIds.length > 0) {
+        orConditions.push(`id.in.(${matchedOrderIds.join(',')})`)
+      }
+      const searchAsDate = new Date(search)
+      if (!Number.isNaN(searchAsDate.getTime())) {
+        const dayStart = new Date(search)
+        dayStart.setHours(0, 0, 0, 0)
+        const dayEnd = new Date(search)
+        dayEnd.setHours(23, 59, 59, 999)
+        orConditions.push(
+          `and(placed_at.gte.${dayStart.toISOString()},placed_at.lte.${dayEnd.toISOString()})`,
+        )
+      }
+      query = query.or(orConditions.join(','))
     }
 
-    const { data: orders, error } = await query
+    const { data: rawOrders, error } = await query
     if (error) throw error
+
+    const orders = data.fulfillment
+      ? rawOrders.filter((o) => {
+          const shipment = o.shipments[0]
+          const isFulfilled =
+            !!shipment && FULFILLED_SHIPMENT_STATUSES.has(shipment.status)
+          return data.fulfillment === 'fulfilled' ? isFulfilled : !isFulfilled
+        })
+      : rawOrders
 
     const variantIds = Array.from(
       new Set(
