@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   BadgePercent,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   EyeOff,
@@ -20,6 +21,12 @@ import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
   { to: '/admin/inventory', label: 'Inventory' },
+] as const
+
+const ANALYTICS_SUB_LINKS = [
+  { to: '/admin/analytics/sales', label: 'Sales' },
+  { to: '/admin/analytics/profit', label: 'Profit' },
+  { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
 ] as const
 
 export function AdminNav() {
@@ -151,6 +158,28 @@ export function AdminNav() {
           <Plug size={17} strokeWidth={2} />
           Channels
         </Link>
+
+        <p className="mt-4 mb-1 flex items-center gap-2.5 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+          <BarChart3 size={14} strokeWidth={2} />
+          Analytics
+        </p>
+
+        {ANALYTICS_SUB_LINKS.map((link) => {
+          const isActive = pathname.startsWith(link.to)
+          return (
+            <Link
+              key={link.to}
+              to={link.to}
+              className={`rounded-md px-3 py-2 text-sm font-medium ${
+                isActive
+                  ? 'bg-neutral-100 text-neutral-950'
+                  : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+              }`}
+            >
+              {link.label}
+            </Link>
+          )
+        })}
 
         <p className="mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
           Marketing

@@ -56,6 +56,9 @@ import { Route as AdminDiscountsNewRouteImport } from './routes/admin/discounts/
 import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/discounts/$discountId'
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
+import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
+import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
+import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
 import { Route as ApiOauthTiktokConnectRouteImport } from './routes/api/oauth/tiktok/connect'
 import { Route as ApiOauthTiktokCallbackRouteImport } from './routes/api/oauth/tiktok/callback'
 import { Route as AccountOrdersOrderIdReviewRouteImport } from './routes/account/orders/$orderId/review'
@@ -301,6 +304,22 @@ const AdminCollectionsCollectionIdRoute =
     path: '/collections/$collectionId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminAnalyticsSalesRoute = AdminAnalyticsSalesRouteImport.update({
+  id: '/analytics/sales',
+  path: '/analytics/sales',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAnalyticsProfitRoute = AdminAnalyticsProfitRouteImport.update({
+  id: '/analytics/profit',
+  path: '/analytics/profit',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAnalyticsCancelledReturnsRoute =
+  AdminAnalyticsCancelledReturnsRouteImport.update({
+    id: '/analytics/cancelled-returns',
+    path: '/analytics/cancelled-returns',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const ApiOauthTiktokConnectRoute = ApiOauthTiktokConnectRouteImport.update({
   id: '/api/oauth/tiktok/connect',
   path: '/api/oauth/tiktok/connect',
@@ -341,6 +360,9 @@ export interface FileRoutesByFullPath {
   '/contact/': typeof ContactIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
+  '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
+  '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -391,6 +413,9 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactIndexRoute
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
+  '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
+  '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -444,6 +469,9 @@ export interface FileRoutesById {
   '/contact/': typeof ContactIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
+  '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
+  '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -498,6 +526,9 @@ export interface FileRouteTypes {
     | '/contact/'
     | '/products/'
     | '/reviews/'
+    | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/profit'
+    | '/admin/analytics/sales'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -548,6 +579,9 @@ export interface FileRouteTypes {
     | '/contact'
     | '/products'
     | '/reviews'
+    | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/profit'
+    | '/admin/analytics/sales'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -600,6 +634,9 @@ export interface FileRouteTypes {
     | '/contact/'
     | '/products/'
     | '/reviews/'
+    | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/profit'
+    | '/admin/analytics/sales'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -989,6 +1026,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollectionsCollectionIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/analytics/sales': {
+      id: '/admin/analytics/sales'
+      path: '/analytics/sales'
+      fullPath: '/admin/analytics/sales'
+      preLoaderRoute: typeof AdminAnalyticsSalesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/profit': {
+      id: '/admin/analytics/profit'
+      path: '/analytics/profit'
+      fullPath: '/admin/analytics/profit'
+      preLoaderRoute: typeof AdminAnalyticsProfitRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/cancelled-returns': {
+      id: '/admin/analytics/cancelled-returns'
+      path: '/analytics/cancelled-returns'
+      fullPath: '/admin/analytics/cancelled-returns'
+      preLoaderRoute: typeof AdminAnalyticsCancelledReturnsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/oauth/tiktok/connect': {
       id: '/api/oauth/tiktok/connect'
       path: '/api/oauth/tiktok/connect'
@@ -1015,6 +1073,9 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
+  AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
+  AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
   AdminCustomersCustomerIdRoute: typeof AdminCustomersCustomerIdRoute
   AdminDiscountsDiscountIdRoute: typeof AdminDiscountsDiscountIdRoute
@@ -1040,6 +1101,9 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
+  AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
+  AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,
+  AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
   AdminCustomersCustomerIdRoute: AdminCustomersCustomerIdRoute,
   AdminDiscountsDiscountIdRoute: AdminDiscountsDiscountIdRoute,
