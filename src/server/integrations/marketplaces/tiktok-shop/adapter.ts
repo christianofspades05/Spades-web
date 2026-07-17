@@ -530,6 +530,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shopCipher: connection.shop_cipher ?? undefined,
     })
 
+    // TEMP: field names above are a best-effort guess — logging the raw
+    // shape so we can correct them against a real response, then remove.
+    console.log(
+      '[TikTok] getProductByExternalId raw response:',
+      JSON.stringify(response),
+    )
+
     return {
       name: response.product_name ?? '',
       variants: (response.skus ?? []).map((sku) => ({
