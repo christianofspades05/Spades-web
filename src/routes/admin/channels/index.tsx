@@ -103,6 +103,23 @@ const CONNECTION_FILTER_LABELS: Record<ConnectionFilter, string> = {
   not_connected: 'Not connected',
 }
 
+/**
+ * Best-effort browser notification — some browsers/contexts (e.g. Chrome on
+ * Android) throw "Illegal constructor" from `new Notification(...)` even
+ * when permission is granted, since they require the Service Worker
+ * notification API instead. Never let that surface as if the actual
+ * operation had failed.
+ */
+function notifySafely(title: string, body: string): void {
+  try {
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted') return
+    new Notification(title, { body })
+  } catch {
+    // Ignored — the in-page result panel already shows the outcome.
+  }
+}
+
 function ChannelsPage() {
   const { connections, products, logs, collections } = Route.useLoaderData()
   const { collectionId } = Route.useSearch()
@@ -475,25 +492,14 @@ function ProductSyncSection({
           : await autoConnectBySku({ data: { marketplace: 'tiktok_shop' } })
       setAutoConnectResult({ mode, result })
       onChanged()
-      if (
-        typeof Notification !== 'undefined' &&
-        Notification.permission === 'granted'
-      ) {
-        new Notification('Auto-connect by ' + modeLabel + ' finished', {
-          body: `Connected ${result.connected.length} product${result.connected.length === 1 ? '' : 's'}.${result.skipped.length > 0 ? ` ${result.skipped.length} need manual review.` : ''}`,
-        })
-      }
+      notifySafely(
+        `Auto-connect by ${modeLabel} finished`,
+        `Connected ${result.connected.length} product${result.connected.length === 1 ? '' : 's'}.${result.skipped.length > 0 ? ` ${result.skipped.length} need manual review.` : ''}`,
+      )
     } catch (err) {
       const message = getErrorMessage(err)
       setError(message)
-      if (
-        typeof Notification !== 'undefined' &&
-        Notification.permission === 'granted'
-      ) {
-        new Notification('Auto-connect by ' + modeLabel + ' failed', {
-          body: message,
-        })
-      }
+      notifySafely(`Auto-connect by ${modeLabel} failed`, message)
     } finally {
       setAutoConnecting(null)
     }
