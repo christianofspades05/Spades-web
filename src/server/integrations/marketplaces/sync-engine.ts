@@ -123,6 +123,7 @@ interface MappingRow {
   id: string
   marketplace_connection_id: string
   external_variant_id: string
+  external_product_id: string | null
 }
 
 async function pushOneMapping(
@@ -140,12 +141,37 @@ async function pushOneMapping(
   if (!connection.inventory_sync_enabled && !options?.force) return
 
   const admin = getSupabaseAdminClient()
+
+  // TikTok's inventory endpoint is scoped under the product id, not just
+  // the variant — a mapping created before that id was tracked (or one
+  // that still needs reconnecting) can't be pushed at all. Fail clearly
+  // instead of calling the API with a broken path.
+  if (!mapping.external_product_id) {
+    await logSync(
+      connection.marketplace,
+      'push_inventory',
+      'failed',
+      { mappingId: mapping.id },
+      'No TikTok product id on file for this mapping — reconnect this product (Connect existing, or Auto-connect by title/SKU) to fix inventory sync.',
+    )
+    await admin
+      .from('marketplace_product_mappings')
+      .update({ sync_status: 'error' })
+      .eq('id', mapping.id)
+    return
+  }
+
   const adapter = getAdapter(connection.marketplace)
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const fresh = await ensureFreshConnection(connection)
-      await adapter.pushInventory(fresh, mapping.external_variant_id, quantity)
+      await adapter.pushInventory(
+        fresh,
+        mapping.external_product_id,
+        mapping.external_variant_id,
+        quantity,
+      )
       await admin
         .from('marketplace_product_mappings')
         .update({
@@ -203,7 +229,9 @@ export async function pushInventoryForVariant(
 
   const { data: mappings, error: mappingsError } = await admin
     .from('marketplace_product_mappings')
-    .select('id, marketplace_connection_id, external_variant_id')
+    .select(
+      'id, marketplace_connection_id, external_variant_id, external_product_id',
+    )
     .eq('variant_id', variantId)
   if (mappingsError) throw mappingsError
   if (mappings.length === 0) return
@@ -235,7 +263,9 @@ export async function pushInventoryForAllProducts(
 
   const { data: mappings, error } = await admin
     .from('marketplace_product_mappings')
-    .select('id, marketplace_connection_id, external_variant_id, variant_id')
+    .select(
+      'id, marketplace_connection_id, external_variant_id, external_product_id, variant_id',
+    )
     .eq('marketplace_connection_id', connection.id)
   if (error) throw error
 
@@ -599,22 +629,20 @@ export async function pushNewProductToMarketplace(
       })),
     })
 
-    const now = new Date().toISOString()
     const skuByVariantId = new Map(variants.map((v) => [v.id, v.sku]))
-    for (const v of result.variants) {
-      if (!v.externalVariantId) continue
-      await admin.from('marketplace_product_mappings').upsert(
-        {
-          marketplace_connection_id: connection.id,
-          variant_id: v.variantId,
-          external_variant_id: v.externalVariantId,
-          external_sku: skuByVariantId.get(v.variantId) ?? null,
-          sync_status: 'synced',
-          last_synced_at: now,
-        },
-        { onConflict: 'marketplace_connection_id,external_variant_id' },
-      )
-    }
+    await upsertVariantMappings(
+      admin,
+      connection.id,
+      result.variants
+        .filter((v) => v.externalVariantId)
+        .map((v) => ({
+          variantId: v.variantId,
+          externalVariantId: v.externalVariantId,
+          externalSku: skuByVariantId.get(v.variantId) ?? null,
+          externalProductId: result.externalProductId,
+        })),
+      'synced',
+    )
 
     await logSync(marketplace, 'push_new_product', 'success', {
       productId,
@@ -737,7 +765,9 @@ async function upsertVariantMappings(
     variantId: string
     externalVariantId: string
     externalSku: string | null
+    externalProductId: string
   }[],
+  syncStatus: 'pending' | 'synced' = 'pending',
 ): Promise<void> {
   const now = new Date().toISOString()
   for (const m of matches) {
@@ -747,7 +777,8 @@ async function upsertVariantMappings(
         variant_id: m.variantId,
         external_variant_id: m.externalVariantId,
         external_sku: m.externalSku,
-        sync_status: 'pending',
+        external_product_id: m.externalProductId,
+        sync_status: syncStatus,
         last_synced_at: now,
       },
       { onConflict: 'marketplace_connection_id,external_variant_id' },
@@ -762,17 +793,28 @@ interface UnlinkedProduct {
   variants: { id: string; sku: string }[]
 }
 
-/** Local active products that don't have a single mapped variant yet for this connection — the candidate pool both auto-connect modes (by title, by SKU) draw from. */
+/**
+ * Local active products that don't have a single mapped variant yet for
+ * this connection — the candidate pool both auto-connect modes (by title,
+ * by SKU) draw from. A mapping missing external_product_id doesn't count
+ * as linked here even though the row exists — it was created before TikTok
+ * product ids were tracked (or a push never got that far), so its product
+ * can't have its inventory pushed at all until it's reconnected. Re-running
+ * either auto-connect mode updates that same row in place (upsert is keyed
+ * on external_variant_id, not variant_id) rather than duplicating it.
+ */
 async function getUnlinkedProducts(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   connectionId: string,
 ): Promise<UnlinkedProduct[]> {
   const { data: mappings, error: mappingsError } = await admin
     .from('marketplace_product_mappings')
-    .select('variant_id')
+    .select('variant_id, external_product_id')
     .eq('marketplace_connection_id', connectionId)
   if (mappingsError) throw mappingsError
-  const linkedVariantIds = new Set(mappings.map((m) => m.variant_id))
+  const linkedVariantIds = new Set(
+    mappings.filter((m) => m.external_product_id).map((m) => m.variant_id),
+  )
 
   const { data: variants, error: variantsError } = await admin
     .from('product_variants')
@@ -847,6 +889,7 @@ export async function connectExistingProductToMarketplace(
       variantId: string
       externalVariantId: string
       externalSku: string | null
+      externalProductId: string
     }[] = []
     const unmatched: string[] = []
 
@@ -876,6 +919,7 @@ export async function connectExistingProductToMarketplace(
         variantId: v.id,
         externalVariantId: match.externalVariantId,
         externalSku: match.externalSku,
+        externalProductId,
       })
     }
 
@@ -1138,6 +1182,7 @@ export async function autoConnectProductsBySku(
       variantId: string
       externalVariantId: string
       externalSku: string | null
+      externalProductId: string
     }[] = []
     let unresolved = false
     for (const v of product.variants) {
@@ -1150,6 +1195,7 @@ export async function autoConnectProductsBySku(
         variantId: v.id,
         externalVariantId: remoteVariant.externalVariantId,
         externalSku: remoteVariant.externalSku,
+        externalProductId: match.externalProductId,
       })
     }
     if (unresolved) {

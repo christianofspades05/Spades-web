@@ -155,6 +155,7 @@ export interface MarketplaceAdapter {
   /** Pushes our current stock count for one variant to the platform. */
   pushInventory: (
     connection: MarketplaceConnection,
+    externalProductId: string,
     externalVariantId: string,
     quantity: number,
   ) => Promise<void>

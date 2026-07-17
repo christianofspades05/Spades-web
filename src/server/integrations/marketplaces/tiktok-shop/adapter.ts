@@ -264,6 +264,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
 
   async pushInventory(
     connection: MarketplaceConnection,
+    externalProductId: string,
     externalVariantId: string,
     quantity: number,
   ) {
@@ -272,7 +273,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     }
     await callTikTokApi({
       method: 'POST',
-      path: '/product/202309/inventory/update',
+      path: `/product/202309/products/${externalProductId}/inventory/update`,
       accessToken: connection.access_token_encrypted,
       shopCipher: connection.shop_cipher ?? undefined,
       body: {
