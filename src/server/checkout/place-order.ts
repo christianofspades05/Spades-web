@@ -25,6 +25,11 @@ import {
 import { assertDiscountIsRedeemable } from '#/server/cart/discount'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { createXenditInvoice } from '#/lib/xendit/client'
+import { sendEmail } from '#/lib/email/resend'
+import {
+  newOrderEmailHtml,
+  newOrderEmailSubject,
+} from '#/lib/email/templates/new-order'
 
 export const placeOrder = createServerFn({ method: 'POST' })
   .validator(placeOrderSchema)
@@ -295,6 +300,37 @@ export const placeOrder = createServerFn({ method: 'POST' })
         .from('carts')
         .update({ status: 'converted' })
         .eq('id', cart.id)
+
+      // Best-effort — a notification failure should never block checkout,
+      // and this is silently skipped entirely if no owner address is set.
+      const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
+      if (storeOwnerEmail) {
+        try {
+          const origin = getRequestUrl().origin
+          await sendEmail({
+            to: storeOwnerEmail,
+            subject: newOrderEmailSubject(order.order_number),
+            html: newOrderEmailHtml({
+              orderNumber: order.order_number,
+              customerName: data.contact.recipientName,
+              customerEmail: email,
+              totalCents,
+              isCod: data.paymentProvider === 'cod',
+              items: cart.items.map((item) => ({
+                name: item.variant.product.name,
+                variantLabel:
+                  [item.variant.size, item.variant.color, item.variant.style]
+                    .filter(Boolean)
+                    .join(' / ') || null,
+                quantity: item.quantity,
+              })),
+              orderUrl: `${origin}/admin/orders/${order.id}`,
+            }),
+          })
+        } catch (err) {
+          console.error('Failed to send new-order notification email:', err)
+        }
+      }
 
       return { orderId: order.id, orderNumber: order.order_number, invoiceUrl }
     },
