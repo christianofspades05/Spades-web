@@ -147,6 +147,12 @@ const PAID_STATUSES = new Set([
   'COMPLETED',
 ])
 
+/** A tracking number can exist before the courier actually collects the
+ * parcel (e.g. right after staff prints a label) — only treat the order as
+ * fulfilled once the courier has actually picked it up, same distinction
+ * the seller's existing Shopify-side sync app makes. */
+const PICKED_UP_STATUSES = new Set(['IN_TRANSIT', 'DELIVERED', 'COMPLETED'])
+
 function centsFromAmountString(amount: string | undefined): number {
   if (!amount) return 0
   return Math.round(Number.parseFloat(amount) * 100)
@@ -352,12 +358,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
-      trackingInfo: order.tracking_number
-        ? {
-            carrier: order.shipping_provider ?? null,
-            trackingNumber: order.tracking_number,
-          }
-        : null,
+      trackingInfo:
+        order.tracking_number && PICKED_UP_STATUSES.has(order.status ?? '')
+          ? {
+              carrier: order.shipping_provider ?? null,
+              trackingNumber: order.tracking_number,
+            }
+          : null,
     }
   },
 
