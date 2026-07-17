@@ -11,6 +11,7 @@ export interface DailyPoint {
   orders: number
   salesCents: number
   visitors: number
+  conversionRate: number | null
 }
 
 export interface DashboardAnalytics {
@@ -74,6 +75,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
 
     const dailyMap = new Map<string, DailyPoint>()
     const dailyVisitorSets = new Map<string, Set<string>>()
+    const dailyStorefrontOrders = new Map<string, number>()
     if (isSingleDay) {
       for (let hour = 0; hour < 24; hour++) {
         const hh = String(hour).padStart(2, '0')
@@ -87,8 +89,10 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
           orders: 0,
           salesCents: 0,
           visitors: 0,
+          conversionRate: null,
         })
         dailyVisitorSets.set(key, new Set())
+        dailyStorefrontOrders.set(key, 0)
       }
     } else {
       for (
@@ -97,20 +101,34 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         d.setDate(d.getDate() + 1)
       ) {
         const key = d.toISOString().slice(0, 10)
-        dailyMap.set(key, { date: key, orders: 0, salesCents: 0, visitors: 0 })
+        dailyMap.set(key, {
+          date: key,
+          orders: 0,
+          salesCents: 0,
+          visitors: 0,
+          conversionRate: null,
+        })
         dailyVisitorSets.set(key, new Set())
+        dailyStorefrontOrders.set(key, 0)
       }
     }
 
     let salesCents = 0
     for (const order of current.data) {
-      const bucket = dailyMap.get(bucketKey(order.placed_at))
+      const key = bucketKey(order.placed_at)
+      const bucket = dailyMap.get(key)
       const isVoid = VOID_STATUSES.has(order.status)
       if (bucket) {
         bucket.orders += 1
         if (!isVoid) bucket.salesCents += order.total_cents
       }
       if (!isVoid) salesCents += order.total_cents
+      if (order.source === 'storefront') {
+        dailyStorefrontOrders.set(
+          key,
+          (dailyStorefrontOrders.get(key) ?? 0) + 1,
+        )
+      }
     }
 
     const previousSalesCents = previous.data
@@ -124,7 +142,12 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     }
     for (const [key, set] of dailyVisitorSets) {
       const bucket = dailyMap.get(key)
-      if (bucket) bucket.visitors = set.size
+      if (bucket) {
+        bucket.visitors = set.size
+        const storefrontOrders = dailyStorefrontOrders.get(key) ?? 0
+        bucket.conversionRate =
+          set.size > 0 ? (storefrontOrders / set.size) * 100 : null
+      }
     }
 
     const previousUniqueVisitors = new Set(

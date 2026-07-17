@@ -258,8 +258,15 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       range: { from: data.from, to: data.to },
       totalCancelled: cancelledOrders.length,
       daily: Array.from(dailyMap.entries())
-        .map(([date, count]) => ({ date, count }))
-        .sort((a, b) => a.date.localeCompare(b.date)),
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, count]) => ({
+          date: isSingleDay
+            ? new Date(`${key}:00:00`).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+              })
+            : key,
+          count,
+        })),
       byReason: Array.from(byReasonMap.entries())
         .map(([reason, count]) => ({ reason, count }))
         .sort((a, b) => b.count - a.count),

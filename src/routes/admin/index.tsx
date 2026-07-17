@@ -69,6 +69,8 @@ function AdminPage() {
         )
       : null
 
+  const dailyLabels = analytics.daily.map((d) => d.date)
+
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
@@ -94,7 +96,11 @@ function AdminPage() {
             <TrendTag value={salesTrend} />
           </div>
           <div className="mt-4">
-            <LineChart values={analytics.daily.map((d) => d.salesCents)} />
+            <LineChart
+              values={analytics.daily.map((d) => d.salesCents)}
+              labels={dailyLabels}
+              formatValue={formatCentsAsPHP}
+            />
           </div>
         </Card>
 
@@ -107,7 +113,11 @@ function AdminPage() {
             <TrendTag value={ordersTrend} />
           </div>
           <div className="mt-4">
-            <LineChart values={analytics.daily.map((d) => d.orders)} />
+            <LineChart
+              values={analytics.daily.map((d) => d.orders)}
+              labels={dailyLabels}
+              formatValue={(v) => `${v} ${v === 1 ? 'order' : 'orders'}`}
+            />
           </div>
         </Card>
 
@@ -120,7 +130,11 @@ function AdminPage() {
             <TrendTag value={visitorsTrend} />
           </div>
           <div className="mt-4">
-            <LineChart values={analytics.daily.map((d) => d.visitors)} />
+            <LineChart
+              values={analytics.daily.map((d) => d.visitors)}
+              labels={dailyLabels}
+              formatValue={(v) => `${v} ${v === 1 ? 'visitor' : 'visitors'}`}
+            />
           </div>
         </Card>
 
@@ -136,9 +150,14 @@ function AdminPage() {
             </p>
             <TrendTag value={conversionTrend} />
           </div>
-          <p className="mt-4 text-xs text-neutral-400">
-            Orders ÷ unique visitors for the selected period.
-          </p>
+          <div className="mt-4">
+            <LineChart
+              values={analytics.daily.map((d) => d.conversionRate ?? 0)}
+              labels={dailyLabels}
+              formatValue={(v) => `${v.toFixed(2)}%`}
+              color="#7c3aed"
+            />
+          </div>
         </Card>
       </div>
 
@@ -146,7 +165,8 @@ function AdminPage() {
         Sales and orders are calculated from real order data; cancelled and
         failed orders are excluded from sales. Visitors count unique anonymous
         browser ids seen on the storefront during the selected period — visits
-        before this feature shipped aren't counted retroactively.
+        before this feature shipped aren't counted retroactively. Conversion
+        rate is online-store orders ÷ unique visitors.
       </p>
     </div>
   )

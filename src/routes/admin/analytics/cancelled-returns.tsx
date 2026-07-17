@@ -115,6 +115,8 @@ function CancelledReturnsPage() {
         <div className="mt-4">
           <LineChart
             values={result.daily.map((d) => d.count)}
+            labels={result.daily.map((d) => d.date)}
+            formatValue={(v) => `${v} cancelled`}
             color="#dc2626"
           />
         </div>
