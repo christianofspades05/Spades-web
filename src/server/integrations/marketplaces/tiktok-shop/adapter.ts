@@ -296,7 +296,11 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
           ...(pageToken ? { page_token: pageToken } : {}),
         },
         body: {
-          create_time_ge: sinceSeconds,
+          // update_time (not create_time) so this also catches orders
+          // placed well before the lookback window but updated within it —
+          // e.g. tracking added today on an order placed 3 days ago. A pure
+          // create_time filter would never even fetch that order again.
+          update_time_ge: sinceSeconds,
         },
       })
       orders.push(...(page.orders as unknown as Record<string, unknown>[]))
