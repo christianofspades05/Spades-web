@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
@@ -83,6 +84,7 @@ export interface ProductSyncRow {
   productId: string
   productName: string
   productImage: string | null
+  productCreatedAt: string
   sku: string
   size: string | null
   color: string | null
@@ -97,8 +99,82 @@ export interface ProductSyncRow {
   } | null
 }
 
+/**
+ * Resolves which products belong to a collection the same way the
+ * storefront does (see listActiveProducts in src/server/products/queries.ts)
+ * — manually pinned products (product_collections) always count, plus
+ * whatever else currently matches the collection's rules, since a "smart"
+ * collection's membership isn't stored anywhere, only computed on read.
+ */
+async function resolveCollectionProductIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  collectionId: string,
+): Promise<Set<string>> {
+  const { data: collection, error: collectionError } = await admin
+    .from('collections')
+    .select('match_type, rules, hide_out_of_stock_products')
+    .eq('id', collectionId)
+    .single()
+  if (collectionError) throw collectionError
+
+  const [{ data: products, error: productsError }, { data: memberships }] =
+    await Promise.all([
+      admin
+        .from('products')
+        .select(
+          'id, name, product_type, status, tags, variants:product_variants(price_cents, inventory(quantity_available))',
+        )
+        .eq('status', 'active'),
+      admin
+        .from('product_collections')
+        .select('product_id')
+        .eq('collection_id', collectionId),
+    ])
+  if (productsError) throw productsError
+
+  const pinnedIds = new Set((memberships ?? []).map((m) => m.product_id))
+  const rules = z.array(collectionRuleSchema).parse(collection.rules)
+
+  const matched = new Set<string>(pinnedIds)
+  for (const p of products) {
+    if (pinnedIds.has(p.id)) continue
+    const inventoryStock = p.variants.reduce(
+      (sum, v) =>
+        sum + v.inventory.reduce((s, i) => s + i.quantity_available, 0),
+      0,
+    )
+    const prices = p.variants.map((v) => v.price_cents)
+    const lowestPriceCents = prices.length > 0 ? Math.min(...prices) : null
+    if (
+      matchesRules(
+        {
+          name: p.name,
+          productType: p.product_type,
+          status: p.status,
+          tags: p.tags,
+          inventoryStock,
+          lowestPriceCents,
+        },
+        rules,
+        collection.match_type,
+      )
+    ) {
+      if (!collection.hide_out_of_stock_products || inventoryStock > 0) {
+        matched.add(p.id)
+      }
+    }
+  }
+
+  return matched
+}
+
 export const listProductSyncStatus = createServerFn({ method: 'GET' })
-  .validator(z.object({ marketplace: marketplaceSchema }))
+  .validator(
+    z.object({
+      marketplace: marketplaceSchema,
+      collectionId: z.string().uuid().optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<ProductSyncRow[]> => {
     await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
@@ -112,7 +188,7 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
     const { data: variants, error } = await admin
       .from('product_variants')
       .select(
-        'id, sku, size, color, style, product:products(id, name, images), inventory(quantity_available)',
+        'id, sku, size, color, style, product:products(id, name, images, created_at), inventory(quantity_available)',
       )
       .eq('is_active', true)
       .order('sku', { ascending: true })
@@ -130,29 +206,36 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
       (mappings ?? []).map((m) => [m.variant_id, m]),
     )
 
-    return variants.map((v) => {
-      const mapping = mappingByVariantId.get(v.id)
-      return {
-        variantId: v.id,
-        productId: v.product.id,
-        productName: v.product.name,
-        productImage: v.product.images[0] ?? null,
-        sku: v.sku,
-        size: v.size,
-        color: v.color,
-        style: v.style,
-        quantityAvailable: v.inventory[0]?.quantity_available ?? 0,
-        mapping: mapping
-          ? {
-              id: mapping.id,
-              externalVariantId: mapping.external_variant_id,
-              externalSku: mapping.external_sku,
-              syncStatus: mapping.sync_status,
-              lastSyncedAt: mapping.last_synced_at,
-            }
-          : null,
-      }
-    })
+    const allowedProductIds = data.collectionId
+      ? await resolveCollectionProductIds(admin, data.collectionId)
+      : null
+
+    return variants
+      .filter((v) => !allowedProductIds || allowedProductIds.has(v.product.id))
+      .map((v) => {
+        const mapping = mappingByVariantId.get(v.id)
+        return {
+          variantId: v.id,
+          productId: v.product.id,
+          productName: v.product.name,
+          productImage: v.product.images[0] ?? null,
+          productCreatedAt: v.product.created_at,
+          sku: v.sku,
+          size: v.size,
+          color: v.color,
+          style: v.style,
+          quantityAvailable: v.inventory[0]?.quantity_available ?? 0,
+          mapping: mapping
+            ? {
+                id: mapping.id,
+                externalVariantId: mapping.external_variant_id,
+                externalSku: mapping.external_sku,
+                syncStatus: mapping.sync_status,
+                lastSyncedAt: mapping.last_synced_at,
+              }
+            : null,
+        }
+      })
   })
 
 /**

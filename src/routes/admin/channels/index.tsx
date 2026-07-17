@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { z } from 'zod'
 import {
   bulkSyncChannel,
   connectExistingProduct,
@@ -17,6 +18,7 @@ import type {
   ChannelConnectionInfo,
   ProductSyncRow,
 } from '#/server/admin/channels'
+import { listAllCollections } from '#/server/admin/collections'
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
@@ -36,7 +38,7 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
-import type { MarketplaceName } from '#/types/entities'
+import type { Collection, MarketplaceName } from '#/types/entities'
 
 const MARKETPLACE_LABELS: Record<MarketplaceName, string> = {
   tiktok_shop: 'TikTok Shop',
@@ -60,19 +62,28 @@ const CONNECTION_LABEL: Record<string, string> = {
 }
 
 export const Route = createFileRoute('/admin/channels/')({
-  loader: async () => {
-    const [connections, products, logs] = await Promise.all([
+  validateSearch: z.object({
+    collectionId: z.string().uuid().optional(),
+  }),
+  loaderDeps: ({ search }) => ({ collectionId: search.collectionId }),
+  loader: async ({ deps }) => {
+    const [connections, products, logs, collections] = await Promise.all([
       listChannelConnections(),
-      listProductSyncStatus({ data: { marketplace: 'tiktok_shop' } }),
+      listProductSyncStatus({
+        data: { marketplace: 'tiktok_shop', collectionId: deps.collectionId },
+      }),
       listRecentSyncLogs({ data: { marketplace: 'tiktok_shop' } }),
+      listAllCollections(),
     ])
-    return { connections, products, logs }
+    return { connections, products, logs, collections }
   },
   component: ChannelsPage,
 })
 
 function ChannelsPage() {
-  const { connections, products, logs } = Route.useLoaderData()
+  const { connections, products, logs, collections } = Route.useLoaderData()
+  const { collectionId } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const router = useRouter()
 
   return (
@@ -106,6 +117,11 @@ function ChannelsPage() {
       <div className="mt-10">
         <ProductSyncSection
           products={products}
+          collections={collections}
+          collectionId={collectionId}
+          onCollectionChange={(id) =>
+            navigate({ search: (prev) => ({ ...prev, collectionId: id }) })
+          }
           connected={
             connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
               ?.status === 'active'
@@ -200,18 +216,56 @@ function ConnectionCard({
   )
 }
 
+type ProductSort = 'name_asc' | 'name_desc' | 'created_desc'
+
+const SORT_LABELS: Record<ProductSort, string> = {
+  name_asc: 'Name (A–Z)',
+  name_desc: 'Name (Z–A)',
+  created_desc: 'Newest first',
+}
+
 function ProductSyncSection({
   products,
+  collections,
+  collectionId,
+  onCollectionChange,
   connected,
   onChanged,
 }: {
   products: ProductSyncRow[]
+  collections: Collection[]
+  collectionId: string | undefined
+  onCollectionChange: (collectionId: string | undefined) => void
   connected: boolean
   onChanged: () => void
 }) {
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<ProductSort>('name_asc')
+
+  const visibleProducts = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    const filtered = query
+      ? products.filter(
+          (p) =>
+            p.productName.toLowerCase().includes(query) ||
+            p.sku.toLowerCase().includes(query),
+        )
+      : products
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'name_asc')
+        return a.productName.localeCompare(b.productName)
+      if (sortBy === 'name_desc')
+        return b.productName.localeCompare(a.productName)
+      return (
+        new Date(b.productCreatedAt).getTime() -
+        new Date(a.productCreatedAt).getTime()
+      )
+    })
+  }, [products, search, sortBy])
 
   async function handleBulkSync() {
     setBulkSyncing(true)
@@ -273,6 +327,38 @@ function ProductSyncSection({
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by product name or SKU…"
+          className={`${inputClassName} w-64`}
+        />
+        <select
+          value={collectionId ?? ''}
+          onChange={(e) => onCollectionChange(e.target.value || undefined)}
+          className={inputClassName}
+        >
+          <option value="">All collections</option>
+          {collections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as ProductSort)}
+          className={inputClassName}
+        >
+          {(Object.keys(SORT_LABELS) as ProductSort[]).map((key) => (
+            <option key={key} value={key}>
+              {SORT_LABELS[key]}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className={`${tableWrapperClassName} mt-4`}>
         <table className="w-full">
           <thead>
@@ -286,7 +372,7 @@ function ProductSyncSection({
             </tr>
           </thead>
           <tbody>
-            {products.map((row) => (
+            {visibleProducts.map((row) => (
               <ProductSyncRowView
                 key={row.variantId}
                 row={row}
@@ -295,6 +381,11 @@ function ProductSyncSection({
             ))}
           </tbody>
         </table>
+        {visibleProducts.length === 0 && (
+          <p className="px-4 py-6 text-center text-sm text-neutral-500">
+            No products match this search/filter.
+          </p>
+        )}
       </div>
     </div>
   )
