@@ -227,6 +227,18 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
       .order('sku', { ascending: true })
     if (error) throw error
 
+    // TEMP debug: investigating a product missing from this list.
+    console.log(
+      '[debug] listProductSyncStatus variant count:',
+      variants.length,
+      'mad hustler matches:',
+      JSON.stringify(
+        variants
+          .filter((v) => v.product.name.toLowerCase().includes('mad hustler'))
+          .map((v) => ({ sku: v.sku, product: v.product.name })),
+      ),
+    )
+
     const { data: mappings } = connection
       ? await admin
           .from('marketplace_product_mappings')
