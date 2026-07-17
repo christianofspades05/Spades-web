@@ -119,6 +119,11 @@ interface TikTokLineItem {
   original_price?: string
 }
 
+interface TikTokPackage {
+  tracking_number?: string
+  shipping_provider_name?: string
+}
+
 interface TikTokOrder {
   id: string
   create_time: number
@@ -131,6 +136,10 @@ interface TikTokOrder {
     sub_total?: string
   }
   status?: string
+  /** Present once the seller arranges shipment directly in TikTok Seller
+   * Center — best-effort field names, not yet exercised against a live
+   * shipped order (same caveat as the rest of this file). */
+  packages?: TikTokPackage[]
 }
 
 const PAID_STATUSES = new Set([
@@ -343,6 +352,15 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
+      trackingInfo: (() => {
+        const pkg = order.packages?.find((p) => p.tracking_number)
+        return pkg?.tracking_number
+          ? {
+              carrier: pkg.shipping_provider_name ?? null,
+              trackingNumber: pkg.tracking_number,
+            }
+          : null
+      })(),
     }
   },
 

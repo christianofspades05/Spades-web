@@ -45,6 +45,8 @@ export interface NormalizedOrder {
   /** True if the platform has already collected payment (the normal case —
    *  we're importing a completed sale, not taking payment ourselves). */
   isPaid: boolean
+  /** Set when the seller has already arranged shipment on the platform's own seller dashboard (not through us) — imported so our shipments table reflects it without staff re-entering it. */
+  trackingInfo: { carrier: string | null; trackingNumber: string } | null
 }
 
 /** A category the platform requires every product to be filed under. Only leaf categories (isLeaf) are selectable when creating a product. */

@@ -38,12 +38,12 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       await Promise.all([
         admin
           .from('orders')
-          .select('placed_at, total_cents, status')
+          .select('placed_at, total_cents, status, source')
           .gte('placed_at', rangeStart)
           .lte('placed_at', rangeEnd),
         admin
           .from('orders')
-          .select('total_cents, status')
+          .select('total_cents, status, source')
           .gte('placed_at', prevStart)
           .lte('placed_at', prevEnd),
         admin
@@ -110,11 +110,24 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
 
     const ordersCount = current.data.length
     const previousOrdersCount = previous.data.length
+
+    // Conversion rate is an online-store-only metric: storefront visits
+    // vs. storefront purchases. Orders placed on TikTok/Shopee/Lazada never
+    // came through a storefront page view, so counting them here would
+    // inflate the rate against a denominator that can't see them.
+    const storefrontOrdersCount = current.data.filter(
+      (o) => o.source === 'storefront',
+    ).length
+    const previousStorefrontOrdersCount = previous.data.filter(
+      (o) => o.source === 'storefront',
+    ).length
     const conversionRate =
-      uniqueVisitors.size > 0 ? (ordersCount / uniqueVisitors.size) * 100 : null
+      uniqueVisitors.size > 0
+        ? (storefrontOrdersCount / uniqueVisitors.size) * 100
+        : null
     const previousConversionRate =
       previousUniqueVisitors.size > 0
-        ? (previousOrdersCount / previousUniqueVisitors.size) * 100
+        ? (previousStorefrontOrdersCount / previousUniqueVisitors.size) * 100
         : null
 
     return {

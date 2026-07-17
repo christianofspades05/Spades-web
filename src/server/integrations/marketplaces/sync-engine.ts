@@ -255,6 +255,41 @@ export async function pushInventoryForAllProducts(
  * 0001_init_schema.sql). Returns false without erroring if it's a repeat,
  * so pulling the same time window twice is always safe.
  */
+/**
+ * Records tracking info the seller already entered directly on the
+ * platform's own seller dashboard (not through us) — a no-op if there's
+ * nothing new to record, so it's safe to call on every pull, not just the
+ * first time an order is seen.
+ */
+async function syncTrackingInfo(
+  orderId: string,
+  trackingInfo: NormalizedOrder['trackingInfo'],
+): Promise<void> {
+  if (!trackingInfo) return
+  const admin = getSupabaseAdminClient()
+
+  const { data: shipment, error: shipmentError } = await admin
+    .from('shipments')
+    .select('id, tracking_number')
+    .eq('order_id', orderId)
+    .maybeSingle()
+  if (shipmentError) throw shipmentError
+  if (shipment?.tracking_number === trackingInfo.trackingNumber) return
+
+  const patch = {
+    order_id: orderId,
+    carrier: trackingInfo.carrier,
+    tracking_number: trackingInfo.trackingNumber,
+    status: 'in_transit' as const,
+    shipped_at: new Date().toISOString(),
+  }
+  if (shipment) {
+    await admin.from('shipments').update(patch).eq('id', shipment.id)
+  } else {
+    await admin.from('shipments').insert(patch)
+  }
+}
+
 async function importOrder(
   marketplace: SyncableMarketplace,
   normalized: NormalizedOrder,
@@ -269,7 +304,10 @@ async function importOrder(
     .eq('external_order_id', normalized.externalOrderId)
     .maybeSingle()
   if (existingError) throw existingError
-  if (existing) return false
+  if (existing) {
+    await syncTrackingInfo(existing.id, normalized.trackingInfo)
+    return false
+  }
 
   const email = normalized.shippingAddress.email.trim().toLowerCase() || null
   let customerId: string
@@ -401,6 +439,8 @@ async function importOrder(
       )
     }
   }
+
+  await syncTrackingInfo(order.id, normalized.trackingInfo)
 
   return true
 }
