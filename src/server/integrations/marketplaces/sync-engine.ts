@@ -129,12 +129,15 @@ async function pushOneMapping(
   connection: MarketplaceConnection,
   mapping: MappingRow,
   quantity: number,
+  options?: { force?: boolean },
 ): Promise<void> {
   // Inventory sync is an explicit per-channel opt-in (off by default) — a
   // channel connected here may already have its stock managed by another
   // tool (e.g. an existing Shopify sync app), and pushing our numbers
   // uninvited risks visibly overwriting whatever that other tool just set.
-  if (!connection.inventory_sync_enabled) return
+  // A `force`d call is different: staff explicitly clicked "Sync now" on
+  // one specific product, so there's no "uninvited" push to worry about.
+  if (!connection.inventory_sync_enabled && !options?.force) return
 
   const admin = getSupabaseAdminClient()
   const adapter = getAdapter(connection.marketplace)
@@ -186,6 +189,7 @@ async function pushOneMapping(
  */
 export async function pushInventoryForVariant(
   variantId: string,
+  options?: { force?: boolean },
 ): Promise<void> {
   const admin = getSupabaseAdminClient()
 
@@ -217,7 +221,7 @@ export async function pushInventoryForVariant(
   for (const mapping of mappings) {
     const connection = connectionsById.get(mapping.marketplace_connection_id)
     if (!connection || connection.status !== 'active') continue
-    await pushOneMapping(connection, mapping, quantity)
+    await pushOneMapping(connection, mapping, quantity, options)
   }
 }
 

@@ -375,11 +375,17 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
     return result
   })
 
+/**
+ * A manual, one-off push for a single product — bypasses the channel-wide
+ * inventory_sync_enabled opt-in (see pushOneMapping's comment) since a
+ * staff member explicitly clicking this for one product isn't the
+ * "uninvited automatic overwrite" scenario that opt-in guards against.
+ */
 export const syncProductNow = createServerFn({ method: 'POST' })
   .validator(z.object({ variantId: z.string().uuid() }))
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const staff = await requireStaff(MANAGE_ROLES)
-    await pushInventoryForVariant(data.variantId)
+    await pushInventoryForVariant(data.variantId, { force: true })
     await logStaffActivity(
       staff,
       'channel.sync_product',

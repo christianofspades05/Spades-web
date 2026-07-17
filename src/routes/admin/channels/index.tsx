@@ -727,20 +727,16 @@ function ProductGroupRow({
         {mappedVariants.length > 0 ? (
           <button
             type="button"
-            disabled={submitting || !inventorySyncEnabled}
+            disabled={submitting}
             onClick={handleSyncNow}
             title={
               inventorySyncEnabled
                 ? undefined
-                : 'Inventory sync is off for this channel — turn it on above first.'
+                : 'Automatic sync is off for this channel — this pushes this product once, right now, without turning that on.'
             }
             className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
           >
-            {submitting
-              ? 'Syncing…'
-              : inventorySyncEnabled
-                ? 'Sync now'
-                : 'Sync now (off)'}
+            {submitting ? 'Syncing…' : 'Sync now'}
           </button>
         ) : (
           <div className="flex justify-end gap-2">
