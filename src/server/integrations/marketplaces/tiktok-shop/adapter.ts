@@ -517,11 +517,11 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       throw new Error('TikTok Shop connection has no access token.')
     }
     const response = await callTikTokApi<{
-      product_name?: string
+      title?: string
       skus?: {
         id: string
         seller_sku?: string
-        sales_attributes?: { attribute_value?: string }[]
+        sales_attributes?: { value_name?: string }[]
       }[]
     }>({
       method: 'GET',
@@ -530,20 +530,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shopCipher: connection.shop_cipher ?? undefined,
     })
 
-    // TEMP: field names above are a best-effort guess — logging the raw
-    // shape so we can correct them against a real response, then remove.
-    console.log(
-      '[TikTok] getProductByExternalId raw response:',
-      JSON.stringify(response),
-    )
-
     return {
-      name: response.product_name ?? '',
+      name: response.title ?? '',
       variants: (response.skus ?? []).map((sku) => ({
         externalVariantId: sku.id,
         externalSku: sku.seller_sku ?? null,
         optionValues: (sku.sales_attributes ?? [])
-          .map((a) => a.attribute_value)
+          .map((a) => a.value_name)
           .filter((v): v is string => Boolean(v)),
       })),
     }
