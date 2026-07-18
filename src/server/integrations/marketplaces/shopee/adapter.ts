@@ -247,7 +247,10 @@ export const shopeeAdapter: MarketplaceAdapter = {
     let cursor = ''
     do {
       const page = await callShopeeApi<{
-        order_list: { order_sn: string }[]
+        // Confirmed via a real empty-shop response: Shopee omits this
+        // field entirely (rather than returning `[]`) when there's
+        // nothing to list — every array field below has the same caveat.
+        order_list?: { order_sn: string }[]
         more: boolean
         next_cursor: string
       }>({
@@ -263,7 +266,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
           cursor,
         },
       })
-      orderSns.push(...page.order_list.map((o) => o.order_sn))
+      orderSns.push(...(page.order_list ?? []).map((o) => o.order_sn))
       cursor = page.more ? page.next_cursor : ''
     } while (cursor)
 
@@ -274,7 +277,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
     for (let i = 0; i < orderSns.length; i += 50) {
       const batch = orderSns.slice(i, i + 50)
       const { order_list } = await callShopeeApi<{
-        order_list: ShopeeOrder[]
+        order_list?: ShopeeOrder[]
       }>({
         method: 'GET',
         path: '/api/v2/order/get_order_detail',
@@ -282,7 +285,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
         shopId,
         query: { order_sn_list: batch.join(',') },
       })
-      orders.push(...(order_list as unknown as Record<string, unknown>[]))
+      orders.push(...((order_list ?? []) as unknown as Record<string, unknown>[]))
     }
     return orders
   },
@@ -352,7 +355,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
     // the whole tree, so filtering by `query` happens client-side here. For
     // a large tree this may want caching; left as a follow-up if it's slow.
     const { category_list } = await callShopeeApi<{
-      category_list: ShopeeCategoryNode[]
+      category_list?: ShopeeCategoryNode[]
     }>({
       method: 'GET',
       path: '/api/v2/product/get_category',
@@ -360,7 +363,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       shopId,
     })
     const normalized = query.trim().toLowerCase()
-    return category_list
+    return (category_list ?? [])
       .filter((c) => !c.has_children)
       .filter((c) =>
         normalized
@@ -382,7 +385,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
   ): Promise<MarketplaceCategoryAttribute[]> {
     const { accessToken, shopId } = requireCredentials(connection)
     const { attribute_list } = await callShopeeApi<{
-      attribute_list: ShopeeAttributeNode[]
+      attribute_list?: ShopeeAttributeNode[]
     }>({
       method: 'GET',
       path: '/api/v2/product/get_attributes',
@@ -390,7 +393,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       shopId,
       query: { category_id: categoryId },
     })
-    return attribute_list.map((a) => ({
+    return (attribute_list ?? []).map((a) => ({
       id: String(a.attribute_id),
       name: a.original_attribute_name,
       required: a.is_mandatory,
@@ -511,7 +514,9 @@ export const shopeeAdapter: MarketplaceAdapter = {
     const itemId = Number(externalProductId)
 
     const [baseInfo, modelList] = await Promise.all([
-      callShopeeApi<{ item_list: { item_id: number; item_name: string }[] }>({
+      callShopeeApi<{
+        item_list?: { item_id: number; item_name: string }[]
+      }>({
         method: 'GET',
         path: '/api/v2/product/get_item_base_info',
         accessToken,
@@ -519,7 +524,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
         query: { item_id_list: String(itemId) },
       }),
       callShopeeApi<{
-        model: { model_id: number; model_sku?: string; tier_index: number[] }[]
+        model?: { model_id: number; model_sku?: string; tier_index: number[] }[]
         tier_variation?: { option_list: { option: string }[] }[]
       }>({
         method: 'GET',
@@ -531,8 +536,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
     ])
 
     return {
-      name: baseInfo.item_list[0]?.item_name ?? '',
-      variants: modelList.model.map((m) => ({
+      name: (baseInfo.item_list ?? [])[0]?.item_name ?? '',
+      variants: (modelList.model ?? []).map((m) => ({
         externalVariantId: String(m.model_id),
         externalSku: m.model_sku ?? null,
         optionValues: m.tier_index.map(
@@ -561,8 +566,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
     let hasNext = true
     while (hasNext) {
       const page = await callShopeeApi<{
-        item: { item_id: number }[]
-        has_next_page: boolean
+        item?: { item_id: number }[]
+        has_next_page?: boolean
         next_offset: number
       }>({
         method: 'GET',
@@ -575,8 +580,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
           item_status: 'NORMAL',
         },
       })
-      itemIds.push(...page.item.map((i) => i.item_id))
-      hasNext = page.has_next_page
+      itemIds.push(...(page.item ?? []).map((i) => i.item_id))
+      hasNext = page.has_next_page ?? false
       offset = page.next_offset
     }
 
@@ -586,7 +591,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
     for (let i = 0; i < itemIds.length; i += 50) {
       const batch = itemIds.slice(i, i + 50)
       const { item_list } = await callShopeeApi<{
-        item_list: { item_id: number; item_name?: string }[]
+        item_list?: { item_id: number; item_name?: string }[]
       }>({
         method: 'GET',
         path: '/api/v2/product/get_item_base_info',
@@ -594,7 +599,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
         shopId,
         query: { item_id_list: batch.join(',') },
       })
-      for (const item of item_list) {
+      for (const item of item_list ?? []) {
         products.push({
           externalProductId: String(item.item_id),
           name: item.item_name ?? '',
