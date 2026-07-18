@@ -8,7 +8,11 @@ import {
 } from '#/lib/validation/admin/orders'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { previousPeriod } from '#/lib/utils/date-range'
+import {
+  previousPeriod,
+  storeLocalDateKey,
+  storeRangeToUtcBounds,
+} from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
 import type {
@@ -94,15 +98,101 @@ async function getProductImagesByVariantId(
   return map
 }
 
+const listOrdersFilterSchema = z.object({
+  status: z.string().optional(),
+  source: z.string().optional(),
+  fulfillment: z
+    .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+    .optional(),
+  q: z.string().optional(),
+})
+
+/**
+ * Resolves the fulfillment filter (derived from the joined `shipments` row,
+ * not an `orders` column) into a set of order ids up front — shared by both
+ * `listOrders` and `getOrdersCount` so they filter identically. Returns
+ * `{ excludeIds }` for "unfulfilled", `{ includeIds }` for a specific status
+ * (empty array means "no orders match"), or `{}` when no filter is set.
+ */
+async function resolveFulfillmentOrderIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  fulfillment: z.infer<typeof listOrdersFilterSchema>['fulfillment'],
+): Promise<{ excludeIds?: string[]; includeIds?: string[] }> {
+  if (fulfillment === 'unfulfilled') {
+    const { data: shipped } = await admin.from('shipments').select('order_id')
+    return { excludeIds: (shipped ?? []).map((s) => s.order_id) }
+  }
+  if (fulfillment) {
+    const { data: matching } = await admin
+      .from('shipments')
+      .select('order_id')
+      .eq('status', fulfillment)
+    return { includeIds: (matching ?? []).map((s) => s.order_id) }
+  }
+  return {}
+}
+
+/** Resolves the free-text search filter into a PostgREST `.or()` condition list, shared by `listOrders` and `getOrdersCount`. */
+async function resolveSearchOrConditions(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  search: string,
+): Promise<string[]> {
+  const [
+    { data: matchingCustomers },
+    { data: matchingItems },
+    { data: matchingShipments },
+  ] = await Promise.all([
+    admin
+      .from('customers')
+      .select('id')
+      .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`),
+    admin
+      .from('order_items')
+      .select('order_id')
+      .or(
+        `product_name_snapshot.ilike.%${search}%,sku_snapshot.ilike.%${search}%`,
+      ),
+    admin
+      .from('shipments')
+      .select('order_id')
+      .ilike('tracking_number', `%${search}%`),
+  ])
+  const customerIds = (matchingCustomers ?? []).map((c) => c.id)
+  const orderIdsFromItems = (matchingItems ?? []).map((i) => i.order_id)
+  const orderIdsFromShipments = (matchingShipments ?? []).map(
+    (s) => s.order_id,
+  )
+  const matchedOrderIds = Array.from(
+    new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
+  )
+
+  const orConditions = [
+    `order_number.ilike.%${search}%`,
+    `external_order_id.ilike.%${search}%`,
+  ]
+  if (customerIds.length > 0) {
+    orConditions.push(`customer_id.in.(${customerIds.join(',')})`)
+  }
+  if (matchedOrderIds.length > 0) {
+    orConditions.push(`id.in.(${matchedOrderIds.join(',')})`)
+  }
+  const searchAsDate = new Date(search)
+  if (!Number.isNaN(searchAsDate.getTime())) {
+    // Store-local day boundaries, not the host's local time — matches the
+    // same PH (UTC+8) treatment used everywhere else `placed_at` gets
+    // compared against a calendar date.
+    const dateKey = searchAsDate.toISOString().slice(0, 10)
+    const { start, end } = storeRangeToUtcBounds(dateKey, dateKey)
+    orConditions.push(`and(placed_at.gte.${start},placed_at.lte.${end})`)
+  }
+  return orConditions
+}
+
 export const listOrders = createServerFn({ method: 'GET' })
   .validator(
-    z.object({
-      status: z.string().optional(),
-      source: z.string().optional(),
-      fulfillment: z
-        .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
-        .optional(),
-      q: z.string().optional(),
+    listOrdersFilterSchema.extend({
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(25),
     }),
   )
   .handler(async ({ data }): Promise<OrderWithCustomer[]> => {
@@ -119,71 +209,29 @@ export const listOrders = createServerFn({ method: 'GET' })
     if (data.status) query = query.eq('status', data.status)
     if (data.source) query = query.eq('source', data.source)
 
+    const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
+      admin,
+      data.fulfillment,
+    )
+    if (excludeIds && excludeIds.length > 0) {
+      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
+    }
+    if (includeIds) {
+      if (includeIds.length === 0) return []
+      query = query.in('id', includeIds)
+    }
+
     const search = data.q?.trim()
     if (search) {
-      const [
-        { data: matchingCustomers },
-        { data: matchingItems },
-        { data: matchingShipments },
-      ] = await Promise.all([
-        admin
-          .from('customers')
-          .select('id')
-          .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`),
-        admin
-          .from('order_items')
-          .select('order_id')
-          .or(
-            `product_name_snapshot.ilike.%${search}%,sku_snapshot.ilike.%${search}%`,
-          ),
-        admin
-          .from('shipments')
-          .select('order_id')
-          .ilike('tracking_number', `%${search}%`),
-      ])
-      const customerIds = (matchingCustomers ?? []).map((c) => c.id)
-      const orderIdsFromItems = (matchingItems ?? []).map((i) => i.order_id)
-      const orderIdsFromShipments = (matchingShipments ?? []).map(
-        (s) => s.order_id,
-      )
-      const matchedOrderIds = Array.from(
-        new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
-      )
-
-      const orConditions = [
-        `order_number.ilike.%${search}%`,
-        `external_order_id.ilike.%${search}%`,
-      ]
-      if (customerIds.length > 0) {
-        orConditions.push(`customer_id.in.(${customerIds.join(',')})`)
-      }
-      if (matchedOrderIds.length > 0) {
-        orConditions.push(`id.in.(${matchedOrderIds.join(',')})`)
-      }
-      const searchAsDate = new Date(search)
-      if (!Number.isNaN(searchAsDate.getTime())) {
-        const dayStart = new Date(search)
-        dayStart.setHours(0, 0, 0, 0)
-        const dayEnd = new Date(search)
-        dayEnd.setHours(23, 59, 59, 999)
-        orConditions.push(
-          `and(placed_at.gte.${dayStart.toISOString()},placed_at.lte.${dayEnd.toISOString()})`,
-        )
-      }
+      const orConditions = await resolveSearchOrConditions(admin, search)
       query = query.or(orConditions.join(','))
     }
 
-    const { data: rawOrders, error } = await query
-    if (error) throw error
+    const offset = (data.page - 1) * data.pageSize
+    query = query.range(offset, offset + data.pageSize - 1)
 
-    const orders = data.fulfillment
-      ? rawOrders.filter((o) => {
-          const shipment = o.shipments.at(0)
-          return data.fulfillment === 'unfulfilled'
-            ? !shipment
-            : shipment?.status === data.fulfillment
-        })
-      : rawOrders
+    const { data: orders, error } = await query
+    if (error) throw error
 
     const variantIds = Array.from(
       new Set(
@@ -207,6 +255,45 @@ export const listOrders = createServerFn({ method: 'GET' })
     }))
   })
 
+// Kept as a separate, simple head-count query (no embedded joins) rather
+// than folded into `listOrders`'s response — bundling a row array and a
+// count into one return object broke TypeScript's inference for this
+// handler (the embedded-relation row type is already at the edge of what it
+// can resolve; wrapping it in another object tipped it over to `unknown`).
+export const getOrdersCount = createServerFn({ method: 'GET' })
+  .validator(listOrdersFilterSchema)
+  .handler(async ({ data }): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    let query = admin.from('orders').select('id', { count: 'exact', head: true })
+
+    if (data.status) query = query.eq('status', data.status)
+    if (data.source) query = query.eq('source', data.source)
+
+    const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
+      admin,
+      data.fulfillment,
+    )
+    if (excludeIds && excludeIds.length > 0) {
+      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
+    }
+    if (includeIds) {
+      if (includeIds.length === 0) return { total: 0 }
+      query = query.in('id', includeIds)
+    }
+
+    const search = data.q?.trim()
+    if (search) {
+      const orConditions = await resolveSearchOrConditions(admin, search)
+      query = query.or(orConditions.join(','))
+    }
+
+    const { count, error } = await query
+    if (error) throw error
+    return { total: count ?? 0 }
+  })
+
 export interface OrdersOverview {
   range: { from: string; to: string }
   orders: { count: number; previousCount: number; daily: number[] }
@@ -217,17 +304,37 @@ export interface OrdersOverview {
   avgFulfillmentHours: number | null
 }
 
+// Brief in-process cache so repeated loads of the same date range (e.g. every
+// staff member landing on the default "Last 30 days" view) don't re-run the
+// full row scan each time. This only helps within a single warm serverless
+// instance — it's not a shared/global cache — but Vercel reuses warm
+// instances for bursts of traffic, which is exactly when this matters most.
+const OVERVIEW_CACHE_TTL_MS = 2 * 60_000
+const overviewCache = new Map<
+  string,
+  { expiresAt: number; data: OrdersOverview }
+>()
+
 export const getOrdersOverview = createServerFn({ method: 'GET' })
   .validator(z.object({ from: z.string(), to: z.string() }))
   .handler(async ({ data }): Promise<OrdersOverview> => {
     await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}`
+    const cached = overviewCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.data
+
     const admin = getSupabaseAdminClient()
 
     const prev = previousPeriod(data.from, data.to)
-    const rangeStart = `${data.from}T00:00:00.000Z`
-    const rangeEnd = `${data.to}T23:59:59.999Z`
-    const prevStart = `${prev.from}T00:00:00.000Z`
-    const prevEnd = `${prev.to}T23:59:59.999Z`
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+    const { start: prevStart, end: prevEnd } = storeRangeToUtcBounds(
+      prev.from,
+      prev.to,
+    )
 
     const [current, previous, returnsCurrent, returnsPrevious] =
       await Promise.all([
@@ -262,9 +369,9 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
 
     const dailyMap = new Map<string, number>()
     for (
-      const d = new Date(`${data.from}T00:00:00`);
-      d <= new Date(`${data.to}T00:00:00`);
-      d.setDate(d.getDate() + 1)
+      const d = new Date(`${data.from}T00:00:00Z`);
+      d <= new Date(`${data.to}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1)
     ) {
       dailyMap.set(d.toISOString().slice(0, 10), 0)
     }
@@ -275,7 +382,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
     const fulfillmentHours: number[] = []
 
     for (const order of current.data) {
-      const day = order.placed_at.slice(0, 10)
+      const day = storeLocalDateKey(order.placed_at)
       if (dailyMap.has(day)) dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1)
 
       itemsOrdered += order.order_items.reduce((sum, i) => sum + i.quantity, 0)
@@ -310,7 +417,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
       (o) => o.shipments.at(0)?.status === 'delivered',
     ).length
 
-    return {
+    const result: OrdersOverview = {
       range: { from: data.from, to: data.to },
       orders: {
         count: current.data.length,
@@ -333,6 +440,11 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
             fulfillmentHours.length
           : null,
     }
+    overviewCache.set(cacheKey, {
+      data: result,
+      expiresAt: Date.now() + OVERVIEW_CACHE_TTL_MS,
+    })
+    return result
   })
 
 export const getOrderById = createServerFn({ method: 'GET' })

@@ -2,6 +2,12 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import {
+  previousPeriod,
+  storeLocalDateKey,
+  storeLocalHourKey,
+  storeRangeToUtcBounds,
+} from '#/lib/utils/date-range'
 import type { OrderCancellationReason, OrderSource } from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
@@ -51,8 +57,7 @@ async function computeChannelSales(
   to: string,
   channelFilter: OrderSource | undefined,
 ): Promise<{ channels: ChannelSales[]; totals: ChannelSales }> {
-  const rangeStart = `${from}T00:00:00.000Z`
-  const rangeEnd = `${to}T23:59:59.999Z`
+  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
   let orderQuery = admin
     .from('orders')
@@ -176,8 +181,10 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    const rangeStart = `${data.from}T00:00:00.000Z`
-    const rangeEnd = `${data.to}T23:59:59.999Z`
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
 
     const { data: cancelledOrders, error: cancelledError } = await admin
       .from('orders')
@@ -191,7 +198,7 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
     // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
     const isSingleDay = data.from === data.to
     const bucketKey = (iso: string) =>
-      isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
+      isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
 
     const dailyMap = new Map<string, number>()
     if (isSingleDay) {
@@ -200,9 +207,9 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       }
     } else {
       for (
-        const d = new Date(`${data.from}T00:00:00`);
-        d <= new Date(`${data.to}T00:00:00`);
-        d.setDate(d.getDate() + 1)
+        const d = new Date(`${data.from}T00:00:00Z`);
+        d <= new Date(`${data.to}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + 1)
       ) {
         dailyMap.set(d.toISOString().slice(0, 10), 0)
       }
@@ -307,19 +314,11 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
 
     let previous: SalesByChannelResult['previous'] = null
     if (data.comparePrevious) {
-      const fromDate = new Date(`${data.from}T00:00:00`)
-      const toDate = new Date(`${data.to}T00:00:00`)
-      const lengthDays =
-        Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1
-      const prevTo = new Date(fromDate)
-      prevTo.setDate(prevTo.getDate() - 1)
-      const prevFrom = new Date(prevTo)
-      prevFrom.setDate(prevFrom.getDate() - (lengthDays - 1))
-
+      const prev = previousPeriod(data.from, data.to)
       const prevResult = await computeChannelSales(
         admin,
-        prevFrom.toISOString().slice(0, 10),
-        prevTo.toISOString().slice(0, 10),
+        prev.from,
+        prev.to,
         data.channel,
       )
       previous = { channels: prevResult.channels, totals: prevResult.totals }

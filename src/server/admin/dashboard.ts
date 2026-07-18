@@ -2,7 +2,12 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { previousPeriod } from '#/lib/utils/date-range'
+import {
+  previousPeriod,
+  storeLocalDateKey,
+  storeLocalHourKey,
+  storeRangeToUtcBounds,
+} from '#/lib/utils/date-range'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 
@@ -33,7 +38,7 @@ function bucketPeriod(
   visits: { visitor_id: string; created_at: string }[],
 ): BucketPoint[] {
   const bucketKeyOf = (iso: string) =>
-    isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
+    isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
 
   const keys: string[] = []
   const labels: string[] = []
@@ -49,9 +54,9 @@ function bucketPeriod(
     }
   } else {
     for (
-      const d = new Date(`${fromDate}T00:00:00`);
-      d <= new Date(`${toDate}T00:00:00`);
-      d.setDate(d.getDate() + 1)
+      const d = new Date(`${fromDate}T00:00:00Z`);
+      d <= new Date(`${toDate}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1)
     ) {
       const key = d.toISOString().slice(0, 10)
       keys.push(key)
@@ -119,10 +124,14 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     const admin = getSupabaseAdminClient()
 
     const prev = previousPeriod(data.from, data.to)
-    const rangeStart = `${data.from}T00:00:00.000Z`
-    const rangeEnd = `${data.to}T23:59:59.999Z`
-    const prevStart = `${prev.from}T00:00:00.000Z`
-    const prevEnd = `${prev.to}T23:59:59.999Z`
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+    const { start: prevStart, end: prevEnd } = storeRangeToUtcBounds(
+      prev.from,
+      prev.to,
+    )
 
     const [current, previous, visitsCurrent, visitsPrevious] =
       await Promise.all([

@@ -16,6 +16,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
+import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
 import type { Inventory, Product, ProductVariant } from '#/types/entities'
@@ -133,13 +134,15 @@ export const getProductsOverview = createServerFn({ method: 'GET' })
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    const rangeStart = `${data.from}T00:00:00.000Z`
-    const rangeEnd = `${data.to}T23:59:59.999Z`
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
     const periodDays = Math.max(
       1,
       Math.round(
-        (new Date(`${data.to}T00:00:00`).getTime() -
-          new Date(`${data.from}T00:00:00`).getTime()) /
+        (new Date(`${data.to}T00:00:00Z`).getTime() -
+          new Date(`${data.from}T00:00:00Z`).getTime()) /
           86_400_000,
       ) + 1,
     )

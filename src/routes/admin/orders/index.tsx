@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import {
   createFileRoute,
@@ -9,6 +9,7 @@ import {
 import { Search } from 'lucide-react'
 import {
   bulkCancelOrders,
+  getOrdersCount,
   getOrdersOverview,
   listOrders,
 } from '#/server/admin/orders'
@@ -42,6 +43,8 @@ import {
 // this page only — this table has a lot of rows and staff want more of
 // them visible without scrolling.
 const tableCellClassName = 'px-4 py-1.5 text-sm text-neutral-900'
+
+const PAGE_SIZE = 50
 
 const ORDER_STATUSES = [
   'pending_payment',
@@ -94,6 +97,7 @@ export const Route = createFileRoute('/admin/orders/')({
       .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
       .optional(),
     q: z.string().optional(),
+    page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
     to: z.string().optional(),
@@ -104,18 +108,23 @@ export const Route = createFileRoute('/admin/orders/')({
       from: deps.from,
       to: deps.to,
     })
-    const [orders, overview] = await Promise.all([
+    const filters = {
+      status: deps.status,
+      source: deps.source,
+      fulfillment: deps.fulfillment,
+      q: deps.q,
+    }
+    const overviewPromise: Promise<OrdersOverview> = getOrdersOverview({
+      data: resolved,
+    })
+    const [orders, { total }, overview] = await Promise.all([
       listOrders({
-        data: {
-          status: deps.status,
-          source: deps.source,
-          fulfillment: deps.fulfillment,
-          q: deps.q,
-        },
+        data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
       }),
-      getOrdersOverview({ data: resolved }),
+      getOrdersCount({ data: filters }),
+      overviewPromise,
     ])
-    return { orders, overview }
+    return { orders, total, overview }
   },
   component: OrdersPage,
 })
@@ -123,8 +132,9 @@ export const Route = createFileRoute('/admin/orders/')({
 function OrdersPage() {
   const {
     orders,
+    total,
     overview,
-  }: { orders: OrderWithCustomer[]; overview: OrdersOverview } =
+  }: { orders: OrderWithCustomer[]; total: number; overview: OrdersOverview } =
     Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
@@ -154,9 +164,23 @@ function OrdersPage() {
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
     navigate({
-      search: (prev) => ({ ...prev, q: searchInput || undefined }),
+      search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
     })
   }
+
+  // Debounced live search — navigates 300ms after the user stops typing
+  // instead of firing a query on every keystroke. The explicit submit above
+  // still works for an immediate Enter press.
+  useEffect(() => {
+    const trimmed = searchInput.trim()
+    if (trimmed === (search.q ?? '')) return
+    const handle = setTimeout(() => {
+      navigate({
+        search: (prev) => ({ ...prev, q: trimmed || undefined, page: 1 }),
+      })
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [searchInput])
 
   function toggleAll() {
     setSelected((prev) =>
@@ -211,6 +235,11 @@ function OrdersPage() {
       setBulkCancelling(false)
     }
   }
+
+  const page = search.page
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
 
   const avgFulfillment =
     overview.avgFulfillmentHours === null
@@ -268,7 +297,7 @@ function OrdersPage() {
     <div className="w-full px-8 py-10">
       <PageHeader
         title="Orders"
-        subtitle={`${orders.length} ${orders.length === 1 ? 'order' : 'orders'}`}
+        subtitle={`${total} ${total === 1 ? 'order' : 'orders'}`}
         action={
           <DateRangePicker
             preset={search.range}
@@ -329,7 +358,7 @@ function OrdersPage() {
           <Link
             to="/admin/orders"
             from={Route.fullPath}
-            search={(prev) => ({ ...prev, status: undefined })}
+            search={(prev) => ({ ...prev, status: undefined, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               !search.status
                 ? 'bg-neutral-900 text-white'
@@ -343,7 +372,7 @@ function OrdersPage() {
               key={s}
               to="/admin/orders"
               from={Route.fullPath}
-              search={(prev) => ({ ...prev, status: s })}
+              search={(prev) => ({ ...prev, status: s, page: 1 })}
               className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
                 search.status === s
                   ? 'bg-neutral-900 text-white'
@@ -363,7 +392,7 @@ function OrdersPage() {
         <Link
           to="/admin/orders"
           from={Route.fullPath}
-          search={(prev) => ({ ...prev, source: undefined })}
+          search={(prev) => ({ ...prev, source: undefined, page: 1 })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.source
               ? 'bg-neutral-900 text-white'
@@ -377,7 +406,7 @@ function OrdersPage() {
             key={s}
             to="/admin/orders"
             from={Route.fullPath}
-            search={(prev) => ({ ...prev, source: s })}
+            search={(prev) => ({ ...prev, source: s, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.source === s
                 ? 'bg-neutral-900 text-white'
@@ -396,7 +425,7 @@ function OrdersPage() {
         <Link
           to="/admin/orders"
           from={Route.fullPath}
-          search={(prev) => ({ ...prev, fulfillment: undefined })}
+          search={(prev) => ({ ...prev, fulfillment: undefined, page: 1 })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.fulfillment
               ? 'bg-neutral-900 text-white'
@@ -418,7 +447,7 @@ function OrdersPage() {
             key={f}
             to="/admin/orders"
             from={Route.fullPath}
-            search={(prev) => ({ ...prev, fulfillment: f })}
+            search={(prev) => ({ ...prev, fulfillment: f, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.fulfillment === f
                 ? 'bg-neutral-900 text-white'
@@ -712,6 +741,37 @@ function OrdersPage() {
           </div>
         )}
       </div>
+
+      {total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+          <p>
+            Showing {rangeStartIndex}–{rangeEndIndex} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/admin/orders"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page - 1 })}
+              aria-disabled={page <= 1}
+              className={`${buttonSecondaryClassName} ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Previous
+            </Link>
+            <span className="text-xs text-neutral-400">
+              Page {page} of {totalPages}
+            </span>
+            <Link
+              to="/admin/orders"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page + 1 })}
+              aria-disabled={page >= totalPages}
+              className={`${buttonSecondaryClassName} ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Next
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
