@@ -146,11 +146,14 @@ export interface MarketplaceAdapter {
   /** Builds the URL to send the staff member to in order to authorize this app on the platform. */
   getAuthorizationUrl: (state: string) => string
 
-  /** Exchanges the `code` param from the OAuth callback redirect for real tokens. */
-  exchangeCodeForTokens: (code: string) => Promise<OAuthTokens>
+  /** Exchanges the `code` param from the OAuth callback redirect for real tokens. `shopId` is required by platforms (Shopee) whose token exchange needs it up front — ignored by platforms (TikTok) that derive the shop from the token itself. */
+  exchangeCodeForTokens: (code: string, shopId?: string) => Promise<OAuthTokens>
 
-  /** Uses a still-valid refresh token to get a new access token before the old one expires. */
-  refreshTokens: (refreshToken: string) => Promise<OAuthTokens>
+  /** Uses a still-valid refresh token to get a new access token before the old one expires. `shopId` is required by platforms (Shopee) whose refresh call needs it — ignored otherwise. */
+  refreshTokens: (
+    refreshToken: string,
+    shopId?: string,
+  ) => Promise<OAuthTokens>
 
   /** Pushes our current stock count for one variant to the platform. */
   pushInventory: (

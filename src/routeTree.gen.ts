@@ -61,6 +61,8 @@ import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analyti
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
 import { Route as ApiOauthTiktokConnectRouteImport } from './routes/api/oauth/tiktok/connect'
 import { Route as ApiOauthTiktokCallbackRouteImport } from './routes/api/oauth/tiktok/callback'
+import { Route as ApiOauthShopeeConnectRouteImport } from './routes/api/oauth/shopee/connect'
+import { Route as ApiOauthShopeeCallbackRouteImport } from './routes/api/oauth/shopee/callback'
 import { Route as AccountOrdersOrderIdReviewRouteImport } from './routes/account/orders/$orderId/review'
 
 const CheckoutRoute = CheckoutRouteImport.update({
@@ -330,6 +332,16 @@ const ApiOauthTiktokCallbackRoute = ApiOauthTiktokCallbackRouteImport.update({
   path: '/api/oauth/tiktok/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOauthShopeeConnectRoute = ApiOauthShopeeConnectRouteImport.update({
+  id: '/api/oauth/shopee/connect',
+  path: '/api/oauth/shopee/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOauthShopeeCallbackRoute = ApiOauthShopeeCallbackRouteImport.update({
+  id: '/api/oauth/shopee/callback',
+  path: '/api/oauth/shopee/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountOrdersOrderIdReviewRoute =
   AccountOrdersOrderIdReviewRouteImport.update({
     id: '/account/orders/$orderId/review',
@@ -389,6 +401,8 @@ export interface FileRoutesByFullPath {
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
+  '/api/oauth/shopee/connect': typeof ApiOauthShopeeConnectRoute
   '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
   '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
@@ -442,6 +456,8 @@ export interface FileRoutesByTo {
   '/admin/reviews': typeof AdminReviewsIndexRoute
   '/admin/settings': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
+  '/api/oauth/shopee/connect': typeof ApiOauthShopeeConnectRoute
   '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
   '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
@@ -498,6 +514,8 @@ export interface FileRoutesById {
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
+  '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
+  '/api/oauth/shopee/connect': typeof ApiOauthShopeeConnectRoute
   '/api/oauth/tiktok/callback': typeof ApiOauthTiktokCallbackRoute
   '/api/oauth/tiktok/connect': typeof ApiOauthTiktokConnectRoute
 }
@@ -555,6 +573,8 @@ export interface FileRouteTypes {
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/shopee/callback'
+    | '/api/oauth/shopee/connect'
     | '/api/oauth/tiktok/callback'
     | '/api/oauth/tiktok/connect'
   fileRoutesByTo: FileRoutesByTo
@@ -608,6 +628,8 @@ export interface FileRouteTypes {
     | '/admin/reviews'
     | '/admin/settings'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/shopee/callback'
+    | '/api/oauth/shopee/connect'
     | '/api/oauth/tiktok/callback'
     | '/api/oauth/tiktok/connect'
   id:
@@ -663,6 +685,8 @@ export interface FileRouteTypes {
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/account/orders/$orderId/review'
+    | '/api/oauth/shopee/callback'
+    | '/api/oauth/shopee/connect'
     | '/api/oauth/tiktok/callback'
     | '/api/oauth/tiktok/connect'
   fileRoutesById: FileRoutesById
@@ -691,6 +715,8 @@ export interface RootRouteChildren {
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
+  ApiOauthShopeeCallbackRoute: typeof ApiOauthShopeeCallbackRoute
+  ApiOauthShopeeConnectRoute: typeof ApiOauthShopeeConnectRoute
   ApiOauthTiktokCallbackRoute: typeof ApiOauthTiktokCallbackRoute
   ApiOauthTiktokConnectRoute: typeof ApiOauthTiktokConnectRoute
 }
@@ -1061,6 +1087,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOauthTiktokCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/oauth/shopee/connect': {
+      id: '/api/oauth/shopee/connect'
+      path: '/api/oauth/shopee/connect'
+      fullPath: '/api/oauth/shopee/connect'
+      preLoaderRoute: typeof ApiOauthShopeeConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/oauth/shopee/callback': {
+      id: '/api/oauth/shopee/callback'
+      path: '/api/oauth/shopee/callback'
+      fullPath: '/api/oauth/shopee/callback'
+      preLoaderRoute: typeof ApiOauthShopeeCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/account/orders/$orderId/review': {
       id: '/account/orders/$orderId/review'
       path: '/account/orders/$orderId/review'
@@ -1169,6 +1209,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
+  ApiOauthShopeeCallbackRoute: ApiOauthShopeeCallbackRoute,
+  ApiOauthShopeeConnectRoute: ApiOauthShopeeConnectRoute,
   ApiOauthTiktokCallbackRoute: ApiOauthTiktokCallbackRoute,
   ApiOauthTiktokConnectRoute: ApiOauthTiktokConnectRoute,
 }

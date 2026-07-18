@@ -82,6 +82,7 @@ async function ensureFreshConnection(
   try {
     const tokens = await adapter.refreshTokens(
       connection.refresh_token_encrypted,
+      connection.external_shop_id ?? undefined,
     )
     const { data: updated, error } = await admin
       .from('marketplace_connections')

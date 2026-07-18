@@ -26,4 +26,7 @@ export function getAdapter(marketplace: MarketplaceName): MarketplaceAdapter {
 }
 
 /** Marketplaces with a real (non-stub) adapter — drives what the admin Channels page offers to connect. */
-export const IMPLEMENTED_MARKETPLACES: MarketplaceName[] = ['tiktok_shop']
+export const IMPLEMENTED_MARKETPLACES: MarketplaceName[] = [
+  'tiktok_shop',
+  'shopee',
+]
