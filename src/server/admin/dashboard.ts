@@ -6,12 +6,101 @@ import { previousPeriod } from '#/lib/utils/date-range'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 
+interface BucketPoint {
+  label: string
+  orders: number
+  salesCents: number
+  visitors: number
+  storefrontOrders: number
+}
+
+/**
+ * Buckets one period's orders/visits by hour (single-day range) or by day
+ * (anything wider) — shared between the current and previous period so the
+ * dashboard's comparison overlay lines up bucket-for-bucket (e.g. "this hour
+ * today" against "the same hour yesterday").
+ */
+function bucketPeriod(
+  fromDate: string,
+  toDate: string,
+  isSingleDay: boolean,
+  orders: {
+    placed_at: string
+    total_cents: number
+    status: string
+    source: string
+  }[],
+  visits: { visitor_id: string; created_at: string }[],
+): BucketPoint[] {
+  const bucketKeyOf = (iso: string) =>
+    isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
+
+  const keys: string[] = []
+  const labels: string[] = []
+  if (isSingleDay) {
+    for (let hour = 0; hour < 24; hour++) {
+      const hh = String(hour).padStart(2, '0')
+      keys.push(`${fromDate}T${hh}`)
+      labels.push(
+        new Date(`${fromDate}T${hh}:00:00`).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+        }),
+      )
+    }
+  } else {
+    for (
+      const d = new Date(`${fromDate}T00:00:00`);
+      d <= new Date(`${toDate}T00:00:00`);
+      d.setDate(d.getDate() + 1)
+    ) {
+      const key = d.toISOString().slice(0, 10)
+      keys.push(key)
+      labels.push(key)
+    }
+  }
+
+  const indexByKey = new Map(keys.map((key, i) => [key, i]))
+  const points: BucketPoint[] = keys.map((_, i) => ({
+    label: labels[i],
+    orders: 0,
+    salesCents: 0,
+    visitors: 0,
+    storefrontOrders: 0,
+  }))
+  const visitorSets = points.map(() => new Set<string>())
+
+  for (const order of orders) {
+    const idx = indexByKey.get(bucketKeyOf(order.placed_at))
+    if (idx === undefined) continue
+    const point = points[idx]
+    const isVoid = VOID_STATUSES.has(order.status)
+    point.orders += 1
+    if (!isVoid) point.salesCents += order.total_cents
+    if (order.source === 'storefront') point.storefrontOrders += 1
+  }
+
+  for (const visit of visits) {
+    const idx = indexByKey.get(bucketKeyOf(visit.created_at))
+    if (idx === undefined) continue
+    visitorSets[idx].add(visit.visitor_id)
+  }
+  points.forEach((point, i) => {
+    point.visitors = visitorSets[i].size
+  })
+
+  return points
+}
+
 export interface DailyPoint {
   date: string
   orders: number
   salesCents: number
   visitors: number
   conversionRate: number | null
+  previousOrders: number
+  previousSalesCents: number
+  previousVisitors: number
+  previousConversionRate: number | null
 }
 
 export interface DashboardAnalytics {
@@ -44,7 +133,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
           .lte('placed_at', rangeEnd),
         admin
           .from('orders')
-          .select('total_cents, status, source')
+          .select('placed_at, total_cents, status, source')
           .gte('placed_at', prevStart)
           .lte('placed_at', prevEnd),
         admin
@@ -55,7 +144,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
           .lte('created_at', rangeEnd),
         admin
           .from('storefront_visits')
-          .select('visitor_id')
+          .select('visitor_id, created_at')
           .eq('event_type', 'page_view')
           .gte('created_at', prevStart)
           .lte('created_at', prevEnd),
@@ -70,86 +159,53 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     // day — one data point for the whole day would be a flat, useless
     // chart. Anything wider stays bucketed by day, same as before.
     const isSingleDay = data.from === data.to
-    const bucketKey = (iso: string) =>
-      isSingleDay ? iso.slice(0, 13) : iso.slice(0, 10)
 
-    const dailyMap = new Map<string, DailyPoint>()
-    const dailyVisitorSets = new Map<string, Set<string>>()
-    const dailyStorefrontOrders = new Map<string, number>()
-    if (isSingleDay) {
-      for (let hour = 0; hour < 24; hour++) {
-        const hh = String(hour).padStart(2, '0')
-        const key = `${data.from}T${hh}`
-        const label = new Date(`${data.from}T${hh}:00:00`).toLocaleTimeString(
-          'en-US',
-          { hour: 'numeric' },
-        )
-        dailyMap.set(key, {
-          date: label,
-          orders: 0,
-          salesCents: 0,
-          visitors: 0,
-          conversionRate: null,
-        })
-        dailyVisitorSets.set(key, new Set())
-        dailyStorefrontOrders.set(key, 0)
+    const currentBuckets = bucketPeriod(
+      data.from,
+      data.to,
+      isSingleDay,
+      current.data,
+      visitsCurrent.data,
+    )
+    const previousBuckets = bucketPeriod(
+      prev.from,
+      prev.to,
+      isSingleDay,
+      previous.data,
+      visitsPrevious.data,
+    )
+
+    const daily: DailyPoint[] = currentBuckets.map((point, i) => {
+      const prevPoint = previousBuckets.at(i)
+      return {
+        date: point.label,
+        orders: point.orders,
+        salesCents: point.salesCents,
+        visitors: point.visitors,
+        conversionRate:
+          point.visitors > 0
+            ? (point.storefrontOrders / point.visitors) * 100
+            : null,
+        previousOrders: prevPoint?.orders ?? 0,
+        previousSalesCents: prevPoint?.salesCents ?? 0,
+        previousVisitors: prevPoint?.visitors ?? 0,
+        previousConversionRate:
+          prevPoint && prevPoint.visitors > 0
+            ? (prevPoint.storefrontOrders / prevPoint.visitors) * 100
+            : null,
       }
-    } else {
-      for (
-        const d = new Date(`${data.from}T00:00:00`);
-        d <= new Date(`${data.to}T00:00:00`);
-        d.setDate(d.getDate() + 1)
-      ) {
-        const key = d.toISOString().slice(0, 10)
-        dailyMap.set(key, {
-          date: key,
-          orders: 0,
-          salesCents: 0,
-          visitors: 0,
-          conversionRate: null,
-        })
-        dailyVisitorSets.set(key, new Set())
-        dailyStorefrontOrders.set(key, 0)
-      }
-    }
+    })
 
     let salesCents = 0
     for (const order of current.data) {
-      const key = bucketKey(order.placed_at)
-      const bucket = dailyMap.get(key)
-      const isVoid = VOID_STATUSES.has(order.status)
-      if (bucket) {
-        bucket.orders += 1
-        if (!isVoid) bucket.salesCents += order.total_cents
-      }
-      if (!isVoid) salesCents += order.total_cents
-      if (order.source === 'storefront') {
-        dailyStorefrontOrders.set(
-          key,
-          (dailyStorefrontOrders.get(key) ?? 0) + 1,
-        )
-      }
+      if (!VOID_STATUSES.has(order.status)) salesCents += order.total_cents
     }
 
     const previousSalesCents = previous.data
       .filter((o) => !VOID_STATUSES.has(o.status))
       .reduce((sum, o) => sum + o.total_cents, 0)
 
-    const uniqueVisitors = new Set<string>()
-    for (const visit of visitsCurrent.data) {
-      uniqueVisitors.add(visit.visitor_id)
-      dailyVisitorSets.get(bucketKey(visit.created_at))?.add(visit.visitor_id)
-    }
-    for (const [key, set] of dailyVisitorSets) {
-      const bucket = dailyMap.get(key)
-      if (bucket) {
-        bucket.visitors = set.size
-        const storefrontOrders = dailyStorefrontOrders.get(key) ?? 0
-        bucket.conversionRate =
-          set.size > 0 ? (storefrontOrders / set.size) * 100 : null
-      }
-    }
-
+    const uniqueVisitors = new Set(visitsCurrent.data.map((v) => v.visitor_id))
     const previousUniqueVisitors = new Set(
       visitsPrevious.data.map((v) => v.visitor_id),
     )
@@ -188,6 +244,6 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         rate: conversionRate,
         previousRate: previousConversionRate,
       },
-      daily: Array.from(dailyMap.values()),
+      daily,
     }
   })

@@ -11,7 +11,15 @@ import type { DateRangePreset } from '#/lib/utils/date-range'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
-import { LineChart } from '#/components/admin/LineChart'
+import {
+  MetricSparkline,
+  TrendLineChart,
+} from '#/components/admin/DashboardTrendChart'
+
+const SALES_COLOR = '#2c6ecb'
+const ORDERS_COLOR = '#16a34a'
+const VISITORS_COLOR = '#ea580c'
+const CONVERSION_COLOR = '#7c3aed'
 
 export const Route = createFileRoute('/admin/')({
   validateSearch: z.object({
@@ -69,7 +77,26 @@ function AdminPage() {
         )
       : null
 
-  const dailyLabels = analytics.daily.map((d) => d.date)
+  const salesChartData = analytics.daily.map((d) => ({
+    label: d.date,
+    current: d.salesCents,
+    previous: d.previousSalesCents,
+  }))
+  const ordersChartData = analytics.daily.map((d) => ({
+    label: d.date,
+    current: d.orders,
+    previous: d.previousOrders,
+  }))
+  const visitorsChartData = analytics.daily.map((d) => ({
+    label: d.date,
+    current: d.visitors,
+    previous: d.previousVisitors,
+  }))
+  const conversionChartData = analytics.daily.map((d) => ({
+    label: d.date,
+    current: d.conversionRate ?? 0,
+    previous: d.previousConversionRate ?? 0,
+  }))
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -90,16 +117,23 @@ function AdminPage() {
         <Card className="p-5">
           <p className="text-sm font-medium text-neutral-500">Sales</p>
           <div className="mt-2 flex items-end justify-between">
-            <p className="text-3xl font-semibold text-neutral-900">
-              {formatCentsAsPHP(analytics.sales.cents)}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-semibold text-neutral-900">
+                {formatCentsAsPHP(analytics.sales.cents)}
+              </p>
+              <MetricSparkline
+                values={analytics.daily.map((d) => d.salesCents)}
+                color={SALES_COLOR}
+              />
+            </div>
             <TrendTag value={salesTrend} />
           </div>
           <div className="mt-4">
-            <LineChart
-              values={analytics.daily.map((d) => d.salesCents)}
-              labels={dailyLabels}
+            <TrendLineChart
+              data={salesChartData}
+              color={SALES_COLOR}
               formatValue={formatCentsAsPHP}
+              syncId="dashboard-trends"
             />
           </div>
         </Card>
@@ -107,16 +141,23 @@ function AdminPage() {
         <Card className="p-5">
           <p className="text-sm font-medium text-neutral-500">Orders</p>
           <div className="mt-2 flex items-end justify-between">
-            <p className="text-3xl font-semibold text-neutral-900">
-              {analytics.orders.count}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-semibold text-neutral-900">
+                {analytics.orders.count}
+              </p>
+              <MetricSparkline
+                values={analytics.daily.map((d) => d.orders)}
+                color={ORDERS_COLOR}
+              />
+            </div>
             <TrendTag value={ordersTrend} />
           </div>
           <div className="mt-4">
-            <LineChart
-              values={analytics.daily.map((d) => d.orders)}
-              labels={dailyLabels}
+            <TrendLineChart
+              data={ordersChartData}
+              color={ORDERS_COLOR}
               formatValue={(v) => `${v} ${v === 1 ? 'order' : 'orders'}`}
+              syncId="dashboard-trends"
             />
           </div>
         </Card>
@@ -130,10 +171,11 @@ function AdminPage() {
             <TrendTag value={visitorsTrend} />
           </div>
           <div className="mt-4">
-            <LineChart
-              values={analytics.daily.map((d) => d.visitors)}
-              labels={dailyLabels}
+            <TrendLineChart
+              data={visitorsChartData}
+              color={VISITORS_COLOR}
               formatValue={(v) => `${v} ${v === 1 ? 'visitor' : 'visitors'}`}
+              syncId="dashboard-trends"
             />
           </div>
         </Card>
@@ -143,19 +185,25 @@ function AdminPage() {
             Conversion rate
           </p>
           <div className="mt-2 flex items-end justify-between">
-            <p className="text-3xl font-semibold text-neutral-900">
-              {analytics.conversionRate.rate === null
-                ? '—'
-                : `${analytics.conversionRate.rate.toFixed(2)}%`}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-semibold text-neutral-900">
+                {analytics.conversionRate.rate === null
+                  ? '—'
+                  : `${analytics.conversionRate.rate.toFixed(2)}%`}
+              </p>
+              <MetricSparkline
+                values={analytics.daily.map((d) => d.conversionRate ?? 0)}
+                color={CONVERSION_COLOR}
+              />
+            </div>
             <TrendTag value={conversionTrend} />
           </div>
           <div className="mt-4">
-            <LineChart
-              values={analytics.daily.map((d) => d.conversionRate ?? 0)}
-              labels={dailyLabels}
+            <TrendLineChart
+              data={conversionChartData}
+              color={CONVERSION_COLOR}
               formatValue={(v) => `${v.toFixed(2)}%`}
-              color="#7c3aed"
+              syncId="dashboard-trends"
             />
           </div>
         </Card>
@@ -166,7 +214,8 @@ function AdminPage() {
         failed orders are excluded from sales. Visitors count unique anonymous
         browser ids seen on the storefront during the selected period — visits
         before this feature shipped aren't counted retroactively. Conversion
-        rate is online-store orders ÷ unique visitors.
+        rate is online-store orders ÷ unique visitors. Dashed lines show the
+        previous period for comparison.
       </p>
     </div>
   )
