@@ -26,6 +26,7 @@ import {
 import { AddedToCartPopup } from '#/components/storefront/AddedToCartPopup'
 import type { AddedToCartItem } from '#/components/storefront/AddedToCartPopup'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 function formatVariantLabel(variant: VariantWithStock): string {
   const parts: string[] = []
@@ -36,6 +37,7 @@ function formatVariantLabel(variant: VariantWithStock): string {
 }
 
 export const Route = createFileRoute('/products/$slug')({
+  headers: () => STOREFRONT_CACHE_HEADERS,
   loader: async ({ params }) => {
     const product = await getProductBySlug({ data: { slug: params.slug } })
     if (!product) throw notFound()

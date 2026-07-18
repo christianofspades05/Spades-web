@@ -1,6 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { STATIC_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
-export const Route = createFileRoute('/about/')({ component: AboutPage })
+export const Route = createFileRoute('/about/')({
+  headers: () => STATIC_CACHE_HEADERS,
+  component: AboutPage,
+})
 
 function AboutPage() {
   return (

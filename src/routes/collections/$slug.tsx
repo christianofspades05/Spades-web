@@ -3,12 +3,14 @@ import { listActiveProducts } from '#/server/products/queries'
 import { toListingProduct } from '#/lib/utils/product-shape'
 import { collectionTitleForSlug } from '#/lib/collections/display'
 import { ProductGrid } from '#/components/storefront/ProductGrid'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 const PRODUCTS_PER_ROW = 5
 /** listActiveProducts caps limit at 100 (see listActiveProductsSchema). */
 const FETCH_LIMIT = 100
 
 export const Route = createFileRoute('/collections/$slug')({
+  headers: () => STOREFRONT_CACHE_HEADERS,
   loader: async ({ params }) => {
     const products = await listActiveProducts({
       data: { collectionSlug: params.slug, limit: FETCH_LIMIT },

@@ -5,11 +5,13 @@ import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import { toListingProduct } from '#/lib/utils/product-shape'
 import { loadStorefrontCollectionSections } from '#/server/collections/sections'
 import { CollectionSections } from '#/components/storefront/CollectionSections'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 const FEATURED_PAGE_SIZE = 5
 const BEST_SELLERS_SLUG = 'best-sellers'
 
 export const Route = createFileRoute('/')({
+  headers: () => STOREFRONT_CACHE_HEADERS,
   loader: async () => {
     const [bestSellers, collectionSections] = await Promise.all([
       listActiveProducts({

@@ -10,8 +10,10 @@ import { ProductFilters } from '#/components/storefront/ProductFilters'
 import { SortSelect } from '#/components/storefront/SortSelect'
 import { SearchBar } from '#/components/storefront/SearchBar'
 import { Pagination } from '#/components/storefront/Pagination'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 export const Route = createFileRoute('/products/')({
+  headers: () => STOREFRONT_CACHE_HEADERS,
   validateSearch: productListingSearchSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) =>

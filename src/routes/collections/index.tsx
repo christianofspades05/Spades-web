@@ -1,8 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { loadStorefrontCollectionSections } from '#/server/collections/sections'
 import { CollectionSections } from '#/components/storefront/CollectionSections'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 export const Route = createFileRoute('/collections/')({
+  headers: () => STOREFRONT_CACHE_HEADERS,
   loader: async () => {
     const sections = await loadStorefrontCollectionSections()
     return { sections }
