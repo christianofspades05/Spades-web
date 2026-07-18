@@ -87,7 +87,7 @@ function InventoryPage() {
       )}
 
       {rows.length > 0 && (
-        <div className="flex flex-col gap-3 md:hidden">
+        <div className="md:hidden">
           {rows.map((row) => (
             <InventoryCard
               key={row.variantId}
