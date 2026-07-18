@@ -1,18 +1,27 @@
 # integrations/marketplaces/shopee
 
-Implemented, but **not yet exercised against a live or sandbox shop** — the
-partner app (SyncMate) was just approved and every endpoint path/payload
-shape below follows Shopee Open Platform v2's publicly documented
-conventions rather than something that's actually been called. Treat the
-first real "Connect" click, inventory push, and order pull as the real test;
-check `sync_logs` for the raw response body if any of them fail, and adjust
-`client.ts`/`adapter.ts` against Shopee's own API reference from there.
+Implemented and OAuth-connected against the real Sandbox shop (SyncMate,
+partner id 1238685) — the Connect flow, signing, and token exchange are all
+confirmed working end-to-end. Inventory push, order pull, category
+browsing, and product creation still haven't been exercised against a live
+shop yet — treat those as the next real tests; check `sync_logs` for the
+raw response body if any of them fail, and adjust `client.ts`/`adapter.ts`
+against Shopee's own API reference from there.
 
 - `client.ts` — raw signed HTTP calls. Shopee signs requests with
   HMAC-SHA256 over `partner_id + api_path + timestamp` (+ `access_token` +
   `shop_id` for shop-level calls), keyed by the partner key.
   `SHOPEE_ENV` (see `.env.example`) picks Sandbox vs. Live — every new app
   starts in Sandbox until Shopee approves Live access for it.
+  **Sandbox host caveat**: every third-party SDK/guide referenced while
+  building this used `partner.test-stable.shopeemobile.com` for sandbox —
+  that host resolves and returns real-looking Shopee gateway responses, but
+  rejects every request with `"Wrong sign"` regardless of signature
+  correctness. The actual working sandbox host, confirmed via Shopee's own
+  API Test Tool, is `openplatform.sandbox.test-stable.shopee.sg` (already
+  set in `BASE_URLS`). If Live ever exhibits the same symptom, re-verify its
+  host the same way (API Test Tool → switch Partner ID to the Live one) —
+  `partner.shopeemobile.com` hasn't been confirmed the way sandbox's was.
 - `adapter.ts` — implements `MarketplaceAdapter`. Registered in
   `../registry.ts`'s `ADAPTERS` map and `IMPLEMENTED_MARKETPLACES`, so the
   admin Channels page now offers a real "Connect" button.
