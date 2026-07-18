@@ -56,6 +56,7 @@ import { Route as AdminDiscountsNewRouteImport } from './routes/admin/discounts/
 import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/discounts/$discountId'
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
+import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
 import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
 import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
@@ -306,6 +307,12 @@ const AdminCollectionsCollectionIdRoute =
     path: '/collections/$collectionId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminChannelsMarketplaceRoute =
+  AdminChannelsMarketplaceRouteImport.update({
+    id: '/channels/$marketplace',
+    path: '/channels/$marketplace',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminAnalyticsSalesRoute = AdminAnalyticsSalesRouteImport.update({
   id: '/analytics/sales',
   path: '/analytics/sales',
@@ -375,6 +382,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -430,6 +438,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -488,6 +497,7 @@ export interface FileRoutesById {
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
@@ -547,6 +557,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -602,6 +613,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -659,6 +671,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
@@ -1052,6 +1065,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollectionsCollectionIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/channels/$marketplace': {
+      id: '/admin/channels/$marketplace'
+      path: '/channels/$marketplace'
+      fullPath: '/admin/channels/$marketplace'
+      preLoaderRoute: typeof AdminChannelsMarketplaceRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/analytics/sales': {
       id: '/admin/analytics/sales'
       path: '/analytics/sales'
@@ -1116,6 +1136,7 @@ interface AdminRouteChildren {
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
   AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
   AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
+  AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
   AdminCustomersCustomerIdRoute: typeof AdminCustomersCustomerIdRoute
   AdminDiscountsDiscountIdRoute: typeof AdminDiscountsDiscountIdRoute
@@ -1144,6 +1165,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
   AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,
   AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
+  AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
   AdminCustomersCustomerIdRoute: AdminCustomersCustomerIdRoute,
   AdminDiscountsDiscountIdRoute: AdminDiscountsDiscountIdRoute,
