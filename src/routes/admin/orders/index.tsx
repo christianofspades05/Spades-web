@@ -29,6 +29,7 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge, StatusBadge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { SparkLine } from '#/components/admin/LineChart'
 import { OrderCard } from '#/components/admin/OrderCard'
 import {
@@ -66,6 +67,29 @@ const SOURCE_LABELS: Record<OrderSource, string> = {
   lazada: 'Lazada',
 }
 
+const PAYMENT_STATUS_OPTIONS = [
+  { value: 'pending_payment', label: 'Pending Payment' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'refunded', label: 'Refunded' },
+  { value: 'cancelled', label: 'Cancelled' },
+] as const
+
+const FULFILLMENT_STATUS_OPTIONS = [
+  { value: 'fulfilled', label: 'Fulfilled' },
+  { value: 'unfulfilled', label: 'Unfulfilled' },
+  { value: 'pending', label: 'Awaiting Shipment' },
+  { value: 'packed', label: 'Awaiting Collection' },
+  { value: 'in_transit', label: 'In Transit' },
+  { value: 'delivered', label: 'Delivered' },
+] as const
+
+const CHANNEL_OPTIONS = [
+  { value: 'storefront', label: 'Online Store' },
+  { value: 'tiktok_shop', label: 'TikTok Shop' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+] as const
+
 type CancellationReason =
   'failed_delivery' | 'customer_request' | 'out_of_stock'
 
@@ -94,7 +118,14 @@ export const Route = createFileRoute('/admin/orders/')({
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
     fulfillment: z
-      .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+      .enum([
+        'unfulfilled',
+        'fulfilled',
+        'pending',
+        'packed',
+        'in_transit',
+        'delivered',
+      ])
       .optional(),
     q: z.string().optional(),
     page: z.number().int().min(1).catch(1),
@@ -355,108 +386,33 @@ function OrdersPage() {
         </form>
 
         <div className="flex flex-wrap gap-2">
-          <Link
-            to="/admin/orders"
-            from={Route.fullPath}
-            search={(prev) => ({ ...prev, status: undefined, page: 1 })}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              !search.status
-                ? 'bg-neutral-900 text-white'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-            }`}
-          >
-            All
-          </Link>
-          {ORDER_STATUSES.map((s) => (
-            <Link
-              key={s}
-              to="/admin/orders"
-              from={Route.fullPath}
-              search={(prev) => ({ ...prev, status: s, page: 1 })}
-              className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
-                search.status === s
-                  ? 'bg-neutral-900 text-white'
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-              }`}
-            >
-              {s.replace(/_/g, ' ')}
-            </Link>
-          ))}
+          <FilterDropdown
+            label="Payment"
+            value={search.status}
+            options={PAYMENT_STATUS_OPTIONS}
+            onChange={(status) =>
+              navigate({ search: (prev) => ({ ...prev, status, page: 1 }) })
+            }
+          />
+          <FilterDropdown
+            label="Fulfillment Status"
+            value={search.fulfillment}
+            options={FULFILLMENT_STATUS_OPTIONS}
+            onChange={(fulfillment) =>
+              navigate({
+                search: (prev) => ({ ...prev, fulfillment, page: 1 }),
+              })
+            }
+          />
+          <FilterDropdown
+            label="Channel"
+            value={search.source}
+            options={CHANNEL_OPTIONS}
+            onChange={(source) =>
+              navigate({ search: (prev) => ({ ...prev, source, page: 1 }) })
+            }
+          />
         </div>
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
-          Channel
-        </span>
-        <Link
-          to="/admin/orders"
-          from={Route.fullPath}
-          search={(prev) => ({ ...prev, source: undefined, page: 1 })}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            !search.source
-              ? 'bg-neutral-900 text-white'
-              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-          }`}
-        >
-          All
-        </Link>
-        {(Object.keys(SOURCE_LABELS) as OrderSource[]).map((s) => (
-          <Link
-            key={s}
-            to="/admin/orders"
-            from={Route.fullPath}
-            search={(prev) => ({ ...prev, source: s, page: 1 })}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              search.source === s
-                ? 'bg-neutral-900 text-white'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-            }`}
-          >
-            {SOURCE_LABELS[s]}
-          </Link>
-        ))}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
-          Fulfillment
-        </span>
-        <Link
-          to="/admin/orders"
-          from={Route.fullPath}
-          search={(prev) => ({ ...prev, fulfillment: undefined, page: 1 })}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            !search.fulfillment
-              ? 'bg-neutral-900 text-white'
-              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-          }`}
-        >
-          All
-        </Link>
-        {(
-          [
-            ['unfulfilled', 'Unfulfilled'],
-            ['pending', 'Awaiting Shipment'],
-            ['packed', 'Awaiting Collection'],
-            ['in_transit', 'In Transit'],
-            ['delivered', 'Delivered'],
-          ] as const
-        ).map(([f, label]) => (
-          <Link
-            key={f}
-            to="/admin/orders"
-            from={Route.fullPath}
-            search={(prev) => ({ ...prev, fulfillment: f, page: 1 })}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              search.fulfillment === f
-                ? 'bg-neutral-900 text-white'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
       </div>
 
       {selected.size > 0 && (

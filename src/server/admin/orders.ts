@@ -102,7 +102,7 @@ const listOrdersFilterSchema = z.object({
   status: z.string().optional(),
   source: z.string().optional(),
   fulfillment: z
-    .enum(['unfulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+    .enum(['unfulfilled', 'fulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
     .optional(),
   q: z.string().optional(),
 })
@@ -111,16 +111,20 @@ const listOrdersFilterSchema = z.object({
  * Resolves the fulfillment filter (derived from the joined `shipments` row,
  * not an `orders` column) into a set of order ids up front — shared by both
  * `listOrders` and `getOrdersCount` so they filter identically. Returns
- * `{ excludeIds }` for "unfulfilled", `{ includeIds }` for a specific status
- * (empty array means "no orders match"), or `{}` when no filter is set.
+ * `{ excludeIds }` for "unfulfilled", `{ includeIds }` for "fulfilled" (any
+ * shipment exists) or a specific shipment status (empty array means "no
+ * orders match"), or `{}` when no filter is set.
  */
 async function resolveFulfillmentOrderIds(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   fulfillment: z.infer<typeof listOrdersFilterSchema>['fulfillment'],
 ): Promise<{ excludeIds?: string[]; includeIds?: string[] }> {
-  if (fulfillment === 'unfulfilled') {
+  if (fulfillment === 'unfulfilled' || fulfillment === 'fulfilled') {
     const { data: shipped } = await admin.from('shipments').select('order_id')
-    return { excludeIds: (shipped ?? []).map((s) => s.order_id) }
+    const shippedOrderIds = (shipped ?? []).map((s) => s.order_id)
+    return fulfillment === 'unfulfilled'
+      ? { excludeIds: shippedOrderIds }
+      : { includeIds: shippedOrderIds }
   }
   if (fulfillment) {
     const { data: matching } = await admin
