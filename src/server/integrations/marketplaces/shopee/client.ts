@@ -22,8 +22,15 @@
  */
 import { createHmac } from 'node:crypto'
 
+// Sandbox's real host (confirmed via Shopee's own API Test Tool, which
+// showed `openplatform.sandbox.test-stable.shopee.sg` — every third-party
+// SDK/guide referenced while building this adapter used the older
+// `partner.test-stable.shopeemobile.com`, which still resolves and returns
+// real Shopee responses but apparently isn't paired with the same signing
+// key validation, producing a convincing but wrong "Wrong sign" error for
+// every request regardless of how correct the signature itself was.
 const BASE_URLS = {
-  sandbox: 'https://partner.test-stable.shopeemobile.com',
+  sandbox: 'https://openplatform.sandbox.test-stable.shopee.sg',
   live: 'https://partner.shopeemobile.com',
 } as const
 
