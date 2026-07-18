@@ -47,6 +47,15 @@ import {
 } from '#/components/admin/ui'
 import type { MarketplaceName } from '#/types/entities'
 
+// The oauth route folder names don't all match the marketplace value
+// exactly (tiktok_shop's route is /api/oauth/tiktok/, not /tiktok_shop/) —
+// this maps each implemented marketplace to its real connect path rather
+// than assuming one can be derived from the other.
+const OAUTH_CONNECT_PATHS: Partial<Record<MarketplaceName, string>> = {
+  tiktok_shop: '/api/oauth/tiktok/connect',
+  shopee: '/api/oauth/shopee/connect',
+}
+
 const MARKETPLACE_LABELS: Record<MarketplaceName, string> = {
   tiktok_shop: 'TikTok Shop',
   shopee: 'Shopee',
@@ -344,7 +353,7 @@ function ConnectionCard({
           </button>
         ) : (
           <a
-            href="/api/oauth/tiktok/connect"
+            href={OAUTH_CONNECT_PATHS[info.marketplace] ?? '#'}
             className={`${buttonPrimaryClassName} w-full justify-center`}
           >
             Connect
