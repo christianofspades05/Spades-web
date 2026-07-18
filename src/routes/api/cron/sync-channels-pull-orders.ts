@@ -19,6 +19,8 @@
  * code split out of the client bundle automatically.
  */
 import { createFileRoute } from '@tanstack/react-router'
+import type { MarketplaceName } from '#/types/entities'
+import type { SyncableMarketplace } from '#/server/integrations/marketplaces/types'
 
 const LOOKBACK_MINUTES = 15
 
@@ -29,6 +31,12 @@ function isAuthorized(request: Request): boolean {
     return false
   }
   return request.headers.get('authorization') === `Bearer ${expected}`
+}
+
+function isSyncable(
+  marketplace: MarketplaceName,
+): marketplace is SyncableMarketplace {
+  return marketplace !== 'other'
 }
 
 export const Route = createFileRoute('/api/cron/sync-channels-pull-orders')({
@@ -51,21 +59,31 @@ export const Route = createFileRoute('/api/cron/sync-channels-pull-orders')({
         if (error) throw error
 
         const since = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000)
-        const results: Record<string, unknown> = {}
 
-        for (const connection of connections) {
-          if (connection.marketplace === 'other') continue
-          try {
-            results[connection.marketplace] = await pullOrdersForMarketplace(
-              connection.marketplace,
-              since,
+        // One marketplace's pull hanging/being slow shouldn't add to
+        // another's wall-clock time — each is independent, so they run
+        // concurrently rather than one after another.
+        const entries = await Promise.all(
+          connections
+            .filter((c): c is { marketplace: SyncableMarketplace } =>
+              isSyncable(c.marketplace),
             )
-          } catch (err) {
-            results[connection.marketplace] = {
-              error: err instanceof Error ? err.message : String(err),
-            }
-          }
-        }
+            .map(async (connection) => {
+              try {
+                const result = await pullOrdersForMarketplace(
+                  connection.marketplace,
+                  since,
+                )
+                return [connection.marketplace, result] as const
+              } catch (err) {
+                return [
+                  connection.marketplace,
+                  { error: err instanceof Error ? err.message : String(err) },
+                ] as const
+              }
+            }),
+        )
+        const results = Object.fromEntries(entries)
 
         return Response.json({ since: since.toISOString(), results })
       },
