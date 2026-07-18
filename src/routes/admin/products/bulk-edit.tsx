@@ -55,6 +55,7 @@ interface ProductEdit {
 
 interface VariantEdit {
   productId: string
+  sku: string
   size: string
   pricePesos: number
   costPesos: number | ''
@@ -106,6 +107,7 @@ function BulkEditPage() {
           v.id,
           {
             productId: p.id,
+            sku: v.sku,
             size: v.size ?? '',
             pricePesos: centsToPesos(v.price_cents),
             costPesos: v.cost_cents !== null ? centsToPesos(v.cost_cents) : '',
@@ -239,13 +241,14 @@ function BulkEditPage() {
                 (original.cost_cents !== null
                   ? centsToPesos(original.cost_cents)
                   : '') ||
-              edit.size !== (original.size ?? '')
+              edit.size !== (original.size ?? '') ||
+              edit.sku !== original.sku
             ) {
               await updateVariant({
                 data: {
                   id: original.id,
                   productId: original.product_id,
-                  sku: original.sku,
+                  sku: edit.sku,
                   size: edit.size || undefined,
                   color: original.color ?? undefined,
                   style: original.style ?? undefined,
@@ -321,6 +324,7 @@ function BulkEditPage() {
             <thead>
               <tr>
                 <th className={tableHeadClassName}>Product / Variant</th>
+                <th className={tableHeadClassName}>SKU</th>
                 <th className={tableHeadClassName}>Status</th>
                 <th className={tableHeadClassName}>Collections</th>
                 <th className={tableHeadClassName}>Tags</th>
@@ -359,6 +363,7 @@ function BulkEditPage() {
                           />
                         </div>
                       </td>
+                      <td className={tableCellClassName} />
                       <td className={tableCellClassName}>
                         <select
                           value={edit.status}
@@ -422,6 +427,18 @@ function BulkEditPage() {
                               }
                               placeholder="Size"
                               className={`${inputClassName} w-20`}
+                            />
+                          </td>
+                          <td className={tableCellClassName}>
+                            <input
+                              value={vEdit.sku}
+                              onChange={(e) =>
+                                updateVariantEdit(variant.id, {
+                                  sku: e.target.value,
+                                })
+                              }
+                              placeholder="SKU"
+                              className={`${inputClassName} w-28`}
                             />
                           </td>
                           <td className={tableCellClassName} colSpan={2} />

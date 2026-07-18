@@ -88,7 +88,14 @@ async function computeCustomerOrderCounts(
 }
 
 export const listCustomers = createServerFn({ method: 'GET' })
-  .validator(z.object({ q: z.string().optional() }))
+  .validator(
+    z.object({
+      q: z.string().optional(),
+      source: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<CustomerListRow[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
@@ -103,6 +110,22 @@ export const listCustomers = createServerFn({ method: 'GET' })
       query = query.or(
         `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`,
       )
+    }
+
+    // "Channel" isn't a customer-table column — a customer can order
+    // through more than one channel — so this filters to customers who
+    // have placed at least one order via the selected source.
+    if (data.source) {
+      const { data: sourceOrders, error: sourceError } = await admin
+        .from('orders')
+        .select('customer_id')
+        .eq('source', data.source)
+      if (sourceError) throw sourceError
+      const customerIds = Array.from(
+        new Set(sourceOrders.map((o) => o.customer_id)),
+      )
+      if (customerIds.length === 0) return []
+      query = query.in('id', customerIds)
     }
 
     const { data: customers, error } = await query

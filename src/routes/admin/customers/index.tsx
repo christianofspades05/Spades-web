@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
+import { Download, Search } from 'lucide-react'
 import { listCustomers } from '#/server/admin/customers'
 import type { CustomerListRow } from '#/server/admin/customers'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
 import { CustomerCard } from '#/components/admin/CustomerCard'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import {
+  buttonSecondaryClassName,
   inputClassName,
   tableCellClassName,
   tableHeadClassName,
@@ -15,14 +17,66 @@ import {
   tableWrapperClassName,
 } from '#/components/admin/ui'
 
+const CHANNEL_OPTIONS = [
+  { value: 'storefront', label: 'Online Store' },
+  { value: 'tiktok_shop', label: 'TikTok Shop' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+] as const
+
 export const Route = createFileRoute('/admin/customers/')({
   validateSearch: z.object({
     q: z.string().optional(),
+    source: z
+      .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+      .optional(),
   }),
   loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) => listCustomers({ data: { q: deps.q } }),
+  loader: async ({ deps }) =>
+    listCustomers({ data: { q: deps.q, source: deps.source } }),
   component: CustomersPage,
 })
+
+/** Quotes a CSV field per RFC 4180 — wraps in double quotes and escapes any embedded quotes whenever the value itself contains a comma, quote, or newline. */
+function csvField(value: string | number | boolean | null): string {
+  const str = value === null ? '' : String(value)
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+}
+
+function downloadCustomersCsv(customers: CustomerListRow[]) {
+  const headers = [
+    'Name',
+    'Email',
+    'Phone',
+    'Orders',
+    'Cancelled',
+    'Returns',
+    'Guest',
+    'High risk',
+    'COD blocked',
+  ]
+  const rows = customers.map((c) =>
+    [
+      csvField(c.full_name),
+      csvField(c.email),
+      csvField(c.phone),
+      csvField(c.orders_count),
+      csvField(c.cancelled_orders_count),
+      csvField(c.return_count),
+      csvField(c.is_guest),
+      csvField(c.is_high_risk),
+      csvField(c.cod_blocked),
+    ].join(','),
+  )
+  const csv = [headers.join(','), ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function CustomersPage() {
   const customers: CustomerListRow[] = Route.useLoaderData()
@@ -42,9 +96,20 @@ function CustomersPage() {
       <PageHeader
         title="Customers"
         subtitle={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
+        action={
+          <button
+            type="button"
+            onClick={() => downloadCustomersCsv(customers)}
+            disabled={customers.length === 0}
+            className={`${buttonSecondaryClassName} inline-flex items-center gap-1.5 disabled:opacity-50`}
+          >
+            <Download size={14} />
+            Export CSV
+          </button>
+        }
       />
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <form onSubmit={handleSearchSubmit} className="w-full max-w-xs">
           <div className="relative">
             <Search
@@ -59,6 +124,14 @@ function CustomersPage() {
             />
           </div>
         </form>
+        <FilterDropdown
+          label="Channel"
+          value={search.source}
+          options={CHANNEL_OPTIONS}
+          onChange={(source) =>
+            navigate({ search: (prev) => ({ ...prev, source }) })
+          }
+        />
       </div>
 
       {customers.length === 0 && (

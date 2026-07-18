@@ -14,6 +14,7 @@ import { centsToPesos } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { QuantityEditor } from '#/components/admin/QuantityEditor'
+import { InventoryCard } from '#/components/admin/InventoryCard'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -79,7 +80,25 @@ function InventoryPage() {
         </div>
       </form>
 
-      <div className={tableWrapperClassName}>
+      {rows.length === 0 && (
+        <p className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+          No inventory found.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-3 md:hidden">
+          {rows.map((row) => (
+            <InventoryCard
+              key={row.variantId}
+              row={row}
+              onSaved={() => router.invalidate()}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className={`${tableWrapperClassName} hidden md:block`}>
         {rows.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">No inventory found.</p>
         ) : (
