@@ -211,7 +211,7 @@ function ProductsPage() {
         }
       />
 
-      <Card className="mb-6 flex flex-wrap divide-x divide-neutral-200 overflow-hidden">
+      <Card className="mb-6 hidden flex-wrap divide-x divide-neutral-200 overflow-hidden md:flex">
         <div className="flex items-center p-4">
           <DateRangePicker
             preset={search.range}
@@ -261,7 +261,7 @@ function ProductsPage() {
         </div>
       </Card>
       {abcTotal === 0 && (
-        <p className="-mt-4 mb-6 text-xs text-neutral-400">
+        <p className="-mt-4 mb-6 hidden text-xs text-neutral-400 md:block">
           Sell-through rate, inventory runway, and ABC analysis are computed
           from real orders and stock, for the selected period — they'll fill in
           once orders start coming through checkout.
@@ -414,7 +414,7 @@ function ProductsPage() {
       )}
 
       {rows.length > 0 && (
-        <div className="flex flex-col gap-3 md:hidden">
+        <div className="md:hidden">
           {rows.map(({ product, onHand, isLowStock, categories }) => (
             <ProductCard
               key={product.id}
