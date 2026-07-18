@@ -23,7 +23,7 @@ const CONVERSION_COLOR = '#7c3aed'
 
 export const Route = createFileRoute('/admin/')({
   validateSearch: z.object({
-    range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
+    range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
     to: z.string().optional(),
   }),

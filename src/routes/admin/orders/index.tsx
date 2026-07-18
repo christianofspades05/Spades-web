@@ -98,7 +98,7 @@ export const Route = createFileRoute('/admin/orders/')({
       .optional(),
     q: z.string().optional(),
     page: z.number().int().min(1).catch(1),
-    range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
+    range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
     to: z.string().optional(),
   }),
