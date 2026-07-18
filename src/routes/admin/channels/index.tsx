@@ -20,6 +20,7 @@ import {
 import type {
   ChannelConnectionInfo,
   ProductSyncRow,
+  SyncLogRow,
 } from '#/server/admin/channels'
 import type {
   AutoConnectByTitleResult,
@@ -29,6 +30,7 @@ import { listAllCollections } from '#/server/admin/collections'
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
+  SyncableMarketplace,
 } from '#/server/integrations/marketplaces/types'
 import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -83,15 +85,53 @@ export const Route = createFileRoute('/admin/channels/')({
   }),
   loaderDeps: ({ search }) => ({ collectionId: search.collectionId }),
   loader: async ({ deps }) => {
-    const [connections, products, logs, collections] = await Promise.all([
+    const [connections, collections] = await Promise.all([
       listChannelConnections(),
-      listProductSyncStatus({
-        data: { marketplace: 'tiktok_shop', collectionId: deps.collectionId },
-      }),
-      listRecentSyncLogs({ data: { marketplace: 'tiktok_shop' } }),
       listAllCollections(),
     ])
-    return { connections, products, logs, collections }
+
+    // Every card gets its own product-sync section below — driven by
+    // whichever marketplaces actually have a real adapter, not a single
+    // hardcoded one, so a newly-implemented marketplace (e.g. Shopee) shows
+    // up here automatically instead of needing this page rewritten again.
+    const implementedMarketplaces = connections
+      .filter((c) => c.implemented)
+      .map((c) => c.marketplace) as SyncableMarketplace[]
+
+    const [productEntries, logEntries] = await Promise.all([
+      Promise.all(
+        implementedMarketplaces.map(
+          async (marketplace) =>
+            [
+              marketplace,
+              await listProductSyncStatus({
+                data: { marketplace, collectionId: deps.collectionId },
+              }),
+            ] as const,
+        ),
+      ),
+      Promise.all(
+        implementedMarketplaces.map((marketplace) =>
+          listRecentSyncLogs({ data: { marketplace } }),
+        ),
+      ),
+    ])
+
+    const productsByMarketplace = Object.fromEntries(productEntries) as Record<
+      SyncableMarketplace,
+      ProductSyncRow[]
+    >
+    const logs = logEntries
+      .flat()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+    return {
+      connections,
+      implementedMarketplaces,
+      productsByMarketplace,
+      logs,
+      collections,
+    }
   },
   component: ChannelsPage,
 })
@@ -130,7 +170,13 @@ function notifySafely(title: string, body: string): void {
 }
 
 function ChannelsPage() {
-  const { connections, products, logs, collections } = Route.useLoaderData()
+  const {
+    connections,
+    implementedMarketplaces,
+    productsByMarketplace,
+    logs,
+    collections,
+  } = Route.useLoaderData()
   const { collectionId } = Route.useSearch()
   const navigate = Route.useNavigate()
   const router = useRouter()
@@ -211,23 +257,25 @@ function ChannelsPage() {
         ))}
       </div>
 
-      <div className="mt-10">
-        <ProductSyncSection
-          products={products}
-          search={search}
-          sortBy={sortBy}
-          connectionFilter={connectionFilter}
-          connected={
-            connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
-              ?.status === 'active'
-          }
-          inventorySyncEnabled={
-            connections.find((c) => c.marketplace === 'tiktok_shop')?.connection
-              ?.inventory_sync_enabled ?? false
-          }
-          onChanged={() => router.invalidate()}
-        />
-      </div>
+      {implementedMarketplaces.map((marketplace) => {
+        const connection = connections.find(
+          (c) => c.marketplace === marketplace,
+        )?.connection
+        return (
+          <div key={marketplace} className="mt-10">
+            <ProductSyncSection
+              marketplace={marketplace}
+              products={productsByMarketplace[marketplace]}
+              search={search}
+              sortBy={sortBy}
+              connectionFilter={connectionFilter}
+              connected={connection?.status === 'active'}
+              inventorySyncEnabled={connection?.inventory_sync_enabled ?? false}
+              onChanged={() => router.invalidate()}
+            />
+          </div>
+        )
+      })}
 
       <div className="mt-10">
         <RecentActivity logs={logs} />
@@ -254,7 +302,7 @@ function ConnectionCard({
     setError(null)
     try {
       await disconnectChannel({
-        data: { marketplace: info.marketplace as 'tiktok_shop' },
+        data: { marketplace: info.marketplace as SyncableMarketplace },
       })
       onChanged()
     } catch (err) {
@@ -270,7 +318,7 @@ function ConnectionCard({
     try {
       await setInventorySyncEnabled({
         data: {
-          marketplace: info.marketplace as 'tiktok_shop',
+          marketplace: info.marketplace as SyncableMarketplace,
           enabled: !inventorySyncEnabled,
         },
       })
@@ -302,13 +350,18 @@ function ConnectionCard({
           {info.connection.shop_name}
         </p>
       )}
-      {status === 'active' && !info.connection?.shop_cipher && (
-        <p className="mt-2 text-xs text-amber-600">
-          Connected, but missing a required permission — product/order sync will
-          fail until that's resolved with TikTok. Disconnect and reconnect after
-          fixing app permissions.
-        </p>
-      )}
+      {/* shop_cipher is a TikTok-specific requirement (see OAuthTokens'
+          comment in types.ts) — Shopee/other connections never get one, so
+          this check only applies to TikTok. */}
+      {info.marketplace === 'tiktok_shop' &&
+        status === 'active' &&
+        !info.connection?.shop_cipher && (
+          <p className="mt-2 text-xs text-amber-600">
+            Connected, but missing a required permission — product/order sync
+            will fail until that's resolved with TikTok. Disconnect and
+            reconnect after fixing app permissions.
+          </p>
+        )}
 
       {(status === 'active' || status === 'expired') && (
         <label className="mt-3 flex items-start gap-2 text-xs text-neutral-600">
@@ -393,6 +446,7 @@ function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
 }
 
 function ProductSyncSection({
+  marketplace,
   products,
   search,
   sortBy,
@@ -401,6 +455,7 @@ function ProductSyncSection({
   inventorySyncEnabled,
   onChanged,
 }: {
+  marketplace: SyncableMarketplace
   products: ProductSyncRow[]
   search: string
   sortBy: ProductSort
@@ -409,6 +464,7 @@ function ProductSyncSection({
   inventorySyncEnabled: boolean
   onChanged: () => void
 }) {
+  const marketplaceLabel = MARKETPLACE_LABELS[marketplace]
   const [bulkSyncing, setBulkSyncing] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [autoConnecting, setAutoConnecting] = useState<'title' | 'sku' | null>(
@@ -458,7 +514,7 @@ function ProductSyncSection({
     setBulkSyncing(true)
     setError(null)
     try {
-      await bulkSyncChannel({ data: { marketplace: 'tiktok_shop' } })
+      await bulkSyncChannel({ data: { marketplace } })
       onChanged()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -472,7 +528,7 @@ function ProductSyncSection({
     setError(null)
     try {
       await pullOrdersNow({
-        data: { marketplace: 'tiktok_shop', sinceHours: 24 },
+        data: { marketplace, sinceHours: 24 },
       })
       onChanged()
     } catch (err) {
@@ -497,8 +553,8 @@ function ProductSyncSection({
     try {
       const result =
         mode === 'title'
-          ? await autoConnectProducts({ data: { marketplace: 'tiktok_shop' } })
-          : await autoConnectBySku({ data: { marketplace: 'tiktok_shop' } })
+          ? await autoConnectProducts({ data: { marketplace } })
+          : await autoConnectBySku({ data: { marketplace } })
       setAutoConnectResult({ mode, result })
       onChanged()
       notifySafely(
@@ -523,7 +579,7 @@ function ProductSyncSection({
     <div>
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-900">
-          TikTok Shop — product sync
+          {marketplaceLabel} — product sync
         </h2>
         <div className="flex gap-2">
           <button
@@ -539,7 +595,7 @@ function ProductSyncSection({
             disabled={!connected || autoConnecting !== null}
             onClick={() => handleAutoConnect('title')}
             className={buttonSecondaryClassName}
-            title="Automatically links every unlinked product to a TikTok listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually. Allow browser notifications to get pinged when this finishes."
+            title={`Automatically links every unlinked product to a ${marketplaceLabel} listing with the exact same title. Anything that doesn't match cleanly is left for you to connect manually. Allow browser notifications to get pinged when this finishes.`}
           >
             {autoConnecting === 'title' ? 'Matching…' : 'Auto-connect by title'}
           </button>
@@ -548,7 +604,7 @@ function ProductSyncSection({
             disabled={!connected || autoConnecting !== null}
             onClick={() => handleAutoConnect('sku')}
             className={buttonSecondaryClassName}
-            title="Automatically links every unlinked product to a TikTok listing whose full set of variant SKUs matches exactly — useful when titles were never kept in sync. Allow browser notifications to get pinged when this finishes."
+            title={`Automatically links every unlinked product to a ${marketplaceLabel} listing whose full set of variant SKUs matches exactly — useful when titles were never kept in sync. Allow browser notifications to get pinged when this finishes.`}
           >
             {autoConnecting === 'sku' ? 'Matching…' : 'Auto-connect by SKU'}
           </button>
@@ -564,7 +620,8 @@ function ProductSyncSection({
       </div>
       {!connected && (
         <p className="mt-2 text-xs text-neutral-500">
-          Connect TikTok Shop above before syncing products or pulling orders.
+          Connect {marketplaceLabel} above before syncing products or pulling
+          orders.
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
@@ -611,7 +668,7 @@ function ProductSyncSection({
               <th className={tableHeadClassName}>Product</th>
               <th className={tableHeadClassName}>Variants</th>
               <th className={tableHeadClassName}>Stock</th>
-              <th className={tableHeadClassName}>TikTok status</th>
+              <th className={tableHeadClassName}>{marketplaceLabel} status</th>
               <th className={tableHeadClassName} />
             </tr>
           </thead>
@@ -619,6 +676,7 @@ function ProductSyncSection({
             {visibleProducts.map((product) => (
               <ProductGroupRow
                 key={product.productId}
+                marketplaceLabel={marketplaceLabel}
                 product={product}
                 connected={connected}
                 inventorySyncEnabled={inventorySyncEnabled}
@@ -637,7 +695,9 @@ function ProductSyncSection({
       </div>
 
       {openProduct && (
-        <PushToTikTokModal
+        <PushToMarketplaceModal
+          marketplace={marketplace}
+          marketplaceLabel={marketplaceLabel}
           productId={openProduct.productId}
           productName={openProduct.productName}
           onClose={() => setOpenProductId(null)}
@@ -650,6 +710,8 @@ function ProductSyncSection({
 
       {connectingProduct && (
         <ConnectExistingProductModal
+          marketplace={marketplace}
+          marketplaceLabel={marketplaceLabel}
           productId={connectingProduct.productId}
           productName={connectingProduct.productName}
           onClose={() => setConnectingProductId(null)}
@@ -664,6 +726,7 @@ function ProductSyncSection({
 }
 
 function ProductGroupRow({
+  marketplaceLabel,
   product,
   connected,
   inventorySyncEnabled,
@@ -671,6 +734,7 @@ function ProductGroupRow({
   onPush,
   onConnect,
 }: {
+  marketplaceLabel: string
   product: GroupedProduct
   connected: boolean
   inventorySyncEnabled: boolean
@@ -785,7 +849,7 @@ function ProductGroupRow({
               type="button"
               disabled={!connected}
               onClick={onConnect}
-              title="Re-link this product to a TikTok listing by pasting its product id — use this to repair a broken or mismatched connection."
+              title={`Re-link this product to a ${marketplaceLabel} listing by pasting its product id — use this to repair a broken or mismatched connection.`}
               className="text-xs font-medium text-neutral-600 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
             >
               Reconnect
@@ -807,7 +871,7 @@ function ProductGroupRow({
               onClick={onPush}
               className={`${buttonPrimaryClassName} disabled:opacity-50`}
             >
-              Push to TikTok
+              Push to {marketplaceLabel}
             </button>
           </div>
         )}
@@ -818,11 +882,15 @@ function ProductGroupRow({
 }
 
 function ConnectExistingProductModal({
+  marketplace,
+  marketplaceLabel,
   productId,
   productName,
   onClose,
   onConnected,
 }: {
+  marketplace: SyncableMarketplace
+  marketplaceLabel: string
   productId: string
   productName: string
   onClose: () => void
@@ -840,7 +908,7 @@ function ConnectExistingProductModal({
     try {
       await connectExistingProduct({
         data: {
-          marketplace: 'tiktok_shop',
+          marketplace,
           productId,
           externalProductId: externalProductId.trim(),
         },
@@ -857,17 +925,17 @@ function ConnectExistingProductModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <Card className="w-full max-w-lg p-6">
         <h2 className="text-sm font-semibold text-neutral-900">
-          Connect "{productName}" to an existing TikTok listing
+          Connect "{productName}" to an existing {marketplaceLabel} listing
         </h2>
         <p className="mt-1 text-xs text-neutral-500">
-          The TikTok product title and every variant (size/color/style) must
-          match exactly, including letter case — otherwise this is refused
-          rather than partially linked.
+          The {marketplaceLabel} product title and every variant (size/color/
+          style) must match exactly, including letter case — otherwise this is
+          refused rather than partially linked.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-4">
           <label className="text-xs font-medium text-neutral-600">
-            TikTok product ID
+            {marketplaceLabel} product ID
           </label>
           <input
             autoFocus
@@ -901,12 +969,16 @@ function ConnectExistingProductModal({
   )
 }
 
-function PushToTikTokModal({
+function PushToMarketplaceModal({
+  marketplace,
+  marketplaceLabel,
   productId,
   productName,
   onClose,
   onPushed,
 }: {
+  marketplace: SyncableMarketplace
+  marketplaceLabel: string
   productId: string
   productName: string
   onClose: () => void
@@ -935,7 +1007,7 @@ function PushToTikTokModal({
     let cancelled = false
     setSearching(true)
     listMarketplaceCategories({
-      data: { marketplace: 'tiktok_shop', query: debouncedQuery.trim() },
+      data: { marketplace, query: debouncedQuery.trim() },
     })
       .then((result) => {
         if (!cancelled) setCategories(result)
@@ -949,7 +1021,7 @@ function PushToTikTokModal({
     return () => {
       cancelled = true
     }
-  }, [debouncedQuery, category])
+  }, [debouncedQuery, category, marketplace])
 
   async function handleSelectCategory(selected: MarketplaceCategory) {
     setCategory(selected)
@@ -958,7 +1030,7 @@ function PushToTikTokModal({
     setLoadingAttributes(true)
     try {
       const result = await getMarketplaceCategoryAttributes({
-        data: { marketplace: 'tiktok_shop', categoryId: selected.id },
+        data: { marketplace, categoryId: selected.id },
       })
       setAttributes(result)
     } catch (err) {
@@ -982,7 +1054,7 @@ function PushToTikTokModal({
     try {
       await pushProductToMarketplace({
         data: {
-          marketplace: 'tiktok_shop',
+          marketplace,
           productId,
           categoryId: category.id,
           attributeValues: attributes.map((a) => {
@@ -1005,13 +1077,13 @@ function PushToTikTokModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <Card className="w-full max-w-lg p-6">
         <h2 className="text-sm font-semibold text-neutral-900">
-          Push "{productName}" to TikTok Shop
+          Push "{productName}" to {marketplaceLabel}
         </h2>
 
         {!category ? (
           <div className="mt-4">
             <label className="text-xs font-medium text-neutral-600">
-              TikTok category
+              {marketplaceLabel} category
             </label>
             <input
               autoFocus
@@ -1123,7 +1195,7 @@ function PushToTikTokModal({
             onClick={handleSubmit}
             className={`${buttonPrimaryClassName} disabled:opacity-50`}
           >
-            {submitting ? 'Pushing…' : 'Push to TikTok'}
+            {submitting ? 'Pushing…' : `Push to ${marketplaceLabel}`}
           </button>
         </div>
       </Card>
@@ -1131,17 +1203,7 @@ function PushToTikTokModal({
   )
 }
 
-function RecentActivity({
-  logs,
-}: {
-  logs: {
-    id: string
-    operation: string
-    status: string
-    errorMessage: string | null
-    createdAt: string
-  }[]
-}) {
+function RecentActivity({ logs }: { logs: SyncLogRow[] }) {
   if (logs.length === 0) {
     return null
   }
@@ -1158,6 +1220,7 @@ function RecentActivity({
           >
             <div>
               <p className="font-medium text-neutral-900">
+                {MARKETPLACE_LABELS[log.marketplace]} —{' '}
                 {log.operation.replace(/_/g, ' ')}
               </p>
               {log.errorMessage && (
