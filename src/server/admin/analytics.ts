@@ -10,11 +10,7 @@ import {
 } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
-import type {
-  OrderCancellationReason,
-  OrderSource,
-  PaymentProvider,
-} from '#/types/entities'
+import type { OrderCancellationReason, OrderSource } from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 const ORDER_ID_CHUNK_SIZE = 200
@@ -511,12 +507,6 @@ export interface SalesAnalyticsDailyPoint {
   aovCents: number
 }
 
-export interface PaymentMethodBreakdown {
-  provider: PaymentProvider
-  amountCents: number
-  count: number
-}
-
 /**
  * Unlike computeChannelSales (which uses total_cents — already post-discount
  * — as "gross sales" for the Profit page's COGS-driven margin math), this
@@ -533,7 +523,6 @@ async function computeSalesAnalytics(
 ): Promise<{
   totals: SalesAnalyticsTotals
   daily: SalesAnalyticsDailyPoint[]
-  paymentMethods: PaymentMethodBreakdown[]
 }> {
   const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
@@ -570,41 +559,6 @@ async function computeSalesAnalytics(
     const current = refundByOrderId.get(ret.order_id) ?? 0
     refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
   }
-
-  const paymentChunks = await Promise.all(
-    chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
-      fetchAllRows((offset) =>
-        admin
-          .from('payments')
-          .select('provider, amount_cents')
-          .eq('status', 'captured')
-          .in('order_id', ids)
-          .range(offset, offset + 999),
-      ),
-    ),
-  )
-  const paymentByProvider = new Map<
-    PaymentProvider,
-    { amountCents: number; count: number }
-  >()
-  for (const payment of paymentChunks.flat()) {
-    const bucket = paymentByProvider.get(payment.provider) ?? {
-      amountCents: 0,
-      count: 0,
-    }
-    bucket.amountCents += payment.amount_cents
-    bucket.count += 1
-    paymentByProvider.set(payment.provider, bucket)
-  }
-  const paymentMethods: PaymentMethodBreakdown[] = Array.from(
-    paymentByProvider.entries(),
-  )
-    .map(([provider, b]) => ({
-      provider,
-      amountCents: b.amountCents,
-      count: b.count,
-    }))
-    .sort((a, b) => b.amountCents - a.amountCents)
 
   let grossSalesCents = 0
   let discountsCents = 0
@@ -662,7 +616,6 @@ async function computeSalesAnalytics(
       aovCents,
     },
     daily,
-    paymentMethods,
   }
 }
 
@@ -677,7 +630,6 @@ export interface SalesAnalyticsResult {
       previousAovCents: number
     }
   >
-  paymentMethods: PaymentMethodBreakdown[]
 }
 
 const salesAnalyticsCache = createTtlCache<SalesAnalyticsResult>(
@@ -737,7 +689,6 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
       totals: current.totals,
       previousTotals,
       daily,
-      paymentMethods: current.paymentMethods,
     }
     salesAnalyticsCache.set(cacheKey, result)
     return result

@@ -17,7 +17,6 @@ import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
-import { BarChart } from '#/components/admin/BarChart'
 import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
 import {
   tableCellClassName,
@@ -25,7 +24,6 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
-import type { PaymentProvider } from '#/types/entities'
 
 const CHANNEL_OPTIONS = [
   { value: 'storefront', label: 'Online Store' },
@@ -33,15 +31,6 @@ const CHANNEL_OPTIONS = [
   { value: 'shopee', label: 'Shopee' },
   { value: 'lazada', label: 'Lazada' },
 ] as const
-
-const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
-  cod: 'Cash on Delivery',
-  gcash: 'GCash',
-  paymaya: 'Maya',
-  card: 'Card',
-  bank_transfer: 'Bank Transfer',
-  other: 'Other',
-}
 
 export const Route = createFileRoute('/admin/analytics/sales')({
   validateSearch: z.object({
@@ -104,10 +93,6 @@ function SalesAnalyticsPage() {
     label: point.date,
     current: point.aovCents,
     previous: point.previousAovCents,
-  }))
-  const paymentMethodBars = salesAnalytics.paymentMethods.map((p) => ({
-    label: PAYMENT_PROVIDER_LABELS[p.provider],
-    value: Math.round(p.amountCents / 100),
   }))
 
   return (
@@ -207,22 +192,6 @@ function SalesAnalyticsPage() {
           </div>
         </Card>
       </div>
-
-      <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Sales by Payment Method
-        </h2>
-        <p className="text-xs text-neutral-500">Captured payments, in PHP</p>
-        <div className="mt-4">
-          {paymentMethodBars.length > 0 ? (
-            <BarChart bars={paymentMethodBars} color="#2c6ecb" />
-          ) : (
-            <p className="text-sm text-neutral-400">
-              No captured payments in this range.
-            </p>
-          )}
-        </div>
-      </Card>
 
       <BestSellersSection products={bestSellers} />
     </div>
