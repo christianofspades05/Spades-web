@@ -16,7 +16,11 @@ import type {
   SyncableMarketplace,
 } from './types'
 import { MarketplaceNotConnectedError } from './types'
-import type { MarketplaceConnection, MarketplaceName } from '#/types/entities'
+import type {
+  MarketplaceConnection,
+  MarketplaceName,
+  OrderStatus,
+} from '#/types/entities'
 
 const MAX_ATTEMPTS = 3
 const BASE_RETRY_DELAY_MS = 500
@@ -25,6 +29,11 @@ const STATUSES_BEFORE_SHIPPED = new Set([
   'paid',
   'processing',
   'packed',
+])
+const TERMINAL_ORDER_STATUSES = new Set<OrderStatus>([
+  'cancelled',
+  'refunded',
+  'failed',
 ])
 
 function sleep(ms: number): Promise<void> {
@@ -366,6 +375,64 @@ async function syncFulfillmentInfo(
   }
 }
 
+/**
+ * Mirrors a marketplace-side cancellation onto an already-imported order —
+ * the case syncFulfillmentInfo above never covers, since a cancelled order
+ * simply stops reporting a fulfillment status rather than reporting a
+ * "cancelled" one. Restocks the same way a staff-initiated cancel does (see
+ * admin/orders.ts's restockCancelledOrder) since stock already committed via
+ * commit_variant_stock at import time is just as real regardless of which
+ * side cancelled it. No-ops once the order is already in a terminal state,
+ * so re-pulling the same cancelled order on every cron run stays harmless.
+ */
+async function syncPlatformCancellation(orderId: string): Promise<boolean> {
+  const admin = getSupabaseAdminClient()
+
+  const { data: order, error: orderError } = await admin
+    .from('orders')
+    .select('status')
+    .eq('id', orderId)
+    .single()
+  if (orderError) throw orderError
+  if (TERMINAL_ORDER_STATUSES.has(order.status)) return false
+
+  const { data: items, error: itemsError } = await admin
+    .from('order_items')
+    .select('variant_id, quantity')
+    .eq('order_id', orderId)
+  if (itemsError) throw itemsError
+
+  const wasCommitted = order.status !== 'pending_payment'
+  const rpcName = wasCommitted ? 'restock_variant_stock' : 'release_variant_stock'
+  await Promise.all(
+    items
+      .filter(
+        (item): item is { variant_id: string; quantity: number } =>
+          item.variant_id !== null,
+      )
+      .map((item) =>
+        admin.rpc(rpcName, {
+          p_variant_id: item.variant_id,
+          p_quantity: item.quantity,
+          p_reference_type: 'order_cancel',
+          p_reference_id: orderId,
+        }),
+      ),
+  )
+
+  const { error: updateError } = await admin
+    .from('orders')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancellation_reason: 'platform_cancelled',
+    })
+    .eq('id', orderId)
+  if (updateError) throw updateError
+
+  return true
+}
+
 async function importOrder(
   marketplace: SyncableMarketplace,
   normalized: NormalizedOrder,
@@ -381,6 +448,16 @@ async function importOrder(
     .maybeSingle()
   if (existingError) throw existingError
   if (existing) {
+    if (normalized.isCancelled) {
+      const cancelled = await syncPlatformCancellation(existing.id)
+      if (cancelled) {
+        await logSync(marketplace, 'sync_cancellation', 'success', {
+          orderId: existing.id,
+          externalOrderId: normalized.externalOrderId,
+        })
+      }
+      return false
+    }
     await syncFulfillmentInfo(existing.id, normalized.fulfillmentInfo)
     return false
   }
@@ -419,7 +496,16 @@ async function importOrder(
     .from('orders')
     .insert({
       customer_id: customerId,
-      status: normalized.isPaid ? 'paid' : 'pending_payment',
+      // A platform can report an order as already cancelled the very first
+      // time we pull it (e.g. cancelled between placement and our next sync
+      // window) — import it as a record, not as an active paid/pending order.
+      status: normalized.isCancelled
+        ? 'cancelled'
+        : normalized.isPaid
+          ? 'paid'
+          : 'pending_payment',
+      cancelled_at: normalized.isCancelled ? new Date().toISOString() : null,
+      cancellation_reason: normalized.isCancelled ? 'platform_cancelled' : null,
       source: marketplace,
       external_order_id: normalized.externalOrderId,
       platform_order_data: raw,
@@ -494,25 +580,29 @@ async function importOrder(
   // could resolve to a real variant. If this oversells relative to what we
   // show elsewhere, that's the known last-write-wins limitation; log it
   // rather than failing the whole import, since the order is real either way.
-  for (const item of normalized.items) {
-    const variantId = variantIdByExternalId.get(item.externalVariantId)
-    if (!variantId) continue
-    const { error: stockError } = await admin.rpc('commit_variant_stock', {
-      p_variant_id: variantId,
-      p_quantity: item.quantity,
-    })
-    if (stockError) {
-      await logSync(
-        marketplace,
-        'commit_stock_on_import',
-        'failed',
-        {
-          orderId: order.id,
-          variantId,
-          quantity: item.quantity,
-        },
-        getErrorMessage(stockError),
-      )
+  // Skipped entirely for an order that's already cancelled on arrival —
+  // nothing was ever actually fulfilled, so there's no stock to commit.
+  if (!normalized.isCancelled) {
+    for (const item of normalized.items) {
+      const variantId = variantIdByExternalId.get(item.externalVariantId)
+      if (!variantId) continue
+      const { error: stockError } = await admin.rpc('commit_variant_stock', {
+        p_variant_id: variantId,
+        p_quantity: item.quantity,
+      })
+      if (stockError) {
+        await logSync(
+          marketplace,
+          'commit_stock_on_import',
+          'failed',
+          {
+            orderId: order.id,
+            variantId,
+            quantity: item.quantity,
+          },
+          getErrorMessage(stockError),
+        )
+      }
     }
   }
 

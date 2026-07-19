@@ -384,6 +384,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
+      isCancelled: order.status === 'CANCELLED',
       fulfillmentInfo: fulfillmentStatus
         ? {
             status: fulfillmentStatus,

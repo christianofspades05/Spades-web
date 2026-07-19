@@ -34,7 +34,10 @@ export type OrderStatus =
   | 'failed'
 
 export type OrderCancellationReason =
-  'failed_delivery' | 'customer_request' | 'out_of_stock'
+  | 'failed_delivery'
+  | 'customer_request'
+  | 'out_of_stock'
+  | 'platform_cancelled'
 
 export type OrderSource =
   'storefront' | 'admin' | 'tiktok_shop' | 'shopee' | 'lazada'

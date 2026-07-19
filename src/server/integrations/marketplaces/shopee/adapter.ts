@@ -336,6 +336,10 @@ export const shopeeAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       isPaid: !UNPAID_LIKE_STATUSES.has(order.order_status ?? ''),
+      // IN_CANCEL is a cancellation still in progress on Shopee's side (not
+      // guaranteed to finish that way) — only a finalized CANCELLED is
+      // mirrored onto our own orders.status.
+      isCancelled: order.order_status === 'CANCELLED',
       fulfillmentInfo: fulfillmentStatus
         ? {
             status: fulfillmentStatus,

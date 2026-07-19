@@ -55,6 +55,12 @@ export interface NormalizedOrder {
   /** True if the platform has already collected payment (the normal case —
    *  we're importing a completed sale, not taking payment ourselves). */
   isPaid: boolean
+  /** True once the platform itself reports this order as cancelled (buyer
+   *  cancel, seller cancel, or an auto-cancel for unpaid/unshipped orders) —
+   *  checked on every pull, not just at first import, so a cancellation that
+   *  happens on the platform *after* we already imported the order still
+   *  gets mirrored onto our own orders.status. */
+  isCancelled: boolean
   /** Reflects wherever the order actually is in the platform's own fulfillment lifecycle (awaiting shipment, awaiting courier collection, in transit, delivered) — not just whether a tracking number exists, since a platform can assign one before the courier actually collects the parcel. Null if the platform gave us nothing to go on. */
   fulfillmentInfo: {
     status: ImportedFulfillmentStatus

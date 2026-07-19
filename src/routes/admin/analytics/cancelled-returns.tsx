@@ -23,6 +23,7 @@ const REASON_LABELS: Record<OrderCancellationReason | 'unspecified', string> = {
   failed_delivery: 'Failed Delivery',
   customer_request: 'Customer Request',
   out_of_stock: 'Out of Stock',
+  platform_cancelled: 'Cancelled on Marketplace',
   unspecified: 'Unspecified',
 }
 
