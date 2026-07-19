@@ -53,6 +53,8 @@ function grossSalesCentsForOrder(order: {
 export interface ChannelSales {
   source: OrderSource
   grossSalesCents: number
+  discountCents: number
+  netSalesCents: number
   costOfGoodsCents: number
   netProfitCents: number
   marginPct: number | null
@@ -222,11 +224,13 @@ async function computeChannelSales(
 
   const channels: ChannelSales[] = Array.from(bySource.entries())
     .map(([source, b]) => {
-      const netProfitCents =
-        b.grossSalesCents - b.discountCents - b.refundCents - b.costOfGoodsCents
+      const netSalesCents = b.grossSalesCents - b.discountCents - b.refundCents
+      const netProfitCents = netSalesCents - b.costOfGoodsCents
       return {
         source,
         grossSalesCents: b.grossSalesCents,
+        discountCents: b.discountCents,
+        netSalesCents,
         costOfGoodsCents: b.costOfGoodsCents,
         netProfitCents,
         marginPct:
@@ -241,15 +245,26 @@ async function computeChannelSales(
   const totalsRaw = channels.reduce(
     (sum, c) => ({
       grossSalesCents: sum.grossSalesCents + c.grossSalesCents,
+      discountCents: sum.discountCents + c.discountCents,
+      netSalesCents: sum.netSalesCents + c.netSalesCents,
       costOfGoodsCents: sum.costOfGoodsCents + c.costOfGoodsCents,
       netProfitCents: sum.netProfitCents + c.netProfitCents,
       orderCount: sum.orderCount + c.orderCount,
     }),
-    { grossSalesCents: 0, costOfGoodsCents: 0, netProfitCents: 0, orderCount: 0 },
+    {
+      grossSalesCents: 0,
+      discountCents: 0,
+      netSalesCents: 0,
+      costOfGoodsCents: 0,
+      netProfitCents: 0,
+      orderCount: 0,
+    },
   )
   const totals: ChannelSales = {
     source: 'storefront',
     grossSalesCents: totalsRaw.grossSalesCents,
+    discountCents: totalsRaw.discountCents,
+    netSalesCents: totalsRaw.netSalesCents,
     costOfGoodsCents: totalsRaw.costOfGoodsCents,
     netProfitCents: totalsRaw.netProfitCents,
     marginPct:
@@ -1033,6 +1048,8 @@ export interface OrderProfitRow {
   status: OrderStatus
   source: OrderSource
   grossSalesCents: number
+  discountCents: number
+  netSalesCents: number
   costCents: number
   shippingCents: number
   refundCents: number
@@ -1185,6 +1202,8 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
           status: order.status,
           source: order.source,
           grossSalesCents: 0,
+          discountCents: 0,
+          netSalesCents: 0,
           costCents: 0,
           shippingCents: order.shipping_cents,
           refundCents,
@@ -1195,9 +1214,9 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       }
 
       const grossSalesCents = grossSalesCentsForOrder(order)
+      const netSalesCents = grossSalesCents - order.discount_cents - refundCents
       const costCents = cogsByOrderId.get(order.id) ?? 0
-      const profitCents =
-        grossSalesCents - order.discount_cents - costCents - refundCents
+      const profitCents = netSalesCents - costCents
 
       return {
         id: order.id,
@@ -1207,6 +1226,8 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         status: order.status,
         source: order.source,
         grossSalesCents,
+        discountCents: order.discount_cents,
+        netSalesCents,
         costCents,
         shippingCents: order.shipping_cents,
         refundCents,

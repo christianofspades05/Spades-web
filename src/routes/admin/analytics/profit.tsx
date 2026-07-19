@@ -482,6 +482,18 @@ function ProfitPage() {
 
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div>
+                  <p className="text-xs text-neutral-500">Gross Sales</p>
+                  <p className="mt-1 text-sm font-semibold text-neutral-900">
+                    {formatCentsAsPHP(c.grossSalesCents)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Net Sales</p>
+                  <p className="mt-1 text-sm font-semibold text-neutral-900">
+                    {formatCentsAsPHP(c.netSalesCents)}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs text-neutral-500">Margin</p>
                   <p className="mt-1 text-sm font-semibold text-neutral-900">
                     {c.marginPct !== null ? `${c.marginPct.toFixed(1)}%` : '—'}
@@ -576,6 +588,10 @@ function OrderProfitSection({
                   })}{' '}
                   · {SOURCE_LABELS[order.source]}
                 </p>
+                <div className="mt-2 flex items-center justify-between text-xs text-neutral-500">
+                  <span>Gross {formatCentsAsPHP(order.grossSalesCents)}</span>
+                  <span>Net {formatCentsAsPHP(order.netSalesCents)}</span>
+                </div>
                 <div className="mt-2.5 flex items-center justify-between">
                   <span className="text-sm font-semibold text-emerald-600">
                     {formatCentsAsPHP(order.profitCents)} profit
@@ -655,6 +671,9 @@ function OrderProfitSection({
                       Gross Sales
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      Net Sales
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       Cost
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
@@ -728,6 +747,9 @@ function OrderProfitSection({
                         {formatCentsAsPHP(order.grossSalesCents)}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(order.netSalesCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
                         {formatCentsAsPHP(order.costCents)}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
@@ -756,7 +778,7 @@ function OrderProfitSection({
                     {expandedOrderIds.has(order.id) &&
                       order.items.length > 0 && (
                         <tr className="border-b border-neutral-100 bg-neutral-50">
-                          <td colSpan={10} className="px-4 py-3">
+                          <td colSpan={11} className="px-4 py-3">
                             <table className="w-full">
                               <tbody>
                                 {order.items.map((item, index) => (

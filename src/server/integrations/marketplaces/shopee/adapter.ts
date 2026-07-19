@@ -321,6 +321,12 @@ export const shopeeAdapter: MarketplaceAdapter = {
     const orders: Record<string, unknown>[] = []
     for (let i = 0; i < orderSnList.length; i += 50) {
       const batch = orderSnList.slice(i, i + 50)
+      // Without response_optional_fields, Shopee's get_order_detail only
+      // returns a thin base shape (order_sn, order_status, timestamps,
+      // cancel-eligibility flags) — item_list/payment/shipping/buyer info
+      // are opt-in per field group. Confirmed live: every Shopee order
+      // synced before this field was added has an empty payload (see the
+      // ShopeeOrder fields this file reads from mapOrderToInternalFormat).
       const { order_list } = await callShopeeApi<{
         order_list?: ShopeeOrder[]
       }>({
@@ -328,7 +334,11 @@ export const shopeeAdapter: MarketplaceAdapter = {
         path: '/api/v2/order/get_order_detail',
         accessToken,
         shopId,
-        query: { order_sn_list: batch.join(',') },
+        query: {
+          order_sn_list: batch.join(','),
+          response_optional_fields:
+            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status',
+        },
       })
       orders.push(...((order_list ?? []) as unknown as Record<string, unknown>[]))
     }
