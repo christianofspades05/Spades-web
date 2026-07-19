@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { getCancelledAndReturns } from '#/server/admin/analytics'
-import { formatCentsAsPHP } from '#/lib/utils/money'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
 import { Card } from '#/components/admin/Card'
@@ -114,20 +113,11 @@ function CancelledReturnsPage() {
         />
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Cancelled Orders</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
             {result.totalCancelled}
-          </p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-xs text-neutral-500">Returns</p>
-          <p className="mt-1 text-xl font-semibold text-neutral-900">
-            {result.returns.totalCount}
-          </p>
-          <p className="mt-0.5 text-xs text-neutral-400">
-            {formatCentsAsPHP(result.returns.totalRefundCents)} refunded
           </p>
         </Card>
         <Card className="p-5">
