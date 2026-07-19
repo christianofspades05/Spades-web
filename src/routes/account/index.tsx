@@ -30,7 +30,13 @@ export const Route = createFileRoute('/account/')({
     }
     if (!customer) throw redirect({ to: '/account/login' })
   },
-  loader: () => getAccountOverview(),
+  loader: async () => {
+    const overview = await getAccountOverview()
+    // null means loadAccountOverview hit the same bad-session failure
+    // beforeLoad already guards against — see server/account/queries.ts.
+    if (!overview) throw redirect({ to: '/account/login' })
+    return overview
+  },
   component: AccountPage,
 })
 

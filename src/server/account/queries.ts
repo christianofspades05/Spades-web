@@ -6,6 +6,7 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { requireCustomer } from '#/lib/auth/guards'
+import { recoverFromBadSession } from '#/lib/auth/session'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import type {
   Customer,
@@ -82,85 +83,99 @@ export interface AccountOverview {
 }
 
 export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<AccountOverview> => {
-    const customer = await requireCustomer()
-    const supabase = getSupabaseServerClient()
-
-    const [
-      { data: orders, error: ordersError },
-      { data: addresses, error: addressesError },
-    ] = await Promise.all([
-      supabase
-        .from('orders')
-        .select(
-          'id, order_number, status, total_cents, placed_at, is_cod, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
-        )
-        .order('placed_at', { ascending: false }),
-      supabase
-        .from('customer_addresses')
-        .select('*')
-        .order('created_at', { ascending: false }),
-    ])
-    if (ordersError) throw ordersError
-    if (addressesError) throw addressesError
-
-    const orderIds = orders.map((o) => o.id)
-    const { data: shipments, error: shipmentsError } =
-      orderIds.length > 0
-        ? await supabase
-            .from('shipments')
-            .select('order_id, status, tracking_number, tracking_url')
-            .in('order_id', orderIds)
-        : { data: [], error: null }
-    if (shipmentsError) throw shipmentsError
-
-    const fulfilledOrderIds = new Set(
-      shipments
-        .filter((s) => FULFILLED_SHIPMENT_STATUSES.has(s.status))
-        .map((s) => s.order_id),
-    )
-    // "Delivered" can be recorded two ways in the admin: the order's own
-    // status field (shipped -> delivered transition), or the shipment's own
-    // status field (set independently from the shipment/tracking form) — a
-    // review should be offered either way.
-    const deliveredOrderIds = new Set(
-      shipments.filter((s) => s.status === 'delivered').map((s) => s.order_id),
-    )
-    const shipmentByOrderId = new Map(shipments.map((s) => [s.order_id, s]))
-
-    const variantIds = Array.from(
-      new Set(
-        orders.flatMap((o) =>
-          o.order_items
-            .map((i) => i.variant_id)
-            .filter((v): v is string => !!v),
-        ),
-      ),
-    )
-    const imageMap = await getProductImagesByVariantId(supabase, variantIds)
-
-    return {
-      customer,
-      orders: orders.map((order) => ({
-        ...order,
-        canCancel:
-          order.is_cod &&
-          !TERMINAL_ORDER_STATUSES.has(order.status) &&
-          !fulfilledOrderIds.has(order.id),
-        canReview:
-          order.status === 'delivered' || deliveredOrderIds.has(order.id),
-        items: order.order_items.map((item) => ({
-          ...item,
-          image_url: item.variant_id
-            ? (imageMap.get(item.variant_id) ?? null)
-            : null,
-        })),
-        isFulfilled: fulfilledOrderIds.has(order.id),
-        trackingNumber:
-          shipmentByOrderId.get(order.id)?.tracking_number ?? null,
-        trackingUrl: shipmentByOrderId.get(order.id)?.tracking_url ?? null,
-      })),
-      addresses,
+  async (): Promise<AccountOverview | null> => {
+    try {
+      return await loadAccountOverview()
+    } catch {
+      // requireCustomer() above can succeed fine (that path already
+      // recovers from a bad session cookie on its own — see
+      // lib/auth/session.ts) while these RLS-scoped queries still fail on
+      // the exact same cookie: Kong/PostgREST can reject a borderline-
+      // invalid JWT more strictly than Supabase's own Auth API does. Same
+      // recovery either way — clear the bad cookies and signal the route
+      // to send the user to log in again, instead of leaving the page
+      // permanently broken for this one browser.
+      recoverFromBadSession()
+      return null
     }
   },
 )
+
+async function loadAccountOverview(): Promise<AccountOverview> {
+  const customer = await requireCustomer()
+  const supabase = getSupabaseServerClient()
+
+  const [
+    { data: orders, error: ordersError },
+    { data: addresses, error: addressesError },
+  ] = await Promise.all([
+    supabase
+      .from('orders')
+      .select(
+        'id, order_number, status, total_cents, placed_at, is_cod, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
+      )
+      .order('placed_at', { ascending: false }),
+    supabase
+      .from('customer_addresses')
+      .select('*')
+      .order('created_at', { ascending: false }),
+  ])
+  if (ordersError) throw ordersError
+  if (addressesError) throw addressesError
+
+  const orderIds = orders.map((o) => o.id)
+  const { data: shipments, error: shipmentsError } =
+    orderIds.length > 0
+      ? await supabase
+          .from('shipments')
+          .select('order_id, status, tracking_number, tracking_url')
+          .in('order_id', orderIds)
+      : { data: [], error: null }
+  if (shipmentsError) throw shipmentsError
+
+  const fulfilledOrderIds = new Set(
+    shipments
+      .filter((s) => FULFILLED_SHIPMENT_STATUSES.has(s.status))
+      .map((s) => s.order_id),
+  )
+  // "Delivered" can be recorded two ways in the admin: the order's own
+  // status field (shipped -> delivered transition), or the shipment's own
+  // status field (set independently from the shipment/tracking form) — a
+  // review should be offered either way.
+  const deliveredOrderIds = new Set(
+    shipments.filter((s) => s.status === 'delivered').map((s) => s.order_id),
+  )
+  const shipmentByOrderId = new Map(shipments.map((s) => [s.order_id, s]))
+
+  const variantIds = Array.from(
+    new Set(
+      orders.flatMap((o) =>
+        o.order_items.map((i) => i.variant_id).filter((v): v is string => !!v),
+      ),
+    ),
+  )
+  const imageMap = await getProductImagesByVariantId(supabase, variantIds)
+
+  return {
+    customer,
+    orders: orders.map((order) => ({
+      ...order,
+      canCancel:
+        order.is_cod &&
+        !TERMINAL_ORDER_STATUSES.has(order.status) &&
+        !fulfilledOrderIds.has(order.id),
+      canReview:
+        order.status === 'delivered' || deliveredOrderIds.has(order.id),
+      items: order.order_items.map((item) => ({
+        ...item,
+        image_url: item.variant_id
+          ? (imageMap.get(item.variant_id) ?? null)
+          : null,
+      })),
+      isFulfilled: fulfilledOrderIds.has(order.id),
+      trackingNumber: shipmentByOrderId.get(order.id)?.tracking_number ?? null,
+      trackingUrl: shipmentByOrderId.get(order.id)?.tracking_url ?? null,
+    })),
+    addresses,
+  }
+}

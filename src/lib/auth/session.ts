@@ -23,7 +23,7 @@ import type { Customer, StaffUser } from '#/types/entities'
  * here as "not signed in" and clear the `sb-*` cookies so the next request
  * starts clean instead of repeating the same crash forever.
  */
-function recoverFromBadSession(): null {
+export function recoverFromBadSession(): null {
   const badCookieNames = Object.keys(getCookies()).filter((name) =>
     name.startsWith('sb-'),
   )
