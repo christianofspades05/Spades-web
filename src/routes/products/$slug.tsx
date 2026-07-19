@@ -125,14 +125,20 @@ function ProductPage() {
             taller) landed below the entire gallery instead of directly
             under the title. Nesting keeps this column's height independent
             of the gallery's. */}
-        <div className="md:col-span-1">
+        {/* md:flex md:flex-col so the description below can flex-grow to
+            fill whatever height this column is stretched to (grid items
+            stretch to the row's height by default — driven by the gallery,
+            the tallest of the three) — that's what keeps this column and
+            the buy-box column on the right the same overall length instead
+            of each ending wherever its own content happens to stop. */}
+        <div className="md:col-span-1 md:flex md:flex-col">
           <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
           <ProductRatingSummary
             averageRating={reviews.averageRating}
             reviewCount={reviews.reviewCount}
           />
           {product.description && (
-            <div className="mt-6 hidden md:block md:max-h-[28rem] md:overflow-y-auto md:pr-3">
+            <div className="mt-6 hidden md:block md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-3">
               <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
                 {product.description}
               </p>
@@ -145,8 +151,8 @@ function ProductPage() {
           <ImageGallery images={product.images} alt={product.name} />
         </div>
 
-        {/* Buying selection (+ reviews on desktop, same nesting reasoning as description above) */}
-        <div className="md:col-span-1">
+        {/* Buying selection (+ reviews on desktop, same reasoning as the title column above) */}
+        <div className="md:col-span-1 md:flex md:flex-col">
           <VariantSelector
             variants={product.variants as VariantWithStock[]}
             onVariantChange={setSelectedVariant}
@@ -197,8 +203,8 @@ function ProductPage() {
 
           <PaymentBadges />
 
-          <div className="hidden md:block">
-            <ProductReviewsList reviews={reviews.reviews} />
+          <div className="hidden md:flex md:min-h-0 md:flex-1 md:flex-col">
+            <ProductReviewsList reviews={reviews.reviews} mode="scroll" />
           </div>
         </div>
       </div>
@@ -214,7 +220,7 @@ function ProductPage() {
             {product.description}
           </p>
         )}
-        <ProductReviewsList reviews={reviews.reviews} />
+        <ProductReviewsList reviews={reviews.reviews} mode="paginate" />
       </div>
 
       {related.length > 0 && (

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Stars } from '#/components/storefront/Stars'
 import type { Review } from '#/types/entities'
 
-const REVIEWS_PER_PAGE = 2
-const AUTO_ADVANCE_MS = 2000
+const REVIEWS_PER_PAGE = 5
 
 export function ProductRatingSummary({
   averageRating,
@@ -24,24 +23,35 @@ export function ProductRatingSummary({
   )
 }
 
-export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
+/**
+ * "scroll" (desktop): every review renders inside a capped-height scroll
+ * box, same treatment as the product description column next to it — no
+ * pagination controls.
+ * "paginate" (mobile): fixed-size pages with Previous/Next, no scroll box —
+ * scrolling a nested box works poorly on touch screens.
+ */
+export function ProductReviewsList({
+  reviews,
+  mode = 'paginate',
+}: {
+  reviews: Review[]
+  mode?: 'scroll' | 'paginate'
+}) {
   const [page, setPage] = useState(1)
   const pageCount = Math.ceil(reviews.length / REVIEWS_PER_PAGE)
-  const visibleReviews = reviews.slice(
-    (page - 1) * REVIEWS_PER_PAGE,
-    page * REVIEWS_PER_PAGE,
-  )
-
-  useEffect(() => {
-    if (pageCount <= 1) return
-    const id = setInterval(() => {
-      setPage((p) => (p >= pageCount ? 1 : p + 1))
-    }, AUTO_ADVANCE_MS)
-    return () => clearInterval(id)
-  }, [pageCount])
+  const visibleReviews =
+    mode === 'scroll'
+      ? reviews
+      : reviews.slice((page - 1) * REVIEWS_PER_PAGE, page * REVIEWS_PER_PAGE)
 
   return (
-    <div className="mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800">
+    <div
+      className={
+        mode === 'scroll'
+          ? 'mt-6 flex min-h-0 flex-1 flex-col border-t border-neutral-200 pt-6 dark:border-neutral-800'
+          : 'mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800'
+      }
+    >
       <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Reviews{reviews.length > 0 && ` (${reviews.length})`}
       </h2>
@@ -50,7 +60,13 @@ export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
           No reviews yet for this product.
         </p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-5">
+        <ul
+          className={
+            mode === 'scroll'
+              ? 'mt-4 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-3'
+              : 'mt-4 flex flex-col gap-5'
+          }
+        >
           {visibleReviews.map((review) => (
             <li
               key={review.id}
@@ -90,7 +106,7 @@ export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
           ))}
         </ul>
       )}
-      {pageCount > 1 && (
+      {mode === 'paginate' && pageCount > 1 && (
         <div className="mt-6 flex items-center justify-between text-sm">
           <button
             type="button"
