@@ -23,11 +23,15 @@ const config = defineConfig({
       // pattern (merged on top of this base config), which is why cron
       // needed its own explicit entry rather than relying on this alone —
       // see sync-channels-pull-orders.ts's cron-job.org "Timeout" reports.
-      // 300s is the max on a standard Vercel Pro function (no Fluid Compute).
+      // 800s is the max Vercel allows at all, available because Fluid
+      // Compute is enabled on this project (a plain Pro function without it
+      // caps at 300s). A wide backfill ("Recheck last 30 days") processes
+      // every matched order sequentially — several DB round trips each —
+      // so a large batch can genuinely take several minutes.
       vercel: {
-        functions: { maxDuration: 300 },
+        functions: { maxDuration: 800 },
         functionRules: {
-          '/api/cron/**': { maxDuration: 300 },
+          '/api/cron/**': { maxDuration: 800 },
         },
       },
     }),
