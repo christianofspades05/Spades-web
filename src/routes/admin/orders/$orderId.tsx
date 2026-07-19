@@ -27,7 +27,15 @@ import {
   inputClassName,
   labelClassName,
 } from '#/components/admin/ui'
-import type { OrderStatus, ShipmentStatus } from '#/types/entities'
+import type { OrderSource, OrderStatus, ShipmentStatus } from '#/types/entities'
+
+const SOURCE_LABELS: Record<OrderSource, string> = {
+  storefront: 'Online Store',
+  admin: 'Admin (manual)',
+  tiktok_shop: 'TikTok Shop',
+  shopee: 'Shopee',
+  lazada: 'Lazada',
+}
 
 // Mirrors ALLOWED_TRANSITIONS in src/server/admin/orders.ts — that map is the
 // enforced source of truth; this one only limits the dropdown's options.
@@ -195,6 +203,26 @@ function OrderDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
+          {order.external_order_id && (
+            <Card className="p-5">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+                Channel
+              </h2>
+              <div className="flex flex-col gap-2 text-sm text-neutral-700">
+                <p className="font-medium text-neutral-900">
+                  {SOURCE_LABELS[order.source]}
+                </p>
+                <Row label={order.external_order_id}>
+                  <CopyButton
+                    value={order.external_order_id}
+                    label="Copy order ID"
+                    iconOnly
+                  />
+                </Row>
+              </div>
+            </Card>
+          )}
+
           <Card className="p-5">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
               Customer
