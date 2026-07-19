@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
@@ -10,11 +11,16 @@ import {
 } from '#/components/storefront/ui'
 
 export const Route = createFileRoute('/account/login')({
+  // TEMPORARY — see the matching TEMPORARY block in routes/account/index.tsx.
+  validateSearch: z.object({
+    debugReason: z.string().optional(),
+  }),
   component: LoginPage,
 })
 
 function LoginPage() {
   const navigate = useNavigate()
+  const { debugReason } = Route.useSearch()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +54,12 @@ function LoginPage() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2">
+      {/* TEMPORARY debug banner — see routes/account/index.tsx */}
+      {debugReason && (
+        <div className="col-span-full border-b-4 border-red-600 bg-red-50 px-4 py-3 text-xs break-all text-red-800">
+          <strong>Debug (temporary):</strong> {debugReason}
+        </div>
+      )}
       {/* Sign up */}
       <div className="flex flex-col items-center justify-center bg-neutral-950 px-8 py-20 text-center text-white md:min-h-[70vh]">
         <h2 className="text-2xl font-bold tracking-tight">

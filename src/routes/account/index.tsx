@@ -22,19 +22,35 @@ export const Route = createFileRoute('/account/')({
     // session cookie internally (see lib/auth/session.ts), but this catch is
     // a last line of defense — anything unexpected that still slips through
     // sends the user to log in again instead of crashing the page outright.
+    // TEMPORARY: reports why via a search param instead of swallowing it
+    // silently, so a real sign-in-succeeds-but-bounces-back-anyway failure
+    // can actually be diagnosed instead of just redirecting quietly.
     let customer
+    let debugReason = ''
     try {
       customer = await getCustomerSession()
-    } catch {
+      debugReason = customer ? '' : 'no-error-but-null-customer'
+    } catch (err) {
       customer = null
+      debugReason = `threw:${JSON.stringify(err)}`
     }
-    if (!customer) throw redirect({ to: '/account/login' })
+    if (!customer) {
+      throw redirect({
+        to: '/account/login',
+        search: debugReason ? { debugReason } : undefined,
+      })
+    }
   },
   loader: async () => {
     const overview = await getAccountOverview()
     // null means loadAccountOverview hit the same bad-session failure
     // beforeLoad already guards against — see server/account/queries.ts.
-    if (!overview) throw redirect({ to: '/account/login' })
+    if (!overview) {
+      throw redirect({
+        to: '/account/login',
+        search: { debugReason: 'loader-returned-null' },
+      })
+    }
     return overview
   },
   component: AccountPage,
