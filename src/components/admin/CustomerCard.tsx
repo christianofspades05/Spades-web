@@ -1,5 +1,6 @@
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
+import { formatCentsAsPHP } from '#/lib/utils/money'
 
 export interface CustomerCardData {
   id: string
@@ -12,6 +13,7 @@ export interface CustomerCardData {
   orders_count: number
   cancelled_orders_count: number
   return_count: number
+  amount_spent_cents: number
 }
 
 /** Mobile card rendering of a customer-list row — kept out of customers/index.tsx to avoid adding to that file's route-type-checking surface (see OrderCard.tsx for the same reasoning). */
@@ -51,6 +53,9 @@ export function CustomerCard({
           {customer.cod_blocked && <Badge tone="critical">COD blocked</Badge>}
         </div>
       </div>
+      <p className="mt-1.5 text-sm font-medium text-neutral-900">
+        {formatCentsAsPHP(customer.amount_spent_cents)} spent
+      </p>
     </Card>
   )
 }

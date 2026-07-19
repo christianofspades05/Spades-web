@@ -4,6 +4,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Download, Search } from 'lucide-react'
 import { getCustomersCount, listCustomers } from '#/server/admin/customers'
 import type { CustomerListRow } from '#/server/admin/customers'
+import { formatCentsAsPHP } from '#/lib/utils/money'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
 import { CustomerCard } from '#/components/admin/CustomerCard'
@@ -63,6 +64,7 @@ function downloadCustomersCsv(customers: CustomerListRow[]) {
     'Email',
     'Phone',
     'Orders',
+    'Amount Spent',
     'Cancelled',
     'Returns',
     'Guest',
@@ -75,6 +77,7 @@ function downloadCustomersCsv(customers: CustomerListRow[]) {
       csvField(c.email),
       csvField(c.phone),
       csvField(c.orders_count),
+      csvField(formatCentsAsPHP(c.amount_spent_cents)),
       csvField(c.cancelled_orders_count),
       csvField(c.return_count),
       csvField(c.is_guest),
@@ -192,6 +195,9 @@ function CustomersPage() {
                   <th className={tableHeadClassName}>Contact</th>
                   <th className={`${tableHeadClassName} text-right`}>Orders</th>
                   <th className={`${tableHeadClassName} text-right`}>
+                    Amount Spent
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
                     Cancelled
                   </th>
                   <th className={`${tableHeadClassName} text-right`}>
@@ -223,6 +229,9 @@ function CustomersPage() {
                     </td>
                     <td className={`${tableCellClassName} text-right`}>
                       {customer.orders_count}
+                    </td>
+                    <td className={`${tableCellClassName} text-right font-medium`}>
+                      {formatCentsAsPHP(customer.amount_spent_cents)}
                     </td>
                     <td className={`${tableCellClassName} text-right`}>
                       {customer.cancelled_orders_count}

@@ -11,7 +11,10 @@ const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
 
 export interface CustomerListRow extends Customer {
   orders_count: number
+  amount_spent_cents: number
 }
+
+const VOID_ORDER_STATUSES = new Set(['cancelled', 'failed'])
 
 /**
  * The customers table has its own successful_orders_count/
@@ -31,6 +34,7 @@ async function computeCustomerOrderCounts(
       cancelledCount: number
       failedDeliveryCount: number
       returnCount: number
+      spentCents: number
     }
   >
 > {
@@ -41,6 +45,7 @@ async function computeCustomerOrderCounts(
       cancelledCount: number
       failedDeliveryCount: number
       returnCount: number
+      spentCents: number
     }
   >()
   if (customerIds.length === 0) return counts
@@ -51,7 +56,7 @@ async function computeCustomerOrderCounts(
   ] = await Promise.all([
     admin
       .from('orders')
-      .select('customer_id, status, cancellation_reason')
+      .select('customer_id, status, cancellation_reason, total_cents')
       .in('customer_id', customerIds),
     admin.from('returns').select('customer_id').in('customer_id', customerIds),
   ])
@@ -64,6 +69,7 @@ async function computeCustomerOrderCounts(
       cancelledCount: 0,
       failedDeliveryCount: 0,
       returnCount: 0,
+      spentCents: 0,
     }
     bucket.ordersCount += 1
     if (order.status === 'cancelled') {
@@ -71,6 +77,9 @@ async function computeCustomerOrderCounts(
       if (order.cancellation_reason === 'failed_delivery') {
         bucket.failedDeliveryCount += 1
       }
+    }
+    if (!VOID_ORDER_STATUSES.has(order.status)) {
+      bucket.spentCents += order.total_cents
     }
     counts.set(order.customer_id, bucket)
   }
@@ -80,6 +89,7 @@ async function computeCustomerOrderCounts(
       cancelledCount: 0,
       failedDeliveryCount: 0,
       returnCount: 0,
+      spentCents: 0,
     }
     bucket.returnCount += 1
     counts.set(ret.customer_id, bucket)
@@ -216,6 +226,12 @@ export const listCustomers = createServerFn({ method: 'GET' })
         // Cancelled & Returns analytics page.
         return_count:
           (bucket?.returnCount ?? 0) + (bucket?.failedDeliveryCount ?? 0),
+        // Live spend from this site's own orders, plus whatever historical
+        // spend was imported from the old Shopify store (null for anyone
+        // who wasn't in that export) — see migration 0029.
+        amount_spent_cents:
+          (bucket?.spentCents ?? 0) +
+          (customer.imported_total_spent_cents ?? 0),
       }
     })
   })
@@ -270,6 +286,7 @@ export interface CustomerWithDetails extends Customer {
     | 'placed_at'
     | 'cancellation_reason'
   >[]
+  amount_spent_cents: number
 }
 
 export const getCustomerById = createServerFn({ method: 'GET' })
@@ -319,6 +336,9 @@ export const getCustomerById = createServerFn({ method: 'GET' })
       (o) =>
         o.status === 'cancelled' && o.cancellation_reason === 'failed_delivery',
     ).length
+    const liveSpentCents = orders
+      .filter((o) => !VOID_ORDER_STATUSES.has(o.status))
+      .reduce((sum, o) => sum + o.total_cents, 0)
 
     return {
       ...customer,
@@ -329,6 +349,7 @@ export const getCustomerById = createServerFn({ method: 'GET' })
       // See listCustomers's comment — a failed-delivery cancellation counts
       // as a return too, same as the analytics page's combined metric.
       return_count: returns.length + failedDeliveryCount,
+      amount_spent_cents: liveSpentCents + (customer.imported_total_spent_cents ?? 0),
     }
   })
 

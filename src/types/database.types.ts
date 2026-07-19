@@ -120,6 +120,7 @@ export interface Database {
           email_verified: boolean
           phone_verified: boolean
           last_login_at: string | null
+          imported_total_spent_cents: number | null
           created_at: string
           updated_at: string
         }

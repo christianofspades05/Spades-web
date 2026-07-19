@@ -46,11 +46,17 @@ function CustomerDetailPage() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Card className="p-3.5">
           <p className="text-xs font-medium text-neutral-500">Orders</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
             {customer.orders.length}
+          </p>
+        </Card>
+        <Card className="p-3.5">
+          <p className="text-xs font-medium text-neutral-500">Amount Spent</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(customer.amount_spent_cents)}
           </p>
         </Card>
         <Card className="p-3.5">
