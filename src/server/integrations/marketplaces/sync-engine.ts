@@ -379,11 +379,20 @@ async function syncFulfillmentInfo(
  * Mirrors a marketplace-side cancellation onto an already-imported order —
  * the case syncFulfillmentInfo above never covers, since a cancelled order
  * simply stops reporting a fulfillment status rather than reporting a
- * "cancelled" one. Restocks the same way a staff-initiated cancel does (see
- * admin/orders.ts's restockCancelledOrder) since stock already committed via
- * commit_variant_stock at import time is just as real regardless of which
- * side cancelled it. No-ops once the order is already in a terminal state,
- * so re-pulling the same cancelled order on every cron run stays harmless.
+ * "cancelled" one. No-ops once the order is already in a terminal state, so
+ * re-pulling the same cancelled order on every cron run stays harmless.
+ *
+ * Always restocks via restock_variant_stock, unconditionally — unlike a
+ * staff-initiated cancel of a storefront/admin order (see admin/orders.ts's
+ * restockCancelledOrder), which only had stock reserved rather than
+ * committed while still 'pending_payment'. A marketplace order never goes
+ * through that reserve phase: importOrder's insert branch calls
+ * commit_variant_stock immediately for every non-cancelled order regardless
+ * of its local status. The only way this function ever runs is for an order
+ * that reached that insert branch un-cancelled (a marketplace order that
+ * arrives already cancelled is inserted straight to 'cancelled' status,
+ * skips the stock commit entirely, and is therefore already terminal here
+ * — see importOrder), so stock was always committed by the time this runs.
  */
 async function syncPlatformCancellation(orderId: string): Promise<boolean> {
   const admin = getSupabaseAdminClient()
@@ -402,8 +411,6 @@ async function syncPlatformCancellation(orderId: string): Promise<boolean> {
     .eq('order_id', orderId)
   if (itemsError) throw itemsError
 
-  const wasCommitted = order.status !== 'pending_payment'
-  const rpcName = wasCommitted ? 'restock_variant_stock' : 'release_variant_stock'
   await Promise.all(
     items
       .filter(
@@ -411,7 +418,7 @@ async function syncPlatformCancellation(orderId: string): Promise<boolean> {
           item.variant_id !== null,
       )
       .map((item) =>
-        admin.rpc(rpcName, {
+        admin.rpc('restock_variant_stock', {
           p_variant_id: item.variant_id,
           p_quantity: item.quantity,
           p_reference_type: 'order_cancel',
