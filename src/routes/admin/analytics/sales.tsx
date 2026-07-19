@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Package } from 'lucide-react'
+import { MapPin, Package } from 'lucide-react'
 import {
   getProductProfitBreakdown,
   getSalesAnalytics,
+  getSalesByLocation,
 } from '#/server/admin/analytics'
-import type { ProductProfitRow } from '#/server/admin/analytics'
+import type { LocationSalesRow, ProductProfitRow } from '#/server/admin/analytics'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
@@ -49,7 +50,7 @@ export const Route = createFileRoute('/admin/analytics/sales')({
       from: deps.from,
       to: deps.to,
     })
-    const [salesAnalytics, bestSellers] = await Promise.all([
+    const [salesAnalytics, bestSellers, topLocations] = await Promise.all([
       getSalesAnalytics({
         data: {
           ...resolved,
@@ -60,14 +61,17 @@ export const Route = createFileRoute('/admin/analytics/sales')({
       getProductProfitBreakdown({
         data: { ...resolved, channel: deps.channel },
       }),
+      getSalesByLocation({
+        data: { ...resolved, channel: deps.channel },
+      }),
     ])
-    return { salesAnalytics, bestSellers }
+    return { salesAnalytics, bestSellers, topLocations }
   },
   component: SalesAnalyticsPage,
 })
 
 function SalesAnalyticsPage() {
-  const { salesAnalytics, bestSellers } = Route.useLoaderData()
+  const { salesAnalytics, bestSellers, topLocations } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -208,6 +212,7 @@ function SalesAnalyticsPage() {
       </div>
 
       <BestSellersSection products={bestSellers} />
+      <LocationSalesSection locations={topLocations} />
     </div>
   )
 }
@@ -422,6 +427,186 @@ function BestSellerCard({
           </p>
           <p className="text-sm text-neutral-500">
             {product.unitsSold} sold · {formatCentsAsPHP(product.grossSalesCents)}
+          </p>
+        </div>
+      </div>
+      {share !== null && (
+        <p className="mt-2 text-xs text-neutral-400">
+          {share.toFixed(1)}% of total sales
+        </p>
+      )}
+    </Card>
+  )
+}
+
+const LOCATIONS_PAGE_SIZE = 10
+
+function LocationSalesSection({ locations }: { locations: LocationSalesRow[] }) {
+  const [page, setPage] = useState(1)
+
+  const totalRevenueCents = locations.reduce(
+    (sum, l) => sum + l.grossSalesCents,
+    0,
+  )
+  const pageCount = Math.max(
+    1,
+    Math.ceil(locations.length / LOCATIONS_PAGE_SIZE),
+  )
+  const currentPage = Math.min(page, pageCount)
+  const paged = locations.slice(
+    (currentPage - 1) * LOCATIONS_PAGE_SIZE,
+    currentPage * LOCATIONS_PAGE_SIZE,
+  )
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Top Locations
+      </h2>
+      <p className="mb-4 text-xs text-neutral-500">
+        Ranked by revenue, based on shipping address city
+      </p>
+
+      {locations.length === 0 ? (
+        <Card className="p-6">
+          <p className="text-sm text-neutral-500">
+            No orders with a usable shipping city in this range.
+          </p>
+        </Card>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 md:hidden">
+            {paged.map((location) => (
+              <LocationSalesCard
+                key={`${location.city}|${location.province ?? ''}`}
+                location={location}
+                totalRevenueCents={totalRevenueCents}
+              />
+            ))}
+          </div>
+
+          <div className={`${tableWrapperClassName} hidden md:block`}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Location</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Orders
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Revenue
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      % of sales
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((location) => (
+                    <tr
+                      key={`${location.city}|${location.province ?? ''}`}
+                      className={tableRowClassName}
+                    >
+                      <td className={tableCellClassName}>
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-9 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                            <MapPin size={14} className="text-neutral-300" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-neutral-900">
+                              {location.city}
+                            </p>
+                            {location.province && (
+                              <p className="text-xs text-neutral-400">
+                                {location.province}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {location.orderCount}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(location.grossSalesCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {totalRevenueCents > 0
+                          ? `${((location.grossSalesCents / totalRevenueCents) * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {pageCount > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Showing {(currentPage - 1) * LOCATIONS_PAGE_SIZE + 1}–
+                {Math.min(currentPage * LOCATIONS_PAGE_SIZE, locations.length)}{' '}
+                of {locations.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-neutral-400">
+                  Page {currentPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage((p) => p + 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function LocationSalesCard({
+  location,
+  totalRevenueCents,
+}: {
+  location: LocationSalesRow
+  totalRevenueCents: number
+}) {
+  const share =
+    totalRevenueCents > 0
+      ? (location.grossSalesCents / totalRevenueCents) * 100
+      : null
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex size-11 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+          <MapPin size={16} className="text-neutral-300" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-medium text-neutral-900">
+            {location.city}
+            {location.province && (
+              <span className="text-neutral-400">, {location.province}</span>
+            )}
+          </p>
+          <p className="text-sm text-neutral-500">
+            {location.orderCount} orders ·{' '}
+            {formatCentsAsPHP(location.grossSalesCents)}
           </p>
         </div>
       </div>

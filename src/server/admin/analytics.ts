@@ -265,15 +265,18 @@ async function computeChannelSales(
 export interface CancelledReturnsResult {
   range: { from: string; to: string }
   totalCancelled: number
+  cancelledAmountCents: number
   /** Online Store "Failed Delivery" cancellations combined with TikTok/
    *  Shopee returns — different mechanisms recording the same underlying
    *  event (a parcel that came back instead of reaching the buyer). */
   failedDeliveryOrReturn: {
     total: number
     failedDeliveryCount: number
+    failedDeliveryAmountCents: number
     marketplaceReturnsCount: number
   }
   daily: { date: string; count: number }[]
+  previousDaily: { date: string; count: number }[]
   byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
   byChannel: { source: OrderSource; count: number }[]
   /** Same reason breakdown as byReason, but scoped to one channel at a time
@@ -292,42 +295,41 @@ export interface CancelledReturnsResult {
   }
 }
 
-export const getCancelledAndReturns = createServerFn({ method: 'GET' })
-  .validator(z.object({ from: z.string(), to: z.string() }))
-  .handler(async ({ data }): Promise<CancelledReturnsResult> => {
-    await requireStaff()
-    const admin = getSupabaseAdminClient()
+async function computeCancelledAndReturns(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  from: string,
+  to: string,
+  channelFilter: OrderSource | undefined,
+): Promise<CancelledReturnsResult> {
+  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
-    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
-      data.from,
-      data.to,
-    )
-
-    const cancelledOrders = await fetchAllRows((offset) =>
-      admin
-        .from('orders')
-        .select('id, source, cancellation_reason, cancelled_at')
-        .eq('status', 'cancelled')
-        .gte('cancelled_at', rangeStart)
-        .lte('cancelled_at', rangeEnd)
-        .range(offset, offset + 999),
-    )
+  const cancelledOrders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select('id, source, cancellation_reason, cancelled_at, total_cents')
+      .eq('status', 'cancelled')
+      .gte('cancelled_at', rangeStart)
+      .lte('cancelled_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (channelFilter) query = query.eq('source', channelFilter)
+    return query
+  })
 
     // A single-day range (e.g. "Today") gets bucketed by hour instead of by
     // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
-    const isSingleDay = data.from === data.to
+    const isSingleDay = from === to
     const bucketKey = (iso: string) =>
       isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
 
     const dailyMap = new Map<string, number>()
     if (isSingleDay) {
       for (let hour = 0; hour < 24; hour++) {
-        dailyMap.set(`${data.from}T${String(hour).padStart(2, '0')}`, 0)
+        dailyMap.set(`${from}T${String(hour).padStart(2, '0')}`, 0)
       }
     } else {
       for (
-        const d = new Date(`${data.from}T00:00:00Z`);
-        d <= new Date(`${data.to}T00:00:00Z`);
+        const d = new Date(`${from}T00:00:00Z`);
+        d <= new Date(`${to}T00:00:00Z`);
         d.setUTCDate(d.getUTCDate() + 1)
       ) {
         dailyMap.set(d.toISOString().slice(0, 10), 0)
@@ -343,6 +345,8 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       Map<OrderCancellationReason | 'unspecified', number>
     >()
 
+    let cancelledAmountCents = 0
+    let failedDeliveryAmountCents = 0
     for (const order of cancelledOrders) {
       if (order.cancelled_at) {
         const key = bucketKey(order.cancelled_at)
@@ -355,9 +359,14 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       const channelReasons = byChannelAndReasonMap.get(order.source) ?? new Map()
       channelReasons.set(reasonKey, (channelReasons.get(reasonKey) ?? 0) + 1)
       byChannelAndReasonMap.set(order.source, channelReasons)
+
+      cancelledAmountCents += order.total_cents
+      if (order.source === 'storefront' && reasonKey === 'failed_delivery') {
+        failedDeliveryAmountCents += order.total_cents
+      }
     }
 
-    const returns = await fetchAllRows((offset) =>
+    const returnsRaw = await fetchAllRows((offset) =>
       admin
         .from('returns')
         .select('id, order_id, refund_amount_cents, requested_at')
@@ -366,7 +375,7 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
         .range(offset, offset + 999),
     )
 
-    const returnOrderIds = Array.from(new Set(returns.map((r) => r.order_id)))
+    const returnOrderIds = Array.from(new Set(returnsRaw.map((r) => r.order_id)))
     const returnOrders =
       returnOrderIds.length > 0
         ? await fetchAllRows((offset) =>
@@ -378,6 +387,15 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
           )
         : []
     const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
+
+    // Returns aren't tied to `orders.source` directly (see the join above),
+    // so the channel filter has to be applied after that lookup rather than
+    // as a query predicate.
+    const returns = channelFilter
+      ? returnsRaw.filter(
+          (r) => sourceByOrderId.get(r.order_id) === channelFilter,
+        )
+      : returnsRaw
 
     const returnsByChannelMap = new Map<OrderSource, number>()
     let totalRefundCents = 0
@@ -405,11 +423,13 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       (returnsByChannelMap.get('shopee') ?? 0)
 
     return {
-      range: { from: data.from, to: data.to },
+      range: { from, to },
       totalCancelled: cancelledOrders.length,
+      cancelledAmountCents,
       failedDeliveryOrReturn: {
         total: failedDeliveryCount + marketplaceReturnsCount,
         failedDeliveryCount,
+        failedDeliveryAmountCents,
         marketplaceReturnsCount,
       },
       daily: Array.from(dailyMap.entries())
@@ -422,6 +442,7 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
             : key,
           count,
         })),
+      previousDaily: [],
       byReason: Array.from(byReasonMap.entries())
         .map(([reason, count]) => ({ reason, count }))
         .sort((a, b) => b.count - a.count),
@@ -445,6 +466,43 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
           .sort((a, b) => b.count - a.count),
       },
     }
+}
+
+export const getCancelledAndReturns = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      comparePrevious: z.boolean().default(false),
+    }),
+  )
+  .handler(async ({ data }): Promise<CancelledReturnsResult> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const current = await computeCancelledAndReturns(
+      admin,
+      data.from,
+      data.to,
+      data.channel,
+    )
+
+    let previousDaily: CancelledReturnsResult['daily'] = []
+    if (data.comparePrevious) {
+      const prev = previousPeriod(data.from, data.to)
+      const prevResult = await computeCancelledAndReturns(
+        admin,
+        prev.from,
+        prev.to,
+        data.channel,
+      )
+      previousDaily = prevResult.daily
+    }
+
+    return { ...current, previousDaily }
   })
 
 export const getSalesByChannel = createServerFn({ method: 'GET' })
@@ -1076,4 +1134,84 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
     })
 
     return { orders: rows, total: count ?? 0 }
+  })
+
+export interface LocationSalesRow {
+  city: string
+  province: string | null
+  orderCount: number
+  grossSalesCents: number
+}
+
+const locationSalesCache = createTtlCache<LocationSalesRow[]>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+export const getSalesByLocation = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<LocationSalesRow[]> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}`
+    const cached = locationSalesCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+
+    const orders = await fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('status, subtotal_cents, shipping_cents, shipping_address')
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (data.channel) query = query.eq('source', data.channel)
+      return query
+    })
+    const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+
+    // TikTok Shop's API doesn't expose buyer city/province to sellers (comes
+    // back as empty strings) — only Online Store orders reliably carry this.
+    // Skipping unidentified addresses rather than lumping them into a fake
+    // "Unknown" location that would otherwise dominate the ranking.
+    const buckets = new Map<
+      string,
+      { city: string; province: string | null; orderCount: number; grossSalesCents: number }
+    >()
+    for (const order of liveOrders) {
+      const address = order.shipping_address
+      const city = typeof address.city === 'string' ? address.city.trim() : ''
+      if (!city) continue
+      const rawProvince =
+        typeof address.province === 'string' ? address.province.trim() : ''
+      const province = rawProvince || null
+      const key = `${city}|${province ?? ''}`
+      const bucket = buckets.get(key) ?? {
+        city,
+        province,
+        orderCount: 0,
+        grossSalesCents: 0,
+      }
+      bucket.orderCount += 1
+      bucket.grossSalesCents += order.subtotal_cents + order.shipping_cents
+      buckets.set(key, bucket)
+    }
+
+    const result = Array.from(buckets.values()).sort(
+      (a, b) => b.grossSalesCents - a.grossSalesCents,
+    )
+    locationSalesCache.set(cacheKey, result)
+    return result
   })
