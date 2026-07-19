@@ -178,10 +178,14 @@ function ProductPage() {
           </div>
           {product.description && (
             <div
-              className="mt-6 hidden md:block md:overflow-y-auto md:pr-3"
+              dir="rtl"
+              className="mt-6 hidden md:block md:overflow-y-auto md:pl-3"
               style={{ height: boxHeights ? boxHeights.left : '26rem' }}
             >
-              <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
+              <p
+                dir="ltr"
+                className="whitespace-pre-line text-neutral-600 dark:text-neutral-400"
+              >
                 {product.description}
               </p>
             </div>
