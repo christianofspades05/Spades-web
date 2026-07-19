@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
@@ -18,6 +19,7 @@ import { DonutChart } from '#/components/admin/DonutChart'
 import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
 import { ProductProfitBarChart } from '#/components/admin/ProductProfitBarChart'
 import {
+  buttonSecondaryClassName,
   inputClassName,
   tableCellClassName,
   tableHeadClassName,
@@ -123,6 +125,18 @@ function ProfitPage() {
   }))
 
   const topProducts = products.slice(0, 8)
+
+  const PRODUCTS_PAGE_SIZE = 10
+  const [productsPage, setProductsPage] = useState(1)
+  const productsPageCount = Math.max(
+    1,
+    Math.ceil(products.length / PRODUCTS_PAGE_SIZE),
+  )
+  const currentProductsPage = Math.min(productsPage, productsPageCount)
+  const pagedProducts = products.slice(
+    (currentProductsPage - 1) * PRODUCTS_PAGE_SIZE,
+    currentProductsPage * PRODUCTS_PAGE_SIZE,
+  )
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -285,7 +299,7 @@ function ProfitPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p) => (
+                  {pagedProducts.map((p) => (
                     <tr
                       key={p.productId ?? p.productName}
                       className={tableRowClassName}
@@ -328,6 +342,40 @@ function ProfitPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {productsPageCount > 1 && (
+          <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+            <p>
+              Showing {(currentProductsPage - 1) * PRODUCTS_PAGE_SIZE + 1}–
+              {Math.min(
+                currentProductsPage * PRODUCTS_PAGE_SIZE,
+                products.length,
+              )}{' '}
+              of {products.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={currentProductsPage <= 1}
+                onClick={() => setProductsPage((p) => p - 1)}
+                className={`${buttonSecondaryClassName} disabled:opacity-40`}
+              >
+                Previous
+              </button>
+              <span className="text-xs text-neutral-400">
+                Page {currentProductsPage} of {productsPageCount}
+              </span>
+              <button
+                type="button"
+                disabled={currentProductsPage >= productsPageCount}
+                onClick={() => setProductsPage((p) => p + 1)}
+                className={`${buttonSecondaryClassName} disabled:opacity-40`}
+              >
+                Next
+              </button>
             </div>
           </div>
         )}

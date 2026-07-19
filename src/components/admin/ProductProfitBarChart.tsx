@@ -13,6 +13,17 @@ export interface ProductProfitBar {
   netProfitCents: number
 }
 
+const MAX_LABEL_CHARS = 24
+
+/** Long product names wrap onto multiple lines on a category axis and
+ *  overflow into neighboring bars — truncating keeps each row single-line.
+ *  The full name still shows on hover via the tooltip. */
+function truncateLabel(value: string): string {
+  return value.length > MAX_LABEL_CHARS
+    ? `${value.slice(0, MAX_LABEL_CHARS - 1)}…`
+    : value
+}
+
 function ProfitBarTooltip({
   active,
   payload,
@@ -60,6 +71,7 @@ export function ProductProfitBarChart({
           type="category"
           dataKey="label"
           width={160}
+          tickFormatter={truncateLabel}
           tick={{ fontSize: 12, fill: '#525252' }}
           tickLine={false}
           axisLine={false}
