@@ -23,35 +23,6 @@ export const Route = createFileRoute('/account/')({
   },
   loader: () => getAccountOverview(),
   component: AccountPage,
-  // Temporary — the default CatchBoundary only shows error.message, which
-  // for a bare postgrest-style { message, details, hint, code } object (or
-  // an edge-layer non-JSON rejection) collapses to an unhelpful one-word
-  // string like "Bad Request". This dumps everything so the actual cause
-  // is visible instead of guessed at. Remove once the account-page 400 is
-  // diagnosed.
-  errorComponent: ({ error }) => {
-    const serialized =
-      error instanceof Error
-        ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            ...Object.fromEntries(
-              Object.entries(error as unknown as Record<string, unknown>),
-            ),
-          }
-        : error
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <h1 className="text-xl font-bold text-red-600">
-          Account error (debug details)
-        </h1>
-        <pre className="mt-4 overflow-x-auto rounded-lg bg-neutral-100 p-4 text-xs whitespace-pre-wrap text-neutral-800">
-          {JSON.stringify(serialized, null, 2)}
-        </pre>
-      </div>
-    )
-  },
 })
 
 function AccountPage() {

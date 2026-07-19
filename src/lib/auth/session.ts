@@ -3,16 +3,44 @@
  * request's Supabase auth cookies. Used by server functions and route
  * loaders that need to know the current customer or staff member.
  */
-import { getSupabaseServerClient } from '#/lib/supabase/server'
+import { getCookies } from '@tanstack/react-start/server'
+import {
+  clearSupabaseSessionCookies,
+  getSupabaseServerClient,
+} from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { Customer, StaffUser } from '#/types/entities'
 
+/**
+ * A corrupted or stale Supabase session cookie (left over from before a
+ * project/key rotation, or a partially-written chunked cookie) doesn't
+ * behave like a normal expired session — that resolves to `user: null`
+ * cleanly. Instead Supabase's own API can reject the request outright with
+ * an edge-level 400, which without this would throw all the way up to
+ * every route's CatchBoundary and permanently break the page for that one
+ * browser (a plain "log out and back in" doesn't help, since the same bad
+ * cookie is what breaks the request in the first place). Treat any failure
+ * here as "not signed in" and clear the `sb-*` cookies so the next request
+ * starts clean instead of repeating the same crash forever.
+ */
+function recoverFromBadSession(): null {
+  const badCookieNames = Object.keys(getCookies()).filter((name) =>
+    name.startsWith('sb-'),
+  )
+  clearSupabaseSessionCookies(badCookieNames)
+  return null
+}
+
 export async function getAuthUser() {
   const supabase = getSupabaseServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    return user
+  } catch {
+    return recoverFromBadSession()
+  }
 }
 
 /** Resolves the `customers` row linked to the current auth session, if any. */
@@ -27,7 +55,7 @@ export async function getCurrentCustomer(): Promise<Customer | null> {
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) return recoverFromBadSession()
   return data
 }
 
@@ -44,6 +72,6 @@ export async function getCurrentStaffUser(): Promise<StaffUser | null> {
     .eq('is_active', true)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) return recoverFromBadSession()
   return data
 }
