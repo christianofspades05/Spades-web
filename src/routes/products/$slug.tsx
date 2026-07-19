@@ -117,13 +117,27 @@ function ProductPage() {
       )}
 
       <div className="grid grid-cols-1 gap-10 md:grid-cols-4">
-        {/* Title + rating */}
+        {/* Title + rating (+ description on desktop, nested in the same
+            column so it fills the whitespace under the rating instead of
+            being placed as a sibling grid item — a separate item here
+            positioned via col-start would get auto-placed into whatever row
+            the browser picks next, which (since the gallery column is much
+            taller) landed below the entire gallery instead of directly
+            under the title. Nesting keeps this column's height independent
+            of the gallery's. */}
         <div className="md:col-span-1">
           <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
           <ProductRatingSummary
             averageRating={reviews.averageRating}
             reviewCount={reviews.reviewCount}
           />
+          {product.description && (
+            <div className="mt-6 hidden md:block">
+              <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
+                {product.description}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Mockup */}
@@ -131,7 +145,7 @@ function ProductPage() {
           <ImageGallery images={product.images} alt={product.name} />
         </div>
 
-        {/* Buying selection */}
+        {/* Buying selection (+ reviews on desktop, same nesting reasoning as description above) */}
         <div className="md:col-span-1">
           <VariantSelector
             variants={product.variants as VariantWithStock[]}
@@ -182,25 +196,23 @@ function ProductPage() {
           )}
 
           <PaymentBadges />
+
+          <div className="hidden md:block">
+            <ProductReviewsList reviews={reviews.reviews} />
+          </div>
         </div>
       </div>
 
-      {/* Description + Reviews live in their own grid, separate from the
-          title/gallery/buy-box grid above — mixing all five blocks into one
-          4-column grid relied on explicit column-start values with no
-          row-start, which left the browser's row auto-placement to decide
-          where description/reviews landed. Since the gallery column is far
-          taller than the title/buy-box columns, both ended up auto-placed
-          into the same implicit row directly below the gallery instead of
-          each sitting under its own column — reading as "description stuck
-          at the bottom" rather than the intended side-by-side section. */}
-      <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-2">
+      {/* Mobile-only: description and reviews render again here (hidden on
+          desktop) in a sensible top-to-bottom order — image gallery before
+          description/reviews — since on a single mobile column, nesting
+          them under title/buy-box like above would push the description
+          ahead of the product photos. */}
+      <div className="mt-10 md:hidden">
         {product.description && (
-          <div>
-            <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
-              {product.description}
-            </p>
-          </div>
+          <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
+            {product.description}
+          </p>
         )}
         <ProductReviewsList reviews={reviews.reviews} />
       </div>
