@@ -543,19 +543,20 @@ export interface Database {
         Row: {
           id: string
           product_id: string
-          order_id: string
+          order_id: string | null
           customer_email: string
           customer_name: string | null
           rating: number
           review_text: string | null
           photo_urls: string[]
           status: ReviewStatus
+          imported_source: string | null
+          imported_review_id: string | null
           created_at: string
           updated_at: string
         }
         Insert: Partial<Database['public']['Tables']['reviews']['Row']> & {
           product_id: string
-          order_id: string
           customer_email: string
           rating: number
         }

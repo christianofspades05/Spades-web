@@ -10,7 +10,8 @@ const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
 
 export interface ReviewWithContext extends Review {
   product: Pick<Product, 'id' | 'name' | 'slug'>
-  order: Pick<Order, 'id' | 'order_number'>
+  /** Null for imported reviews (see imported_source) — there's no real order behind them. */
+  order: Pick<Order, 'id' | 'order_number'> | null
 }
 
 export const listReviews = createServerFn({ method: 'GET' })

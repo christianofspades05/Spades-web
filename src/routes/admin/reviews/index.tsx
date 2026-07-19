@@ -112,7 +112,10 @@ function ReviewsPage() {
                         {review.product.name}
                       </Link>
                       <p className="text-xs text-neutral-400">
-                        {review.order.order_number}
+                        {review.order?.order_number ??
+                          (review.imported_source
+                            ? `Imported from ${review.imported_source}`
+                            : '—')}
                       </p>
                     </td>
                     <td className={`${tableCellClassName} text-neutral-500`}>
