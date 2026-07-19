@@ -376,6 +376,7 @@ export interface Database {
           placed_at: string
           cancelled_at: string | null
           cancellation_reason: OrderCancellationReason | null
+          cancellation_detail: string | null
           notes: string | null
           review_requested_at: string | null
           review_request_sent: boolean
@@ -478,6 +479,7 @@ export interface Database {
           resolution_notes: string | null
           requested_at: string
           resolved_at: string | null
+          external_return_id: string | null
           created_at: string
           updated_at: string
         }

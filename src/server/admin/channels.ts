@@ -12,6 +12,7 @@ import {
   getCategoryAttributesForMarketplace,
   listCategoriesForMarketplace,
   pullOrdersForMarketplace,
+  pullReturnsForMarketplace,
   pushInventoryForAllProducts,
   pushInventoryForVariant,
   pushNewProductToMarketplace,
@@ -422,10 +423,26 @@ export const pullOrdersNow = createServerFn({ method: 'POST' })
   .handler(
     async ({
       data,
-    }): Promise<{ scanned: number; imported: number; failed: number }> => {
+    }): Promise<{
+      scanned: number
+      imported: number
+      failed: number
+      returnsScanned: number
+      returnsProcessed: number
+      returnsFailed: number
+    }> => {
       const staff = await requireStaff(MANAGE_ROLES)
       const since = new Date(Date.now() - data.sinceHours * 60 * 60 * 1000)
-      const result = await pullOrdersForMarketplace(data.marketplace, since)
+      const [orders, returns] = await Promise.all([
+        pullOrdersForMarketplace(data.marketplace, since),
+        pullReturnsForMarketplace(data.marketplace, since),
+      ])
+      const result = {
+        ...orders,
+        returnsScanned: returns.scanned,
+        returnsProcessed: returns.processed,
+        returnsFailed: returns.failed,
+      }
       await logStaffActivity(
         staff,
         'channel.pull_orders',

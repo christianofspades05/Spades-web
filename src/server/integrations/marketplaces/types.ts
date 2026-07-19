@@ -61,12 +61,43 @@ export interface NormalizedOrder {
    *  happens on the platform *after* we already imported the order still
    *  gets mirrored onto our own orders.status. */
   isCancelled: boolean
+  /** The platform's own free-text reason for a cancellation (e.g. TikTok's
+   *  order.cancel_reason), when it reported one. Kept as raw text rather
+   *  than mapped onto our fixed cancellation_reason enum — a platform can
+   *  cancel an order for reasons we have no matching category for (a failed
+   *  delivery after repeated courier attempts, for instance), and showing
+   *  staff the platform's own wording beats guessing a taxonomy for it. */
+  cancellationDetail: string | null
   /** Reflects wherever the order actually is in the platform's own fulfillment lifecycle (awaiting shipment, awaiting courier collection, in transit, delivered) — not just whether a tracking number exists, since a platform can assign one before the courier actually collects the parcel. Null if the platform gave us nothing to go on. */
   fulfillmentInfo: {
     status: ImportedFulfillmentStatus
     carrier: string | null
     trackingNumber: string | null
   } | null
+}
+
+/** Mirrors the DB's return_status enum (see 0001_init_schema.sql) — every
+ *  platform return status gets mapped onto one of these five. */
+export type NormalizedReturnStatus =
+  'requested' | 'approved' | 'received' | 'refunded' | 'rejected'
+
+/** One returned line item from a platform buyer-initiated return/refund
+ *  request. A single platform "return" can cover several SKUs — adapters
+ *  fan that out into one NormalizedReturn per SKU, matching our returns
+ *  table's one-row-per-order-item shape (see 0001_init_schema.sql). */
+export interface NormalizedReturn {
+  /** Unique per platform line item (not just per return) so re-pulling the
+   *  same return on every cron run stays a safe no-op/update rather than a
+   *  duplicate insert — see returns.external_return_id's unique index. */
+  externalReturnId: string
+  externalOrderId: string
+  externalVariantId: string
+  quantity: number
+  status: NormalizedReturnStatus
+  /** The platform's own reason text (e.g. "Change of mind") — stored as-is rather than mapped onto a fixed taxonomy. */
+  reason: string
+  refundAmountCents: number | null
+  requestedAt: string
 }
 
 /** A category the platform requires every product to be filed under. Only leaf categories (isLeaf) are selectable when creating a product. */
@@ -179,6 +210,17 @@ export interface MarketplaceAdapter {
   mapOrderToInternalFormat: (
     platformOrderData: Record<string, unknown>,
   ) => NormalizedOrder
+
+  /** Fetches raw return/refund-request objects created/updated on the platform since `since`. */
+  pullReturns: (
+    connection: MarketplaceConnection,
+    since: Date,
+  ) => Promise<Record<string, unknown>[]>
+
+  /** Normalizes one raw platform return into our internal shape — an array since one platform return can span several SKUs (see NormalizedReturn). */
+  mapReturnToInternalFormat: (
+    platformReturnData: Record<string, unknown>,
+  ) => NormalizedReturn[]
 
   /** Searches the platform's (usually very deep) category tree by keyword, returning matching leaf categories a product can actually be filed under. */
   listCategories: (

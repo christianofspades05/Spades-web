@@ -27,7 +27,12 @@ import {
   inputClassName,
   labelClassName,
 } from '#/components/admin/ui'
-import type { OrderSource, OrderStatus, ShipmentStatus } from '#/types/entities'
+import type {
+  OrderSource,
+  OrderStatus,
+  ReturnStatus,
+  ShipmentStatus,
+} from '#/types/entities'
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
   storefront: 'Online Store',
@@ -35,6 +40,14 @@ const SOURCE_LABELS: Record<OrderSource, string> = {
   tiktok_shop: 'TikTok Shop',
   shopee: 'Shopee',
   lazada: 'Lazada',
+}
+
+const RETURN_STATUS_LABELS: Record<ReturnStatus, string> = {
+  requested: 'Requested',
+  approved: 'Approved — awaiting item',
+  received: 'Item received',
+  refunded: 'Refunded',
+  rejected: 'Rejected / cancelled',
 }
 
 // Mirrors ALLOWED_TRANSITIONS in src/server/admin/orders.ts — that map is the
@@ -112,6 +125,13 @@ function OrderDetailPage() {
               year: 'numeric',
             })}`}
           .
+          {order.cancellation_detail && (
+            <span className="mt-1 block font-normal text-red-700">
+              {order.source === 'storefront' || order.source === 'admin'
+                ? order.cancellation_detail
+                : `${SOURCE_LABELS[order.source]} says: "${order.cancellation_detail}"`}
+            </span>
+          )}
         </div>
       )}
 
@@ -182,6 +202,40 @@ function OrderDetailPage() {
               </div>
             </div>
           </Card>
+
+          {order.returns.length > 0 && (
+            <Card className="p-5">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+                Returns
+              </h2>
+              <ul className="flex flex-col divide-y divide-neutral-100">
+                {order.returns.map((ret) => (
+                  <li key={ret.id} className="flex flex-col gap-1 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-neutral-900">
+                        {RETURN_STATUS_LABELS[ret.status]}
+                      </span>
+                      <span className="text-neutral-500">
+                        {new Date(ret.requested_at).toLocaleDateString(
+                          'en-US',
+                          { month: 'long', day: 'numeric', year: 'numeric' },
+                        )}
+                      </span>
+                    </div>
+                    <p className="text-neutral-600">
+                      {ret.quantity} item{ret.quantity === 1 ? '' : 's'} —{' '}
+                      {ret.reason}
+                    </p>
+                    {ret.refund_amount_cents !== null && (
+                      <p className="text-neutral-500">
+                        Refund: {formatCentsAsPHP(ret.refund_amount_cents)}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <ShipmentForm
             orderId={order.id}

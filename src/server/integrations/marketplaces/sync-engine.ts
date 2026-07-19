@@ -13,6 +13,7 @@ import type {
   MarketplaceCategoryAttribute,
   MarketplaceCategoryAttributeAnswer,
   NormalizedOrder,
+  NormalizedReturn,
   SyncableMarketplace,
 } from './types'
 import { MarketplaceNotConnectedError } from './types'
@@ -394,7 +395,10 @@ async function syncFulfillmentInfo(
  * skips the stock commit entirely, and is therefore already terminal here
  * — see importOrder), so stock was always committed by the time this runs.
  */
-async function syncPlatformCancellation(orderId: string): Promise<boolean> {
+async function syncPlatformCancellation(
+  orderId: string,
+  cancellationDetail: string | null,
+): Promise<boolean> {
   const admin = getSupabaseAdminClient()
 
   const { data: order, error: orderError } = await admin
@@ -433,6 +437,7 @@ async function syncPlatformCancellation(orderId: string): Promise<boolean> {
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
       cancellation_reason: 'platform_cancelled',
+      cancellation_detail: cancellationDetail,
     })
     .eq('id', orderId)
   if (updateError) throw updateError
@@ -456,7 +461,10 @@ async function importOrder(
   if (existingError) throw existingError
   if (existing) {
     if (normalized.isCancelled) {
-      const cancelled = await syncPlatformCancellation(existing.id)
+      const cancelled = await syncPlatformCancellation(
+        existing.id,
+        normalized.cancellationDetail,
+      )
       if (cancelled) {
         await logSync(marketplace, 'sync_cancellation', 'success', {
           orderId: existing.id,
@@ -513,6 +521,9 @@ async function importOrder(
           : 'pending_payment',
       cancelled_at: normalized.isCancelled ? new Date().toISOString() : null,
       cancellation_reason: normalized.isCancelled ? 'platform_cancelled' : null,
+      cancellation_detail: normalized.isCancelled
+        ? normalized.cancellationDetail
+        : null,
       source: marketplace,
       external_order_id: normalized.externalOrderId,
       platform_order_data: raw,
@@ -655,6 +666,162 @@ export async function pullOrdersForMarketplace(
   })
 
   return { scanned: rawOrders.length, imported, failed }
+}
+
+// ---------------------------------------------------------------------------
+// Return pull
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies one normalized return line item to our returns table — inserting
+ * it the first time we see it, updating status/refund amount on repeat
+ * pulls otherwise (de-duped on returns.external_return_id's unique index).
+ * Restocks inventory exactly once, on the transition INTO 'refunded', so
+ * re-pulling an already-refunded return on every cron run never
+ * double-restocks it.
+ *
+ * A partial return (some but not all of an order's items) deliberately
+ * doesn't touch the parent order's own status — orders.status = 'refunded'
+ * would incorrectly read as the *whole* order being refunded. The returns
+ * table (already what the Cancelled/Returns analytics and customer stats
+ * read from — see admin/analytics.ts, admin/customers.ts) is the source of
+ * truth for what actually came back.
+ */
+async function importReturn(
+  marketplace: SyncableMarketplace,
+  ret: NormalizedReturn,
+): Promise<void> {
+  const admin = getSupabaseAdminClient()
+
+  const { data: order, error: orderError } = await admin
+    .from('orders')
+    .select('id, customer_id')
+    .eq('source', marketplace)
+    .eq('external_order_id', ret.externalOrderId)
+    .maybeSingle()
+  if (orderError) throw orderError
+  // The order hasn't been imported locally yet (older than the order pull's
+  // own lookback window, for instance) — nothing to attach this return to
+  // yet. Safe to skip: the next returns pull (update_time_ge-filtered, so
+  // it keeps re-seeing this same return) will attach it correctly once the
+  // order catches up.
+  if (!order) return
+
+  const { data: orderItems, error: itemsError } = await admin
+    .from('order_items')
+    .select('id, variant_id, sku_snapshot')
+    .eq('order_id', order.id)
+  if (itemsError) throw itemsError
+  const matchedItem =
+    orderItems.find((item) => item.sku_snapshot === ret.externalVariantId) ??
+    null
+
+  const { data: existing, error: existingError } = await admin
+    .from('returns')
+    .select('id, status')
+    .eq('external_return_id', ret.externalReturnId)
+    .maybeSingle()
+  if (existingError) throw existingError
+
+  const payload = {
+    order_id: order.id,
+    order_item_id: matchedItem?.id ?? null,
+    customer_id: order.customer_id,
+    reason: ret.reason,
+    status: ret.status,
+    quantity: ret.quantity,
+    refund_amount_cents: ret.refundAmountCents,
+    requested_at: ret.requestedAt,
+    resolved_at:
+      ret.status === 'refunded' || ret.status === 'rejected'
+        ? new Date().toISOString()
+        : null,
+    external_return_id: ret.externalReturnId,
+  }
+
+  const justCompleted =
+    ret.status === 'refunded' && existing?.status !== 'refunded'
+
+  let returnId: string
+  if (existing) {
+    const { error } = await admin
+      .from('returns')
+      .update(payload)
+      .eq('id', existing.id)
+    if (error) throw error
+    returnId = existing.id
+  } else {
+    const { data: created, error } = await admin
+      .from('returns')
+      .insert(payload)
+      .select('id')
+      .single()
+    if (error) throw error
+    returnId = created.id
+  }
+
+  if (justCompleted && matchedItem?.variant_id) {
+    const { error: stockError } = await admin.rpc('restock_variant_stock', {
+      p_variant_id: matchedItem.variant_id,
+      p_quantity: ret.quantity,
+      p_reference_type: 'return',
+      p_reference_id: returnId,
+    })
+    if (stockError) {
+      await logSync(
+        marketplace,
+        'restock_return',
+        'failed',
+        {
+          returnId,
+          variantId: matchedItem.variant_id,
+          quantity: ret.quantity,
+        },
+        getErrorMessage(stockError),
+      )
+    }
+  }
+}
+
+export async function pullReturnsForMarketplace(
+  marketplace: SyncableMarketplace,
+  since: Date,
+): Promise<{ scanned: number; processed: number; failed: number }> {
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const adapter = getAdapter(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+  const rawReturns = await adapter.pullReturns(fresh, since)
+
+  let processed = 0
+  let failed = 0
+  for (const raw of rawReturns) {
+    try {
+      const normalizedList = adapter.mapReturnToInternalFormat(raw)
+      for (const normalized of normalizedList) {
+        await importReturn(marketplace, normalized)
+      }
+      processed += 1
+    } catch (err) {
+      failed += 1
+      await logSync(
+        marketplace,
+        'pull_returns',
+        'failed',
+        { raw },
+        getErrorMessage(err),
+      )
+    }
+  }
+
+  await logSync(marketplace, 'pull_returns', 'success', {
+    scanned: rawReturns.length,
+    processed,
+    failed,
+  })
+
+  return { scanned: rawReturns.length, processed, failed }
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,8 @@ import type {
   MarketplaceProductSummary,
   NewMarketplaceProduct,
   NormalizedOrder,
+  NormalizedReturn,
+  NormalizedReturnStatus,
   OAuthTokens,
 } from '#/server/integrations/marketplaces/types'
 import {
@@ -138,6 +140,9 @@ interface TikTokOrder {
    * response (unlike most of the rest of this file, this one's verified). */
   tracking_number?: string
   shipping_provider?: string
+  /** Confirmed via a live cancelled order's raw response — cancellation_initiator is "BUYER" for a buyer-initiated cancel; other values (a courier-side failed-delivery auto-cancel, for instance) haven't been observed live yet. */
+  cancel_reason?: string
+  cancellation_initiator?: string
 }
 
 const PAID_STATUSES = new Set([
@@ -166,6 +171,31 @@ const TIKTOK_STATUS_TO_FULFILLMENT = new Map<string, ImportedFulfillmentStatus>(
     ['COMPLETED', 'delivered'],
   ],
 )
+
+/** Confirmed against a live shop's real return history (29 returns, once
+ * the app's Return and Refund API scope was authorized). Every real example
+ * observed was a buyer-initiated post-delivery request (change of mind,
+ * wrong product, defective, etc.) — this API doesn't appear to be how
+ * TikTok represents a courier-side failed-delivery/return-to-sender event,
+ * which is presumably an order-level auto-cancellation instead (see
+ * mapOrderToInternalFormat's cancellationDetail). */
+interface TikTokReturn {
+  return_id: string
+  order_id: string
+  create_time: number
+  return_status?: string
+  return_reason?: string
+  return_reason_text?: string
+  refund_amount?: { refund_total?: string }
+  return_line_items?: { sku_id: string }[]
+}
+
+const TIKTOK_RETURN_STATUS_MAP = new Map<string, NormalizedReturnStatus>([
+  ['AWAITING_BUYER_SHIP', 'requested'],
+  ['BUYER_SHIPPED_ITEM', 'approved'],
+  ['RETURN_OR_REFUND_REQUEST_COMPLETE', 'refunded'],
+  ['RETURN_OR_REFUND_REQUEST_CANCEL', 'rejected'],
+])
 
 function centsFromAmountString(amount: string | undefined): number {
   if (!amount) return 0
@@ -385,6 +415,10 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
       isCancelled: order.status === 'CANCELLED',
+      cancellationDetail:
+        order.status === 'CANCELLED'
+          ? (order.cancel_reason ?? null)
+          : null,
       fulfillmentInfo: fulfillmentStatus
         ? {
             status: fulfillmentStatus,
@@ -393,6 +427,78 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
           }
         : null,
     }
+  },
+
+  async pullReturns(connection, since) {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    const sinceSeconds = Math.floor(since.getTime() / 1000)
+
+    const returns: Record<string, unknown>[] = []
+    let pageToken: string | undefined
+    do {
+      const page = await callTikTokApi<{
+        return_orders?: TikTokReturn[]
+        next_page_token?: string
+      }>({
+        method: 'POST',
+        path: '/return_refund/202309/returns/search',
+        accessToken: connection.access_token_encrypted,
+        shopCipher: connection.shop_cipher ?? undefined,
+        query: {
+          page_size: '50',
+          ...(pageToken ? { page_token: pageToken } : {}),
+        },
+        // update_time (not create_time) so a return that sat idle for a
+        // while and only just reached a terminal status (completed/
+        // cancelled) within the lookback window still gets picked up —
+        // same reasoning as pullOrders above. Confirmed accepted by a live
+        // call (status 200) even though the docs page for this endpoint
+        // wasn't readable while building this.
+        body: { update_time_ge: sinceSeconds },
+      })
+      returns.push(
+        ...((page.return_orders ?? []) as unknown as Record<
+          string,
+          unknown
+        >[]),
+      )
+      pageToken = page.next_page_token
+    } while (pageToken)
+
+    return returns
+  },
+
+  mapReturnToInternalFormat(platformReturnData): NormalizedReturn[] {
+    const ret = platformReturnData as unknown as TikTokReturn
+    const status = TIKTOK_RETURN_STATUS_MAP.get(ret.return_status ?? '') ?? 'requested'
+    const requestedAt = new Date(ret.create_time * 1000).toISOString()
+    const refundTotal = ret.refund_amount?.refund_total
+    const refundAmountCents = refundTotal
+      ? Math.round(Number.parseFloat(refundTotal) * 100)
+      : null
+    const reason = ret.return_reason_text ?? ret.return_reason ?? 'Not specified'
+
+    // TikTok already returns one return_line_items entry per unit in every
+    // live example seen — group by sku_id defensively in case a single
+    // return ever spans repeated lines for the same SKU, since there's no
+    // explicit per-line quantity field to read instead.
+    const quantityBySku = new Map<string, number>()
+    for (const item of ret.return_line_items ?? []) {
+      quantityBySku.set(item.sku_id, (quantityBySku.get(item.sku_id) ?? 0) + 1)
+    }
+
+    return Array.from(quantityBySku.entries()).map(([skuId, quantity]) => ({
+      externalReturnId: `${ret.return_id}:${skuId}`,
+      externalOrderId: ret.order_id,
+      externalVariantId: skuId,
+      quantity,
+      status,
+      reason,
+      refundAmountCents,
+      requestedAt,
+    }))
   },
 
   async listCategories(

@@ -41,8 +41,11 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { pullOrdersForMarketplace, pushInventoryForAllProducts } =
-          await import('#/server/integrations/marketplaces/sync-engine')
+        const {
+          pullOrdersForMarketplace,
+          pullReturnsForMarketplace,
+          pushInventoryForAllProducts,
+        } = await import('#/server/integrations/marketplaces/sync-engine')
 
         const admin = getSupabaseAdminClient()
         const { data: connections, error } = await admin
@@ -53,6 +56,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
 
         const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60 * 1000)
         const pullResults: Record<string, unknown> = {}
+        const returnResults: Record<string, unknown> = {}
         const reconcileResults: Record<string, unknown> = {}
 
         for (const connection of connections) {
@@ -64,6 +68,14 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
             )
           } catch (err) {
             pullResults[connection.marketplace] = {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          try {
+            returnResults[connection.marketplace] =
+              await pullReturnsForMarketplace(connection.marketplace, since)
+          } catch (err) {
+            returnResults[connection.marketplace] = {
               error: err instanceof Error ? err.message : String(err),
             }
           }
@@ -80,6 +92,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
         return Response.json({
           since: since.toISOString(),
           pullResults,
+          returnResults,
           reconcileResults,
         })
       },

@@ -48,7 +48,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-pull-orders')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { pullOrdersForMarketplace } =
+        const { pullOrdersForMarketplace, pullReturnsForMarketplace } =
           await import('#/server/integrations/marketplaces/sync-engine')
 
         const admin = getSupabaseAdminClient()
@@ -70,11 +70,11 @@ export const Route = createFileRoute('/api/cron/sync-channels-pull-orders')({
             )
             .map(async (connection) => {
               try {
-                const result = await pullOrdersForMarketplace(
-                  connection.marketplace,
-                  since,
-                )
-                return [connection.marketplace, result] as const
+                const [orders, returns] = await Promise.all([
+                  pullOrdersForMarketplace(connection.marketplace, since),
+                  pullReturnsForMarketplace(connection.marketplace, since),
+                ])
+                return [connection.marketplace, { orders, returns }] as const
               } catch (err) {
                 return [
                   connection.marketplace,

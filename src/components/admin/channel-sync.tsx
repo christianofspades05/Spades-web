@@ -308,6 +308,9 @@ export function ProductSyncSection({
     scanned: number
     imported: number
     failed: number
+    returnsScanned: number
+    returnsProcessed: number
+    returnsFailed: number
   } | null>(null)
   const [autoConnecting, setAutoConnecting] = useState<'title' | 'sku' | null>(
     null,
@@ -488,9 +491,16 @@ export function ProductSyncSection({
           Checked {pullResult.scanned} order
           {pullResult.scanned === 1 ? '' : 's'}, imported{' '}
           {pullResult.imported} new
-          {pullResult.failed > 0 ? `, ${pullResult.failed} failed` : ''}. Any
-          orders TikTok/Shopee now reports as cancelled were updated here too
-          — check the Orders page or Activity log below to confirm.
+          {pullResult.failed > 0 ? `, ${pullResult.failed} failed` : ''}, and{' '}
+          {pullResult.returnsScanned} return
+          {pullResult.returnsScanned === 1 ? '' : 's'}
+          {pullResult.returnsFailed > 0
+            ? ` (${pullResult.returnsFailed} failed)`
+            : ''}
+          . Any orders TikTok/Shopee now reports as cancelled — or returns
+          reported as completed — were updated here too, with inventory
+          restocked automatically. Check the Orders page or Activity log
+          below to confirm.
         </p>
       )}
 

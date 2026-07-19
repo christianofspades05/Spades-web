@@ -35,6 +35,8 @@ import type {
   MarketplaceProductSummary,
   NewMarketplaceProduct,
   NormalizedOrder,
+  NormalizedReturn,
+  NormalizedReturnStatus,
   OAuthTokens,
 } from '#/server/integrations/marketplaces/types'
 import {
@@ -142,6 +144,32 @@ const SHOPEE_STATUS_TO_FULFILLMENT = new Map<string, ImportedFulfillmentStatus>(
     ['COMPLETED', 'delivered'],
   ],
 )
+
+/** UNVERIFIED shape — see the "UNVERIFIED" comment on pullReturns below. */
+interface ShopeeReturn {
+  return_sn?: string
+  order_sn: string
+  create_time?: number
+  status?: string
+  reason?: string
+  refund_amount?: number
+  item?: { item_id: number; model_id?: number; amount?: number }[]
+}
+
+/** Guessed by analogy with Shopee's commonly-documented return lifecycle
+ * (requested -> under review -> accepted -> buyer ships -> seller confirms
+ * receipt -> closed) — unverified, see pullReturns's caveat. */
+const SHOPEE_RETURN_STATUS_MAP = new Map<string, NormalizedReturnStatus>([
+  ['REQUESTED', 'requested'],
+  ['PROCESSING', 'requested'],
+  ['ACCEPTED', 'approved'],
+  ['JUDGING', 'approved'],
+  ['SHIPPED', 'approved'],
+  ['REFUND_APPROVED', 'refunded'],
+  ['CLOSED', 'refunded'],
+  ['CANCELLED', 'rejected'],
+  ['REJECTED', 'rejected'],
+])
 
 interface ShopeeCategoryNode {
   category_id: number
@@ -357,6 +385,10 @@ export const shopeeAdapter: MarketplaceAdapter = {
       // guaranteed to finish that way) — only a finalized CANCELLED is
       // mirrored onto our own orders.status.
       isCancelled: order.order_status === 'CANCELLED',
+      // Shopee's raw order payload hasn't been checked against a real
+      // cancelled order yet (no live example in this shop) — left null
+      // rather than guessing a field name that might silently be wrong.
+      cancellationDetail: null,
       fulfillmentInfo: fulfillmentStatus
         ? {
             status: fulfillmentStatus,
@@ -365,6 +397,85 @@ export const shopeeAdapter: MarketplaceAdapter = {
           }
         : null,
     }
+  },
+
+  /**
+   * UNVERIFIED — Shopee's Returns API (get_return_list) is confirmed
+   * reachable (a live call against this shop returned a clean 200 with
+   * `{ more: false, return: [] }`), but the shop has had zero actual
+   * returns, so the shape of a populated `return` array entry has never
+   * been seen. The field names and return_status values below are a
+   * best-effort guess based on this codebase's other verified Shopee
+   * endpoints' naming conventions (order_sn, item_id/model_id, create_time)
+   * — check sync_logs's `pull_returns`/`import_return` entries against the
+   * first real Shopee return and correct field names here if they're wrong,
+   * the same way tiktok-shop/adapter.ts's order fields were corrected after
+   * this shop's first real orders came through.
+   */
+  async pullReturns(connection, since) {
+    const { accessToken, shopId } = requireCredentials(connection)
+    const sinceSeconds = Math.floor(since.getTime() / 1000)
+    const nowSeconds = Math.floor(Date.now() / 1000)
+
+    // Assumed to share get_order_list's confirmed 15-day max window — not
+    // verified for this endpoint specifically, but matching that limit is
+    // the safe default (a real gap would surface immediately as a clear
+    // "invalid time range" API error, not silently wrong data).
+    const MAX_WINDOW_SECONDS = 14 * 24 * 60 * 60
+    const returns: Record<string, unknown>[] = []
+    for (
+      let windowStart = sinceSeconds;
+      windowStart < nowSeconds;
+      windowStart += MAX_WINDOW_SECONDS
+    ) {
+      const windowEnd = Math.min(windowStart + MAX_WINDOW_SECONDS, nowSeconds)
+      let pageNo = 0
+      let more = true
+      while (more) {
+        const page = await callShopeeApi<{
+          return?: ShopeeReturn[]
+          more: boolean
+        }>({
+          method: 'GET',
+          path: '/api/v2/returns/get_return_list',
+          accessToken,
+          shopId,
+          query: {
+            page_size: '50',
+            page_no: pageNo.toString(),
+            create_time_from: windowStart.toString(),
+            create_time_to: windowEnd.toString(),
+          },
+        })
+        returns.push(
+          ...((page.return ?? []) as unknown as Record<string, unknown>[]),
+        )
+        more = page.more
+        pageNo += 1
+      }
+    }
+    return returns
+  },
+
+  mapReturnToInternalFormat(platformReturnData): NormalizedReturn[] {
+    const ret = platformReturnData as unknown as ShopeeReturn
+    const status = SHOPEE_RETURN_STATUS_MAP.get(ret.status ?? '') ?? 'requested'
+    const requestedAt = new Date((ret.create_time ?? 0) * 1000).toISOString()
+    const refundAmountCents = ret.refund_amount
+      ? Math.round(ret.refund_amount * 100)
+      : null
+    const reason = ret.reason ?? 'Not specified'
+
+    return (ret.item ?? []).map((item) => ({
+      externalReturnId: `${ret.return_sn}:${item.item_id}${item.model_id ? `:${item.model_id}` : ''}`,
+      externalOrderId: ret.order_sn,
+      externalVariantId: String(item.model_id ?? item.item_id),
+      quantity: item.amount ?? 1,
+      status,
+      reason,
+      refundAmountCents,
+      requestedAt,
+    }))
   },
 
   async listCategories(

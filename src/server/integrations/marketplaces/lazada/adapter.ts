@@ -20,6 +20,8 @@ export const lazadaAdapter: MarketplaceAdapter = {
   pushInventory: notImplemented,
   pullOrders: notImplemented,
   mapOrderToInternalFormat: notImplemented,
+  pullReturns: notImplemented,
+  mapReturnToInternalFormat: notImplemented,
   listCategories: notImplemented,
   getCategoryAttributes: notImplemented,
   createProduct: notImplemented,

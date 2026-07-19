@@ -21,6 +21,7 @@ import type {
   OrderItem,
   OrderStatus,
   Payment,
+  ReturnStatus,
   Shipment,
 } from '#/types/entities'
 
@@ -62,11 +63,22 @@ export interface OrderWithCustomer extends Order {
   payments: Pick<Payment, 'status' | 'created_at'>[]
   shipments: Pick<Shipment, 'status' | 'carrier' | 'tracking_number'>[]
 }
+export interface OrderReturn {
+  id: string
+  reason: string
+  status: ReturnStatus
+  quantity: number
+  refund_amount_cents: number | null
+  requested_at: string
+  resolved_at: string | null
+}
+
 export interface OrderWithDetails extends Order {
   customer: Customer
   order_items: (OrderItem & { image_url: string | null })[]
   payments: Payment[]
   shipments: Shipment[]
+  returns: OrderReturn[]
   /** Computed live from the customer's real order history, not the
    *  customers table's own counter columns — nothing currently keeps those
    *  maintained (see the same note in listCustomers below). */
@@ -474,15 +486,26 @@ export const getOrderById = createServerFn({ method: 'GET' })
           .filter((v): v is string => !!v),
       ),
     )
-    const [imageMap, { data: customerOrders, error: customerOrdersError }] =
-      await Promise.all([
-        getProductImagesByVariantId(admin, variantIds),
-        admin
-          .from('orders')
-          .select('status, cancellation_reason')
-          .eq('customer_id', order.customer_id),
-      ])
+    const [
+      imageMap,
+      { data: customerOrders, error: customerOrdersError },
+      { data: returns, error: returnsError },
+    ] = await Promise.all([
+      getProductImagesByVariantId(admin, variantIds),
+      admin
+        .from('orders')
+        .select('status, cancellation_reason')
+        .eq('customer_id', order.customer_id),
+      admin
+        .from('returns')
+        .select(
+          'id, reason, status, quantity, refund_amount_cents, requested_at, resolved_at',
+        )
+        .eq('order_id', data.id)
+        .order('requested_at', { ascending: false }),
+    ])
     if (customerOrdersError) throw customerOrdersError
+    if (returnsError) throw returnsError
 
     const failedDeliveryCount = customerOrders.filter(
       (o) =>
@@ -497,6 +520,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
           ? (imageMap.get(item.variant_id) ?? null)
           : null,
       })),
+      returns,
       customerStats: {
         ordersCount: customerOrders.length,
         failedDeliveryCount,
@@ -549,7 +573,7 @@ export const updateOrderStatus = createServerFn({ method: 'POST' })
       .single()
     if (readError) throw readError
 
-    const currentStatus = current.status as OrderStatus
+    const currentStatus = current.status
     if (!ALLOWED_TRANSITIONS[currentStatus].includes(data.status)) {
       throw new Error(
         `Cannot move an order from "${currentStatus}" to "${data.status}"`,
