@@ -1,34 +1,46 @@
+import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { getSalesByChannel } from '#/server/admin/analytics'
+import { Package } from 'lucide-react'
+import {
+  getProductProfitBreakdown,
+  getSalesAnalytics,
+} from '#/server/admin/analytics'
+import type { ProductProfitRow } from '#/server/admin/analytics'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
-  percentChange,
   resolveDateRange,
 } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
-import { DonutChart } from '#/components/admin/DonutChart'
-import { inputClassName } from '#/components/admin/ui'
-import type { OrderSource } from '#/types/entities'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
+import { BarChart } from '#/components/admin/BarChart'
+import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
+import {
+  tableCellClassName,
+  tableHeadClassName,
+  tableRowClassName,
+  tableWrapperClassName,
+} from '#/components/admin/ui'
+import type { PaymentProvider } from '#/types/entities'
 
-const SOURCE_LABELS: Record<OrderSource, string> = {
-  storefront: 'Online Store',
-  admin: 'Admin (manual)',
-  tiktok_shop: 'TikTok Shop',
-  shopee: 'Shopee',
-  lazada: 'Lazada',
-}
+const CHANNEL_OPTIONS = [
+  { value: 'storefront', label: 'Online Store' },
+  { value: 'tiktok_shop', label: 'TikTok Shop' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+] as const
 
-const CHANNEL_COLORS: Record<OrderSource, string> = {
-  storefront: '#171717',
-  tiktok_shop: '#34d399',
-  shopee: '#fb923c',
-  lazada: '#8b5cf6',
-  admin: '#94a3b8',
+const PAYMENT_PROVIDER_LABELS: Record<PaymentProvider, string> = {
+  cod: 'Cash on Delivery',
+  gcash: 'GCash',
+  paymaya: 'Maya',
+  card: 'Card',
+  bank_transfer: 'Bank Transfer',
+  other: 'Other',
 }
 
 export const Route = createFileRoute('/admin/analytics/sales')({
@@ -37,29 +49,35 @@ export const Route = createFileRoute('/admin/analytics/sales')({
     from: z.string().optional(),
     to: z.string().optional(),
     channel: z
-      .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+      .enum(['storefront', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
     compare: z.boolean().catch(false),
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => {
+  loader: async ({ deps }) => {
     const resolved = resolveDateRange(deps.range, {
       from: deps.from,
       to: deps.to,
     })
-    return getSalesByChannel({
-      data: {
-        ...resolved,
-        channel: deps.channel,
-        comparePrevious: deps.compare,
-      },
-    })
+    const [salesAnalytics, bestSellers] = await Promise.all([
+      getSalesAnalytics({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          comparePrevious: deps.compare,
+        },
+      }),
+      getProductProfitBreakdown({
+        data: { ...resolved, channel: deps.channel },
+      }),
+    ])
+    return { salesAnalytics, bestSellers }
   },
-  component: SalesPage,
+  component: SalesAnalyticsPage,
 })
 
-function SalesPage() {
-  const result = Route.useLoaderData()
+function SalesAnalyticsPage() {
+  const { salesAnalytics, bestSellers } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -77,163 +95,310 @@ function SalesPage() {
     })
   }
 
-  const slices = result.channels.map((c) => ({
-    label: SOURCE_LABELS[c.source],
-    value: c.grossSalesCents,
-    color: CHANNEL_COLORS[c.source],
+  const revenueTrendData = salesAnalytics.daily.map((point) => ({
+    label: point.date,
+    current: point.grossSalesCents,
+    previous: point.previousGrossSalesCents,
   }))
-  const prevBySource = new Map(
-    (result.previous?.channels ?? []).map((c) => [c.source, c]),
-  )
+  const aovTrendData = salesAnalytics.daily.map((point) => ({
+    label: point.date,
+    current: point.aovCents,
+    previous: point.previousAovCents,
+  }))
+  const paymentMethodBars = salesAnalytics.paymentMethods.map((p) => ({
+    label: PAYMENT_PROVIDER_LABELS[p.provider],
+    value: Math.round(p.amountCents / 100),
+  }))
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-start justify-between">
-        <PageHeader title="Sales" subtitle="Gross sales by channel." />
-        <div className="flex items-center gap-2">
-          <DateRangePicker
-            preset={search.range}
-            from={search.from ?? resolveDateRange(search.range, {}).from}
-            to={search.to ?? resolveDateRange(search.range, {}).to}
-            onChange={handleRangeChange}
-          />
-          <select
-            value={search.channel ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  channel: (e.target.value || undefined) as
-                    OrderSource | undefined,
-                }),
-              })
-            }
-            className={inputClassName}
-          >
-            <option value="">All Channels</option>
-            {(Object.keys(SOURCE_LABELS) as OrderSource[]).map((s) => (
-              <option key={s} value={s}>
-                {SOURCE_LABELS[s]}
-              </option>
-            ))}
-          </select>
+      <PageHeader
+        title="Sales Analytics"
+        subtitle="Revenue, order value, and best-selling products by channel."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangePicker
+              preset={search.range}
+              from={search.from ?? resolveDateRange(search.range, {}).from}
+              to={search.to ?? resolveDateRange(search.range, {}).to}
+              onChange={handleRangeChange}
+            />
+            <FilterDropdown
+              label="Channel"
+              value={search.channel}
+              options={CHANNEL_OPTIONS}
+              onChange={(channel) =>
+                navigate({ search: (prev) => ({ ...prev, channel }) })
+              }
+            />
+            <button
+              type="button"
+              onClick={() =>
+                navigate({
+                  search: (prev) => ({ ...prev, compare: !prev.compare }),
+                })
+              }
+              className={`rounded-full border px-3 py-2 text-sm font-medium ${
+                search.compare
+                  ? 'border-neutral-900 bg-neutral-900 text-white'
+                  : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
+              }`}
+            >
+              Compare previous period
+            </button>
+          </div>
+        }
+      />
+
+      {/* Sales breakdown */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Gross Sales</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(salesAnalytics.totals.grossSalesCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Discounts</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(salesAnalytics.totals.discountsCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Returns / Refunds</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(salesAnalytics.totals.refundsCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Net Sales</p>
+          <p className="mt-1 text-xl font-semibold text-emerald-600">
+            {formatCentsAsPHP(salesAnalytics.totals.netSalesCents)}
+          </p>
+        </Card>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Revenue Over Time
+          </h2>
+          <p className="text-xs text-neutral-500">Gross sales by day</p>
+          <div className="mt-4">
+            <TrendLineChart
+              data={revenueTrendData}
+              formatValue={formatCentsAsPHP}
+              syncId="sales-analytics-trends"
+            />
+          </div>
+        </Card>
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Average Order Value
+          </h2>
+          <p className="text-xs text-neutral-500">Net sales ÷ orders, by day</p>
+          <div className="mt-4">
+            <TrendLineChart
+              data={aovTrendData}
+              formatValue={formatCentsAsPHP}
+              syncId="sales-analytics-trends"
+              color="#171717"
+            />
+          </div>
+        </Card>
+      </div>
+
+      <Card className="mt-4 p-5">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Sales by Payment Method
+        </h2>
+        <p className="text-xs text-neutral-500">Captured payments, in PHP</p>
+        <div className="mt-4">
+          {paymentMethodBars.length > 0 ? (
+            <BarChart bars={paymentMethodBars} color="#2c6ecb" />
+          ) : (
+            <p className="text-sm text-neutral-400">
+              No captured payments in this range.
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <BestSellersSection products={bestSellers} />
+    </div>
+  )
+}
+
+function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
+  const [sortBy, setSortBy] = useState<'units' | 'revenue'>('units')
+
+  const totalRevenueCents = products.reduce(
+    (sum, p) => sum + p.grossSalesCents,
+    0,
+  )
+  const sorted = [...products].sort((a, b) =>
+    sortBy === 'units'
+      ? b.unitsSold - a.unitsSold
+      : b.grossSalesCents - a.grossSalesCents,
+  )
+
+  return (
+    <div className="mt-8">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            Best Sellers
+          </h2>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Ranked by {sortBy === 'units' ? 'units sold' : 'revenue'}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 rounded-full bg-neutral-100 p-1 text-xs font-medium">
           <button
             type="button"
-            onClick={() =>
-              navigate({
-                search: (prev) => ({ ...prev, compare: !prev.compare }),
-              })
-            }
-            className={`rounded-full border px-3 py-2 text-sm font-medium ${
-              search.compare
-                ? 'border-neutral-900 bg-neutral-900 text-white'
-                : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
+            onClick={() => setSortBy('units')}
+            className={`rounded-full px-3 py-1.5 ${
+              sortBy === 'units'
+                ? 'bg-white text-neutral-900 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-900'
             }`}
           >
-            Compare previous period
+            Units sold
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortBy('revenue')}
+            className={`rounded-full px-3 py-1.5 ${
+              sortBy === 'revenue'
+                ? 'bg-white text-neutral-900 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-900'
+            }`}
+          >
+            Revenue
           </button>
         </div>
       </div>
 
-      <Card className="mt-6 p-6">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Sales by Channel
-        </h2>
-        <p className="text-xs text-neutral-500">Share of gross sales</p>
-
-        <div className="mt-6 flex flex-wrap items-center gap-10">
-          <DonutChart slices={slices} />
-          <div className="flex flex-col gap-3">
-            {result.channels.map((c) => (
-              <div
-                key={c.source}
-                className="flex items-center justify-between gap-8"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ backgroundColor: CHANNEL_COLORS[c.source] }}
-                  />
-                  <span className="text-sm text-neutral-700">
-                    {SOURCE_LABELS[c.source]}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.grossSalesCents)}
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    {result.totals.grossSalesCents > 0
-                      ? Math.round(
-                          (c.grossSalesCents / result.totals.grossSalesCents) *
-                            100,
-                        )
-                      : 0}
-                    %
-                  </p>
-                </div>
-              </div>
+      {sorted.length === 0 ? (
+        <Card className="p-6">
+          <p className="text-sm text-neutral-500">No sales in this range.</p>
+        </Card>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 md:hidden">
+            {sorted.map((product) => (
+              <BestSellerCard
+                key={product.productId ?? product.productName}
+                product={product}
+                totalRevenueCents={totalRevenueCents}
+              />
             ))}
-            {result.channels.length === 0 && (
-              <p className="text-sm text-neutral-400">
-                No sales in this range.
-              </p>
-            )}
           </div>
-        </div>
-      </Card>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {result.channels.map((c) => {
-          const prev = prevBySource.get(c.source)
-          const salesChange = prev
-            ? percentChange(c.grossSalesCents, prev.grossSalesCents)
-            : null
-          return (
-            <Card key={c.source} className="p-5">
-              <span className="inline-block rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600">
-                {SOURCE_LABELS[c.source]}
-              </span>
-
-              <div className="mt-4">
-                <p className="text-xs text-neutral-500">Gross Sales</p>
-                <p className="mt-1 text-xl font-semibold text-neutral-900">
-                  {formatCentsAsPHP(c.grossSalesCents)}
-                </p>
-                {salesChange !== null && (
-                  <p
-                    className={`mt-0.5 text-xs ${
-                      salesChange >= 0 ? 'text-emerald-600' : 'text-red-600'
-                    }`}
-                  >
-                    {salesChange >= 0 ? '+' : ''}
-                    {salesChange}% vs previous period
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-neutral-500">Orders</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {c.orderCount}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-500">Avg. Order Value</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(
-                      c.orderCount > 0
-                        ? Math.round(c.grossSalesCents / c.orderCount)
-                        : 0,
-                    )}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )
-        })}
-      </div>
+          <div className={`${tableWrapperClassName} hidden md:block`}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Product</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Units sold
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Revenue
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      % of sales
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((product) => (
+                    <tr
+                      key={product.productId ?? product.productName}
+                      className={tableRowClassName}
+                    >
+                      <td className={tableCellClassName}>
+                        <div className="flex items-center gap-3">
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt=""
+                              className="size-9 rounded-md border border-neutral-200 object-cover"
+                            />
+                          ) : (
+                            <div className="flex size-9 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                              <Package size={14} className="text-neutral-300" />
+                            </div>
+                          )}
+                          <p className="font-medium text-neutral-900">
+                            {product.productName}
+                          </p>
+                        </div>
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {product.unitsSold}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(product.grossSalesCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {totalRevenueCents > 0
+                          ? `${((product.grossSalesCents / totalRevenueCents) * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
+  )
+}
+
+function BestSellerCard({
+  product,
+  totalRevenueCents,
+}: {
+  product: ProductProfitRow
+  totalRevenueCents: number
+}) {
+  const share =
+    totalRevenueCents > 0
+      ? (product.grossSalesCents / totalRevenueCents) * 100
+      : null
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3">
+        {product.imageUrl ? (
+          <img
+            src={product.imageUrl}
+            alt=""
+            className="size-11 rounded-md border border-neutral-200 object-cover"
+          />
+        ) : (
+          <div className="flex size-11 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+            <Package size={16} className="text-neutral-300" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="truncate font-medium text-neutral-900">
+            {product.productName}
+          </p>
+          <p className="text-sm text-neutral-500">
+            {product.unitsSold} sold · {formatCentsAsPHP(product.grossSalesCents)}
+          </p>
+        </div>
+      </div>
+      {share !== null && (
+        <p className="mt-2 text-xs text-neutral-400">
+          {share.toFixed(1)}% of total sales
+        </p>
+      )}
+    </Card>
   )
 }

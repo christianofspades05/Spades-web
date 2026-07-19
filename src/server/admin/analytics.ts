@@ -9,10 +9,16 @@ import {
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
-import type { OrderCancellationReason, OrderSource } from '#/types/entities'
+import { createTtlCache } from '#/lib/utils/cache'
+import type {
+  OrderCancellationReason,
+  OrderSource,
+  PaymentProvider,
+} from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 const ORDER_ID_CHUNK_SIZE = 200
+const ANALYTICS_CACHE_TTL_MS = 2 * 60_000
 
 export interface ChannelSales {
   source: OrderSource
@@ -488,9 +494,259 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
     }
   })
 
+export interface SalesAnalyticsTotals {
+  grossSalesCents: number
+  discountsCents: number
+  refundsCents: number
+  netSalesCents: number
+  orderCount: number
+  aovCents: number
+}
+
+export interface SalesAnalyticsDailyPoint {
+  date: string
+  grossSalesCents: number
+  netSalesCents: number
+  orderCount: number
+  aovCents: number
+}
+
+export interface PaymentMethodBreakdown {
+  provider: PaymentProvider
+  amountCents: number
+  count: number
+}
+
+/**
+ * Unlike computeChannelSales (which uses total_cents — already post-discount
+ * — as "gross sales" for the Profit page's COGS-driven margin math), this
+ * reconstructs the true pre-discount gross sales as subtotal_cents +
+ * shipping_cents, so Discounts can be broken out as its own line matching
+ * what a Sales Analytics breakdown is expected to show. netSalesCents ends
+ * up equal to total_cents minus any refund, same number either way.
+ */
+async function computeSalesAnalytics(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  from: string,
+  to: string,
+  channelFilter: OrderSource | undefined,
+): Promise<{
+  totals: SalesAnalyticsTotals
+  daily: SalesAnalyticsDailyPoint[]
+  paymentMethods: PaymentMethodBreakdown[]
+}> {
+  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
+
+  const orders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select(
+        'id, status, placed_at, subtotal_cents, discount_cents, shipping_cents, total_cents',
+      )
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (channelFilter) query = query.eq('source', channelFilter)
+    return query
+  })
+
+  const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+  const orderIds = liveOrders.map((o) => o.id)
+
+  const refundChunks = await Promise.all(
+    chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+      fetchAllRows((offset) =>
+        admin
+          .from('returns')
+          .select('order_id, refund_amount_cents')
+          .eq('status', 'refunded')
+          .in('order_id', ids)
+          .range(offset, offset + 999),
+      ),
+    ),
+  )
+  const refundByOrderId = new Map<string, number>()
+  for (const ret of refundChunks.flat()) {
+    const current = refundByOrderId.get(ret.order_id) ?? 0
+    refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
+  }
+
+  const paymentChunks = await Promise.all(
+    chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+      fetchAllRows((offset) =>
+        admin
+          .from('payments')
+          .select('provider, amount_cents')
+          .eq('status', 'captured')
+          .in('order_id', ids)
+          .range(offset, offset + 999),
+      ),
+    ),
+  )
+  const paymentByProvider = new Map<
+    PaymentProvider,
+    { amountCents: number; count: number }
+  >()
+  for (const payment of paymentChunks.flat()) {
+    const bucket = paymentByProvider.get(payment.provider) ?? {
+      amountCents: 0,
+      count: 0,
+    }
+    bucket.amountCents += payment.amount_cents
+    bucket.count += 1
+    paymentByProvider.set(payment.provider, bucket)
+  }
+  const paymentMethods: PaymentMethodBreakdown[] = Array.from(
+    paymentByProvider.entries(),
+  )
+    .map(([provider, b]) => ({
+      provider,
+      amountCents: b.amountCents,
+      count: b.count,
+    }))
+    .sort((a, b) => b.amountCents - a.amountCents)
+
+  let grossSalesCents = 0
+  let discountsCents = 0
+  let refundsCents = 0
+  for (const order of liveOrders) {
+    grossSalesCents += order.subtotal_cents + order.shipping_cents
+    discountsCents += order.discount_cents
+    refundsCents += refundByOrderId.get(order.id) ?? 0
+  }
+  const netSalesCents = grossSalesCents - discountsCents - refundsCents
+  const orderCount = liveOrders.length
+  const aovCents = orderCount > 0 ? Math.round(netSalesCents / orderCount) : 0
+
+  const dailyMap = new Map<
+    string,
+    { grossSalesCents: number; netSalesCents: number; orderCount: number }
+  >()
+  for (
+    const d = new Date(`${from}T00:00:00Z`);
+    d <= new Date(`${to}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    dailyMap.set(d.toISOString().slice(0, 10), {
+      grossSalesCents: 0,
+      netSalesCents: 0,
+      orderCount: 0,
+    })
+  }
+  for (const order of liveOrders) {
+    const key = storeLocalDateKey(order.placed_at)
+    const bucket = dailyMap.get(key)
+    if (!bucket) continue
+    bucket.grossSalesCents += order.subtotal_cents + order.shipping_cents
+    bucket.netSalesCents +=
+      order.total_cents - (refundByOrderId.get(order.id) ?? 0)
+    bucket.orderCount += 1
+  }
+  const daily: SalesAnalyticsDailyPoint[] = Array.from(
+    dailyMap.entries(),
+  ).map(([date, b]) => ({
+    date,
+    grossSalesCents: b.grossSalesCents,
+    netSalesCents: b.netSalesCents,
+    orderCount: b.orderCount,
+    aovCents: b.orderCount > 0 ? Math.round(b.netSalesCents / b.orderCount) : 0,
+  }))
+
+  return {
+    totals: {
+      grossSalesCents,
+      discountsCents,
+      refundsCents,
+      netSalesCents,
+      orderCount,
+      aovCents,
+    },
+    daily,
+    paymentMethods,
+  }
+}
+
+export interface SalesAnalyticsResult {
+  range: { from: string; to: string }
+  totals: SalesAnalyticsTotals
+  previousTotals: SalesAnalyticsTotals | null
+  daily: Array<
+    SalesAnalyticsDailyPoint & {
+      previousGrossSalesCents: number
+      previousNetSalesCents: number
+      previousAovCents: number
+    }
+  >
+  paymentMethods: PaymentMethodBreakdown[]
+}
+
+const salesAnalyticsCache = createTtlCache<SalesAnalyticsResult>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+export const getSalesAnalytics = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      comparePrevious: z.boolean().default(false),
+    }),
+  )
+  .handler(async ({ data }): Promise<SalesAnalyticsResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.comparePrevious}`
+    const cached = salesAnalyticsCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+
+    const current = await computeSalesAnalytics(
+      admin,
+      data.from,
+      data.to,
+      data.channel,
+    )
+
+    let previousTotals: SalesAnalyticsTotals | null = null
+    let previousDaily: SalesAnalyticsDailyPoint[] = []
+    if (data.comparePrevious) {
+      const prev = previousPeriod(data.from, data.to)
+      const prevResult = await computeSalesAnalytics(
+        admin,
+        prev.from,
+        prev.to,
+        data.channel,
+      )
+      previousTotals = prevResult.totals
+      previousDaily = prevResult.daily
+    }
+
+    const daily = current.daily.map((point, i) => ({
+      ...point,
+      previousGrossSalesCents: previousDaily[i]?.grossSalesCents ?? 0,
+      previousNetSalesCents: previousDaily[i]?.netSalesCents ?? 0,
+      previousAovCents: previousDaily[i]?.aovCents ?? 0,
+    }))
+
+    const result: SalesAnalyticsResult = {
+      range: { from: data.from, to: data.to },
+      totals: current.totals,
+      previousTotals,
+      daily,
+      paymentMethods: current.paymentMethods,
+    }
+    salesAnalyticsCache.set(cacheKey, result)
+    return result
+  })
+
 export interface ProductProfitRow {
   productId: string | null
   productName: string
+  imageUrl: string | null
   unitsSold: number
   grossSalesCents: number
   netProfitCents: number
@@ -499,6 +755,10 @@ export interface ProductProfitRow {
   costCents: number | null
   netProfitPerUnitCents: number | null
 }
+
+const productProfitCache = createTtlCache<ProductProfitRow[]>(
+  ANALYTICS_CACHE_TTL_MS,
+)
 
 export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
   .validator(
@@ -512,6 +772,11 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
   )
   .handler(async ({ data }): Promise<ProductProfitRow[]> => {
     await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}`
+    const cached = productProfitCache.get(cacheKey)
+    if (cached) return cached
+
     const admin = getSupabaseAdminClient()
 
     const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
@@ -532,7 +797,10 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     const liveOrderIds = orders
       .filter((o) => !VOID_STATUSES.has(o.status))
       .map((o) => o.id)
-    if (liveOrderIds.length === 0) return []
+    if (liveOrderIds.length === 0) {
+      productProfitCache.set(cacheKey, [])
+      return []
+    }
 
     const itemChunks = await Promise.all(
       chunkArray(liveOrderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
@@ -570,16 +838,20 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         ? await fetchAllRows((offset) =>
             admin
               .from('products')
-              .select('id, name')
+              .select('id, name, images')
               .in('id', productIds)
               .range(offset, offset + 999),
           )
         : []
     const productNameById = new Map(products.map((p) => [p.id, p.name]))
+    const productImageById = new Map(
+      products.map((p) => [p.id, p.images[0] ?? null]),
+    )
 
     interface Bucket {
       productId: string | null
       name: string
+      imageUrl: string | null
       unitsSold: number
       grossSalesCents: number
       costOfGoodsCents: number
@@ -598,6 +870,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         name: productId
           ? (productNameById.get(productId) ?? item.product_name_snapshot)
           : item.product_name_snapshot,
+        imageUrl: productId ? (productImageById.get(productId) ?? null) : null,
         unitsSold: 0,
         grossSalesCents: 0,
         costOfGoodsCents: 0,
@@ -610,12 +883,13 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       buckets.set(key, bucket)
     }
 
-    return Array.from(buckets.values())
+    const result = Array.from(buckets.values())
       .map((b) => {
         const netProfitCents = b.grossSalesCents - b.costOfGoodsCents
         return {
           productId: b.productId,
           productName: b.name,
+          imageUrl: b.imageUrl,
           unitsSold: b.unitsSold,
           grossSalesCents: b.grossSalesCents,
           netProfitCents,
@@ -630,4 +904,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         }
       })
       .sort((a, b) => b.netProfitCents - a.netProfitCents)
+
+    productProfitCache.set(cacheKey, result)
+    return result
   })
