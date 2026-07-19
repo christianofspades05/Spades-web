@@ -136,7 +136,7 @@ function SalesAnalyticsPage() {
       />
 
       {/* Sales breakdown */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Gross Sales</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
@@ -159,6 +159,15 @@ function SalesAnalyticsPage() {
           <p className="text-xs text-neutral-500">Net Sales</p>
           <p className="mt-1 text-xl font-semibold text-emerald-600">
             {formatCentsAsPHP(salesAnalytics.totals.netSalesCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Cancelled Orders</p>
+          <p className="mt-1 text-xl font-semibold text-red-600">
+            {salesAnalytics.totals.cancelledOrderCount}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {salesAnalytics.totals.failedDeliveryCount} failed delivery
           </p>
         </Card>
       </div>

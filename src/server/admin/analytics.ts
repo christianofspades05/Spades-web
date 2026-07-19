@@ -10,7 +10,11 @@ import {
 } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
-import type { OrderCancellationReason, OrderSource } from '#/types/entities'
+import type {
+  OrderCancellationReason,
+  OrderSource,
+  OrderStatus,
+} from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 const ORDER_ID_CHUNK_SIZE = 200
@@ -497,6 +501,8 @@ export interface SalesAnalyticsTotals {
   netSalesCents: number
   orderCount: number
   aovCents: number
+  cancelledOrderCount: number
+  failedDeliveryCount: number
 }
 
 export interface SalesAnalyticsDailyPoint {
@@ -560,6 +566,28 @@ async function computeSalesAnalytics(
     refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
   }
 
+  // Cancellations are counted by when they were cancelled, not when the
+  // order was originally placed (same distinction getCancelledAndReturns
+  // makes) — an order placed weeks ago and cancelled today belongs in
+  // today's cancellation count, not the day it was placed. That means this
+  // needs its own range query rather than reusing the placed_at-filtered
+  // `orders` fetched above.
+  const cancelledOrders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select('id, source, cancellation_reason')
+      .eq('status', 'cancelled')
+      .gte('cancelled_at', rangeStart)
+      .lte('cancelled_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (channelFilter) query = query.eq('source', channelFilter)
+    return query
+  })
+  const cancelledOrderCount = cancelledOrders.length
+  const failedDeliveryCount = cancelledOrders.filter(
+    (o) => o.source === 'storefront' && o.cancellation_reason === 'failed_delivery',
+  ).length
+
   let grossSalesCents = 0
   let discountsCents = 0
   let refundsCents = 0
@@ -614,6 +642,8 @@ async function computeSalesAnalytics(
       netSalesCents,
       orderCount,
       aovCents,
+      cancelledOrderCount,
+      failedDeliveryCount,
     },
     daily,
   }
@@ -858,4 +888,176 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
 
     productProfitCache.set(cacheKey, result)
     return result
+  })
+
+export interface OrderProfitRow {
+  id: string
+  orderNumber: string
+  customerName: string
+  placedAt: string
+  status: OrderStatus
+  source: OrderSource
+  grossSalesCents: number
+  costCents: number
+  shippingCents: number
+  refundCents: number
+  profitCents: number
+  marginPct: number | null
+}
+
+export interface OrderProfitListResult {
+  orders: OrderProfitRow[]
+  total: number
+}
+
+/**
+ * Per-order breakdown for the Profit page's "Store Orders and their Profit"
+ * table — same Gross Sales/Cost/Shipping/Refund/Profit/Margin columns as the
+ * channel/product breakdowns above, just one row per order instead of
+ * aggregated. Paginated at the database level (not fetch-everything-then-
+ * slice like Best Sellers) since order volume here can run into the
+ * thousands and each row needs its own order_items/variant/refund lookup.
+ */
+export const getOrderProfitList = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(25),
+    }),
+  )
+  .handler(async ({ data }): Promise<OrderProfitListResult> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+
+    let query = admin
+      .from('orders')
+      .select(
+        'id, order_number, customer_id, placed_at, status, source, subtotal_cents, discount_cents, shipping_cents',
+        { count: 'exact' },
+      )
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+      .order('placed_at', { ascending: false })
+    if (data.channel) query = query.eq('source', data.channel)
+
+    const offset = (data.page - 1) * data.pageSize
+    query = query.range(offset, offset + data.pageSize - 1)
+
+    const { data: orders, count, error } = await query
+    if (error) throw error
+    if (orders.length === 0) return { orders: [], total: count ?? 0 }
+
+    const orderIds = orders.map((o) => o.id)
+    const customerIds = Array.from(new Set(orders.map((o) => o.customer_id)))
+
+    const [customersRes, itemsRes, returnsRes] = await Promise.all([
+      admin
+        .from('customers')
+        .select('id, full_name, email')
+        .in('id', customerIds),
+      admin
+        .from('order_items')
+        .select('order_id, variant_id, quantity')
+        .in('order_id', orderIds),
+      admin
+        .from('returns')
+        .select('order_id, refund_amount_cents')
+        .eq('status', 'refunded')
+        .in('order_id', orderIds),
+    ])
+    if (customersRes.error) throw customersRes.error
+    if (itemsRes.error) throw itemsRes.error
+    if (returnsRes.error) throw returnsRes.error
+
+    const customerById = new Map(customersRes.data.map((c) => [c.id, c]))
+
+    const refundByOrderId = new Map<string, number>()
+    for (const ret of returnsRes.data) {
+      const current = refundByOrderId.get(ret.order_id) ?? 0
+      refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
+    }
+
+    const variantIds = Array.from(
+      new Set(
+        itemsRes.data
+          .map((i) => i.variant_id)
+          .filter((v): v is string => v !== null),
+      ),
+    )
+    const variants =
+      variantIds.length > 0
+        ? await fetchAllRows((rangeOffset) =>
+            admin
+              .from('product_variants')
+              .select('id, cost_cents')
+              .in('id', variantIds)
+              .range(rangeOffset, rangeOffset + 999),
+          )
+        : []
+    const costByVariantId = new Map(variants.map((v) => [v.id, v.cost_cents]))
+
+    const cogsByOrderId = new Map<string, number>()
+    for (const item of itemsRes.data) {
+      const cost = item.variant_id
+        ? (costByVariantId.get(item.variant_id) ?? 0)
+        : 0
+      const current = cogsByOrderId.get(item.order_id) ?? 0
+      cogsByOrderId.set(item.order_id, current + cost * item.quantity)
+    }
+
+    const rows: OrderProfitRow[] = orders.map((order) => {
+      const isVoid = VOID_STATUSES.has(order.status)
+      const customer = customerById.get(order.customer_id)
+      const refundCents = refundByOrderId.get(order.id) ?? 0
+
+      if (isVoid) {
+        return {
+          id: order.id,
+          orderNumber: order.order_number,
+          customerName: customer?.full_name ?? customer?.email ?? 'Guest',
+          placedAt: order.placed_at,
+          status: order.status,
+          source: order.source,
+          grossSalesCents: 0,
+          costCents: 0,
+          shippingCents: order.shipping_cents,
+          refundCents,
+          profitCents: 0,
+          marginPct: null,
+        }
+      }
+
+      const grossSalesCents = order.subtotal_cents + order.shipping_cents
+      const costCents = cogsByOrderId.get(order.id) ?? 0
+      const profitCents =
+        grossSalesCents - order.discount_cents - costCents - refundCents
+
+      return {
+        id: order.id,
+        orderNumber: order.order_number,
+        customerName: customer?.full_name ?? customer?.email ?? 'Guest',
+        placedAt: order.placed_at,
+        status: order.status,
+        source: order.source,
+        grossSalesCents,
+        costCents,
+        shippingCents: order.shipping_cents,
+        refundCents,
+        profitCents,
+        marginPct:
+          grossSalesCents > 0 ? (profitCents / grossSalesCents) * 100 : null,
+      }
+    })
+
+    return { orders: rows, total: count ?? 0 }
   })

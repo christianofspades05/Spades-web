@@ -613,10 +613,23 @@ function OrdersPage() {
                         )}
                       </td>
                       <td className={tableCellClassName}>
-                        <StatusBadge
-                          status={shipment?.status ?? 'unfulfilled'}
-                          kind="shipment"
-                        />
+                        {order.status === 'cancelled' &&
+                        order.cancellation_reason &&
+                        order.cancellation_reason in
+                          CANCELLATION_REASON_LABELS ? (
+                          <Badge tone="critical">
+                            {
+                              CANCELLATION_REASON_LABELS[
+                                order.cancellation_reason as CancellationReason
+                              ]
+                            }
+                          </Badge>
+                        ) : (
+                          <StatusBadge
+                            status={shipment?.status ?? 'unfulfilled'}
+                            kind="shipment"
+                          />
+                        )}
                       </td>
                       <td
                         className={`${tableCellClassName} relative text-right`}

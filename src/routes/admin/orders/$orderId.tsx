@@ -28,11 +28,24 @@ import {
   labelClassName,
 } from '#/components/admin/ui'
 import type {
+  OrderCancellationReason,
   OrderSource,
   OrderStatus,
   ReturnStatus,
   ShipmentStatus,
 } from '#/types/entities'
+
+// Covers all 4 reasons (including platform_cancelled, for marketplace-synced
+// cancellations) since this displays whatever an already-cancelled order's
+// reason actually is. Distinct from the narrower CANCELLATION_REASON_LABELS
+// below, which only powers the manual-cancel dialog's dropdown — staff can't
+// pick "cancelled on marketplace" as a reason themselves.
+const ALL_CANCELLATION_REASON_LABELS: Record<OrderCancellationReason, string> = {
+  failed_delivery: 'Failed Delivery',
+  customer_request: 'Customer Request',
+  out_of_stock: 'Out of Stock',
+  platform_cancelled: 'Cancelled on Marketplace',
+}
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
   storefront: 'Online Store',
@@ -118,6 +131,8 @@ function OrderDetailPage() {
       {isCancelled && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
           This order was cancelled
+          {order.cancellation_reason &&
+            ` (${ALL_CANCELLATION_REASON_LABELS[order.cancellation_reason]})`}
           {order.cancelled_at &&
             ` on ${new Date(order.cancelled_at).toLocaleDateString('en-US', {
               month: 'long',

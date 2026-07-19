@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { z } from 'zod'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import {
+  getOrderProfitList,
   getProductProfitBreakdown,
   getSalesByChannel,
 } from '#/server/admin/analytics'
+import type { OrderProfitRow } from '#/server/admin/analytics'
+import { StatusBadge } from '#/components/admin/Badge'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
@@ -45,6 +48,8 @@ const CHANNEL_COLORS: Record<OrderSource, string> = {
   admin: '#94a3b8',
 }
 
+const ORDER_PROFIT_PAGE_SIZE = 25
+
 export const Route = createFileRoute('/admin/analytics/profit')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
@@ -54,6 +59,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
     compare: z.boolean().catch(false),
+    orderPage: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -61,7 +67,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
       from: deps.from,
       to: deps.to,
     })
-    const [sales, products] = await Promise.all([
+    const [sales, products, orderProfit] = await Promise.all([
       getSalesByChannel({
         data: {
           ...resolved,
@@ -72,14 +78,22 @@ export const Route = createFileRoute('/admin/analytics/profit')({
       getProductProfitBreakdown({
         data: { ...resolved, channel: deps.channel },
       }),
+      getOrderProfitList({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          page: deps.orderPage,
+          pageSize: ORDER_PROFIT_PAGE_SIZE,
+        },
+      }),
     ])
-    return { sales, products }
+    return { sales, products, orderProfit }
   },
   component: ProfitPage,
 })
 
 function ProfitPage() {
-  const { sales: result, products } = Route.useLoaderData()
+  const { sales: result, products, orderProfit } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -483,6 +497,208 @@ function ProfitPage() {
           )
         })}
       </div>
+
+      <OrderProfitSection
+        result={orderProfit}
+        page={search.orderPage}
+        pageSize={ORDER_PROFIT_PAGE_SIZE}
+        onPageChange={(page) =>
+          navigate({ search: (prev) => ({ ...prev, orderPage: page }) })
+        }
+      />
+    </div>
+  )
+}
+
+function OrderProfitSection({
+  result,
+  page,
+  pageSize,
+  onPageChange,
+}: {
+  result: { orders: OrderProfitRow[]; total: number }
+  page: number
+  pageSize: number
+  onPageChange: (page: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(result.total / pageSize))
+  const rangeStartIndex = result.total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEndIndex = Math.min(page * pageSize, result.total)
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Store Orders and Their Profit
+      </h2>
+      <p className="mb-4 text-xs text-neutral-500">
+        {result.total} {result.total === 1 ? 'order' : 'orders'} in this range
+      </p>
+
+      {result.orders.length === 0 ? (
+        <Card className="p-6">
+          <p className="text-sm text-neutral-500">No orders in this range.</p>
+        </Card>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 md:hidden">
+            {result.orders.map((order) => (
+              <Card key={order.id} className="p-4">
+                <div className="flex items-center justify-between">
+                  <Link
+                    to="/admin/orders/$orderId"
+                    params={{ orderId: order.id }}
+                    className="font-medium text-neutral-900 hover:underline"
+                  >
+                    {order.orderNumber}
+                  </Link>
+                  <StatusBadge status={order.status} kind="order" />
+                </div>
+                <p className="mt-1 text-sm text-neutral-500">
+                  {order.customerName} ·{' '}
+                  {new Date(order.placedAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })}{' '}
+                  · {SOURCE_LABELS[order.source]}
+                </p>
+                <div className="mt-2.5 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-emerald-600">
+                    {formatCentsAsPHP(order.profitCents)} profit
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {order.marginPct !== null
+                      ? `${order.marginPct.toFixed(1)}% margin`
+                      : '—'}
+                  </span>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <div className={`${tableWrapperClassName} hidden md:block`}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Order</th>
+                    <th className={tableHeadClassName}>Date</th>
+                    <th className={tableHeadClassName}>Status</th>
+                    <th className={tableHeadClassName}>Channel</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Gross Sales
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Cost
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Shipping
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Refund
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Profit
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Margin %
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.orders.map((order) => (
+                    <tr key={order.id} className={tableRowClassName}>
+                      <td className={tableCellClassName}>
+                        <Link
+                          to="/admin/orders/$orderId"
+                          params={{ orderId: order.id }}
+                          className="font-medium text-neutral-900 hover:underline"
+                        >
+                          {order.orderNumber}
+                        </Link>
+                        <p className="text-xs text-neutral-400">
+                          {order.customerName}
+                        </p>
+                      </td>
+                      <td
+                        className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}
+                      >
+                        {new Date(order.placedAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                      </td>
+                      <td className={tableCellClassName}>
+                        <StatusBadge status={order.status} kind="order" />
+                      </td>
+                      <td className={`${tableCellClassName} text-neutral-500`}>
+                        {SOURCE_LABELS[order.source]}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(order.grossSalesCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(order.costCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(order.shippingCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {order.refundCents > 0
+                          ? formatCentsAsPHP(order.refundCents)
+                          : '—'}
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right font-medium ${
+                          order.profitCents >= 0
+                            ? 'text-emerald-600'
+                            : 'text-red-600'
+                        }`}
+                      >
+                        {formatCentsAsPHP(order.profitCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {order.marginPct !== null
+                          ? `${order.marginPct.toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Showing {rangeStartIndex}–{rangeEndIndex} of {result.total}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => onPageChange(page - 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-neutral-400">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => onPageChange(page + 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
