@@ -18,6 +18,7 @@ import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { DonutChart } from '#/components/admin/DonutChart'
 import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
 import { ProductProfitBarChart } from '#/components/admin/ProductProfitBarChart'
+import { ProductProfitCard } from '#/components/admin/ProductProfitCard'
 import {
   buttonSecondaryClassName,
   inputClassName,
@@ -140,55 +141,55 @@ function ProfitPage() {
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-start justify-between">
-        <PageHeader
-          title="Profit"
-          subtitle="Net profit by channel, after cost of goods sold."
-        />
-        <div className="flex items-center gap-2">
-          <DateRangePicker
-            preset={search.range}
-            from={search.from ?? resolveDateRange(search.range, {}).from}
-            to={search.to ?? resolveDateRange(search.range, {}).to}
-            onChange={handleRangeChange}
-          />
-          <select
-            value={search.channel ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  channel: (e.target.value || undefined) as
-                    OrderSource | undefined,
-                }),
-              })
-            }
-            className={inputClassName}
-          >
-            <option value="">All Channels</option>
-            {(Object.keys(SOURCE_LABELS) as OrderSource[]).map((s) => (
-              <option key={s} value={s}>
-                {SOURCE_LABELS[s]}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() =>
-              navigate({
-                search: (prev) => ({ ...prev, compare: !prev.compare }),
-              })
-            }
-            className={`rounded-full border px-3 py-2 text-sm font-medium ${
-              search.compare
-                ? 'border-neutral-900 bg-neutral-900 text-white'
-                : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
-            }`}
-          >
-            Compare previous period
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Profit"
+        subtitle="Net profit by channel, after cost of goods sold."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangePicker
+              preset={search.range}
+              from={search.from ?? resolveDateRange(search.range, {}).from}
+              to={search.to ?? resolveDateRange(search.range, {}).to}
+              onChange={handleRangeChange}
+            />
+            <select
+              value={search.channel ?? ''}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    channel: (e.target.value || undefined) as
+                      OrderSource | undefined,
+                  }),
+                })
+              }
+              className={inputClassName}
+            >
+              <option value="">All Channels</option>
+              {(Object.keys(SOURCE_LABELS) as OrderSource[]).map((s) => (
+                <option key={s} value={s}>
+                  {SOURCE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() =>
+                navigate({
+                  search: (prev) => ({ ...prev, compare: !prev.compare }),
+                })
+              }
+              className={`rounded-full border px-3 py-2 text-sm font-medium ${
+                search.compare
+                  ? 'border-neutral-900 bg-neutral-900 text-white'
+                  : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
+              }`}
+            >
+              Compare previous period
+            </button>
+          </div>
+        }
+      />
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-5">
@@ -268,8 +269,16 @@ function ProfitPage() {
           />
         </div>
 
+        {pagedProducts.length > 0 && (
+          <div className="mt-5 flex flex-col gap-3 md:hidden">
+            {pagedProducts.map((p) => (
+              <ProductProfitCard key={p.productId ?? p.productName} product={p} />
+            ))}
+          </div>
+        )}
+
         {products.length > 0 && (
-          <div className={`${tableWrapperClassName} mt-5`}>
+          <div className={`${tableWrapperClassName} mt-5 hidden md:block`}>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
