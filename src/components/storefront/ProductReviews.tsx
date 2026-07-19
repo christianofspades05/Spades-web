@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Stars } from '#/components/storefront/Stars'
 import type { Review } from '#/types/entities'
+
+const REVIEWS_PER_PAGE = 5
 
 export function ProductRatingSummary({
   averageRating,
@@ -21,6 +24,13 @@ export function ProductRatingSummary({
 }
 
 export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
+  const [page, setPage] = useState(1)
+  const pageCount = Math.ceil(reviews.length / REVIEWS_PER_PAGE)
+  const visibleReviews = reviews.slice(
+    (page - 1) * REVIEWS_PER_PAGE,
+    page * REVIEWS_PER_PAGE,
+  )
+
   return (
     <div className="mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
@@ -32,7 +42,7 @@ export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
         </p>
       ) : (
         <ul className="mt-4 flex flex-col gap-5">
-          {reviews.map((review) => (
+          {visibleReviews.map((review) => (
             <li
               key={review.id}
               className="border-b border-neutral-100 pb-5 last:border-b-0 dark:border-neutral-800"
@@ -70,6 +80,29 @@ export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
             </li>
           ))}
         </ul>
+      )}
+      {pageCount > 1 && (
+        <div className="mt-6 flex items-center justify-between text-sm">
+          <button
+            type="button"
+            disabled={page === 1}
+            onClick={() => setPage((p) => p - 1)}
+            className="rounded-full border border-neutral-300 px-4 py-1.5 disabled:opacity-40 dark:border-neutral-700"
+          >
+            Previous
+          </button>
+          <span className="text-neutral-500 dark:text-neutral-400">
+            Page {page} of {pageCount}
+          </span>
+          <button
+            type="button"
+            disabled={page === pageCount}
+            onClick={() => setPage((p) => p + 1)}
+            className="rounded-full border border-neutral-300 px-4 py-1.5 disabled:opacity-40 dark:border-neutral-700"
+          >
+            Next
+          </button>
+        </div>
       )}
     </div>
   )

@@ -183,29 +183,26 @@ function ProductPage() {
 
           <PaymentBadges />
         </div>
+      </div>
 
-        {/* Description — placed after the buy box/payment badges in the mobile
-            stacking order (this is the 4th DOM child), but pinned back into
-            column 1 on desktop via an explicit column-start so the md:4-col
-            layout looks exactly as it did before. */}
+      {/* Description + Reviews live in their own grid, separate from the
+          title/gallery/buy-box grid above — mixing all five blocks into one
+          4-column grid relied on explicit column-start values with no
+          row-start, which left the browser's row auto-placement to decide
+          where description/reviews landed. Since the gallery column is far
+          taller than the title/buy-box columns, both ended up auto-placed
+          into the same implicit row directly below the gallery instead of
+          each sitting under its own column — reading as "description stuck
+          at the bottom" rather than the intended side-by-side section. */}
+      <div className="mt-10 grid grid-cols-1 gap-10 md:grid-cols-2">
         {product.description && (
-          <div
-            dir="rtl"
-            className="md:col-start-1 md:max-h-[70vh] md:overflow-y-auto md:pl-3"
-          >
-            <p
-              dir="ltr"
-              className="whitespace-pre-line text-neutral-600 dark:text-neutral-400"
-            >
+          <div>
+            <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
               {product.description}
             </p>
           </div>
         )}
-
-        {/* Reviews — same reasoning as Description above, pinned back under the buy box (column 4). */}
-        <div className="md:col-start-4">
-          <ProductReviewsList reviews={reviews.reviews} />
-        </div>
+        <ProductReviewsList reviews={reviews.reviews} />
       </div>
 
       {related.length > 0 && (
