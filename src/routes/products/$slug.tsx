@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createFileRoute,
   notFound,
@@ -71,6 +71,39 @@ function ProductPage() {
   const [error, setError] = useState<string | null>(null)
   const [addedItem, setAddedItem] = useState<AddedToCartItem | null>(null)
 
+  // Description and reviews sit in boxes capped to a fixed height so long
+  // content scrolls instead of growing the page — but the title/rating
+  // block above the description isn't the same height as the size
+  // selector/payment badges block above reviews, so giving both boxes the
+  // *same* fixed height doesn't make their bottoms line up. Measuring the
+  // actual rendered height of each "header" (and the gallery, which sets
+  // the target both columns should reach) lets each box's height be
+  // computed so both columns bottom out at the same point regardless of
+  // how tall either header happens to be.
+  const galleryRef = useRef<HTMLDivElement>(null)
+  const leftHeaderRef = useRef<HTMLDivElement>(null)
+  const rightHeaderRef = useRef<HTMLDivElement>(null)
+  const [boxHeights, setBoxHeights] = useState<{
+    left: number
+    right: number
+  } | null>(null)
+
+  useEffect(() => {
+    function measure() {
+      const galleryHeight = galleryRef.current?.offsetHeight ?? 0
+      if (!galleryHeight) return
+      const leftHeaderHeight = leftHeaderRef.current?.offsetHeight ?? 0
+      const rightHeaderHeight = rightHeaderRef.current?.offsetHeight ?? 0
+      setBoxHeights({
+        left: Math.max(galleryHeight - leftHeaderHeight, 160),
+        right: Math.max(galleryHeight - rightHeaderHeight, 160),
+      })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
   const availableStock =
     selectedVariant?.inventory.reduce(
       (sum, inv) => sum + inv.quantity_available,
@@ -126,24 +159,28 @@ function ProductPage() {
             under the title. Nesting keeps this column's height independent
             of the gallery's.
 
-            The description box below uses a fixed md:h-[26rem] rather than
-            flex-1-filling this column's stretched height — that flex
-            approach was tried first, but a grid item's own intrinsic
-            content height still counts toward the row's auto-sizing unless
-            *every* box in the chain has min-height/min-width: 0, which
-            turned out fragile in practice (a long description or a long
-            review list could still inflate the whole row, defeating the
-            cap). A fixed height is simple and guaranteed regardless of
-            content length — same value used for the reviews box below so
-            the two scroll boxes match. */}
+            The description/reviews boxes are height-capped via the
+            boxHeights computed above (gallery height minus each column's
+            own "header" height) rather than a shared fixed value — the
+            title+rating block and the size-selector+payment-badges block
+            are different heights, so a shared fixed box height left their
+            bottoms misaligned. Falls back to a fixed 26rem before the
+            measurement effect runs (first paint / no-JS). */}
         <div className="md:col-span-1">
-          <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
-          <ProductRatingSummary
-            averageRating={reviews.averageRating}
-            reviewCount={reviews.reviewCount}
-          />
+          <div ref={leftHeaderRef}>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {product.name}
+            </h1>
+            <ProductRatingSummary
+              averageRating={reviews.averageRating}
+              reviewCount={reviews.reviewCount}
+            />
+          </div>
           {product.description && (
-            <div className="mt-6 hidden md:block md:h-[26rem] md:overflow-y-auto md:pr-3">
+            <div
+              className="mt-6 hidden md:block md:overflow-y-auto md:pr-3"
+              style={{ height: boxHeights ? boxHeights.left : '26rem' }}
+            >
               <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
                 {product.description}
               </p>
@@ -152,64 +189,72 @@ function ProductPage() {
         </div>
 
         {/* Mockup */}
-        <div className="md:col-span-2 md:mt-12">
+        <div ref={galleryRef} className="md:col-span-2 md:mt-12">
           <ImageGallery images={product.images} alt={product.name} />
         </div>
 
         {/* Buying selection (+ reviews on desktop, same reasoning as the title column above) */}
         <div className="md:col-span-1">
-          <VariantSelector
-            variants={product.variants as VariantWithStock[]}
-            onVariantChange={setSelectedVariant}
-          />
+          <div ref={rightHeaderRef}>
+            <VariantSelector
+              variants={product.variants as VariantWithStock[]}
+              onVariantChange={setSelectedVariant}
+            />
 
-          <div className="mt-6 flex items-center gap-3">
-            <div className="flex items-center gap-2">
+            <div className="mt-6 flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                  className="h-9 w-9 rounded-full border border-neutral-300 hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
+                >
+                  −
+                </button>
+                <span className="w-8 text-center">{quantity}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuantity((q) =>
+                      Math.min(20, availableStock || 20, q + 1),
+                    )
+                  }
+                  className="h-9 w-9 rounded-full border border-neutral-300 hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
+                >
+                  +
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="h-9 w-9 rounded-full border border-neutral-300 hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
+                disabled={!selectedVariant || outOfStock || isAdding}
+                onClick={handleAddToCart}
+                className={`${buttonPrimaryClassName} flex-1 justify-center`}
               >
-                −
-              </button>
-              <span className="w-8 text-center">{quantity}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  setQuantity((q) => Math.min(20, availableStock || 20, q + 1))
-                }
-                className="h-9 w-9 rounded-full border border-neutral-300 hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
-              >
-                +
+                {outOfStock
+                  ? 'Out of stock'
+                  : !selectedVariant
+                    ? 'Select options'
+                    : isAdding
+                      ? 'Adding...'
+                      : 'Add to Cart'}
               </button>
             </div>
 
-            <button
-              type="button"
-              disabled={!selectedVariant || outOfStock || isAdding}
-              onClick={handleAddToCart}
-              className={`${buttonPrimaryClassName} flex-1 justify-center`}
-            >
-              {outOfStock
-                ? 'Out of stock'
-                : !selectedVariant
-                  ? 'Select options'
-                  : isAdding
-                    ? 'Adding...'
-                    : 'Add to Cart'}
-            </button>
+            {error && (
+              <p className="mt-3 text-sm text-red-700 dark:text-red-400">
+                {error}
+              </p>
+            )}
+
+            <PaymentBadges />
           </div>
 
-          {error && (
-            <p className="mt-3 text-sm text-red-700 dark:text-red-400">
-              {error}
-            </p>
-          )}
-
-          <PaymentBadges />
-
           <div className="hidden md:block">
-            <ProductReviewsList reviews={reviews.reviews} mode="scroll" />
+            <ProductReviewsList
+              reviews={reviews.reviews}
+              mode="scroll"
+              maxHeightPx={boxHeights?.right}
+            />
           </div>
         </div>
       </div>

@@ -33,9 +33,13 @@ export function ProductRatingSummary({
 export function ProductReviewsList({
   reviews,
   mode = 'paginate',
+  maxHeightPx,
 }: {
   reviews: Review[]
   mode?: 'scroll' | 'paginate'
+  /** "scroll" mode only — falls back to a fixed 26rem until the caller has
+   *  measured a real value (see $slug.tsx's boxHeights). */
+  maxHeightPx?: number
 }) {
   const [page, setPage] = useState(1)
   const pageCount = Math.ceil(reviews.length / REVIEWS_PER_PAGE)
@@ -57,8 +61,13 @@ export function ProductReviewsList({
         <ul
           className={
             mode === 'scroll'
-              ? 'mt-4 flex h-[26rem] flex-col gap-5 overflow-y-auto pr-3'
+              ? 'mt-4 flex flex-col gap-5 overflow-y-auto pr-3'
               : 'mt-4 flex flex-col gap-5'
+          }
+          style={
+            mode === 'scroll'
+              ? { height: maxHeightPx ?? '26rem' }
+              : undefined
           }
         >
           {visibleReviews.map((review) => (
