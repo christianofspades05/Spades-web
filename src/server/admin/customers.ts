@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { customerRiskUpdateSchema } from '#/lib/validation/admin/customers'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { chunkArray } from '#/lib/utils/paginate'
 import { logStaffActivity } from './activity-log'
 import type { Customer, CustomerAddress, Order } from '#/types/entities'
 
@@ -115,14 +116,6 @@ async function resolveSourceCustomerIds(
     if (page.length < 1000) break
   }
   return Array.from(ids)
-}
-
-function chunkArray<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size))
-  }
-  return chunks
 }
 
 // Same reasoning as computeCustomerOrderCounts: a channel like TikTok Shop

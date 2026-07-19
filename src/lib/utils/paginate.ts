@@ -19,3 +19,14 @@ export async function fetchAllRows<T>(
   }
   return all
 }
+
+// PostgREST's `.in()` filter also has a practical query-string-length limit
+// — a large id list (hundreds+) can get rejected the same way an unbounded
+// select can. Splitting into chunks keeps each request well under that.
+export function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
