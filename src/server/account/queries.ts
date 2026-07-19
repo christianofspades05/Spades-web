@@ -82,11 +82,17 @@ export interface AccountOverview {
   addresses: CustomerAddress[]
 }
 
+export interface AccountOverviewResult {
+  overview: AccountOverview | null
+  // TEMPORARY — see the matching TEMPORARY block in routes/account/index.tsx.
+  debugReason?: string
+}
+
 export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<AccountOverview | null> => {
+  async (): Promise<AccountOverviewResult> => {
     try {
-      return await loadAccountOverview()
-    } catch {
+      return { overview: await loadAccountOverview() }
+    } catch (err) {
       // requireCustomer() above can succeed fine (that path already
       // recovers from a bad session cookie on its own — see
       // lib/auth/session.ts) while these RLS-scoped queries still fail on
@@ -96,7 +102,7 @@ export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
       // to send the user to log in again, instead of leaving the page
       // permanently broken for this one browser.
       recoverFromBadSession()
-      return null
+      return { overview: null, debugReason: JSON.stringify(err) }
     }
   },
 )

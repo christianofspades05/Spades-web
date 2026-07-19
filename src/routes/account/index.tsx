@@ -42,13 +42,13 @@ export const Route = createFileRoute('/account/')({
     }
   },
   loader: async () => {
-    const overview = await getAccountOverview()
+    const { overview, debugReason } = await getAccountOverview()
     // null means loadAccountOverview hit the same bad-session failure
     // beforeLoad already guards against — see server/account/queries.ts.
     if (!overview) {
       throw redirect({
         to: '/account/login',
-        search: { debugReason: 'loader-returned-null' },
+        search: { debugReason: debugReason ?? 'loader-returned-null' },
       })
     }
     return overview
