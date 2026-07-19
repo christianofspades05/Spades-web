@@ -20,6 +20,36 @@ const VOID_STATUSES = new Set(['cancelled', 'failed'])
 const ORDER_ID_CHUNK_SIZE = 200
 const ANALYTICS_CACHE_TTL_MS = 2 * 60_000
 
+/**
+ * Whether an order's shipping fee is part of the sale for Gross Sales
+ * purposes. Online Store (storefront/admin) bills shipping directly to the
+ * buyer as part of the order total, so it belongs in gross sales. TikTok
+ * Shop/Shopee/Lazada shipping is arranged and billed by the platform itself
+ * — it's not revenue we ever see a cut of — so it's excluded there, per the
+ * seller's confirmed formula (Online Store: item amount + shipping = gross
+ * sales; marketplaces: item amount only = gross sales).
+ */
+const GROSS_SALES_INCLUDES_SHIPPING = new Set<OrderSource>([
+  'storefront',
+  'admin',
+])
+
+/**
+ * Gross Sales for one order: total item amount (orders.subtotal_cents,
+ * always pre-discount — see NormalizedOrder.subtotalCents for how
+ * marketplace imports populate this the same way storefront checkout does),
+ * plus shipping only where the channel bills it as part of the sale.
+ */
+function grossSalesCentsForOrder(order: {
+  source: OrderSource
+  subtotal_cents: number
+  shipping_cents: number
+}): number {
+  return GROSS_SALES_INCLUDES_SHIPPING.has(order.source)
+    ? order.subtotal_cents + order.shipping_cents
+    : order.subtotal_cents
+}
+
 export interface ChannelSales {
   source: OrderSource
   grossSalesCents: number
@@ -84,7 +114,9 @@ async function computeChannelSales(
   const orders = await fetchAllRows((offset) => {
     let orderQuery = admin
       .from('orders')
-      .select('id, source, total_cents, status, placed_at')
+      .select(
+        'id, source, subtotal_cents, discount_cents, shipping_cents, status, placed_at',
+      )
       .gte('placed_at', rangeStart)
       .lte('placed_at', rangeEnd)
       .range(offset, offset + 999)
@@ -164,17 +196,25 @@ async function computeChannelSales(
 
   const bySource = new Map<
     OrderSource,
-    { grossSalesCents: number; costOfGoodsCents: number; orderCount: number }
+    {
+      grossSalesCents: number
+      discountCents: number
+      refundCents: number
+      costOfGoodsCents: number
+      orderCount: number
+    }
   >()
   for (const order of liveOrders) {
     const bucket = bySource.get(order.source) ?? {
       grossSalesCents: 0,
+      discountCents: 0,
+      refundCents: 0,
       costOfGoodsCents: 0,
       orderCount: 0,
     }
-    const netOfRefund =
-      order.total_cents - (refundByOrderId.get(order.id) ?? 0)
-    bucket.grossSalesCents += netOfRefund
+    bucket.grossSalesCents += grossSalesCentsForOrder(order)
+    bucket.discountCents += order.discount_cents
+    bucket.refundCents += refundByOrderId.get(order.id) ?? 0
     bucket.costOfGoodsCents += cogsByOrderId.get(order.id) ?? 0
     bucket.orderCount += 1
     bySource.set(order.source, bucket)
@@ -182,7 +222,8 @@ async function computeChannelSales(
 
   const channels: ChannelSales[] = Array.from(bySource.entries())
     .map(([source, b]) => {
-      const netProfitCents = b.grossSalesCents - b.costOfGoodsCents
+      const netProfitCents =
+        b.grossSalesCents - b.discountCents - b.refundCents - b.costOfGoodsCents
       return {
         source,
         grossSalesCents: b.grossSalesCents,
@@ -201,20 +242,19 @@ async function computeChannelSales(
     (sum, c) => ({
       grossSalesCents: sum.grossSalesCents + c.grossSalesCents,
       costOfGoodsCents: sum.costOfGoodsCents + c.costOfGoodsCents,
+      netProfitCents: sum.netProfitCents + c.netProfitCents,
       orderCount: sum.orderCount + c.orderCount,
     }),
-    { grossSalesCents: 0, costOfGoodsCents: 0, orderCount: 0 },
+    { grossSalesCents: 0, costOfGoodsCents: 0, netProfitCents: 0, orderCount: 0 },
   )
-  const totalNetProfitCents =
-    totalsRaw.grossSalesCents - totalsRaw.costOfGoodsCents
   const totals: ChannelSales = {
     source: 'storefront',
     grossSalesCents: totalsRaw.grossSalesCents,
     costOfGoodsCents: totalsRaw.costOfGoodsCents,
-    netProfitCents: totalNetProfitCents,
+    netProfitCents: totalsRaw.netProfitCents,
     marginPct:
       totalsRaw.grossSalesCents > 0
-        ? (totalNetProfitCents / totalsRaw.grossSalesCents) * 100
+        ? (totalsRaw.netProfitCents / totalsRaw.grossSalesCents) * 100
         : null,
     orderCount: totalsRaw.orderCount,
   }
@@ -223,7 +263,12 @@ async function computeChannelSales(
   // rather than being missing from the chart entirely.
   const dailyMap = new Map<
     string,
-    { grossSalesCents: number; costOfGoodsCents: number }
+    {
+      grossSalesCents: number
+      discountCents: number
+      refundCents: number
+      costOfGoodsCents: number
+    }
   >()
   for (
     const d = new Date(`${from}T00:00:00Z`);
@@ -232,6 +277,8 @@ async function computeChannelSales(
   ) {
     dailyMap.set(d.toISOString().slice(0, 10), {
       grossSalesCents: 0,
+      discountCents: 0,
+      refundCents: 0,
       costOfGoodsCents: 0,
     })
   }
@@ -239,13 +286,15 @@ async function computeChannelSales(
     const key = storeLocalDateKey(order.placed_at)
     const bucket = dailyMap.get(key)
     if (!bucket) continue
-    bucket.grossSalesCents +=
-      order.total_cents - (refundByOrderId.get(order.id) ?? 0)
+    bucket.grossSalesCents += grossSalesCentsForOrder(order)
+    bucket.discountCents += order.discount_cents
+    bucket.refundCents += refundByOrderId.get(order.id) ?? 0
     bucket.costOfGoodsCents += cogsByOrderId.get(order.id) ?? 0
   }
   const daily: ProfitDailyPoint[] = Array.from(dailyMap.entries()).map(
     ([date, b]) => {
-      const netProfitCents = b.grossSalesCents - b.costOfGoodsCents
+      const netProfitCents =
+        b.grossSalesCents - b.discountCents - b.refundCents - b.costOfGoodsCents
       return {
         date,
         grossSalesCents: b.grossSalesCents,
@@ -574,12 +623,12 @@ export interface SalesAnalyticsDailyPoint {
 }
 
 /**
- * Unlike computeChannelSales (which uses total_cents — already post-discount
- * — as "gross sales" for the Profit page's COGS-driven margin math), this
- * reconstructs the true pre-discount gross sales as subtotal_cents +
- * shipping_cents, so Discounts can be broken out as its own line matching
- * what a Sales Analytics breakdown is expected to show. netSalesCents ends
- * up equal to total_cents minus any refund, same number either way.
+ * Gross sales here is grossSalesCentsForOrder (channel-aware: shipping only
+ * counts for Online Store, never for a marketplace — see that function's
+ * doc comment), so Discounts can be broken out as its own line matching what
+ * a Sales Analytics breakdown is expected to show. netSalesCents =
+ * grossSalesCents - discounts - refunds; unlike total_cents this excludes a
+ * marketplace's shipping fee entirely, since that was never our sale.
  */
 async function computeSalesAnalytics(
   admin: ReturnType<typeof getSupabaseAdminClient>,
@@ -596,7 +645,7 @@ async function computeSalesAnalytics(
     let query = admin
       .from('orders')
       .select(
-        'id, status, placed_at, subtotal_cents, discount_cents, shipping_cents, total_cents',
+        'id, source, status, placed_at, subtotal_cents, discount_cents, shipping_cents, total_cents',
       )
       .gte('placed_at', rangeStart)
       .lte('placed_at', rangeEnd)
@@ -664,7 +713,7 @@ async function computeSalesAnalytics(
   let discountsCents = 0
   let refundsCents = 0
   for (const order of liveOrders) {
-    grossSalesCents += order.subtotal_cents + order.shipping_cents
+    grossSalesCents += grossSalesCentsForOrder(order)
     discountsCents += order.discount_cents
     refundsCents += refundByOrderId.get(order.id) ?? 0
   }
@@ -691,9 +740,12 @@ async function computeSalesAnalytics(
     const key = storeLocalDateKey(order.placed_at)
     const bucket = dailyMap.get(key)
     if (!bucket) continue
-    bucket.grossSalesCents += order.subtotal_cents + order.shipping_cents
+    const grossCents = grossSalesCentsForOrder(order)
+    bucket.grossSalesCents += grossCents
     bucket.netSalesCents +=
-      order.total_cents - (refundByOrderId.get(order.id) ?? 0)
+      grossCents -
+      order.discount_cents -
+      (refundByOrderId.get(order.id) ?? 0)
     bucket.orderCount += 1
   }
   const daily: SalesAnalyticsDailyPoint[] = Array.from(
@@ -1142,7 +1194,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         }
       }
 
-      const grossSalesCents = order.subtotal_cents + order.shipping_cents
+      const grossSalesCents = grossSalesCentsForOrder(order)
       const costCents = cogsByOrderId.get(order.id) ?? 0
       const profitCents =
         grossSalesCents - order.discount_cents - costCents - refundCents
@@ -1205,7 +1257,9 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
     const orders = await fetchAllRows((offset) => {
       let query = admin
         .from('orders')
-        .select('status, subtotal_cents, shipping_cents, shipping_address')
+        .select(
+          'status, source, subtotal_cents, shipping_cents, shipping_address',
+        )
         .gte('placed_at', rangeStart)
         .lte('placed_at', rangeEnd)
         .range(offset, offset + 999)
@@ -1237,7 +1291,7 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
         grossSalesCents: 0,
       }
       bucket.orderCount += 1
-      bucket.grossSalesCents += order.subtotal_cents + order.shipping_cents
+      bucket.grossSalesCents += grossSalesCentsForOrder(order)
       buckets.set(key, bucket)
     }
 

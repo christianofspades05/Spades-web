@@ -49,7 +49,15 @@ export interface NormalizedOrder {
   placedAt: string
   shippingAddress: OrderShippingAddress
   items: NormalizedOrderItem[]
+  /** Total item amount before any discount — i.e. sum of each line's
+   *  pre-discount unit price × quantity, matching how orders.subtotal_cents
+   *  is defined for storefront orders (see place-order.ts). */
   subtotalCents: number
+  /** Seller-funded discount only — never a platform-funded voucher/subsidy.
+   *  A marketplace's own promo budget isn't money that came out of our
+   *  margin, so it must not be netted into our numbers; only netSalesCents
+   *  = subtotalCents - discountCents should ever reflect it. */
+  discountCents: number
   shippingCents: number
   totalCents: number
   /** True if the platform has already collected payment (the normal case —

@@ -528,7 +528,7 @@ async function importOrder(
       external_order_id: normalized.externalOrderId,
       platform_order_data: raw,
       subtotal_cents: normalized.subtotalCents,
-      discount_cents: 0,
+      discount_cents: normalized.discountCents,
       shipping_cents: normalized.shippingCents,
       total_cents: normalized.totalCents,
       shipping_address: normalized.shippingAddress as unknown as Record<

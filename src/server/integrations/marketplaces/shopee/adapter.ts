@@ -368,6 +368,29 @@ export const shopeeAdapter: MarketplaceAdapter = {
     const shippingCents = Math.round(
       (order.actual_shipping_fee ?? order.estimated_shipping_fee ?? 0) * 100,
     )
+    // Pre-discount item total, from each line's original (not discounted)
+    // price — matches how NormalizedOrder.subtotalCents is defined
+    // elsewhere (see its doc comment). UNVERIFIED against a real order (this
+    // shop has none yet, same caveat as the rest of this file): discountCents
+    // here is original-minus-discounted, which on Shopee's basic Order
+    // Detail API can't be split into seller vs. platform-funded — that split
+    // needs the separate Escrow Detail API. Revisit once real orders flow
+    // through, since per the seller-discount-only rule used for TikTok this
+    // may currently overstate the discount (and understate net sales) by
+    // whatever portion Shopee itself funded.
+    const itemAmountCents = Math.round(
+      (order.item_list ?? []).reduce(
+        (sum, item) =>
+          sum +
+          (item.model_original_price ?? item.model_discounted_price ?? 0) *
+            (item.model_quantity_purchased ?? 1),
+        0,
+      ) * 100,
+    )
+    const discountCents = Math.max(
+      0,
+      itemAmountCents - (totalCents - shippingCents),
+    )
     const fulfillmentStatus = order.order_status
       ? SHOPEE_STATUS_TO_FULFILLMENT.get(order.order_status)
       : undefined
@@ -377,7 +400,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
       placedAt: new Date(order.create_time * 1000).toISOString(),
       shippingAddress,
       items,
-      subtotalCents: totalCents - shippingCents,
+      subtotalCents: itemAmountCents || totalCents - shippingCents,
+      discountCents,
       shippingCents,
       totalCents,
       isPaid: !UNPAID_LIKE_STATUSES.has(order.order_status ?? ''),
