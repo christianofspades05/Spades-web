@@ -105,7 +105,11 @@ export const listCustomers = createServerFn({ method: 'GET' })
       .select('*')
       .order('created_at', { ascending: false })
 
-    const search = data.q?.trim()
+    // PostgREST's `.or()` filter syntax treats `,`, `(`, and `)` as
+    // delimiters, so a search term containing any of them (e.g. "Dela Cruz,
+    // Juan") breaks the filter grammar and PostgREST rejects the whole
+    // request with a 400. Strip them out rather than trying to escape them.
+    const search = data.q?.trim().replace(/[,()]/g, ' ').trim()
     if (search) {
       query = query.or(
         `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`,
