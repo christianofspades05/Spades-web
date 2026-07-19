@@ -40,7 +40,8 @@ async function getProductImagesByVariantId(
     .from('product_variants')
     .select('id, product:products(images)')
     .in('id', variantIds)
-  if (error) throw error
+  // TEMPORARY — see the matching tags in loadAccountOverview.
+  if (error) throw new Error(`variants-query:${JSON.stringify(error)}`)
 
   for (const row of data) {
     map.set(row.id, row.product.images[0] ?? null)
@@ -102,7 +103,13 @@ export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
       // to send the user to log in again, instead of leaving the page
       // permanently broken for this one browser.
       recoverFromBadSession()
-      return { overview: null, debugReason: JSON.stringify(err) }
+      // TEMPORARY — plain JSON.stringify(err) silently produces "{}" for a
+      // real Error instance (message/stack aren't enumerable), so the tagged
+      // errors thrown above would've shown up empty. Pull .message out
+      // explicitly instead.
+      const debugReason =
+        err instanceof Error ? err.message : JSON.stringify(err)
+      return { overview: null, debugReason }
     }
   },
 )
@@ -126,8 +133,12 @@ async function loadAccountOverview(): Promise<AccountOverview> {
       .select('*')
       .order('created_at', { ascending: false }),
   ])
-  if (ordersError) throw ordersError
-  if (addressesError) throw addressesError
+  // TEMPORARY — tags which query actually failed, since the caught error
+  // itself carries no other detail (no hint/code/details, just a bare
+  // "Bad Request" message) to tell them apart otherwise.
+  if (ordersError) throw new Error(`orders-query:${JSON.stringify(ordersError)}`)
+  if (addressesError)
+    throw new Error(`addresses-query:${JSON.stringify(addressesError)}`)
 
   const orderIds = orders.map((o) => o.id)
   const { data: shipments, error: shipmentsError } =
@@ -137,7 +148,8 @@ async function loadAccountOverview(): Promise<AccountOverview> {
           .select('order_id, status, tracking_number, tracking_url')
           .in('order_id', orderIds)
       : { data: [], error: null }
-  if (shipmentsError) throw shipmentsError
+  if (shipmentsError)
+    throw new Error(`shipments-query:${JSON.stringify(shipmentsError)}`)
 
   const fulfilledOrderIds = new Set(
     shipments
