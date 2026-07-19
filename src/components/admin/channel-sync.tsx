@@ -303,7 +303,12 @@ export function ProductSyncSection({
 }) {
   const marketplaceLabel = MARKETPLACE_LABELS[marketplace]
   const [bulkSyncing, setBulkSyncing] = useState(false)
-  const [pulling, setPulling] = useState(false)
+  const [pulling, setPulling] = useState<'recent' | 'backfill' | null>(null)
+  const [pullResult, setPullResult] = useState<{
+    scanned: number
+    imported: number
+    failed: number
+  } | null>(null)
   const [autoConnecting, setAutoConnecting] = useState<'title' | 'sku' | null>(
     null,
   )
@@ -360,18 +365,25 @@ export function ProductSyncSection({
     }
   }
 
-  async function handlePullOrders() {
-    setPulling(true)
+  async function handlePullOrders(mode: 'recent' | 'backfill') {
+    setPulling(mode)
     setError(null)
+    setPullResult(null)
     try {
-      await pullOrdersNow({
-        data: { marketplace, sinceHours: 24 },
-      })
+      // The regular pull only looks back 24h — enough for day-to-day
+      // syncing, but a cancellation on an order placed further back than
+      // that (or one that happened before this "sync cancellations" feature
+      // even existed) never falls inside that window, so it's never
+      // re-fetched and the cancellation never gets mirrored here. The
+      // 30-day backfill exists specifically to catch those stale ones.
+      const sinceHours = mode === 'backfill' ? 720 : 24
+      const result = await pullOrdersNow({ data: { marketplace, sinceHours } })
+      setPullResult(result)
       onChanged()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
-      setPulling(false)
+      setPulling(null)
     }
   }
 
@@ -421,11 +433,20 @@ export function ProductSyncSection({
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={!connected || pulling}
-            onClick={handlePullOrders}
+            disabled={!connected || pulling !== null}
+            onClick={() => handlePullOrders('recent')}
             className={buttonSecondaryClassName}
           >
-            {pulling ? 'Pulling…' : 'Pull orders now'}
+            {pulling === 'recent' ? 'Pulling…' : 'Pull orders now'}
+          </button>
+          <button
+            type="button"
+            disabled={!connected || pulling !== null}
+            onClick={() => handlePullOrders('backfill')}
+            className={buttonSecondaryClassName}
+            title="Re-checks the last 30 days of orders — catches cancellations or status changes on older orders that the regular 24h pull missed."
+          >
+            {pulling === 'backfill' ? 'Checking…' : 'Recheck last 30 days'}
           </button>
           <button
             type="button"
@@ -462,6 +483,16 @@ export function ProductSyncSection({
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {pullResult && (
+        <p className="mt-2 text-xs text-neutral-500">
+          Checked {pullResult.scanned} order
+          {pullResult.scanned === 1 ? '' : 's'}, imported{' '}
+          {pullResult.imported} new
+          {pullResult.failed > 0 ? `, ${pullResult.failed} failed` : ''}. Any
+          orders TikTok/Shopee now reports as cancelled were updated here too
+          — check the Orders page or Activity log below to confirm.
+        </p>
+      )}
 
       {autoConnectResult && (
         <Card className="mt-4 p-4">
