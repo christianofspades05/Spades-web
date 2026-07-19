@@ -45,13 +45,7 @@ export function ProductReviewsList({
       : reviews.slice((page - 1) * REVIEWS_PER_PAGE, page * REVIEWS_PER_PAGE)
 
   return (
-    <div
-      className={
-        mode === 'scroll'
-          ? 'mt-6 flex min-h-0 flex-1 flex-col border-t border-neutral-200 pt-6 dark:border-neutral-800'
-          : 'mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800'
-      }
-    >
+    <div className="mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Reviews{reviews.length > 0 && ` (${reviews.length})`}
       </h2>
@@ -63,7 +57,7 @@ export function ProductReviewsList({
         <ul
           className={
             mode === 'scroll'
-              ? 'mt-4 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-3'
+              ? 'mt-4 flex h-[26rem] flex-col gap-5 overflow-y-auto pr-3'
               : 'mt-4 flex flex-col gap-5'
           }
         >

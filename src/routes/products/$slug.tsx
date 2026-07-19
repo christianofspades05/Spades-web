@@ -124,21 +124,26 @@ function ProductPage() {
             the browser picks next, which (since the gallery column is much
             taller) landed below the entire gallery instead of directly
             under the title. Nesting keeps this column's height independent
-            of the gallery's. */}
-        {/* md:flex md:flex-col so the description below can flex-grow to
-            fill whatever height this column is stretched to (grid items
-            stretch to the row's height by default — driven by the gallery,
-            the tallest of the three) — that's what keeps this column and
-            the buy-box column on the right the same overall length instead
-            of each ending wherever its own content happens to stop. */}
-        <div className="md:col-span-1 md:flex md:flex-col">
+            of the gallery's.
+
+            The description box below uses a fixed md:h-[26rem] rather than
+            flex-1-filling this column's stretched height — that flex
+            approach was tried first, but a grid item's own intrinsic
+            content height still counts toward the row's auto-sizing unless
+            *every* box in the chain has min-height/min-width: 0, which
+            turned out fragile in practice (a long description or a long
+            review list could still inflate the whole row, defeating the
+            cap). A fixed height is simple and guaranteed regardless of
+            content length — same value used for the reviews box below so
+            the two scroll boxes match. */}
+        <div className="md:col-span-1">
           <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
           <ProductRatingSummary
             averageRating={reviews.averageRating}
             reviewCount={reviews.reviewCount}
           />
           {product.description && (
-            <div className="mt-6 hidden md:block md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-3">
+            <div className="mt-6 hidden md:block md:h-[26rem] md:overflow-y-auto md:pr-3">
               <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
                 {product.description}
               </p>
@@ -152,7 +157,7 @@ function ProductPage() {
         </div>
 
         {/* Buying selection (+ reviews on desktop, same reasoning as the title column above) */}
-        <div className="md:col-span-1 md:flex md:flex-col">
+        <div className="md:col-span-1">
           <VariantSelector
             variants={product.variants as VariantWithStock[]}
             onVariantChange={setSelectedVariant}
@@ -203,7 +208,7 @@ function ProductPage() {
 
           <PaymentBadges />
 
-          <div className="hidden md:flex md:min-h-0 md:flex-1 md:flex-col">
+          <div className="hidden md:block">
             <ProductReviewsList reviews={reviews.reviews} mode="scroll" />
           </div>
         </div>
