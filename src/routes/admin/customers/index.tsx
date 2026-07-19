@@ -24,7 +24,7 @@ const CHANNEL_OPTIONS = [
   { value: 'lazada', label: 'Lazada' },
 ] as const
 
-const PAGE_SIZE = 50
+const PAGE_SIZE_OPTIONS = [50, 100] as const
 
 export const Route = createFileRoute('/admin/customers/')({
   validateSearch: z.object({
@@ -33,13 +33,16 @@ export const Route = createFileRoute('/admin/customers/')({
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
     page: z.number().int().min(1).catch(1),
+    pageSize: z
+      .union([z.literal(50), z.literal(100)])
+      .catch(50),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
     const filters = { q: deps.q, source: deps.source }
     const [customers, { total }] = await Promise.all([
       listCustomers({
-        data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
+        data: { ...filters, page: deps.page, pageSize: deps.pageSize },
       }),
       getCustomersCount({ data: filters }),
     ])
@@ -99,9 +102,10 @@ function CustomersPage() {
   const [searchInput, setSearchInput] = useState(search.q ?? '')
 
   const page = search.page
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
-  const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
+  const pageSize = search.pageSize
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEndIndex = Math.min(page * pageSize, total)
 
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -248,11 +252,31 @@ function CustomersPage() {
       </div>
 
       {total > 0 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
           <p>
             Showing {rangeStartIndex}–{rangeEndIndex} of {total}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 rounded-full bg-neutral-100 p-1 text-xs font-medium">
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      search: (prev) => ({ ...prev, pageSize: size, page: 1 }),
+                    })
+                  }
+                  className={`rounded-full px-3 py-1.5 ${
+                    pageSize === size
+                      ? 'bg-white text-neutral-900 shadow-sm'
+                      : 'text-neutral-500 hover:text-neutral-900'
+                  }`}
+                >
+                  {size}/page
+                </button>
+              ))}
+            </div>
             <Link
               to="/admin/customers"
               from={Route.fullPath}
