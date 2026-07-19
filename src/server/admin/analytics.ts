@@ -502,7 +502,9 @@ export interface SalesAnalyticsTotals {
   orderCount: number
   aovCents: number
   cancelledOrderCount: number
+  cancelledAmountCents: number
   failedDeliveryCount: number
+  failedDeliveryAmountCents: number
 }
 
 export interface SalesAnalyticsDailyPoint {
@@ -575,7 +577,7 @@ async function computeSalesAnalytics(
   const cancelledOrders = await fetchAllRows((offset) => {
     let query = admin
       .from('orders')
-      .select('id, source, cancellation_reason')
+      .select('id, source, cancellation_reason, total_cents')
       .eq('status', 'cancelled')
       .gte('cancelled_at', rangeStart)
       .lte('cancelled_at', rangeEnd)
@@ -584,9 +586,21 @@ async function computeSalesAnalytics(
     return query
   })
   const cancelledOrderCount = cancelledOrders.length
-  const failedDeliveryCount = cancelledOrders.filter(
+  // What the order would have been worth had it gone through — the
+  // customer-facing total, not gross-sales-minus-COGS, since this is meant
+  // to answer "how much sales did we lose to cancellations."
+  const cancelledAmountCents = cancelledOrders.reduce(
+    (sum, o) => sum + o.total_cents,
+    0,
+  )
+  const failedDeliveryOrders = cancelledOrders.filter(
     (o) => o.source === 'storefront' && o.cancellation_reason === 'failed_delivery',
-  ).length
+  )
+  const failedDeliveryCount = failedDeliveryOrders.length
+  const failedDeliveryAmountCents = failedDeliveryOrders.reduce(
+    (sum, o) => sum + o.total_cents,
+    0,
+  )
 
   let grossSalesCents = 0
   let discountsCents = 0
@@ -643,7 +657,9 @@ async function computeSalesAnalytics(
       orderCount,
       aovCents,
       cancelledOrderCount,
+      cancelledAmountCents,
       failedDeliveryCount,
+      failedDeliveryAmountCents,
     },
     daily,
   }

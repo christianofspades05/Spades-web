@@ -19,6 +19,7 @@ import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
 import {
+  buttonSecondaryClassName,
   tableCellClassName,
   tableHeadClassName,
   tableRowClassName,
@@ -136,7 +137,7 @@ function SalesAnalyticsPage() {
       />
 
       {/* Sales breakdown */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Gross Sales</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
@@ -168,6 +169,16 @@ function SalesAnalyticsPage() {
           </p>
           <p className="mt-0.5 text-xs text-neutral-400">
             {salesAnalytics.totals.failedDeliveryCount} failed delivery
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Cancelled Sales</p>
+          <p className="mt-1 text-xl font-semibold text-red-600">
+            {formatCentsAsPHP(salesAnalytics.totals.cancelledAmountCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {formatCentsAsPHP(salesAnalytics.totals.failedDeliveryAmountCents)}{' '}
+            failed delivery
           </p>
         </Card>
       </div>
@@ -207,8 +218,11 @@ function SalesAnalyticsPage() {
   )
 }
 
+const BEST_SELLERS_PAGE_SIZE = 10
+
 function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
   const [sortBy, setSortBy] = useState<'units' | 'revenue'>('units')
+  const [page, setPage] = useState(1)
 
   const totalRevenueCents = products.reduce(
     (sum, p) => sum + p.grossSalesCents,
@@ -219,6 +233,20 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
       ? b.unitsSold - a.unitsSold
       : b.grossSalesCents - a.grossSalesCents,
   )
+  const pageCount = Math.max(
+    1,
+    Math.ceil(sorted.length / BEST_SELLERS_PAGE_SIZE),
+  )
+  const currentPage = Math.min(page, pageCount)
+  const paged = sorted.slice(
+    (currentPage - 1) * BEST_SELLERS_PAGE_SIZE,
+    currentPage * BEST_SELLERS_PAGE_SIZE,
+  )
+
+  function changeSortBy(next: 'units' | 'revenue') {
+    setSortBy(next)
+    setPage(1)
+  }
 
   return (
     <div className="mt-8">
@@ -234,7 +262,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
         <div className="flex items-center gap-1 rounded-full bg-neutral-100 p-1 text-xs font-medium">
           <button
             type="button"
-            onClick={() => setSortBy('units')}
+            onClick={() => changeSortBy('units')}
             className={`rounded-full px-3 py-1.5 ${
               sortBy === 'units'
                 ? 'bg-white text-neutral-900 shadow-sm'
@@ -245,7 +273,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
           </button>
           <button
             type="button"
-            onClick={() => setSortBy('revenue')}
+            onClick={() => changeSortBy('revenue')}
             className={`rounded-full px-3 py-1.5 ${
               sortBy === 'revenue'
                 ? 'bg-white text-neutral-900 shadow-sm'
@@ -264,7 +292,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
       ) : (
         <>
           <div className="flex flex-col gap-3 md:hidden">
-            {sorted.map((product) => (
+            {paged.map((product) => (
               <BestSellerCard
                 key={product.productId ?? product.productName}
                 product={product}
@@ -291,7 +319,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((product) => (
+                  {paged.map((product) => (
                     <tr
                       key={product.productId ?? product.productName}
                       className={tableRowClassName}
@@ -331,6 +359,37 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
               </table>
             </div>
           </div>
+
+          {pageCount > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Showing {(currentPage - 1) * BEST_SELLERS_PAGE_SIZE + 1}–
+                {Math.min(currentPage * BEST_SELLERS_PAGE_SIZE, sorted.length)}{' '}
+                of {sorted.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-neutral-400">
+                  Page {currentPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage((p) => p + 1)}
+                  className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
