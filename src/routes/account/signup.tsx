@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
+import { PasswordInput } from '#/components/storefront/PasswordInput'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -70,13 +71,11 @@ function SignupPage() {
         </label>
         <label className={labelClassName}>
           Password
-          <input
-            type="password"
-            required
-            minLength={8}
+          <PasswordInput
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={inputClassName}
+            onChange={setPassword}
+            minLength={8}
+            autoComplete="new-password"
           />
         </label>
         {error && (

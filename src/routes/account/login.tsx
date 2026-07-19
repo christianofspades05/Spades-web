@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
+import { PasswordInput } from '#/components/storefront/PasswordInput'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -108,12 +109,10 @@ function LoginPage() {
             </label>
             <label className={labelClassName}>
               Password
-              <input
-                type="password"
-                required
+              <PasswordInput
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClassName}
+                onChange={setPassword}
+                autoComplete="current-password"
               />
             </label>
             {error && (
