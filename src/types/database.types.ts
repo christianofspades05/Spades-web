@@ -121,6 +121,7 @@ export interface Database {
           phone_verified: boolean
           last_login_at: string | null
           imported_total_spent_cents: number | null
+          imported_source: string | null
           created_at: string
           updated_at: string
         }

@@ -125,6 +125,23 @@ async function resolveSourceCustomerIds(
     for (const row of page) ids.add(row.customer_id)
     if (page.length < 1000) break
   }
+
+  // Customers imported from the Shopify Online Store export have no rows
+  // in `orders` at all (see migration 0030) — the orders-derived lookup
+  // above would never surface them as "storefront" customers otherwise.
+  if (source === 'storefront') {
+    for (let offset = 0; ; offset += 1000) {
+      const { data: page, error } = await admin
+        .from('customers')
+        .select('id')
+        .not('imported_source', 'is', null)
+        .range(offset, offset + 999)
+      if (error) throw error
+      for (const row of page) ids.add(row.id)
+      if (page.length < 1000) break
+    }
+  }
+
   return Array.from(ids)
 }
 
