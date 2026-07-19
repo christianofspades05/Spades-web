@@ -964,6 +964,15 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface OrderProfitItemRow {
+  productName: string
+  variantLabel: string | null
+  quantity: number
+  lineTotalCents: number
+  costCents: number
+  profitCents: number
+}
+
 export interface OrderProfitRow {
   id: string
   orderNumber: string
@@ -977,6 +986,7 @@ export interface OrderProfitRow {
   refundCents: number
   profitCents: number
   marginPct: number | null
+  items: OrderProfitItemRow[]
 }
 
 export interface OrderProfitListResult {
@@ -1041,7 +1051,9 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         .in('id', customerIds),
       admin
         .from('order_items')
-        .select('order_id, variant_id, quantity')
+        .select(
+          'order_id, variant_id, quantity, product_name_snapshot, variant_label_snapshot, line_total_cents',
+        )
         .in('order_id', orderIds),
       admin
         .from('returns')
@@ -1089,10 +1101,28 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       cogsByOrderId.set(item.order_id, current + cost * item.quantity)
     }
 
+    const itemsByOrderId = new Map<string, OrderProfitItemRow[]>()
+    for (const item of itemsRes.data) {
+      const cost = item.variant_id
+        ? (costByVariantId.get(item.variant_id) ?? 0) * item.quantity
+        : 0
+      const list = itemsByOrderId.get(item.order_id) ?? []
+      list.push({
+        productName: item.product_name_snapshot,
+        variantLabel: item.variant_label_snapshot,
+        quantity: item.quantity,
+        lineTotalCents: item.line_total_cents,
+        costCents: cost,
+        profitCents: item.line_total_cents - cost,
+      })
+      itemsByOrderId.set(item.order_id, list)
+    }
+
     const rows: OrderProfitRow[] = orders.map((order) => {
       const isVoid = VOID_STATUSES.has(order.status)
       const customer = customerById.get(order.customer_id)
       const refundCents = refundByOrderId.get(order.id) ?? 0
+      const items = itemsByOrderId.get(order.id) ?? []
 
       if (isVoid) {
         return {
@@ -1108,6 +1138,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
           refundCents,
           profitCents: 0,
           marginPct: null,
+          items,
         }
       }
 
@@ -1130,6 +1161,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         profitCents,
         marginPct:
           grossSalesCents > 0 ? (profitCents / grossSalesCents) * 100 : null,
+        items,
       }
     })
 

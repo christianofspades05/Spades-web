@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   getOrderProfitList,
   getProductProfitBreakdown,
@@ -524,6 +525,20 @@ function OrderProfitSection({
   const totalPages = Math.max(1, Math.ceil(result.total / pageSize))
   const rangeStartIndex = result.total === 0 ? 0 : (page - 1) * pageSize + 1
   const rangeEndIndex = Math.min(page * pageSize, result.total)
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const toggleExpanded = (orderId: string) => {
+    setExpandedOrderIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(orderId)) {
+        next.delete(orderId)
+      } else {
+        next.add(orderId)
+      }
+      return next
+    })
+  }
 
   return (
     <div className="mt-8">
@@ -571,6 +586,58 @@ function OrderProfitSection({
                       : '—'}
                   </span>
                 </div>
+                {order.items.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(order.id)}
+                      className="mt-2.5 flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-900"
+                    >
+                      {expandedOrderIds.has(order.id) ? (
+                        <ChevronDown className="size-3.5" />
+                      ) : (
+                        <ChevronRight className="size-3.5" />
+                      )}
+                      {order.items.length}{' '}
+                      {order.items.length === 1 ? 'item' : 'items'}
+                    </button>
+                    {expandedOrderIds.has(order.id) && (
+                      <div className="mt-2 flex flex-col gap-2 border-t border-neutral-100 pt-2">
+                        {order.items.map((item, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <div className="min-w-0 pr-2">
+                              <p className="truncate text-neutral-700">
+                                {item.quantity}× {item.productName}
+                              </p>
+                              {item.variantLabel && (
+                                <p className="text-neutral-400">
+                                  {item.variantLabel}
+                                </p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-neutral-700">
+                                {formatCentsAsPHP(item.lineTotalCents)}
+                              </p>
+                              <p
+                                className={
+                                  item.profitCents >= 0
+                                    ? 'text-emerald-600'
+                                    : 'text-red-600'
+                                }
+                              >
+                                {formatCentsAsPHP(item.profitCents)} profit
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </Card>
             ))}
           </div>
@@ -606,19 +673,42 @@ function OrderProfitSection({
                 </thead>
                 <tbody>
                   {result.orders.map((order) => (
-                    <tr key={order.id} className={tableRowClassName}>
-                      <td className={tableCellClassName}>
-                        <Link
-                          to="/admin/orders/$orderId"
-                          params={{ orderId: order.id }}
-                          className="font-medium text-neutral-900 hover:underline"
-                        >
-                          {order.orderNumber}
-                        </Link>
-                        <p className="text-xs text-neutral-400">
-                          {order.customerName}
-                        </p>
-                      </td>
+                    <Fragment key={order.id}>
+                      <tr className={tableRowClassName}>
+                        <td className={tableCellClassName}>
+                          <div className="flex items-center gap-1.5">
+                            {order.items.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpanded(order.id)}
+                                className="shrink-0 text-neutral-400 hover:text-neutral-900"
+                                aria-label={
+                                  expandedOrderIds.has(order.id)
+                                    ? 'Hide items'
+                                    : 'Show items'
+                                }
+                              >
+                                {expandedOrderIds.has(order.id) ? (
+                                  <ChevronDown className="size-4" />
+                                ) : (
+                                  <ChevronRight className="size-4" />
+                                )}
+                              </button>
+                            )}
+                            <div>
+                              <Link
+                                to="/admin/orders/$orderId"
+                                params={{ orderId: order.id }}
+                                className="font-medium text-neutral-900 hover:underline"
+                              >
+                                {order.orderNumber}
+                              </Link>
+                              <p className="text-xs text-neutral-400">
+                                {order.customerName}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
                       <td
                         className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}
                       >
@@ -663,6 +753,48 @@ function OrderProfitSection({
                           : '—'}
                       </td>
                     </tr>
+                    {expandedOrderIds.has(order.id) &&
+                      order.items.length > 0 && (
+                        <tr className="border-b border-neutral-100 bg-neutral-50">
+                          <td colSpan={10} className="px-4 py-3">
+                            <table className="w-full">
+                              <tbody>
+                                {order.items.map((item, index) => (
+                                  <tr key={index} className="text-xs">
+                                    <td className="py-1 pr-4 text-neutral-700">
+                                      {item.quantity}× {item.productName}
+                                      {item.variantLabel && (
+                                        <span className="text-neutral-400">
+                                          {' '}
+                                          · {item.variantLabel}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-1 pr-4 text-right text-neutral-500">
+                                      {formatCentsAsPHP(item.lineTotalCents)}
+                                    </td>
+                                    <td className="py-1 pr-4 text-right text-neutral-500">
+                                      cost{' '}
+                                      {formatCentsAsPHP(item.costCents)}
+                                    </td>
+                                    <td
+                                      className={`py-1 text-right font-medium ${
+                                        item.profitCents >= 0
+                                          ? 'text-emerald-600'
+                                          : 'text-red-600'
+                                      }`}
+                                    >
+                                      {formatCentsAsPHP(item.profitCents)}{' '}
+                                      profit
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
