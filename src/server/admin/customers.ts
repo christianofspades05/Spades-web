@@ -87,53 +87,120 @@ async function computeCustomerOrderCounts(
   return counts
 }
 
+const customerFilterSchema = z.object({
+  q: z.string().optional(),
+  source: z
+    .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+    .optional(),
+})
+
+// "Channel" isn't a customer-table column — a customer can order through
+// more than one channel — so this resolves to the ids of customers who have
+// placed at least one order via the selected source.
+async function resolveSourceCustomerIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  source: NonNullable<z.infer<typeof customerFilterSchema>['source']>,
+): Promise<string[]> {
+  const ids = new Set<string>()
+  // PostgREST caps unfiltered selects at 1000 rows, so a channel with more
+  // orders than that needs paging through, not a single unbounded select.
+  for (let offset = 0; ; offset += 1000) {
+    const { data: page, error } = await admin
+      .from('orders')
+      .select('customer_id')
+      .eq('source', source)
+      .range(offset, offset + 999)
+    if (error) throw error
+    for (const row of page) ids.add(row.customer_id)
+    if (page.length < 1000) break
+  }
+  return Array.from(ids)
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+// Same reasoning as computeCustomerOrderCounts: a channel like TikTok Shop
+// can have well over a thousand distinct customers, and PostgREST rejects a
+// `.in('id', ...)` query string once it gets that long with a 400. Splitting
+// into id chunks keeps every individual request well under that limit.
+const CUSTOMER_ID_CHUNK_SIZE = 200
+
+function buildSearchClause(search: string): string {
+  return `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`
+}
+
+// PostgREST's `.or()` filter syntax treats `,`, `(`, and `)` as delimiters,
+// so a search term containing any of them (e.g. "Dela Cruz, Juan") breaks
+// the filter grammar and PostgREST rejects the whole request with a 400.
+// Strip them out rather than trying to escape them.
+function sanitizeSearch(q: string | undefined): string | undefined {
+  const cleaned = q?.trim().replace(/[,()]/g, ' ').trim()
+  return cleaned || undefined
+}
+
 export const listCustomers = createServerFn({ method: 'GET' })
   .validator(
-    z.object({
-      q: z.string().optional(),
-      source: z
-        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
-        .optional(),
+    customerFilterSchema.extend({
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(50),
     }),
   )
   .handler(async ({ data }): Promise<CustomerListRow[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    let query = admin
-      .from('customers')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const search = sanitizeSearch(data.q)
+    const offset = (data.page - 1) * data.pageSize
 
-    // PostgREST's `.or()` filter syntax treats `,`, `(`, and `)` as
-    // delimiters, so a search term containing any of them (e.g. "Dela Cruz,
-    // Juan") breaks the filter grammar and PostgREST rejects the whole
-    // request with a 400. Strip them out rather than trying to escape them.
-    const search = data.q?.trim().replace(/[,()]/g, ' ').trim()
-    if (search) {
-      query = query.or(
-        `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`,
-      )
-    }
+    let customers: Customer[]
 
-    // "Channel" isn't a customer-table column — a customer can order
-    // through more than one channel — so this filters to customers who
-    // have placed at least one order via the selected source.
     if (data.source) {
-      const { data: sourceOrders, error: sourceError } = await admin
-        .from('orders')
-        .select('customer_id')
-        .eq('source', data.source)
-      if (sourceError) throw sourceError
-      const customerIds = Array.from(
-        new Set(sourceOrders.map((o) => o.customer_id)),
-      )
+      const customerIds = await resolveSourceCustomerIds(admin, data.source)
       if (customerIds.length === 0) return []
-      query = query.in('id', customerIds)
+
+      // Can't push the id list into a single .range()-paginated query
+      // without risking the same oversized-URL 400 — instead fetch every
+      // matching customer in id-bounded chunks, merge, sort, then paginate
+      // in memory. Channel filtering is an infrequent admin action on a
+      // bounded (thousands, not millions) table, so this is fine.
+      const chunkResults = await Promise.all(
+        chunkArray(customerIds, CUSTOMER_ID_CHUNK_SIZE).map(async (ids) => {
+          let query = admin.from('customers').select('*').in('id', ids)
+          if (search) query = query.or(buildSearchClause(search))
+          const { data: rows, error } = await query
+          if (error) throw error
+          return rows
+        }),
+      )
+      customers = chunkResults
+        .flat()
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(offset, offset + data.pageSize)
+    } else {
+      let query = admin
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (search) query = query.or(buildSearchClause(search))
+
+      // Bounding to a page keeps the customer-id list handed to
+      // computeCustomerOrderCounts below small — with the full
+      // (unpaginated) customer table, that list could run into the
+      // thousands, and PostgREST rejects a query string that long with a
+      // 400.
+      query = query.range(offset, offset + data.pageSize - 1)
+
+      const { data: rows, error } = await query
+      if (error) throw error
+      customers = rows
     }
 
-    const { data: customers, error } = await query
-    if (error) throw error
     if (customers.length === 0) return []
 
     const counts = await computeCustomerOrderCounts(
@@ -151,6 +218,45 @@ export const listCustomers = createServerFn({ method: 'GET' })
         return_count: bucket?.returnCount ?? 0,
       }
     })
+  })
+
+// Separate head-count query rather than bundled into listCustomers, matching
+// the pattern in server/admin/orders.ts (listOrders/getOrdersCount).
+export const getCustomersCount = createServerFn({ method: 'GET' })
+  .validator(customerFilterSchema)
+  .handler(async ({ data }): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const search = sanitizeSearch(data.q)
+
+    if (data.source) {
+      const customerIds = await resolveSourceCustomerIds(admin, data.source)
+      if (customerIds.length === 0) return { total: 0 }
+
+      const chunkCounts = await Promise.all(
+        chunkArray(customerIds, CUSTOMER_ID_CHUNK_SIZE).map(async (ids) => {
+          let query = admin
+            .from('customers')
+            .select('id', { count: 'exact', head: true })
+            .in('id', ids)
+          if (search) query = query.or(buildSearchClause(search))
+          const { count, error } = await query
+          if (error) throw error
+          return count ?? 0
+        }),
+      )
+      return { total: chunkCounts.reduce((sum, c) => sum + c, 0) }
+    }
+
+    let query = admin
+      .from('customers')
+      .select('id', { count: 'exact', head: true })
+    if (search) query = query.or(buildSearchClause(search))
+
+    const { count, error } = await query
+    if (error) throw error
+    return { total: count ?? 0 }
   })
 
 export interface CustomerWithDetails extends Customer {

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Download, Search } from 'lucide-react'
-import { listCustomers } from '#/server/admin/customers'
+import { getCustomersCount, listCustomers } from '#/server/admin/customers'
 import type { CustomerListRow } from '#/server/admin/customers'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
@@ -24,16 +24,27 @@ const CHANNEL_OPTIONS = [
   { value: 'lazada', label: 'Lazada' },
 ] as const
 
+const PAGE_SIZE = 50
+
 export const Route = createFileRoute('/admin/customers/')({
   validateSearch: z.object({
     q: z.string().optional(),
     source: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    page: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) =>
-    listCustomers({ data: { q: deps.q, source: deps.source } }),
+  loader: async ({ deps }) => {
+    const filters = { q: deps.q, source: deps.source }
+    const [customers, { total }] = await Promise.all([
+      listCustomers({
+        data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
+      }),
+      getCustomersCount({ data: filters }),
+    ])
+    return { customers, total }
+  },
   component: CustomersPage,
 })
 
@@ -79,15 +90,23 @@ function downloadCustomersCsv(customers: CustomerListRow[]) {
 }
 
 function CustomersPage() {
-  const customers: CustomerListRow[] = Route.useLoaderData()
+  const { customers, total } = Route.useLoaderData() as {
+    customers: CustomerListRow[]
+    total: number
+  }
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [searchInput, setSearchInput] = useState(search.q ?? '')
 
+  const page = search.page
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
+
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
     navigate({
-      search: (prev) => ({ ...prev, q: searchInput || undefined }),
+      search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
     })
   }
 
@@ -95,7 +114,7 @@ function CustomersPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Customers"
-        subtitle={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
+        subtitle={`${total} ${total === 1 ? 'customer' : 'customers'}`}
         action={
           <button
             type="button"
@@ -129,7 +148,7 @@ function CustomersPage() {
           value={search.source}
           options={CHANNEL_OPTIONS}
           onChange={(source) =>
-            navigate({ search: (prev) => ({ ...prev, source }) })
+            navigate({ search: (prev) => ({ ...prev, source, page: 1 }) })
           }
         />
       </div>
@@ -227,6 +246,37 @@ function CustomersPage() {
           </div>
         )}
       </div>
+
+      {total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+          <p>
+            Showing {rangeStartIndex}–{rangeEndIndex} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/admin/customers"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page - 1 })}
+              aria-disabled={page <= 1}
+              className={`${buttonSecondaryClassName} ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Previous
+            </Link>
+            <span className="text-xs text-neutral-400">
+              Page {page} of {totalPages}
+            </span>
+            <Link
+              to="/admin/customers"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page + 1 })}
+              aria-disabled={page >= totalPages}
+              className={`${buttonSecondaryClassName} ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Next
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
