@@ -165,6 +165,14 @@ async function computeChannelSales(
 export interface CancelledReturnsResult {
   range: { from: string; to: string }
   totalCancelled: number
+  /** Online Store "Failed Delivery" cancellations combined with TikTok/
+   *  Shopee returns — different mechanisms recording the same underlying
+   *  event (a parcel that came back instead of reaching the buyer). */
+  failedDeliveryOrReturn: {
+    total: number
+    failedDeliveryCount: number
+    marketplaceReturnsCount: number
+  }
   daily: { date: string; count: number }[]
   byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
   byChannel: { source: OrderSource; count: number }[]
@@ -278,9 +286,26 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       }
     }
 
+    // A storefront order cancelled for failed delivery and a TikTok/Shopee
+    // return are the same real-world event from the business's point of
+    // view — a parcel that didn't reach the buyer and came back — just
+    // recorded through two different mechanisms (a cancellation reason vs.
+    // a marketplace return sync). Combined here so the two don't read as
+    // unrelated numbers.
+    const failedDeliveryCount =
+      byChannelAndReasonMap.get('storefront')?.get('failed_delivery') ?? 0
+    const marketplaceReturnsCount =
+      (returnsByChannelMap.get('tiktok_shop') ?? 0) +
+      (returnsByChannelMap.get('shopee') ?? 0)
+
     return {
       range: { from: data.from, to: data.to },
       totalCancelled: cancelledOrders.length,
+      failedDeliveryOrReturn: {
+        total: failedDeliveryCount + marketplaceReturnsCount,
+        failedDeliveryCount,
+        marketplaceReturnsCount,
+      },
       daily: Array.from(dailyMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, count]) => ({
