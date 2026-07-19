@@ -18,7 +18,16 @@ import { buttonSecondaryClassName } from '#/components/storefront/ui'
 
 export const Route = createFileRoute('/account/')({
   beforeLoad: async () => {
-    const customer = await getCustomerSession()
+    // getCustomerSession/getCurrentCustomer already recover from a corrupted
+    // session cookie internally (see lib/auth/session.ts), but this catch is
+    // a last line of defense — anything unexpected that still slips through
+    // sends the user to log in again instead of crashing the page outright.
+    let customer
+    try {
+      customer = await getCustomerSession()
+    } catch {
+      customer = null
+    }
     if (!customer) throw redirect({ to: '/account/login' })
   },
   loader: () => getAccountOverview(),

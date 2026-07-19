@@ -32,8 +32,12 @@ function recoverFromBadSession(): null {
 }
 
 export async function getAuthUser() {
-  const supabase = getSupabaseServerClient()
+  // The whole body is wrapped, not just the network call — a corrupted
+  // cookie can throw synchronously too (e.g. while getSupabaseServerClient
+  // or @supabase/ssr parses a partially-written chunked cookie), which a
+  // narrower try/catch around just `auth.getUser()` would miss entirely.
   try {
+    const supabase = getSupabaseServerClient()
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -45,33 +49,41 @@ export async function getAuthUser() {
 
 /** Resolves the `customers` row linked to the current auth session, if any. */
 export async function getCurrentCustomer(): Promise<Customer | null> {
-  const user = await getAuthUser()
-  if (!user) return null
+  try {
+    const user = await getAuthUser()
+    if (!user) return null
 
-  const admin = getSupabaseAdminClient()
-  const { data, error } = await admin
-    .from('customers')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin
+      .from('customers')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
 
-  if (error) return recoverFromBadSession()
-  return data
+    if (error) throw error
+    return data
+  } catch {
+    return recoverFromBadSession()
+  }
 }
 
 /** Resolves the `staff_users` row linked to the current auth session, if any. */
 export async function getCurrentStaffUser(): Promise<StaffUser | null> {
-  const user = await getAuthUser()
-  if (!user) return null
+  try {
+    const user = await getAuthUser()
+    if (!user) return null
 
-  const admin = getSupabaseAdminClient()
-  const { data, error } = await admin
-    .from('staff_users')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .eq('is_active', true)
-    .maybeSingle()
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin
+      .from('staff_users')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
 
-  if (error) return recoverFromBadSession()
-  return data
+    if (error) throw error
+    return data
+  } catch {
+    return recoverFromBadSession()
+  }
 }
