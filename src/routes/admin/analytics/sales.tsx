@@ -137,7 +137,7 @@ function SalesAnalyticsPage() {
       />
 
       {/* Sales breakdown */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Gross Sales</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
@@ -148,12 +148,6 @@ function SalesAnalyticsPage() {
           <p className="text-xs text-neutral-500">Discounts</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
             {formatCentsAsPHP(salesAnalytics.totals.discountsCents)}
-          </p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-xs text-neutral-500">Returns / Refunds</p>
-          <p className="mt-1 text-xl font-semibold text-neutral-900">
-            {formatCentsAsPHP(salesAnalytics.totals.refundsCents)}
           </p>
         </Card>
         <Card className="p-5">
