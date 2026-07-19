@@ -111,32 +111,57 @@ function NewProductPage() {
   }
 
   async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
+    const files = Array.from(event.target.files ?? [])
     event.target.value = ''
-    if (!file) return
+    if (files.length === 0) return
 
-    if (file.size > 8 * 1024 * 1024) {
-      setError('Image must be smaller than 8MB.')
-      return
-    }
+    const tooLarge = files.filter((f) => f.size > 8 * 1024 * 1024)
+    const toUpload = files.filter((f) => f.size <= 8 * 1024 * 1024)
 
     setUploading(true)
     setError(null)
-    try {
-      const base64Data = await fileToBase64(file)
-      const { url } = await uploadProductImage({
-        data: {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          base64Data,
-        },
-      })
-      setImagesText((prev) => (prev ? `${prev}\n${url}` : url))
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setUploading(false)
+    const results = await Promise.allSettled(
+      toUpload.map(async (file) => {
+        const base64Data = await fileToBase64(file)
+        const { url } = await uploadProductImage({
+          data: {
+            fileName: file.name,
+            contentType: file.type || 'application/octet-stream',
+            base64Data,
+          },
+        })
+        return url
+      }),
+    )
+    const uploaded = results
+      .filter(
+        (r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled',
+      )
+      .map((r) => r.value)
+    const failedCount = results.filter((r) => r.status === 'rejected').length
+
+    if (uploaded.length > 0) {
+      setImagesText((prev) =>
+        prev ? `${prev}\n${uploaded.join('\n')}` : uploaded.join('\n'),
+      )
     }
+    if (tooLarge.length > 0 || failedCount > 0) {
+      const parts: string[] = []
+      if (tooLarge.length > 0) {
+        parts.push(
+          `${tooLarge.length} image${tooLarge.length === 1 ? '' : 's'} over 8MB (${tooLarge
+            .map((f) => f.name)
+            .join(', ')})`,
+        )
+      }
+      if (failedCount > 0) {
+        parts.push(
+          `${failedCount} upload${failedCount === 1 ? '' : 's'} failed`,
+        )
+      }
+      setError(parts.join('; '))
+    }
+    setUploading(false)
   }
 
   function handleNameChange(value: string) {
@@ -301,6 +326,7 @@ function NewProductPage() {
             <input
               type="file"
               accept="image/*"
+              multiple
               onChange={handleFileSelect}
               disabled={uploading}
               className="hidden"
