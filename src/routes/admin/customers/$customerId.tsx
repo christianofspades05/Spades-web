@@ -68,7 +68,9 @@ function CustomerDetailPage() {
           </p>
         </Card>
         <Card className="p-3.5">
-          <p className="text-xs font-medium text-neutral-500">Returns</p>
+          <p className="text-xs font-medium text-neutral-500">
+            Returns (incl. failed delivery)
+          </p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
             {customer.return_count}
           </p>

@@ -14,6 +14,7 @@ import {
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
+import { fetchAllRows } from '#/lib/utils/paginate'
 import { logStaffActivity } from './activity-log'
 import type {
   Customer,
@@ -132,18 +133,26 @@ async function resolveFulfillmentOrderIds(
   fulfillment: z.infer<typeof listOrdersFilterSchema>['fulfillment'],
 ): Promise<{ excludeIds?: string[]; includeIds?: string[] }> {
   if (fulfillment === 'unfulfilled' || fulfillment === 'fulfilled') {
-    const { data: shipped } = await admin.from('shipments').select('order_id')
-    const shippedOrderIds = (shipped ?? []).map((s) => s.order_id)
+    const shipped = await fetchAllRows((offset) =>
+      admin
+        .from('shipments')
+        .select('order_id')
+        .range(offset, offset + 999),
+    )
+    const shippedOrderIds = shipped.map((s) => s.order_id)
     return fulfillment === 'unfulfilled'
       ? { excludeIds: shippedOrderIds }
       : { includeIds: shippedOrderIds }
   }
   if (fulfillment) {
-    const { data: matching } = await admin
-      .from('shipments')
-      .select('order_id')
-      .eq('status', fulfillment)
-    return { includeIds: (matching ?? []).map((s) => s.order_id) }
+    const matching = await fetchAllRows((offset) =>
+      admin
+        .from('shipments')
+        .select('order_id')
+        .eq('status', fulfillment)
+        .range(offset, offset + 999),
+    )
+    return { includeIds: matching.map((s) => s.order_id) }
   }
   return {}
 }
@@ -352,20 +361,26 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
       prev.to,
     )
 
-    const [current, previous, returnsCurrent, returnsPrevious] =
+    const [currentOrders, previousOrders, returnsCurrent, returnsPrevious] =
       await Promise.all([
-        admin
-          .from('orders')
-          .select(
-            'id, placed_at, order_items(quantity), shipments(status, shipped_at)',
-          )
-          .gte('placed_at', rangeStart)
-          .lte('placed_at', rangeEnd),
-        admin
-          .from('orders')
-          .select('id, order_items(quantity), shipments(status)')
-          .gte('placed_at', prevStart)
-          .lte('placed_at', prevEnd),
+        fetchAllRows((offset) =>
+          admin
+            .from('orders')
+            .select(
+              'id, placed_at, order_items(quantity), shipments(status, shipped_at)',
+            )
+            .gte('placed_at', rangeStart)
+            .lte('placed_at', rangeEnd)
+            .range(offset, offset + 999),
+        ),
+        fetchAllRows((offset) =>
+          admin
+            .from('orders')
+            .select('id, order_items(quantity), shipments(status)')
+            .gte('placed_at', prevStart)
+            .lte('placed_at', prevEnd)
+            .range(offset, offset + 999),
+        ),
         admin
           .from('returns')
           .select('*', { count: 'exact', head: true })
@@ -378,8 +393,6 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
           .lte('requested_at', prevEnd),
       ])
 
-    if (current.error) throw current.error
-    if (previous.error) throw previous.error
     if (returnsCurrent.error) throw returnsCurrent.error
     if (returnsPrevious.error) throw returnsPrevious.error
 
@@ -397,7 +410,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
     let delivered = 0
     const fulfillmentHours: number[] = []
 
-    for (const order of current.data) {
+    for (const order of currentOrders) {
       const day = storeLocalDateKey(order.placed_at)
       if (dailyMap.has(day)) dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1)
 
@@ -419,7 +432,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
 
     let previousItemsOrdered = 0
     let previousFulfilled = 0
-    for (const order of previous.data) {
+    for (const order of previousOrders) {
       previousItemsOrdered += order.order_items.reduce(
         (sum, i) => sum + i.quantity,
         0,
@@ -429,15 +442,15 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
         previousFulfilled += 1
       }
     }
-    const previousDelivered = previous.data.filter(
+    const previousDelivered = previousOrders.filter(
       (o) => o.shipments.at(0)?.status === 'delivered',
     ).length
 
     const result: OrdersOverview = {
       range: { from: data.from, to: data.to },
       orders: {
-        count: current.data.length,
-        previousCount: previous.data.length,
+        count: currentOrders.length,
+        previousCount: previousOrders.length,
         daily: Array.from(dailyMap.values()),
       },
       itemsOrdered: {

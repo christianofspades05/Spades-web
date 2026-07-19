@@ -8,6 +8,7 @@ import {
   storeLocalHourKey,
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
+import { fetchAllRows } from '#/lib/utils/paginate'
 import type { OrderCancellationReason, OrderSource } from '#/types/entities'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
@@ -59,26 +60,33 @@ async function computeChannelSales(
 ): Promise<{ channels: ChannelSales[]; totals: ChannelSales }> {
   const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
-  let orderQuery = admin
-    .from('orders')
-    .select('id, source, total_cents, status')
-    .gte('placed_at', rangeStart)
-    .lte('placed_at', rangeEnd)
-  if (channelFilter) orderQuery = orderQuery.eq('source', channelFilter)
-  const { data: orders, error: ordersError } = await orderQuery
-  if (ordersError) throw ordersError
+  const orders = await fetchAllRows((offset) => {
+    let orderQuery = admin
+      .from('orders')
+      .select('id, source, total_cents, status')
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (channelFilter) orderQuery = orderQuery.eq('source', channelFilter)
+    return orderQuery
+  })
 
   const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
   const orderIds = liveOrders.map((o) => o.id)
 
-  const { data: items, error: itemsError } =
+  // order_items outnumbers orders (most orders have multiple line items),
+  // so this table crosses the 1000-row cap before orders itself does — the
+  // id-list length isn't the risk here, the select's own row cap is.
+  const items =
     orderIds.length > 0
-      ? await admin
-          .from('order_items')
-          .select('order_id, variant_id, quantity')
-          .in('order_id', orderIds)
-      : { data: [], error: null }
-  if (itemsError) throw itemsError
+      ? await fetchAllRows((offset) =>
+          admin
+            .from('order_items')
+            .select('order_id, variant_id, quantity')
+            .in('order_id', orderIds)
+            .range(offset, offset + 999),
+        )
+      : []
 
   const variantIds = Array.from(
     new Set(
@@ -203,13 +211,15 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       data.to,
     )
 
-    const { data: cancelledOrders, error: cancelledError } = await admin
-      .from('orders')
-      .select('id, source, cancellation_reason, cancelled_at')
-      .eq('status', 'cancelled')
-      .gte('cancelled_at', rangeStart)
-      .lte('cancelled_at', rangeEnd)
-    if (cancelledError) throw cancelledError
+    const cancelledOrders = await fetchAllRows((offset) =>
+      admin
+        .from('orders')
+        .select('id, source, cancellation_reason, cancelled_at')
+        .eq('status', 'cancelled')
+        .gte('cancelled_at', rangeStart)
+        .lte('cancelled_at', rangeEnd)
+        .range(offset, offset + 999),
+    )
 
     // A single-day range (e.g. "Today") gets bucketed by hour instead of by
     // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
@@ -255,22 +265,26 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       byChannelAndReasonMap.set(order.source, channelReasons)
     }
 
-    const { data: returns, error: returnsError } = await admin
-      .from('returns')
-      .select('id, order_id, refund_amount_cents, requested_at')
-      .gte('requested_at', rangeStart)
-      .lte('requested_at', rangeEnd)
-    if (returnsError) throw returnsError
+    const returns = await fetchAllRows((offset) =>
+      admin
+        .from('returns')
+        .select('id, order_id, refund_amount_cents, requested_at')
+        .gte('requested_at', rangeStart)
+        .lte('requested_at', rangeEnd)
+        .range(offset, offset + 999),
+    )
 
     const returnOrderIds = Array.from(new Set(returns.map((r) => r.order_id)))
-    const { data: returnOrders, error: returnOrdersError } =
+    const returnOrders =
       returnOrderIds.length > 0
-        ? await admin
-            .from('orders')
-            .select('id, source')
-            .in('id', returnOrderIds)
-        : { data: [], error: null }
-    if (returnOrdersError) throw returnOrdersError
+        ? await fetchAllRows((offset) =>
+            admin
+              .from('orders')
+              .select('id, source')
+              .in('id', returnOrderIds)
+              .range(offset, offset + 999),
+          )
+        : []
     const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
 
     const returnsByChannelMap = new Map<OrderSource, number>()

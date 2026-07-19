@@ -8,6 +8,7 @@ import {
   storeLocalHourKey,
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
+import { fetchAllRows } from '#/lib/utils/paginate'
 
 const VOID_STATUSES = new Set(['cancelled', 'failed'])
 
@@ -133,36 +134,43 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       prev.to,
     )
 
-    const [current, previous, visitsCurrent, visitsPrevious] =
+    const [currentOrders, previousOrders, currentVisits, previousVisits] =
       await Promise.all([
-        admin
-          .from('orders')
-          .select('placed_at, total_cents, status, source')
-          .gte('placed_at', rangeStart)
-          .lte('placed_at', rangeEnd),
-        admin
-          .from('orders')
-          .select('placed_at, total_cents, status, source')
-          .gte('placed_at', prevStart)
-          .lte('placed_at', prevEnd),
-        admin
-          .from('storefront_visits')
-          .select('visitor_id, created_at')
-          .eq('event_type', 'page_view')
-          .gte('created_at', rangeStart)
-          .lte('created_at', rangeEnd),
-        admin
-          .from('storefront_visits')
-          .select('visitor_id, created_at')
-          .eq('event_type', 'page_view')
-          .gte('created_at', prevStart)
-          .lte('created_at', prevEnd),
+        fetchAllRows((offset) =>
+          admin
+            .from('orders')
+            .select('placed_at, total_cents, status, source')
+            .gte('placed_at', rangeStart)
+            .lte('placed_at', rangeEnd)
+            .range(offset, offset + 999),
+        ),
+        fetchAllRows((offset) =>
+          admin
+            .from('orders')
+            .select('placed_at, total_cents, status, source')
+            .gte('placed_at', prevStart)
+            .lte('placed_at', prevEnd)
+            .range(offset, offset + 999),
+        ),
+        fetchAllRows((offset) =>
+          admin
+            .from('storefront_visits')
+            .select('visitor_id, created_at')
+            .eq('event_type', 'page_view')
+            .gte('created_at', rangeStart)
+            .lte('created_at', rangeEnd)
+            .range(offset, offset + 999),
+        ),
+        fetchAllRows((offset) =>
+          admin
+            .from('storefront_visits')
+            .select('visitor_id, created_at')
+            .eq('event_type', 'page_view')
+            .gte('created_at', prevStart)
+            .lte('created_at', prevEnd)
+            .range(offset, offset + 999),
+        ),
       ])
-
-    if (current.error) throw current.error
-    if (previous.error) throw previous.error
-    if (visitsCurrent.error) throw visitsCurrent.error
-    if (visitsPrevious.error) throw visitsPrevious.error
 
     // A single-day range (e.g. "Today") gets bucketed by hour instead of by
     // day — one data point for the whole day would be a flat, useless
@@ -173,15 +181,15 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       data.from,
       data.to,
       isSingleDay,
-      current.data,
-      visitsCurrent.data,
+      currentOrders,
+      currentVisits,
     )
     const previousBuckets = bucketPeriod(
       prev.from,
       prev.to,
       isSingleDay,
-      previous.data,
-      visitsPrevious.data,
+      previousOrders,
+      previousVisits,
     )
 
     const daily: DailyPoint[] = currentBuckets.map((point, i) => {
@@ -206,30 +214,30 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     })
 
     let salesCents = 0
-    for (const order of current.data) {
+    for (const order of currentOrders) {
       if (!VOID_STATUSES.has(order.status)) salesCents += order.total_cents
     }
 
-    const previousSalesCents = previous.data
+    const previousSalesCents = previousOrders
       .filter((o) => !VOID_STATUSES.has(o.status))
       .reduce((sum, o) => sum + o.total_cents, 0)
 
-    const uniqueVisitors = new Set(visitsCurrent.data.map((v) => v.visitor_id))
+    const uniqueVisitors = new Set(currentVisits.map((v) => v.visitor_id))
     const previousUniqueVisitors = new Set(
-      visitsPrevious.data.map((v) => v.visitor_id),
+      previousVisits.map((v) => v.visitor_id),
     )
 
-    const ordersCount = current.data.length
-    const previousOrdersCount = previous.data.length
+    const ordersCount = currentOrders.length
+    const previousOrdersCount = previousOrders.length
 
     // Conversion rate is an online-store-only metric: storefront visits
     // vs. storefront purchases. Orders placed on TikTok/Shopee/Lazada never
     // came through a storefront page view, so counting them here would
     // inflate the rate against a denominator that can't see them.
-    const storefrontOrdersCount = current.data.filter(
+    const storefrontOrdersCount = currentOrders.filter(
       (o) => o.source === 'storefront',
     ).length
-    const previousStorefrontOrdersCount = previous.data.filter(
+    const previousStorefrontOrdersCount = previousOrders.filter(
       (o) => o.source === 'storefront',
     ).length
     const conversionRate =

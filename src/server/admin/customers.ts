@@ -215,7 +215,14 @@ export const listCustomers = createServerFn({ method: 'GET' })
         orders_count: bucket?.ordersCount ?? 0,
         cancelled_orders_count: bucket?.cancelledCount ?? 0,
         failed_delivery_count: bucket?.failedDeliveryCount ?? 0,
-        return_count: bucket?.returnCount ?? 0,
+        // A failed-delivery cancellation is a courier-side non-delivery —
+        // there's no separate `returns` row for it (the order never
+        // reaches the buyer to be "returned"), but it's the same real-world
+        // outcome as a marketplace return, so it counts as one here too.
+        // Matches the combined Failed Delivery/Return metric on the
+        // Cancelled & Returns analytics page.
+        return_count:
+          (bucket?.returnCount ?? 0) + (bucket?.failedDeliveryCount ?? 0),
       }
     })
   })
@@ -326,7 +333,9 @@ export const getCustomerById = createServerFn({ method: 'GET' })
       orders,
       cancelled_orders_count: cancelledOrdersCount,
       failed_delivery_count: failedDeliveryCount,
-      return_count: returns.length,
+      // See listCustomers's comment — a failed-delivery cancellation counts
+      // as a return too, same as the analytics page's combined metric.
+      return_count: returns.length + failedDeliveryCount,
     }
   })
 
