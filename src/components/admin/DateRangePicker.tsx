@@ -59,7 +59,7 @@ export function DateRangePicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-10 mt-2 w-72 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg">
+        <div className="absolute left-0 z-10 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-neutral-200 bg-white p-2 shadow-lg sm:left-auto sm:right-0">
           <ul className="flex flex-col">
             {DATE_RANGE_PRESETS.filter((p) => p !== 'custom').map((p) => (
               <li key={p}>

@@ -176,7 +176,7 @@ function OrderDetailPage() {
                       <div className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 bg-neutral-50" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-neutral-900">
+                      <p className="font-medium text-neutral-900 underline decoration-neutral-300 underline-offset-2 md:no-underline">
                         {item.product_name_snapshot}
                       </p>
                       {item.variant_label_snapshot && (

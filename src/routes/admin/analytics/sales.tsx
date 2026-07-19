@@ -141,7 +141,7 @@ function SalesAnalyticsPage() {
       />
 
       {/* Sales breakdown */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Gross Sales</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
@@ -249,7 +249,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
 
   return (
     <div className="mt-8">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
             Best Sellers
@@ -360,7 +360,7 @@ function BestSellersSection({ products }: { products: ProductProfitRow[] }) {
           </div>
 
           {pageCount > 1 && (
-            <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-500">
               <p>
                 Showing {(currentPage - 1) * BEST_SELLERS_PAGE_SIZE + 1}–
                 {Math.min(currentPage * BEST_SELLERS_PAGE_SIZE, sorted.length)}{' '}
@@ -544,7 +544,7 @@ function LocationSalesSection({ locations }: { locations: LocationSalesRow[] }) 
           </div>
 
           {pageCount > 1 && (
-            <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-500">
               <p>
                 Showing {(currentPage - 1) * LOCATIONS_PAGE_SIZE + 1}–
                 {Math.min(currentPage * LOCATIONS_PAGE_SIZE, locations.length)}{' '}

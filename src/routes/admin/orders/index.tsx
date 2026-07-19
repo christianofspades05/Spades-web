@@ -6,7 +6,7 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import {
   bulkCancelOrders,
   getOrdersCount,
@@ -722,8 +722,9 @@ function OrdersPage() {
               from={Route.fullPath}
               search={(prev) => ({ ...prev, page: page - 1 })}
               aria-disabled={page <= 1}
-              className={`${buttonSecondaryClassName} ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+              className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
             >
+              <ChevronLeft size={14} />
               Previous
             </Link>
             <span className="text-xs text-neutral-400">
@@ -734,9 +735,10 @@ function OrdersPage() {
               from={Route.fullPath}
               search={(prev) => ({ ...prev, page: page + 1 })}
               aria-disabled={page >= totalPages}
-              className={`${buttonSecondaryClassName} ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+              className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
             >
               Next
+              <ChevronRight size={14} />
             </Link>
           </div>
         </div>
