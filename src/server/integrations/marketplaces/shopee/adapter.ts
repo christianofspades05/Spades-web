@@ -243,39 +243,56 @@ export const shopeeAdapter: MarketplaceAdapter = {
     const sinceSeconds = Math.floor(since.getTime() / 1000)
     const nowSeconds = Math.floor(Date.now() / 1000)
 
-    const orderSns: string[] = []
-    let cursor = ''
-    do {
-      const page = await callShopeeApi<{
-        // Confirmed via a real empty-shop response: Shopee omits this
-        // field entirely (rather than returning `[]`) when there's
-        // nothing to list — every array field below has the same caveat.
-        order_list?: { order_sn: string }[]
-        more: boolean
-        next_cursor: string
-      }>({
-        method: 'GET',
-        path: '/api/v2/order/get_order_list',
-        accessToken,
-        shopId,
-        query: {
-          time_range_field: 'update_time',
-          time_from: sinceSeconds.toString(),
-          time_to: nowSeconds.toString(),
-          page_size: '50',
-          cursor,
-        },
-      })
-      orderSns.push(...(page.order_list ?? []).map((o) => o.order_sn))
-      cursor = page.more ? page.next_cursor : ''
-    } while (cursor)
+    // get_order_list rejects any time_from/time_to span over 15 days
+    // ("order.order_list_invalid_time") — fine for the routine cron's short
+    // lookback, but a wider admin-triggered backfill (e.g. a 30-day recheck
+    // for stale cancellations) needs the range split into sub-15-day
+    // windows and queried one at a time.
+    const MAX_WINDOW_SECONDS = 14 * 24 * 60 * 60
+    const orderSns = new Set<string>()
+    for (
+      let windowStart = sinceSeconds;
+      windowStart < nowSeconds;
+      windowStart += MAX_WINDOW_SECONDS
+    ) {
+      const windowEnd = Math.min(
+        windowStart + MAX_WINDOW_SECONDS,
+        nowSeconds,
+      )
+      let cursor = ''
+      do {
+        const page = await callShopeeApi<{
+          // Confirmed via a real empty-shop response: Shopee omits this
+          // field entirely (rather than returning `[]`) when there's
+          // nothing to list — every array field below has the same caveat.
+          order_list?: { order_sn: string }[]
+          more: boolean
+          next_cursor: string
+        }>({
+          method: 'GET',
+          path: '/api/v2/order/get_order_list',
+          accessToken,
+          shopId,
+          query: {
+            time_range_field: 'update_time',
+            time_from: windowStart.toString(),
+            time_to: windowEnd.toString(),
+            page_size: '50',
+            cursor,
+          },
+        })
+        for (const o of page.order_list ?? []) orderSns.add(o.order_sn)
+        cursor = page.more ? page.next_cursor : ''
+      } while (cursor)
+    }
 
-    if (orderSns.length === 0) return []
+    if (orderSns.size === 0) return []
 
     // get_order_detail caps out at 50 order_sn per call.
+    const orderSnList = Array.from(orderSns)
     const orders: Record<string, unknown>[] = []
-    for (let i = 0; i < orderSns.length; i += 50) {
-      const batch = orderSns.slice(i, i + 50)
+    for (let i = 0; i < orderSnList.length; i += 50) {
+      const batch = orderSnList.slice(i, i + 50)
       const { order_list } = await callShopeeApi<{
         order_list?: ShopeeOrder[]
       }>({
