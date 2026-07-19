@@ -132,7 +132,7 @@ function ProductPage() {
             reviewCount={reviews.reviewCount}
           />
           {product.description && (
-            <div className="mt-6 hidden md:block">
+            <div className="mt-6 hidden md:block md:max-h-[28rem] md:overflow-y-auto md:pr-3">
               <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
                 {product.description}
               </p>

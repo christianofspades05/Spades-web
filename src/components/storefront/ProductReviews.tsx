@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Stars } from '#/components/storefront/Stars'
 import type { Review } from '#/types/entities'
 
-const REVIEWS_PER_PAGE = 5
+const REVIEWS_PER_PAGE = 2
+const AUTO_ADVANCE_MS = 2000
 
 export function ProductRatingSummary({
   averageRating,
@@ -30,6 +31,14 @@ export function ProductReviewsList({ reviews }: { reviews: Review[] }) {
     (page - 1) * REVIEWS_PER_PAGE,
     page * REVIEWS_PER_PAGE,
   )
+
+  useEffect(() => {
+    if (pageCount <= 1) return
+    const id = setInterval(() => {
+      setPage((p) => (p >= pageCount ? 1 : p + 1))
+    }, AUTO_ADVANCE_MS)
+    return () => clearInterval(id)
+  }, [pageCount])
 
   return (
     <div className="mt-6 border-t border-neutral-200 pt-6 dark:border-neutral-800">
