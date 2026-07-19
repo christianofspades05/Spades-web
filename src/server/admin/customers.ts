@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { customerRiskUpdateSchema } from '#/lib/validation/admin/customers'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { chunkArray } from '#/lib/utils/paginate'
+import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { logStaffActivity } from './activity-log'
 import type { Customer, CustomerAddress, Order } from '#/types/entities'
 
@@ -16,53 +16,19 @@ export interface CustomerListRow extends Customer {
 
 const VOID_ORDER_STATUSES = new Set(['cancelled', 'failed'])
 
-/**
- * The customers table has its own successful_orders_count/
- * cancelled_orders_count/failed_delivery_count/return_count columns, but
- * nothing in this codebase ever increments them — they'd just be stuck at
- * whatever the DB default is. Counting real rows instead so these numbers
- * actually reflect the customer's order history.
- */
-async function computeCustomerOrderCounts(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  customerIds: string[],
-): Promise<
-  Map<
-    string,
-    {
-      ordersCount: number
-      cancelledCount: number
-      failedDeliveryCount: number
-      returnCount: number
-      spentCents: number
-    }
-  >
-> {
-  const counts = new Map<
-    string,
-    {
-      ordersCount: number
-      cancelledCount: number
-      failedDeliveryCount: number
-      returnCount: number
-      spentCents: number
-    }
-  >()
-  if (customerIds.length === 0) return counts
+interface CustomerOrderBucket {
+  ordersCount: number
+  cancelledCount: number
+  failedDeliveryCount: number
+  returnCount: number
+  spentCents: number
+}
 
-  const [
-    { data: orders, error: ordersError },
-    { data: returns, error: returnsError },
-  ] = await Promise.all([
-    admin
-      .from('orders')
-      .select('customer_id, status, cancellation_reason, total_cents')
-      .in('customer_id', customerIds),
-    admin.from('returns').select('customer_id').in('customer_id', customerIds),
-  ])
-  if (ordersError) throw ordersError
-  if (returnsError) throw returnsError
-
+function aggregateOrderCounts(
+  orders: Pick<Order, 'customer_id' | 'status' | 'cancellation_reason' | 'total_cents'>[],
+  returns: { customer_id: string }[],
+): Map<string, CustomerOrderBucket> {
+  const counts = new Map<string, CustomerOrderBucket>()
   for (const order of orders) {
     const bucket = counts.get(order.customer_id) ?? {
       ordersCount: 0,
@@ -94,8 +60,64 @@ async function computeCustomerOrderCounts(
     bucket.returnCount += 1
     counts.set(ret.customer_id, bucket)
   }
-
   return counts
+}
+
+/**
+ * The customers table has its own successful_orders_count/
+ * cancelled_orders_count/failed_delivery_count/return_count columns, but
+ * nothing in this codebase ever increments them — they'd just be stuck at
+ * whatever the DB default is. Counting real rows instead so these numbers
+ * actually reflect the customer's order history. Bounded to a small,
+ * already-known id list (one page, or one channel's customers) — cheap.
+ */
+async function computeCustomerOrderCounts(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  customerIds: string[],
+): Promise<Map<string, CustomerOrderBucket>> {
+  if (customerIds.length === 0) return new Map()
+
+  const [
+    { data: orders, error: ordersError },
+    { data: returns, error: returnsError },
+  ] = await Promise.all([
+    admin
+      .from('orders')
+      .select('customer_id, status, cancellation_reason, total_cents')
+      .in('customer_id', customerIds),
+    admin.from('returns').select('customer_id').in('customer_id', customerIds),
+  ])
+  if (ordersError) throw ordersError
+  if (returnsError) throw returnsError
+
+  return aggregateOrderCounts(orders, returns)
+}
+
+/**
+ * Same aggregation, but for every customer at once rather than a known id
+ * list — needed to sort the full customers table by a derived metric
+ * (orders/amount spent/cancelled/returns), since those have no backing
+ * column to ORDER BY at the database level. customers can run to 50k+ rows
+ * (mostly imported guests with zero local orders), but orders/returns
+ * themselves are small (low thousands) — scanning those two tables whole
+ * and joining in memory is far cheaper than chunking a 50k-id list into
+ * hundreds of `.in()` calls against them.
+ */
+async function computeAllCustomerOrderCounts(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+): Promise<Map<string, CustomerOrderBucket>> {
+  const [orders, returns] = await Promise.all([
+    fetchAllRows((offset) =>
+      admin
+        .from('orders')
+        .select('customer_id, status, cancellation_reason, total_cents')
+        .range(offset, offset + 999),
+    ),
+    fetchAllRows((offset) =>
+      admin.from('returns').select('customer_id').range(offset, offset + 999),
+    ),
+  ])
+  return aggregateOrderCounts(orders, returns)
 }
 
 const customerFilterSchema = z.object({
@@ -151,8 +173,60 @@ async function resolveSourceCustomerIds(
 // into id chunks keeps every individual request well under that limit.
 const CUSTOMER_ID_CHUNK_SIZE = 200
 
+const CUSTOMER_SORT_BY = [
+  'name',
+  'orders',
+  'amount_spent',
+  'cancelled',
+  'returns',
+] as const
+
 function buildSearchClause(search: string): string {
   return `email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`
+}
+
+/**
+ * Every customer matching the current filters, narrowed to just the columns
+ * a sort key needs (not a full row) — used only when sorting by a derived
+ * metric, where every match has to be scored and ordered before slicing to
+ * a page. A channel filter already has its id list from
+ * resolveSourceCustomerIds, so this only re-queries `customers` in
+ * id-bounded chunks; with no channel filter it scans the whole table once,
+ * paginated, applying search at the database level.
+ */
+async function fetchSortableCustomerRows(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  source: NonNullable<z.infer<typeof customerFilterSchema>['source']> | undefined,
+  search: string | undefined,
+): Promise<
+  Pick<Customer, 'id' | 'imported_total_spent_cents'>[]
+> {
+  if (source) {
+    const customerIds = await resolveSourceCustomerIds(admin, source)
+    if (customerIds.length === 0) return []
+    const chunkResults = await Promise.all(
+      chunkArray(customerIds, CUSTOMER_ID_CHUNK_SIZE).map(async (ids) => {
+        let query = admin
+          .from('customers')
+          .select('id, imported_total_spent_cents')
+          .in('id', ids)
+        if (search) query = query.or(buildSearchClause(search))
+        const { data: rows, error } = await query
+        if (error) throw error
+        return rows
+      }),
+    )
+    return chunkResults.flat()
+  }
+
+  return fetchAllRows((offset) => {
+    let query = admin
+      .from('customers')
+      .select('id, imported_total_spent_cents')
+      .range(offset, offset + 999)
+    if (search) query = query.or(buildSearchClause(search))
+    return query
+  })
 }
 
 // PostgREST's `.or()` filter syntax treats `,`, `(`, and `)` as delimiters,
@@ -169,6 +243,8 @@ export const listCustomers = createServerFn({ method: 'GET' })
     customerFilterSchema.extend({
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(1).max(100).default(50),
+      sortBy: z.enum(CUSTOMER_SORT_BY).optional(),
+      sortDir: z.enum(['asc', 'desc']).default('asc'),
     }),
   )
   .handler(async ({ data }): Promise<CustomerListRow[]> => {
@@ -177,18 +253,78 @@ export const listCustomers = createServerFn({ method: 'GET' })
 
     const search = sanitizeSearch(data.q)
     const offset = (data.page - 1) * data.pageSize
+    const ascending = data.sortDir === 'asc'
 
     let customers: Customer[]
 
-    if (data.source) {
-      const customerIds = await resolveSourceCustomerIds(admin, data.source)
+    if (!data.source && (!data.sortBy || data.sortBy === 'name')) {
+      // Cheapest path: no channel filter, and either no sort or sorting by
+      // a real column (full_name) — a single DB-level order+range query,
+      // same cost no matter how many customers exist in total.
+      let query = admin.from('customers').select('*')
+      if (search) query = query.or(buildSearchClause(search))
+      query =
+        data.sortBy === 'name'
+          ? query.order('full_name', { ascending })
+          : query.order('created_at', { ascending: false })
+      query = query.range(offset, offset + data.pageSize - 1)
+
+      const { data: rows, error } = await query
+      if (error) throw error
+      customers = rows
+    } else if (data.sortBy && data.sortBy !== 'name') {
+      // Sorting by a derived metric (orders/amount spent/cancelled/
+      // returns) has no backing column to ORDER BY, so every matching
+      // customer needs a computed sort key before slicing to a page.
+      const sortKeyRows = await fetchSortableCustomerRows(admin, data.source, search)
+      if (sortKeyRows.length === 0) return []
+
+      const countsMap = await computeAllCustomerOrderCounts(admin)
+      const withSortKey = sortKeyRows.map((row) => {
+        const bucket = countsMap.get(row.id)
+        return {
+          id: row.id,
+          ordersCount: bucket?.ordersCount ?? 0,
+          amountSpentCents:
+            (bucket?.spentCents ?? 0) + (row.imported_total_spent_cents ?? 0),
+          cancelledCount: bucket?.cancelledCount ?? 0,
+          returnCount:
+            (bucket?.returnCount ?? 0) + (bucket?.failedDeliveryCount ?? 0),
+        }
+      })
+      withSortKey.sort((a, b) => {
+        const cmp =
+          data.sortBy === 'orders'
+            ? a.ordersCount - b.ordersCount
+            : data.sortBy === 'amount_spent'
+              ? a.amountSpentCents - b.amountSpentCents
+              : data.sortBy === 'cancelled'
+                ? a.cancelledCount - b.cancelledCount
+                : a.returnCount - b.returnCount
+        return ascending ? cmp : -cmp
+      })
+
+      const pageIds = withSortKey
+        .slice(offset, offset + data.pageSize)
+        .map((r) => r.id)
+      if (pageIds.length === 0) return []
+
+      const { data: pageRows, error } = await admin
+        .from('customers')
+        .select('*')
+        .in('id', pageIds)
+      if (error) throw error
+      // .in() doesn't preserve the requested order — restore it.
+      const byId = new Map(pageRows.map((r) => [r.id, r]))
+      customers = pageIds
+        .map((id) => byId.get(id))
+        .filter((c): c is Customer => c != null)
+    } else {
+      // Channel filter active, no explicit sort — same "fetch every
+      // matching customer, sort by newest first, slice" as before.
+      const customerIds = await resolveSourceCustomerIds(admin, data.source!)
       if (customerIds.length === 0) return []
 
-      // Can't push the id list into a single .range()-paginated query
-      // without risking the same oversized-URL 400 — instead fetch every
-      // matching customer in id-bounded chunks, merge, sort, then paginate
-      // in memory. Channel filtering is an infrequent admin action on a
-      // bounded (thousands, not millions) table, so this is fine.
       const chunkResults = await Promise.all(
         chunkArray(customerIds, CUSTOMER_ID_CHUNK_SIZE).map(async (ids) => {
           let query = admin.from('customers').select('*').in('id', ids)
@@ -202,23 +338,6 @@ export const listCustomers = createServerFn({ method: 'GET' })
         .flat()
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .slice(offset, offset + data.pageSize)
-    } else {
-      let query = admin
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false })
-      if (search) query = query.or(buildSearchClause(search))
-
-      // Bounding to a page keeps the customer-id list handed to
-      // computeCustomerOrderCounts below small — with the full
-      // (unpaginated) customer table, that list could run into the
-      // thousands, and PostgREST rejects a query string that long with a
-      // 400.
-      query = query.range(offset, offset + data.pageSize - 1)
-
-      const { data: rows, error } = await query
-      if (error) throw error
-      customers = rows
     }
 
     if (customers.length === 0) return []

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Download, Search } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, Search } from 'lucide-react'
 import { getCustomersCount, listCustomers } from '#/server/admin/customers'
 import type { CustomerListRow } from '#/server/admin/customers'
 import { formatCentsAsPHP } from '#/lib/utils/money'
@@ -27,6 +27,15 @@ const CHANNEL_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [50, 100] as const
 
+const CUSTOMER_SORT_BY = [
+  'name',
+  'orders',
+  'amount_spent',
+  'cancelled',
+  'returns',
+] as const
+type CustomerSortBy = (typeof CUSTOMER_SORT_BY)[number]
+
 export const Route = createFileRoute('/admin/customers/')({
   validateSearch: z.object({
     q: z.string().optional(),
@@ -37,13 +46,21 @@ export const Route = createFileRoute('/admin/customers/')({
     pageSize: z
       .union([z.literal(50), z.literal(100)])
       .catch(50),
+    sortBy: z.enum(CUSTOMER_SORT_BY).optional(),
+    sortDir: z.enum(['asc', 'desc']).catch('asc'),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
     const filters = { q: deps.q, source: deps.source }
     const [customers, { total }] = await Promise.all([
       listCustomers({
-        data: { ...filters, page: deps.page, pageSize: deps.pageSize },
+        data: {
+          ...filters,
+          page: deps.page,
+          pageSize: deps.pageSize,
+          sortBy: deps.sortBy,
+          sortDir: deps.sortDir,
+        },
       }),
       getCustomersCount({ data: filters }),
     ])
@@ -115,6 +132,51 @@ function CustomersPage() {
     navigate({
       search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
     })
+  }
+
+  function toggleSort(column: CustomerSortBy) {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        sortBy: column,
+        sortDir: prev.sortBy === column && prev.sortDir === 'asc' ? 'desc' : 'asc',
+        page: 1,
+      }),
+    })
+  }
+
+  function SortableHeader({
+    column,
+    label,
+    align = 'left',
+  }: {
+    column: CustomerSortBy
+    label: string
+    align?: 'left' | 'right'
+  }) {
+    const isActive = search.sortBy === column
+    return (
+      <th className={`${tableHeadClassName} ${align === 'right' ? 'text-right' : ''}`}>
+        <button
+          type="button"
+          onClick={() => toggleSort(column)}
+          className={`inline-flex items-center gap-1 hover:text-neutral-900 ${
+            align === 'right' ? 'flex-row-reverse' : ''
+          } ${isActive ? 'text-neutral-900' : ''}`}
+        >
+          {label}
+          {isActive ? (
+            search.sortDir === 'asc' ? (
+              <ArrowUp size={12} />
+            ) : (
+              <ArrowDown size={12} />
+            )
+          ) : (
+            <ArrowUpDown size={12} className="text-neutral-300" />
+          )}
+        </button>
+      </th>
+    )
   }
 
   return (
@@ -191,18 +253,20 @@ function CustomersPage() {
             <table className="w-full">
               <thead>
                 <tr>
-                  <th className={tableHeadClassName}>Customer</th>
+                  <SortableHeader column="name" label="Customer" />
                   <th className={tableHeadClassName}>Contact</th>
-                  <th className={`${tableHeadClassName} text-right`}>Orders</th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Amount Spent
-                  </th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Cancelled
-                  </th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Returns
-                  </th>
+                  <SortableHeader column="orders" label="Orders" align="right" />
+                  <SortableHeader
+                    column="amount_spent"
+                    label="Amount Spent"
+                    align="right"
+                  />
+                  <SortableHeader
+                    column="cancelled"
+                    label="Cancelled"
+                    align="right"
+                  />
+                  <SortableHeader column="returns" label="Returns" align="right" />
                   <th className={tableHeadClassName}>Risk</th>
                 </tr>
               </thead>
