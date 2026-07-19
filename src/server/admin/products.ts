@@ -264,6 +264,7 @@ export const getProductById = createServerFn({ method: 'GET' })
         '*, variants:product_variants(*, inventory(*)), collections:product_collections(collection_id)',
       )
       .eq('id', data.id)
+      .order('sort_order', { foreignTable: 'variants' })
       .maybeSingle()
     if (error) throw error
     return product
@@ -532,6 +533,12 @@ export const createVariant = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
+    const { count: existingCount, error: countError } = await admin
+      .from('product_variants')
+      .select('id', { count: 'exact', head: true })
+      .eq('product_id', data.productId)
+    if (countError) throw countError
+
     const { data: variant, error } = await admin
       .from('product_variants')
       .insert({
@@ -550,6 +557,7 @@ export const createVariant = createServerFn({ method: 'POST' })
         weight_grams: data.weightGrams ?? null,
         barcode: data.barcode ?? null,
         is_active: data.isActive,
+        sort_order: existingCount ?? 0,
       })
       .select('*')
       .single()
@@ -570,6 +578,38 @@ export const createVariant = createServerFn({ method: 'POST' })
       { sku: data.sku },
     )
     return variant
+  })
+
+export const reorderVariants = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      productId: z.string().uuid(),
+      orderedVariantIds: z.array(z.string().uuid()),
+    }),
+  )
+  .handler(async ({ data }): Promise<void> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const results = await Promise.all(
+      data.orderedVariantIds.map((id, index) =>
+        admin
+          .from('product_variants')
+          .update({ sort_order: index })
+          .eq('id', id)
+          .eq('product_id', data.productId),
+      ),
+    )
+    const failed = results.find((r) => r.error)
+    if (failed?.error) throw failed.error
+
+    await logStaffActivity(
+      staff,
+      'variant.reorder',
+      'products',
+      data.productId,
+      { count: data.orderedVariantIds.length },
+    )
   })
 
 export const updateVariant = createServerFn({ method: 'POST' })

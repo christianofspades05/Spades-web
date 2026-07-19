@@ -1,17 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   createFileRoute,
   notFound,
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { Copy, Package, Pencil, Upload, X } from 'lucide-react'
+import { Copy, GripVertical, Package, Pencil, Upload, X } from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
 import {
   createVariant,
   duplicateProduct,
   getProductById,
   getProductSalesSummary,
+  reorderVariants,
   setProductCollections,
   updateProduct,
   updateVariant,
@@ -488,10 +489,44 @@ function VariantsSection({
   onChanged: () => void
 }) {
   const [addingNew, setAddingNew] = useState(false)
-  const totalAvailable = product.variants.reduce(
+  const [variants, setVariants] = useState(product.variants)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [reorderError, setReorderError] = useState<string | null>(null)
+
+  // Reflects fresh server order (new variant added, product reloaded, etc.)
+  // — dropped whenever the loader re-runs, same as elsewhere on this page.
+  useEffect(() => {
+    setVariants(product.variants)
+  }, [product.variants])
+
+  const totalAvailable = variants.reduce(
     (sum, v) => sum + (v.inventory[0]?.quantity_available ?? 0),
     0,
   )
+
+  async function persistOrder(next: typeof variants) {
+    setVariants(next)
+    setReorderError(null)
+    try {
+      await reorderVariants({
+        data: {
+          productId: product.id,
+          orderedVariantIds: next.map((v) => v.id),
+        },
+      })
+    } catch (err) {
+      setReorderError(getErrorMessage(err))
+    }
+  }
+
+  function handleDrop(targetIndex: number) {
+    if (dragIndex === null || dragIndex === targetIndex) return
+    const next = [...variants]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(targetIndex, 0, moved)
+    setDragIndex(null)
+    void persistOrder(next)
+  }
 
   return (
     <>
@@ -508,10 +543,15 @@ function VariantsSection({
         </button>
       </div>
 
+      {reorderError && (
+        <p className="mb-2 text-sm text-red-600">{reorderError}</p>
+      )}
+
       <div className={tableWrapperClassName}>
         <table className="w-full">
           <thead>
             <tr>
+              <th className={tableHeadClassName} />
               <th className={tableHeadClassName}>Variant</th>
               <th className={tableHeadClassName}>Price</th>
               <th className={tableHeadClassName}>Available</th>
@@ -519,19 +559,22 @@ function VariantsSection({
             </tr>
           </thead>
           <tbody>
-            {product.variants.map((variant) => (
+            {variants.map((variant, index) => (
               <VariantRow
                 key={variant.id}
                 variant={variant}
                 inventory={variant.inventory[0] ?? null}
                 onSaved={onChanged}
+                onDragStart={() => setDragIndex(index)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDrop(index)}
               />
             ))}
           </tbody>
           <tfoot>
             <tr className={tableRowClassName}>
               <td
-                colSpan={4}
+                colSpan={5}
                 className={`${tableCellClassName} text-neutral-500`}
               >
                 Total inventory: {totalAvailable} available
@@ -560,10 +603,16 @@ function VariantRow({
   variant,
   inventory,
   onSaved,
+  onDragStart,
+  onDragOver,
+  onDrop,
 }: {
   variant: ProductVariant
   inventory: Inventory | null
   onSaved: () => void
+  onDragStart: () => void
+  onDragOver: (event: React.DragEvent) => void
+  onDrop: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -637,7 +686,17 @@ function VariantRow({
 
   return (
     <>
-      <tr className={tableRowClassName}>
+      <tr className={tableRowClassName} onDragOver={onDragOver} onDrop={onDrop}>
+        <td className={`${tableCellClassName} w-8 pr-0`}>
+          <span
+            draggable
+            onDragStart={onDragStart}
+            className="flex cursor-grab items-center justify-center text-neutral-300 hover:text-neutral-500 active:cursor-grabbing"
+            aria-label="Drag to reorder"
+          >
+            <GripVertical size={16} />
+          </span>
+        </td>
         <td className={tableCellClassName}>
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
@@ -689,7 +748,7 @@ function VariantRow({
 
       {error && (
         <tr>
-          <td colSpan={4} className="px-4 pb-2 text-sm text-red-600">
+          <td colSpan={5} className="px-4 pb-2 text-sm text-red-600">
             {error}
           </td>
         </tr>
@@ -697,7 +756,7 @@ function VariantRow({
 
       {expanded && (
         <tr className="bg-neutral-50">
-          <td colSpan={4} className="px-4 pb-4">
+          <td colSpan={5} className="px-4 pb-4">
             <form
               onSubmit={saveDetails}
               className="flex flex-wrap items-end gap-3 pt-2"
