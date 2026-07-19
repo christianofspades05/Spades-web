@@ -168,6 +168,15 @@ export interface CancelledReturnsResult {
   daily: { date: string; count: number }[]
   byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
   byChannel: { source: OrderSource; count: number }[]
+  /** Same reason breakdown as byReason, but scoped to one channel at a time
+   *  — powers the per-channel "cancellation reason" sections on the admin
+   *  page, since byReason/byChannel alone can't answer "why is TikTok
+   *  cancelling orders" on their own. */
+  byChannelAndReason: {
+    source: OrderSource
+    total: number
+    byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
+  }[]
   returns: {
     totalCount: number
     totalRefundCents: number
@@ -219,6 +228,10 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       number
     >()
     const byChannelMap = new Map<OrderSource, number>()
+    const byChannelAndReasonMap = new Map<
+      OrderSource,
+      Map<OrderCancellationReason | 'unspecified', number>
+    >()
 
     for (const order of cancelledOrders) {
       if (order.cancelled_at) {
@@ -228,6 +241,10 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       const reasonKey = order.cancellation_reason ?? 'unspecified'
       byReasonMap.set(reasonKey, (byReasonMap.get(reasonKey) ?? 0) + 1)
       byChannelMap.set(order.source, (byChannelMap.get(order.source) ?? 0) + 1)
+
+      const channelReasons = byChannelAndReasonMap.get(order.source) ?? new Map()
+      channelReasons.set(reasonKey, (channelReasons.get(reasonKey) ?? 0) + 1)
+      byChannelAndReasonMap.set(order.source, channelReasons)
     }
 
     const { data: returns, error: returnsError } = await admin
@@ -280,6 +297,15 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
       byChannel: Array.from(byChannelMap.entries())
         .map(([source, count]) => ({ source, count }))
         .sort((a, b) => b.count - a.count),
+      byChannelAndReason: Array.from(byChannelAndReasonMap.entries())
+        .map(([source, reasonMap]) => ({
+          source,
+          total: Array.from(reasonMap.values()).reduce((a, b) => a + b, 0),
+          byReason: Array.from(reasonMap.entries())
+            .map(([reason, count]) => ({ reason, count }))
+            .sort((a, b) => b.count - a.count),
+        }))
+        .sort((a, b) => b.total - a.total),
       returns: {
         totalCount: returns.length,
         totalRefundCents,

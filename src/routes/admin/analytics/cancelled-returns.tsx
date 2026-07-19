@@ -27,6 +27,16 @@ const REASON_LABELS: Record<OrderCancellationReason | 'unspecified', string> = {
   unspecified: 'Unspecified',
 }
 
+/** The three channels staff actually track cancellations for — admin
+ *  (manual) and Lazada (not yet a live sales channel) are left out of the
+ *  per-channel breakdown, matching the same trim applied to the Orders
+ *  page's channel filter. */
+const CHANNEL_SECTION_SOURCES: OrderSource[] = [
+  'storefront',
+  'tiktok_shop',
+  'shopee',
+]
+
 export const Route = createFileRoute('/admin/analytics/cancelled-returns')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
@@ -74,6 +84,19 @@ function CancelledReturnsPage() {
   const returnsChannelBars = result.returns.byChannel.map((c) => ({
     label: SOURCE_LABELS[c.source],
     value: c.count,
+  }))
+
+  const byChannelAndReason = new Map(
+    result.byChannelAndReason.map((c) => [c.source, c]),
+  )
+  const channelSections = CHANNEL_SECTION_SOURCES.map((source) => ({
+    source,
+    label: SOURCE_LABELS[source],
+    total: byChannelAndReason.get(source)?.total ?? 0,
+    bars: (byChannelAndReason.get(source)?.byReason ?? []).map((r) => ({
+      label: REASON_LABELS[r.reason],
+      value: r.count,
+    })),
   }))
 
   return (
@@ -140,6 +163,33 @@ function CancelledReturnsPage() {
             <BarChart bars={channelBars} color="#171717" />
           </div>
         </Card>
+      </div>
+
+      <h2 className="mt-8 text-sm font-semibold text-neutral-900">
+        Cancellation Reasons by Channel
+      </h2>
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {channelSections.map((section) => (
+          <Card key={section.source} className="p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-neutral-900">
+                {section.label}
+              </h3>
+              <span className="text-xs text-neutral-500">
+                {section.total} cancelled
+              </span>
+            </div>
+            <div className="mt-4">
+              {section.bars.length > 0 ? (
+                <BarChart bars={section.bars} color="#dc2626" />
+              ) : (
+                <p className="text-xs text-neutral-400">
+                  No cancellations in this period.
+                </p>
+              )}
+            </div>
+          </Card>
+        ))}
       </div>
 
       <Card className="mt-6 p-6">
