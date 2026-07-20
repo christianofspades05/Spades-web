@@ -74,7 +74,7 @@ function DiscountsPage() {
                   <th className={tableHeadClassName}>Status</th>
                   <th className={tableHeadClassName}>Method</th>
                   <th className={tableHeadClassName}>Value</th>
-                  <th className={tableHeadClassName}>Excludes</th>
+                  <th className={tableHeadClassName}>Collections</th>
                   <th className={`${tableHeadClassName} text-right`}>Used</th>
                 </tr>
               </thead>
@@ -103,15 +103,19 @@ function DiscountsPage() {
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {discount.kind === 'code'
                           ? 'Discount code'
-                          : 'Automatic sale'}
+                          : discount.scope === 'collection'
+                            ? 'Collection sale'
+                            : 'Store sale'}
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {valueLabel(discount)}
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
-                        {discount.excluded_collection_ids.length > 0
-                          ? `${discount.excluded_collection_ids.length} collection${discount.excluded_collection_ids.length === 1 ? '' : 's'}`
-                          : '—'}
+                        {discount.scope === 'collection'
+                          ? `${discount.scope_ids.length} included`
+                          : discount.excluded_collection_ids.length > 0
+                            ? `${discount.excluded_collection_ids.length} excluded`
+                            : '—'}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {discount.times_used}

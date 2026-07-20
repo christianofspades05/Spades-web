@@ -6,6 +6,7 @@ import type { ProductVariant } from '#/types/entities'
 
 export type VariantWithStock = ProductVariant & {
   inventory: { quantity_available: number }[]
+  salePriceCents?: number | null
 }
 
 const DIMENSIONS = ['size', 'color', 'style'] as const
@@ -119,18 +120,27 @@ export function VariantSelector({
         </div>
       ))}
 
-      {resolvedVariant && (
-        <p className="text-2xl font-semibold text-neutral-900 dark:text-white">
-          {formatCentsAsPHP(resolvedVariant.price_cents)}
-          {resolvedVariant.compare_at_price_cents != null &&
-            resolvedVariant.compare_at_price_cents >
-              resolvedVariant.price_cents && (
-              <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
-                {formatCentsAsPHP(resolvedVariant.compare_at_price_cents)}
-              </span>
-            )}
-        </p>
-      )}
+      {resolvedVariant &&
+        (resolvedVariant.salePriceCents != null &&
+        resolvedVariant.salePriceCents < resolvedVariant.price_cents ? (
+          <p className="text-2xl font-semibold text-red-600 dark:text-red-400">
+            {formatCentsAsPHP(resolvedVariant.salePriceCents)}
+            <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
+              {formatCentsAsPHP(resolvedVariant.price_cents)}
+            </span>
+          </p>
+        ) : (
+          <p className="text-2xl font-semibold text-neutral-900 dark:text-white">
+            {formatCentsAsPHP(resolvedVariant.price_cents)}
+            {resolvedVariant.compare_at_price_cents != null &&
+              resolvedVariant.compare_at_price_cents >
+                resolvedVariant.price_cents && (
+                <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
+                  {formatCentsAsPHP(resolvedVariant.compare_at_price_cents)}
+                </span>
+              )}
+          </p>
+        ))}
     </div>
   )
 }

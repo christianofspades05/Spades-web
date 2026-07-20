@@ -5,11 +5,12 @@ import {
   setDiscountActiveSchema,
   updateDiscountSchema,
 } from '#/lib/validation/admin/discounts'
+import type { DiscountInput } from '#/lib/validation/admin/discounts'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { logStaffActivity } from './activity-log'
-import type { Discount, DiscountInput } from '#/types/entities'
+import type { Discount } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
 
@@ -23,9 +24,15 @@ function toRow(data: DiscountInput) {
       data.discountType === 'percentage'
         ? Math.round(data.percentageValue ?? 0)
         : pesosToCents(data.amountPesos ?? 0),
-    scope: 'all' as const,
-    scope_ids: [],
-    excluded_collection_ids: data.excludedCollectionIds,
+    scope: data.kind === 'automatic' ? data.scope : ('all' as const),
+    scope_ids:
+      data.kind === 'automatic' && data.scope === 'collection'
+        ? data.includedCollectionIds
+        : [],
+    excluded_collection_ids:
+      data.kind === 'automatic' && data.scope === 'all'
+        ? data.excludedCollectionIds
+        : [],
     max_uses: data.maxUses ?? null,
     max_uses_per_customer: data.oneUsePerCustomer ? 1 : null,
     starts_at: data.startsAt ? new Date(data.startsAt).toISOString() : null,

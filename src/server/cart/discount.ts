@@ -6,6 +6,7 @@
  * isn't built yet.
  */
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
+import { getActiveAutomaticDiscounts } from '#/server/storefront/automatic-sales'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant, Discount } from '#/types/entities'
@@ -27,7 +28,7 @@ function itemLineTotalCents(item: CartItemWithVariant): number {
 
 async function eligibleItemsForDiscount(
   admin: Admin,
-  discount: Discount,
+  discount: Pick<Discount, 'scope' | 'scope_ids'>,
   items: CartItemWithVariant[],
 ): Promise<CartItemWithVariant[]> {
   if (discount.scope === 'all') return items
@@ -58,6 +59,39 @@ async function eligibleItemsForDiscount(
   return items.filter((item) => eligibleProductIds.has(item.variant.product.id))
 }
 
+async function appliedDiscountFor(
+  admin: Admin,
+  discount: Pick<
+    Discount,
+    'id' | 'code' | 'title' | 'type' | 'value' | 'scope' | 'scope_ids'
+  >,
+  items: CartItemWithVariant[],
+): Promise<AppliedCartDiscount | null> {
+  const eligible = await eligibleItemsForDiscount(admin, discount, items)
+  if (eligible.length === 0) return null
+  const eligibleSubtotalCents = eligible.reduce(
+    (sum, item) => sum + itemLineTotalCents(item),
+    0,
+  )
+
+  let amountCents = 0
+  if (discount.type === 'percentage') {
+    amountCents = Math.round((eligibleSubtotalCents * discount.value) / 100)
+  } else if (discount.type === 'fixed_amount') {
+    amountCents = Math.min(discount.value, eligibleSubtotalCents)
+  }
+  if (amountCents <= 0) return null
+
+  return {
+    id: discount.id,
+    code: discount.code,
+    title: discount.title,
+    type: discount.type,
+    value: discount.value,
+    amountCents,
+  }
+}
+
 /** Recomputes what a cart's already-attached discount (if any) is currently worth. */
 export async function resolveDiscountForCart(
   admin: Admin,
@@ -74,27 +108,34 @@ export async function resolveDiscountForCart(
   if (error) throw error
   if (!discount || !discount.is_active) return null
 
-  const eligible = await eligibleItemsForDiscount(admin, discount, items)
-  const eligibleSubtotalCents = eligible.reduce(
-    (sum, item) => sum + itemLineTotalCents(item),
-    0,
-  )
+  return appliedDiscountFor(admin, discount, items)
+}
 
-  let amountCents = 0
-  if (discount.type === 'percentage') {
-    amountCents = Math.round((eligibleSubtotalCents * discount.value) / 100)
-  } else if (discount.type === 'fixed_amount') {
-    amountCents = Math.min(discount.value, eligibleSubtotalCents)
-  }
+/**
+ * A cart with no customer-entered code still gets whichever active
+ * automatic discount (Store sale / Collection sale) is worth the most —
+ * never persisted to carts.discount_id since eligibility can shift as the
+ * cart's contents change, unlike a code the customer explicitly typed in.
+ * If more than one automatic discount applies, only the better one wins
+ * (they never stack) — same rule the storefront's sale-price display uses,
+ * see resolveSalePrices in src/server/storefront/automatic-sales.ts.
+ */
+export async function resolveBestAutomaticDiscountForCart(
+  admin: Admin,
+  items: CartItemWithVariant[],
+): Promise<AppliedCartDiscount | null> {
+  if (items.length === 0) return null
+  const activeDiscounts = await getActiveAutomaticDiscounts(admin)
+  if (activeDiscounts.length === 0) return null
 
-  return {
-    id: discount.id,
-    code: discount.code,
-    title: discount.title,
-    type: discount.type,
-    value: discount.value,
-    amountCents,
+  let best: AppliedCartDiscount | null = null
+  for (const discount of activeDiscounts) {
+    const applied = await appliedDiscountFor(admin, discount, items)
+    if (applied && (!best || applied.amountCents > best.amountCents)) {
+      best = applied
+    }
   }
+  return best
 }
 
 /** Throws a user-facing message if a discount is inactive, outside its date window, or has hit its usage cap. Shared by the cart-apply step and the final checkout re-check. */

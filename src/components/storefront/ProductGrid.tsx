@@ -1,8 +1,11 @@
 import { ProductCard } from './ProductCard'
-import type { StorefrontListingProduct } from '#/server/products/queries'
+import type {
+  StorefrontListingProduct,
+  WithSalePrice,
+} from '#/server/products/queries'
 
 interface ProductGridProps {
-  products: StorefrontListingProduct[]
+  products: (StorefrontListingProduct & Partial<WithSalePrice>)[]
   emptyMessage?: string
   columns?: 4 | 5
 }

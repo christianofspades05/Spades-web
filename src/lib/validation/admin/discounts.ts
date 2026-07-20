@@ -3,6 +3,11 @@ import { z } from 'zod'
 export const discountInputSchema = z
   .object({
     kind: z.enum(['code', 'automatic']),
+    // 'all' (a store-wide sale, optionally excluding some collections) or
+    // 'collection' (a sale scoped to only the included collections) — only
+    // meaningful when kind is 'automatic'; a discount code is always
+    // store-wide (scope is forced to 'all' server-side for those).
+    scope: z.enum(['all', 'collection']).default('all'),
     title: z.string().trim().min(1).max(200),
     code: z.string().trim().min(3).max(50).optional(),
     discountType: z.enum(['percentage', 'fixed_amount']),
@@ -14,6 +19,7 @@ export const discountInputSchema = z
     oneUsePerCustomer: z.boolean().default(false),
     isActive: z.boolean().default(true),
     excludedCollectionIds: z.array(z.string().uuid()).default([]),
+    includedCollectionIds: z.array(z.string().uuid()).default([]),
   })
   .superRefine((data, ctx) => {
     if (data.kind === 'code' && !data.code) {
@@ -38,6 +44,17 @@ export const discountInputSchema = z
         code: 'custom',
         message: 'Enter an amount',
         path: ['amountPesos'],
+      })
+    }
+    if (
+      data.kind === 'automatic' &&
+      data.scope === 'collection' &&
+      data.includedCollectionIds.length === 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Pick at least one collection for a collection sale',
+        path: ['includedCollectionIds'],
       })
     }
   })

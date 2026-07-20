@@ -1,4 +1,7 @@
-import type { StorefrontListingProduct } from '#/server/products/queries'
+import type {
+  StorefrontListingProduct,
+  WithSalePrice,
+} from '#/server/products/queries'
 import type { ProductVariant, ProductWithVariants } from '#/types/entities'
 
 type VariantWithStock = ProductVariant & {
@@ -7,8 +10,8 @@ type VariantWithStock = ProductVariant & {
 
 /** Adapts a collection-query result (product + variants + inventory) into the shape ProductCard/ProductGrid expect. */
 export function toListingProduct(
-  p: ProductWithVariants,
-): StorefrontListingProduct {
+  p: ProductWithVariants & Partial<WithSalePrice>,
+): StorefrontListingProduct & WithSalePrice {
   const variants = p.variants as VariantWithStock[]
   const prices = variants.map((v) => v.price_cents)
   const totalStock = variants.reduce(
@@ -30,5 +33,7 @@ export function toListingProduct(
     updated_at: p.updated_at,
     min_price_cents: prices.length ? Math.min(...prices) : 0,
     total_stock: totalStock,
+    salePriceCents: p.salePriceCents ?? null,
+    saleTitle: p.saleTitle ?? null,
   }
 }

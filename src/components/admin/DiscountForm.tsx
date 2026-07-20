@@ -23,9 +23,14 @@ export function DiscountForm({
   onSubmit: (data: DiscountInput) => Promise<void>
   submitLabel: string
 }) {
-  const [kind, setKind] = useState<'code' | 'automatic'>(
-    discount?.kind ?? 'code',
+  const [method, setMethod] = useState<'code' | 'store_sale' | 'collection_sale'>(
+    discount?.kind === 'automatic'
+      ? discount.scope === 'collection'
+        ? 'collection_sale'
+        : 'store_sale'
+      : 'code',
   )
+  const kind = method === 'code' ? 'code' : 'automatic'
   const [title, setTitle] = useState(discount?.title ?? '')
   const [code, setCode] = useState(discount?.code ?? '')
   const [discountType, setDiscountType] = useState<
@@ -51,11 +56,20 @@ export function DiscountForm({
   const [excludedCollectionIds, setExcludedCollectionIds] = useState<string[]>(
     discount?.excluded_collection_ids ?? [],
   )
+  const [includedCollectionIds, setIncludedCollectionIds] = useState<
+    string[]
+  >(discount?.scope === 'collection' ? discount.scope_ids : [])
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   function toggleExcluded(id: string) {
     setExcludedCollectionIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
+    )
+  }
+
+  function toggleIncluded(id: string) {
+    setIncludedCollectionIds((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
     )
   }
@@ -67,6 +81,7 @@ export function DiscountForm({
     try {
       await onSubmit({
         kind,
+        scope: method === 'collection_sale' ? 'collection' : 'all',
         title,
         code: kind === 'code' ? code : undefined,
         discountType,
@@ -79,7 +94,9 @@ export function DiscountForm({
         oneUsePerCustomer,
         isActive,
         excludedCollectionIds:
-          kind === 'automatic' ? excludedCollectionIds : [],
+          method === 'store_sale' ? excludedCollectionIds : [],
+        includedCollectionIds:
+          method === 'collection_sale' ? includedCollectionIds : [],
       })
     } catch (err) {
       setError(getErrorMessage(err))
@@ -100,8 +117,8 @@ export function DiscountForm({
               type="radio"
               name="kind"
               disabled={lockKind}
-              checked={kind === 'code'}
-              onChange={() => setKind('code')}
+              checked={method === 'code'}
+              onChange={() => setMethod('code')}
               className="mt-1"
             />
             <span>
@@ -116,14 +133,31 @@ export function DiscountForm({
               type="radio"
               name="kind"
               disabled={lockKind}
-              checked={kind === 'automatic'}
-              onChange={() => setKind('automatic')}
+              checked={method === 'store_sale'}
+              onChange={() => setMethod('store_sale')}
               className="mt-1"
             />
             <span>
               <span className="font-medium text-neutral-900">Store sale</span> —
               applies automatically to the whole store, no code needed. Can
               exclude specific collections.
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-neutral-700">
+            <input
+              type="radio"
+              name="kind"
+              disabled={lockKind}
+              checked={method === 'collection_sale'}
+              onChange={() => setMethod('collection_sale')}
+              className="mt-1"
+            />
+            <span>
+              <span className="font-medium text-neutral-900">
+                Collection sale
+              </span>{' '}
+              — applies automatically, no code needed, only to products in
+              the collections you pick (e.g. a clearance collection).
             </span>
           </label>
         </fieldset>
@@ -253,7 +287,7 @@ export function DiscountForm({
           </div>
         )}
 
-        {kind === 'automatic' && collections.length > 0 && (
+        {method === 'store_sale' && collections.length > 0 && (
           <fieldset className="flex flex-col gap-1 rounded-lg border border-neutral-200 p-4">
             <legend className="mb-1 text-sm font-medium text-neutral-900">
               Exclude collections from this sale
@@ -271,6 +305,33 @@ export function DiscountForm({
                 {collection.name}
               </label>
             ))}
+          </fieldset>
+        )}
+
+        {method === 'collection_sale' && (
+          <fieldset className="flex flex-col gap-1 rounded-lg border border-neutral-200 p-4">
+            <legend className="mb-1 text-sm font-medium text-neutral-900">
+              Collections on sale
+            </legend>
+            {collections.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No collections yet — create one first under Collections.
+              </p>
+            ) : (
+              collections.map((collection) => (
+                <label
+                  key={collection.id}
+                  className="flex items-center gap-2 text-sm text-neutral-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={includedCollectionIds.includes(collection.id)}
+                    onChange={() => toggleIncluded(collection.id)}
+                  />
+                  {collection.name}
+                </label>
+              ))
+            )}
           </fieldset>
         )}
 

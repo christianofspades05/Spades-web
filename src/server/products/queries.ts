@@ -11,17 +11,77 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
+import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type { SortOption } from '#/lib/collections/rules'
 import {
   listStorefrontProductsSchema,
   PRODUCT_TYPES,
 } from '#/lib/validation/product-listing'
+import {
+  getActiveAutomaticDiscounts,
+  resolveSalePrices,
+} from '#/server/storefront/automatic-sales'
 import type { ProductWithVariants } from '#/types/entities'
 import type { Database } from '#/types/database.types'
 
 export type StorefrontListingProduct =
   Database['public']['Views']['storefront_product_listing']['Row']
+
+/** salePriceCents is null when no active Store/Collection sale currently beats this product's regular price — the common case, so every listing/detail read below attaches it rather than making callers opt in. */
+export interface WithSalePrice {
+  salePriceCents: number | null
+  saleTitle: string | null
+}
+
+/**
+ * Attaches each product's current sale price (if any active automatic
+ * discount — Store sale or Collection sale — applies), given only its id
+ * and regular (lowest-variant) price. Uses the admin client for this one
+ * read regardless of which client fetched the products themselves — sale
+ * eligibility is public, non-sensitive information (it's about to be shown
+ * on the storefront either way), and discounts isn't part of this file's
+ * RLS-scoped catalog reads.
+ */
+async function attachSalePrices<
+  T extends { id: string; productId?: string; priceCents: number },
+>(products: T[]): Promise<Map<string, WithSalePrice>> {
+  const result = new Map<string, WithSalePrice>()
+  if (products.length === 0) return result
+
+  const admin = getSupabaseAdminClient()
+  const activeDiscounts = await getActiveAutomaticDiscounts(admin)
+  const sales = await resolveSalePrices(admin, activeDiscounts, products)
+
+  for (const product of products) {
+    const sale = sales.get(product.id)
+    result.set(product.id, {
+      salePriceCents: sale?.salePriceCents ?? null,
+      saleTitle: sale?.discountTitle ?? null,
+    })
+  }
+  return result
+}
+
+/** Same as attachSalePrices, but for a full product+variants shape (used by listActiveProducts, which — unlike the storefront_product_listing view — has no precomputed min_price_cents of its own). */
+async function withSalePrices<T extends ProductWithVariants>(
+  products: T[],
+): Promise<(T & WithSalePrice)[]> {
+  const sales = await attachSalePrices(
+    products.map((p) => ({
+      id: p.id,
+      priceCents:
+        p.variants.reduce<number | null>(
+          (min, v) => (min === null || v.price_cents < min ? v.price_cents : min),
+          null,
+        ) ?? 0,
+    })),
+  )
+  return products.map((p) => ({
+    ...p,
+    ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
+  }))
+}
 
 interface ProductWithStock extends ProductWithVariants {
   variants: (ProductWithVariants['variants'][number] & {
@@ -85,7 +145,10 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       limit: z.number().int().min(1).max(100).default(24),
     }),
   )
-  .handler(async ({ data }): Promise<ProductWithVariants[]> => {
+  .handler(
+    async ({
+      data,
+    }): Promise<(ProductWithVariants & WithSalePrice)[]> => {
     const supabase = getSupabaseServerClient()
 
     if (!data.collectionSlug) {
@@ -95,7 +158,7 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
         .eq('status', 'active')
         .limit(data.limit)
       if (error) throw error
-      return products
+      return withSalePrices(products)
     }
 
     const { data: collection } = await supabase
@@ -169,24 +232,67 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       matching = matching.filter((p) => inventoryStockOf(p) > 0)
     }
 
-    return matching.slice(0, data.limit)
-  })
+    return withSalePrices(matching.slice(0, data.limit))
+    },
+  )
+
+export type VariantWithSalePrice = ProductWithVariants['variants'][number] & {
+  inventory: { quantity_available: number }[]
+} & WithSalePrice
 
 export const getProductBySlug = createServerFn({ method: 'GET' })
   .validator(z.object({ slug: z.string().min(1) }))
-  .handler(async ({ data }): Promise<ProductWithVariants | null> => {
-    const supabase = getSupabaseServerClient()
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      (Omit<ProductWithVariants, 'variants'> & {
+        variants: VariantWithSalePrice[]
+      }) | null
+    > => {
+      const supabase = getSupabaseServerClient()
 
-    const { data: product, error } = await supabase
-      .from('products')
-      .select('*, variants:product_variants(*, inventory(quantity_available))')
-      .eq('slug', data.slug)
-      .eq('status', 'active')
-      .maybeSingle()
+      const { data: product, error } = await supabase
+        .from('products')
+        .select(
+          '*, variants:product_variants(*, inventory(quantity_available))',
+        )
+        .eq('slug', data.slug)
+        .eq('status', 'active')
+        .maybeSingle()
 
-    if (error) throw error
-    return product
-  })
+      if (error) throw error
+      if (!product) return null
+
+      // Each variant priced (and its best discount picked) individually —
+      // its own price is what a shopper who picks that size/color actually
+      // pays, and collection membership is checked against the shared
+      // product id regardless (see resolveSalePrices' productId param).
+      const admin = getSupabaseAdminClient()
+      const activeDiscounts = await getActiveAutomaticDiscounts(admin)
+      const sales = await resolveSalePrices(
+        admin,
+        activeDiscounts,
+        product.variants.map((v) => ({
+          id: v.id,
+          productId: product.id,
+          priceCents: v.price_cents,
+        })),
+      )
+
+      return {
+        ...product,
+        variants: product.variants.map((v) => {
+          const sale = sales.get(v.id)
+          return {
+            ...v,
+            salePriceCents: sale?.salePriceCents ?? null,
+            saleTitle: sale?.discountTitle ?? null,
+          }
+        }),
+      }
+    },
+  )
 
 /**
  * Paginated, filterable, sortable, searchable product listing for the
@@ -201,7 +307,10 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
   .handler(
     async ({
       data,
-    }): Promise<{ products: StorefrontListingProduct[]; total: number }> => {
+    }): Promise<{
+      products: (StorefrontListingProduct & WithSalePrice)[]
+      total: number
+    }> => {
       const supabase = getSupabaseServerClient()
 
       let query = supabase
@@ -238,7 +347,16 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
       const { data: products, error, count } = await query.range(from, to)
 
       if (error) throw error
-      return { products, total: count ?? 0 }
+      const sales = await attachSalePrices(
+        products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
+      )
+      return {
+        products: products.map((p) => ({
+          ...p,
+          ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
+        })),
+        total: count ?? 0,
+      }
     },
   )
 
@@ -251,19 +369,29 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
       limit: z.number().int().min(1).max(24).default(4),
     }),
   )
-  .handler(async ({ data }): Promise<StorefrontListingProduct[]> => {
-    const supabase = getSupabaseServerClient()
+  .handler(
+    async ({
+      data,
+    }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
+      const supabase = getSupabaseServerClient()
 
-    const { data: products, error } = await supabase
-      .from('storefront_product_listing')
-      .select('*')
-      .eq('product_type', data.productType)
-      .neq('id', data.excludeProductId)
-      .limit(data.limit)
+      const { data: products, error } = await supabase
+        .from('storefront_product_listing')
+        .select('*')
+        .eq('product_type', data.productType)
+        .neq('id', data.excludeProductId)
+        .limit(data.limit)
 
-    if (error) throw error
-    return products
-  })
+      if (error) throw error
+      const sales = await attachSalePrices(
+        products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
+      )
+      return products.map((p) => ({
+        ...p,
+        ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
+      }))
+    },
+  )
 
 /** Distinct product_type values among active products, for the home page category nav. */
 export const listActiveProductTypesInUse = createServerFn({
