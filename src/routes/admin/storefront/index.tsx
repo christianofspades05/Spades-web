@@ -4,12 +4,12 @@ import { z } from 'zod'
 import { GripVertical, Plus, Trash2 } from 'lucide-react'
 import {
   createStorefrontSection,
+  createStorefrontSectionUploadUrl,
   deleteStorefrontSection,
   listAllStorefrontSections,
   reorderStorefrontSections,
   setStorefrontSectionActive,
   updateStorefrontSection,
-  uploadStorefrontSectionMedia,
 } from '#/server/admin/storefront-sections'
 import type { StorefrontSectionWithCollection } from '#/server/admin/storefront-sections'
 import { listAllCollections } from '#/server/admin/collections'
@@ -20,7 +20,7 @@ import {
   STOREFRONT_SECTION_TYPE_LABELS,
 } from '#/lib/validation/admin/storefront-sections'
 import type { StorefrontSectionInput } from '#/lib/validation/admin/storefront-sections'
-import { fileToBase64 } from '#/lib/utils/file'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
@@ -333,15 +333,14 @@ function SectionForm({
     setUploading(true)
     setError(null)
     try {
-      const base64Data = await fileToBase64(file)
-      const { url } = await uploadStorefrontSectionMedia({
-        data: {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          base64Data,
-        },
-      })
-      setMediaUrl(url)
+      const { path, token, publicUrl } = await createStorefrontSectionUploadUrl(
+        { data: { fileName: file.name } },
+      )
+      const { error: uploadError } = await getSupabaseBrowserClient()
+        .storage.from('storefront-sections')
+        .uploadToSignedUrl(path, token, file)
+      if (uploadError) throw uploadError
+      setMediaUrl(publicUrl)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {

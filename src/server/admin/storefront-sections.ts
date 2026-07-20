@@ -212,35 +212,43 @@ export const reorderStorefrontSections = createServerFn({ method: 'POST' })
     return { ok: true }
   })
 
-export const uploadStorefrontSectionMedia = createServerFn({ method: 'POST' })
+/**
+ * Returns a short-lived signed upload URL so the browser can upload the
+ * file directly to Supabase Storage instead of routing its bytes through
+ * this server function. Base64-encoding a file and sending it as a
+ * createServerFn body (the old approach) inflates its size by ~37% and
+ * runs into Vercel's hard 4.5MB serverless request body cap — a video well
+ * under that limit would still get rejected as "Request Entity Too Large"
+ * once base64-encoded. The signed token is what gates the upload (only
+ * issued after requireStaff passes), not a public bucket-write policy.
+ */
+export const createStorefrontSectionUploadUrl = createServerFn({
+  method: 'POST',
+})
   .validator(
     z.object({
       fileName: z.string(),
-      contentType: z.string(),
-      base64Data: z.string(),
     }),
   )
-  .handler(async ({ data }): Promise<{ url: string }> => {
-    await requireStaff(MANAGE_ROLES)
-    const admin = getSupabaseAdminClient()
+  .handler(
+    async ({ data }): Promise<{ path: string; token: string; publicUrl: string }> => {
+      await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
 
-    const buffer = Buffer.from(data.base64Data, 'base64')
-    if (buffer.byteLength > 40 * 1024 * 1024) {
-      throw new Error('File must be smaller than 40MB')
-    }
+      const extension = data.fileName.includes('.')
+        ? data.fileName.split('.').pop()
+        : 'jpg'
+      const path = `${crypto.randomUUID()}.${extension}`
 
-    const extension = data.fileName.includes('.')
-      ? data.fileName.split('.').pop()
-      : 'jpg'
-    const path = `${crypto.randomUUID()}.${extension}`
+      const { data: signed, error } = await admin.storage
+        .from('storefront-sections')
+        .createSignedUploadUrl(path)
+      if (error) throw error
 
-    const { error } = await admin.storage
-      .from('storefront-sections')
-      .upload(path, buffer, { contentType: data.contentType })
-    if (error) throw error
+      const { data: publicUrl } = admin.storage
+        .from('storefront-sections')
+        .getPublicUrl(path)
 
-    const { data: publicUrl } = admin.storage
-      .from('storefront-sections')
-      .getPublicUrl(path)
-    return { url: publicUrl.publicUrl }
-  })
+      return { path, token: signed.token, publicUrl: publicUrl.publicUrl }
+    },
+  )
