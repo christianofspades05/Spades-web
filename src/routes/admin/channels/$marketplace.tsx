@@ -7,7 +7,7 @@ import {
   listRecentSyncLogs,
 } from '#/server/admin/channels'
 import { listAllCollections } from '#/server/admin/collections'
-import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/registry'
+import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/implemented'
 import type { SyncableMarketplace } from '#/server/integrations/marketplaces/types'
 import {
   CONNECTION_FILTER_LABELS,

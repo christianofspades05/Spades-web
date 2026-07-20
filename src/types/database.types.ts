@@ -85,6 +85,15 @@ export type InventoryMovementType =
   | 'marketplace_sync'
 
 export type MarketplaceName = 'tiktok_shop' | 'shopee' | 'lazada' | 'other'
+
+export type StorefrontSectionType =
+  | 'hero'
+  | 'tagline'
+  | 'image'
+  | 'video'
+  | 'product_grid'
+
+export type StorefrontPage = 'home' | 'about'
 export type MarketplaceConnectionStatus =
   'active' | 'expired' | 'revoked' | 'error'
 export type MarketplaceSyncStatus = 'synced' | 'pending' | 'error'
@@ -189,6 +198,31 @@ export interface Database {
           name: string
         }
         Update: Partial<Database['public']['Tables']['collections']['Row']>
+        Relationships: []
+      }
+      storefront_sections: {
+        Row: {
+          id: string
+          type: StorefrontSectionType
+          page: StorefrontPage
+          sort_order: number
+          is_active: boolean
+          title: string | null
+          subtitle: string | null
+          media_url: string | null
+          link_url: string | null
+          collection_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['storefront_sections']['Row']
+        > & {
+          type: StorefrontSectionType
+        }
+        Update: Partial<
+          Database['public']['Tables']['storefront_sections']['Row']
+        >
         Relationships: []
       }
       products: {

@@ -25,8 +25,9 @@ export function getAdapter(marketplace: MarketplaceName): MarketplaceAdapter {
   return adapter
 }
 
-/** Marketplaces with a real (non-stub) adapter — drives what the admin Channels page offers to connect. */
-export const IMPLEMENTED_MARKETPLACES: MarketplaceName[] = [
-  'tiktok_shop',
-  'shopee',
-]
+// Re-exported for existing server-side importers — moved to its own
+// adapter-free file (implemented.ts) so client-bundled code (the admin
+// Channels route) can use the list without pulling in every adapter's
+// Node-only client code. New code should import from implemented.ts
+// directly rather than through here.
+export { IMPLEMENTED_MARKETPLACES } from './implemented'

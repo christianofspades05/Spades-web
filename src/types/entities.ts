@@ -30,6 +30,8 @@ export type {
   ReviewStatus,
   ShipmentStatus,
   StaffRole,
+  StorefrontPage,
+  StorefrontSectionType,
   SyncLogStatus,
   WebhookSource,
   WebhookStatus,
@@ -51,6 +53,8 @@ export type Payment = Database['public']['Tables']['payments']['Row']
 export type Shipment = Database['public']['Tables']['shipments']['Row']
 export type Return = Database['public']['Tables']['returns']['Row']
 export type Discount = Database['public']['Tables']['discounts']['Row']
+export type StorefrontSection =
+  Database['public']['Tables']['storefront_sections']['Row']
 export type CodRestriction =
   Database['public']['Tables']['cod_restrictions']['Row']
 export type Review = Database['public']['Tables']['reviews']['Row']

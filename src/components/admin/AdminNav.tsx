@@ -7,6 +7,7 @@ import {
   ChevronRight,
   EyeOff,
   Home,
+  LayoutTemplate,
   LogOut,
   Package,
   Plug,
@@ -171,6 +172,19 @@ export function AdminNav({
         >
           <Plug size={17} strokeWidth={2} />
           Channels
+        </Link>
+
+        <Link
+          to="/admin/storefront"
+          onClick={onNavigate}
+          className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+            pathname.startsWith('/admin/storefront')
+              ? 'bg-neutral-100 text-neutral-950'
+              : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+          }`}
+        >
+          <LayoutTemplate size={17} strokeWidth={2} />
+          Storefront
         </Link>
 
         <p className="mt-4 mb-1 flex items-center gap-2.5 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
