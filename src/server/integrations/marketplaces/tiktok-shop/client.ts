@@ -4,17 +4,13 @@
  * endpoints) so nothing outside this file needs to know how TikTok's API
  * actually works — adapter.ts is the only thing that imports this.
  *
- * IMPORTANT — verify before relying on this in production: the request
- * signing below (`sign()`) is implemented from TikTok's publicly documented
- * conventions (HMAC-SHA256 over the app secret + path + sorted query params
- * + body), but Partner Center's own API reference is a JS-rendered app that
- * couldn't be fetched while building this. The very first live call will
- * either work or come back with a clear "signature mismatch" error — if the
- * latter, check Partner Center → API docs → "How to call TikTok Shop Open
- * API" and adjust `sign()` and `callTikTokApi()` accordingly. Same caveat
- * for the exact inventory/order endpoint paths and payload shapes in
- * adapter.ts, which are TikTok's documented 202309 API version conventions
- * but haven't been exercised against a live shop.
+ * Request signing (`sign()`) is confirmed live against a real shop: HMAC-
+ * SHA256 over app secret + path + sorted query params (excluding sign/
+ * access_token) + body + app secret. The exact inventory/order endpoint
+ * paths and payload shapes in adapter.ts are still TikTok's documented
+ * 202309 API version conventions, best-effort beyond what's been exercised
+ * live — see the caveats scattered through that file for which calls are
+ * confirmed vs. not.
  */
 import { createHmac } from 'node:crypto'
 
@@ -36,12 +32,6 @@ function requireEnv(name: string): string {
       `Missing ${name}. Check your .env file against .env.example.`,
     )
   }
-  // TEMPORARY debug logging — remove once the TikTok "invalid sign" 401 is
-  // diagnosed. Logs length/edges only, never the full secret.
-  console.error('[tiktok-env-debug]', name, {
-    len: value.length,
-    edges: `${value.slice(0, 4)}...${value.slice(-4)}`,
-  })
   return value
 }
 
@@ -71,9 +61,10 @@ export function buildAuthorizationUrl(state: string): string {
 }
 
 async function requestToken(
+  path: string,
   params: Record<string, string>,
 ): Promise<TikTokTokenResponse> {
-  const url = new URL(`${AUTH_BASE}/api/v2/token/get`)
+  const url = new URL(`${AUTH_BASE}${path}`)
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value)
   }
@@ -89,7 +80,7 @@ export async function exchangeAuthCode(
   code: string,
 ): Promise<TikTokTokenResponse> {
   assertServerOnly()
-  return requestToken({
+  return requestToken('/api/v2/token/get', {
     app_key: getAppKey(),
     app_secret: getAppSecret(),
     auth_code: code,
@@ -97,11 +88,17 @@ export async function exchangeAuthCode(
   })
 }
 
+/**
+ * TikTok uses a *different* endpoint for refreshing than for the initial
+ * code exchange (`/api/v2/token/refresh`, not `/api/v2/token/get`) — confirmed
+ * live: reusing token/get for a refresh_token grant returns a generic
+ * "invalid params" (code 98001004) with no indication the path is wrong.
+ */
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<TikTokTokenResponse> {
   assertServerOnly()
-  return requestToken({
+  return requestToken('/api/v2/token/refresh', {
     app_key: getAppKey(),
     app_secret: getAppSecret(),
     refresh_token: refreshToken,
