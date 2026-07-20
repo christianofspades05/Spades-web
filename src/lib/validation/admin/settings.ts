@@ -25,8 +25,16 @@ export const resetStaffUserPasswordSchema = z.object({
   newPassword: z.string().min(8),
 })
 
+export const changeStaffUserRoleSchema = z.object({
+  staffUserId: z.string().uuid(),
+  role: z.enum(STAFF_ROLES),
+})
+
 export type CreateStaffUserInput = z.infer<typeof createStaffUserSchema>
 export type SetStaffUserActiveInput = z.infer<typeof setStaffUserActiveSchema>
 export type ResetStaffUserPasswordInput = z.infer<
   typeof resetStaffUserPasswordSchema
+>
+export type ChangeStaffUserRoleInput = z.infer<
+  typeof changeStaffUserRoleSchema
 >

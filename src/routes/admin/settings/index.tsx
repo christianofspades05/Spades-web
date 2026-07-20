@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import {
+  changeStaffUserRole,
   createStaffUser,
   listStaffUsers,
   resetStaffUserPassword,
@@ -112,12 +113,37 @@ function StaffRow({
     }
   }
 
+  async function handleRoleChange(role: (typeof STAFF_ROLES)[number]) {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await changeStaffUserRole({ data: { staffUserId: staff.id, role } })
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setSubmitting(false)
+    }
+  }
+
   return (
     <tr className={tableRowClassName}>
       <td className={tableCellClassName}>{staff.full_name}</td>
       <td className={tableCellClassName}>{staff.email}</td>
-      <td className={`${tableCellClassName} capitalize`}>
-        {staff.role.replace(/_/g, ' ')}
+      <td className={tableCellClassName}>
+        <select
+          value={staff.role}
+          disabled={submitting}
+          onChange={(e) =>
+            handleRoleChange(e.target.value as (typeof STAFF_ROLES)[number])
+          }
+          className={`${inputClassName} w-auto capitalize`}
+        >
+          {STAFF_ROLES.map((r) => (
+            <option key={r} value={r} className="capitalize">
+              {r.replace(/_/g, ' ')}
+            </option>
+          ))}
+        </select>
       </td>
       <td className={tableCellClassName}>
         <Badge tone={staff.is_active ? 'success' : 'neutral'}>

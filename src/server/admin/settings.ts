@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import {
+  changeStaffUserRoleSchema,
   createStaffUserSchema,
   resetStaffUserPasswordSchema,
   setStaffUserActiveSchema,
@@ -126,6 +127,34 @@ export const setStaffUserActive = createServerFn({ method: 'POST' })
       data.isActive ? 'staff.reactivate' : 'staff.deactivate',
       'staff_users',
       data.staffUserId,
+    )
+
+    return { ok: true }
+  })
+
+export const changeStaffUserRole = createServerFn({ method: 'POST' })
+  .validator(changeStaffUserRoleSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_STAFF_ROLES)
+    if (data.staffUserId === staff.id && data.role !== 'super_admin') {
+      throw new Error(
+        "You can't remove your own super admin role — have another super admin do it instead.",
+      )
+    }
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('staff_users')
+      .update({ role: data.role })
+      .eq('id', data.staffUserId)
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'staff.change_role',
+      'staff_users',
+      data.staffUserId,
+      { role: data.role },
     )
 
     return { ok: true }
