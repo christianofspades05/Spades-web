@@ -6,6 +6,7 @@ import {
   withSubmittableProvince,
 } from '#/lib/checkout/CheckoutContext'
 import { checkoutContactSchema } from '#/lib/validation/checkout'
+import { saveCartEmail } from '#/server/cart/mutations'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
@@ -97,6 +98,15 @@ function CheckoutPage() {
                 required
                 value={info.email}
                 onChange={(e) => setInfo({ ...info, email: e.target.value })}
+                onBlur={(e) => {
+                  const result = checkoutContactSchema.shape.email.safeParse(
+                    e.target.value,
+                  )
+                  if (!result.success) return
+                  void saveCartEmail({ data: { email: result.data } }).catch(
+                    () => {},
+                  )
+                }}
                 className={inputClassName}
               />
             </label>

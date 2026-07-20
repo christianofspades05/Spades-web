@@ -3,6 +3,7 @@ import {
   addCartItemSchema,
   applyDiscountCodeSchema,
   removeCartItemSchema,
+  saveCartEmailSchema,
   updateCartItemQuantitySchema,
 } from '#/lib/validation/cart'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -203,3 +204,29 @@ export const removeDiscountCode = createServerFn({ method: 'POST' }).handler(
     return loadCartWithItems(admin, cartId)
   },
 )
+
+/**
+ * Best-effort capture of the checkout email onto the cart, called
+ * opportunistically from a field blur — before the order is placed —
+ * so an abandoned-cart reminder has somewhere to send. Deliberately
+ * forgiving (never throws "cart empty" the way getActiveCartId does):
+ * a missing/expired cart cookie here is a normal silent no-op, not
+ * something that should ever surface to the customer or block checkout.
+ */
+export const saveCartEmail = createServerFn({ method: 'POST' })
+  .validator(saveCartEmailSchema)
+  .handler(async ({ data }): Promise<{ saved: boolean }> => {
+    const admin = getSupabaseAdminClient()
+    const token = getCartToken()
+    if (!token) return { saved: false }
+
+    const { data: cart, error } = await admin
+      .from('carts')
+      .update({ email: data.email })
+      .eq('session_token', token)
+      .eq('status', 'active')
+      .select('id')
+      .maybeSingle()
+    if (error) throw error
+    return { saved: Boolean(cart) }
+  })

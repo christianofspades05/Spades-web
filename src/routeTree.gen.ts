@@ -21,6 +21,7 @@ import { Route as CartIndexRouteImport } from './routes/cart/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AccountIndexRouteImport } from './routes/account/index'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
+import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
 import { Route as ReviewTokenRouteImport } from './routes/review/$token'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
@@ -42,10 +43,12 @@ import { Route as AdminDiscountsIndexRouteImport } from './routes/admin/discount
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
+import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
 import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
 import { Route as ApiCronReviewRequestsRouteImport } from './routes/api/cron/review-requests'
+import { Route as ApiCronAbandonedCartRouteImport } from './routes/api/cron/abandoned-cart'
 import { Route as AdminProductsNewRouteImport } from './routes/admin/products/new'
 import { Route as AdminProductsBulkEditRouteImport } from './routes/admin/products/bulk-edit'
 import { Route as AdminProductsProductIdRouteImport } from './routes/admin/products/$productId'
@@ -125,6 +128,11 @@ const AccountIndexRoute = AccountIndexRouteImport.update({
 const AboutIndexRoute = AboutIndexRouteImport.update({
   id: '/about/',
   path: '/about/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UnsubscribeTokenRoute = UnsubscribeTokenRouteImport.update({
+  id: '/unsubscribe/$token',
+  path: '/unsubscribe/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReviewTokenRoute = ReviewTokenRouteImport.update({
@@ -232,6 +240,11 @@ const AdminChannelsIndexRoute = AdminChannelsIndexRouteImport.update({
   path: '/channels/',
   getParentRoute: () => AdminRoute,
 } as any)
+const CartResumeTokenRoute = CartResumeTokenRouteImport.update({
+  id: '/cart/resume/$token',
+  path: '/cart/resume/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksXenditRoute = ApiWebhooksXenditRouteImport.update({
   id: '/api/webhooks/xendit',
   path: '/api/webhooks/xendit',
@@ -252,6 +265,11 @@ const ApiCronSyncChannelsDailyRoute =
 const ApiCronReviewRequestsRoute = ApiCronReviewRequestsRouteImport.update({
   id: '/api/cron/review-requests',
   path: '/api/cron/review-requests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronAbandonedCartRoute = ApiCronAbandonedCartRouteImport.update({
+  id: '/api/cron/abandoned-cart',
+  path: '/api/cron/abandoned-cart',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminProductsNewRoute = AdminProductsNewRouteImport.update({
@@ -376,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about/': typeof AboutIndexRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
@@ -400,10 +419,12 @@ export interface FileRoutesByFullPath {
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
+  '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
@@ -433,6 +454,7 @@ export interface FileRoutesByTo {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about': typeof AboutIndexRoute
   '/account': typeof AccountIndexRoute
   '/admin': typeof AdminIndexRoute
@@ -457,10 +479,12 @@ export interface FileRoutesByTo {
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
+  '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
@@ -493,6 +517,7 @@ export interface FileRoutesById {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about/': typeof AboutIndexRoute
   '/account/': typeof AccountIndexRoute
   '/admin/': typeof AdminIndexRoute
@@ -517,10 +542,12 @@ export interface FileRoutesById {
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/bulk-edit': typeof AdminProductsBulkEditRoute
   '/admin/products/new': typeof AdminProductsNewRoute
+  '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
+  '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
@@ -554,6 +581,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/unsubscribe/$token'
     | '/about/'
     | '/account/'
     | '/admin/'
@@ -578,10 +606,12 @@ export interface FileRouteTypes {
     | '/admin/products/$productId'
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
+    | '/api/cron/abandoned-cart'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/webhooks/xendit'
+    | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/customers/'
@@ -611,6 +641,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/unsubscribe/$token'
     | '/about'
     | '/account'
     | '/admin'
@@ -635,10 +666,12 @@ export interface FileRouteTypes {
     | '/admin/products/$productId'
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
+    | '/api/cron/abandoned-cart'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/webhooks/xendit'
+    | '/cart/resume/$token'
     | '/admin/channels'
     | '/admin/collections'
     | '/admin/customers'
@@ -670,6 +703,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/unsubscribe/$token'
     | '/about/'
     | '/account/'
     | '/admin/'
@@ -694,10 +728,12 @@ export interface FileRouteTypes {
     | '/admin/products/$productId'
     | '/admin/products/bulk-edit'
     | '/admin/products/new'
+    | '/api/cron/abandoned-cart'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/webhooks/xendit'
+    | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/customers/'
@@ -728,6 +764,7 @@ export interface RootRouteChildren {
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
   ReviewTokenRoute: typeof ReviewTokenRoute
+  UnsubscribeTokenRoute: typeof UnsubscribeTokenRoute
   AboutIndexRoute: typeof AboutIndexRoute
   AccountIndexRoute: typeof AccountIndexRoute
   CartIndexRoute: typeof CartIndexRoute
@@ -735,10 +772,12 @@ export interface RootRouteChildren {
   ContactIndexRoute: typeof ContactIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
   ReviewsIndexRoute: typeof ReviewsIndexRoute
+  ApiCronAbandonedCartRoute: typeof ApiCronAbandonedCartRoute
   ApiCronReviewRequestsRoute: typeof ApiCronReviewRequestsRoute
   ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
+  CartResumeTokenRoute: typeof CartResumeTokenRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
   ApiOauthShopeeCallbackRoute: typeof ApiOauthShopeeCallbackRoute
   ApiOauthShopeeConnectRoute: typeof ApiOauthShopeeConnectRoute
@@ -830,6 +869,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about/'
       preLoaderRoute: typeof AboutIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/unsubscribe/$token': {
+      id: '/unsubscribe/$token'
+      path: '/unsubscribe/$token'
+      fullPath: '/unsubscribe/$token'
+      preLoaderRoute: typeof UnsubscribeTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/review/$token': {
@@ -979,6 +1025,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminChannelsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/cart/resume/$token': {
+      id: '/cart/resume/$token'
+      path: '/cart/resume/$token'
+      fullPath: '/cart/resume/$token'
+      preLoaderRoute: typeof CartResumeTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/xendit': {
       id: '/api/webhooks/xendit'
       path: '/api/webhooks/xendit'
@@ -1005,6 +1058,13 @@ declare module '@tanstack/react-router' {
       path: '/api/cron/review-requests'
       fullPath: '/api/cron/review-requests'
       preLoaderRoute: typeof ApiCronReviewRequestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/abandoned-cart': {
+      id: '/api/cron/abandoned-cart'
+      path: '/api/cron/abandoned-cart'
+      fullPath: '/api/cron/abandoned-cart'
+      preLoaderRoute: typeof ApiCronAbandonedCartRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/products/new': {
@@ -1240,6 +1300,7 @@ const rootRouteChildren: RootRouteChildren = {
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
   ReviewTokenRoute: ReviewTokenRoute,
+  UnsubscribeTokenRoute: UnsubscribeTokenRoute,
   AboutIndexRoute: AboutIndexRoute,
   AccountIndexRoute: AccountIndexRoute,
   CartIndexRoute: CartIndexRoute,
@@ -1247,10 +1308,12 @@ const rootRouteChildren: RootRouteChildren = {
   ContactIndexRoute: ContactIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,
   ReviewsIndexRoute: ReviewsIndexRoute,
+  ApiCronAbandonedCartRoute: ApiCronAbandonedCartRoute,
   ApiCronReviewRequestsRoute: ApiCronReviewRequestsRoute,
   ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
+  CartResumeTokenRoute: CartResumeTokenRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
   ApiOauthShopeeCallbackRoute: ApiOauthShopeeCallbackRoute,
   ApiOauthShopeeConnectRoute: ApiOauthShopeeConnectRoute,

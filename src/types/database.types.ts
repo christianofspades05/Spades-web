@@ -353,12 +353,28 @@ export interface Database {
           status: CartStatus
           currency: string
           discount_id: string | null
+          email: string | null
+          recovery_token: string | null
+          unsubscribe_token: string | null
+          abandoned_cart_email_sent: boolean
+          abandoned_cart_emailed_at: string | null
           created_at: string
           updated_at: string
           expires_at: string | null
         }
         Insert: Partial<Database['public']['Tables']['carts']['Row']>
         Update: Partial<Database['public']['Tables']['carts']['Row']>
+        Relationships: []
+      }
+      email_unsubscribes: {
+        Row: {
+          email: string
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['email_unsubscribes']['Row']
+        > & { email: string }
+        Update: Partial<Database['public']['Tables']['email_unsubscribes']['Row']>
         Relationships: []
       }
       cart_items: {
