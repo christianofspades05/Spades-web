@@ -36,6 +36,12 @@ function requireEnv(name: string): string {
       `Missing ${name}. Check your .env file against .env.example.`,
     )
   }
+  // TEMPORARY debug logging — remove once the TikTok "invalid sign" 401 is
+  // diagnosed. Logs length/edges only, never the full secret.
+  console.error('[tiktok-env-debug]', name, {
+    len: value.length,
+    edges: `${value.slice(0, 4)}...${value.slice(-4)}`,
+  })
   return value
 }
 
