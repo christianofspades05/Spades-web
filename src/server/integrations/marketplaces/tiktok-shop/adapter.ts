@@ -23,6 +23,7 @@
  * Partner Center's own API reference and adjust.
  */
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
+import { resolveOfficialRegion } from '#/lib/utils/ph-province-region'
 import type { MarketplaceConnection } from '#/types/entities'
 import type {
   CreatedMarketplaceProduct,
@@ -99,6 +100,17 @@ async function toOAuthTokens(
   }
 }
 
+interface TikTokDistrictInfoEntry {
+  address_name?: string
+  /** "L1".."L4" — L0 is always the country. Confirmed live: L1 is the
+   *  region/province equivalent ("Metro Manila", or a real province name
+   *  for non-NCR orders), L2 the city/municipality. L3/L4 (further
+   *  municipality detail, barangay) come through partially masked
+   *  ("Qu*********") — TikTok's own buyer-privacy redaction, same as the
+   *  masking already visible on name/phone/address_line1-2. */
+  address_level?: string
+}
+
 interface TikTokRecipientAddress {
   name?: string
   phone_number?: string
@@ -106,12 +118,12 @@ interface TikTokRecipientAddress {
   address_detail?: string
   address_line1?: string
   address_line2?: string
-  district?: string
-  town?: string
-  city?: string
-  state?: string
+  /** Country code, e.g. "PH" — confirmed live NOT a PH region/province
+   *  despite the field name; region/province/city all come from
+   *  district_info below instead. */
   region_code?: string
-  zipcode?: string
+  postal_code?: string
+  district_info?: TikTokDistrictInfoEntry[]
 }
 
 interface TikTokLineItem {
@@ -376,16 +388,38 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
   mapOrderToInternalFormat(platformOrderData): NormalizedOrder {
     const order = platformOrderData as unknown as TikTokOrder
     const address = order.recipient_address ?? {}
+    const districtInfo = address.district_info ?? []
+    // L1 is the region level — confirmed live against real orders: e.g. a
+    // Pampanga order reports L1 "Central Luzon"/L2 "Pampanga", a Manila
+    // order reports L1 "Metro Manila"/L2 "Manila" (NCR has no province
+    // level, so its L2 lands on a city name instead of a province one).
+    // "province" and "city" below are best-effort display labels from
+    // that same ambiguity, not a guarantee L2 is always a real city.
+    const regionName =
+      districtInfo.find((d) => d.address_level === 'L1')?.address_name ?? ''
+    const cityName =
+      districtInfo.find((d) => d.address_level === 'L2')?.address_name ?? ''
+    const barangayName =
+      districtInfo.find((d) => d.address_level === 'L4')?.address_name ?? ''
+    // Falls back to the raw region name itself if it doesn't match a known
+    // alias — better than silently defaulting to some other region (see
+    // resolveOfficialRegion's null case, and shippingZoneForRegion's own
+    // "unknown → mindanao" fallback for why an empty/unmatched string here
+    // used to make every TikTok order show up as Mindanao regardless of
+    // where it actually shipped).
+    const officialRegion = regionName
+      ? (resolveOfficialRegion(regionName) ?? regionName)
+      : ''
 
     const shippingAddress: OrderShippingAddress = {
       email: order.buyer_email ?? '',
       recipientName: address.name ?? 'TikTok Shop customer',
       phone: address.phone_number ?? '',
-      region: address.region_code ?? address.state ?? '',
-      province: address.state ?? '',
-      city: address.city ?? address.town ?? '',
-      barangay: address.district ?? '',
-      postalCode: address.zipcode ?? null,
+      region: officialRegion,
+      province: regionName,
+      city: cityName,
+      barangay: barangayName,
+      postalCode: address.postal_code || null,
       addressLine1:
         address.address_line1 ??
         address.address_detail ??

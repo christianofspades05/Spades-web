@@ -113,6 +113,16 @@ interface ShopeeOrderItem {
   model_original_price?: number
 }
 
+/** One shipment within an order — Shopee splits fulfillment per package
+ *  rather than per order, so a single order can have more than one. Only
+ *  carries the carrier name and the package_number needed to look up its
+ *  tracking number — get_order_detail never returns the tracking number
+ *  itself, see fetchTrackingNumber below. */
+interface ShopeePackage {
+  package_number: string
+  shipping_carrier?: string
+}
+
 interface ShopeeOrder {
   order_sn: string
   create_time: number
@@ -123,7 +133,10 @@ interface ShopeeOrder {
   estimated_shipping_fee?: number
   actual_shipping_fee?: number
   order_status?: string
-  /** Present once a shipping document/tracking number has been generated for the order. */
+  package_list?: ShopeePackage[]
+  /** Not part of Shopee's order-detail response at all — filled in by
+   *  pullOrders after a separate get_tracking_number call, once
+   *  package_list above gives it a package_number to ask about. */
   tracking_number?: string
   shipping_carrier?: string
 }
@@ -212,6 +225,33 @@ async function uploadProductImage(
     body: { image: buffer.toString('base64') },
   })
   return image_info.image_id
+}
+
+/** Shopee's get_order_detail never returns the tracking number itself
+ *  (only shipping_carrier + a package_number, via package_list) — this is
+ *  the dedicated logistics lookup that does. Best-effort: a package can
+ *  exist before a tracking number is assigned (no label printed yet, or a
+ *  self-arranged shipment Shopee never tracks), so a failure or empty
+ *  response here just means "no tracking number yet," not a broken sync —
+ *  it must never fail the whole order import over one package's lookup. */
+async function fetchTrackingNumber(
+  accessToken: string,
+  shopId: string,
+  orderSn: string,
+  packageNumber: string,
+): Promise<string | null> {
+  try {
+    const result = await callShopeeApi<{ tracking_number?: string }>({
+      method: 'GET',
+      path: '/api/v2/logistics/get_tracking_number',
+      accessToken,
+      shopId,
+      query: { order_sn: orderSn, package_number: packageNumber },
+    })
+    return result.tracking_number ?? null
+  } catch {
+    return null
+  }
 }
 
 export const shopeeAdapter: MarketplaceAdapter = {
@@ -337,9 +377,29 @@ export const shopeeAdapter: MarketplaceAdapter = {
         query: {
           order_sn_list: batch.join(','),
           response_optional_fields:
-            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status',
+            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status,package_list',
         },
       })
+
+      // One extra call per package to resolve its actual tracking number
+      // (see fetchTrackingNumber) — sequential, not Promise.all'd, to stay
+      // conservative on Shopee's rate limits. Only orders that already have
+      // a package (i.e. a shipping label exists) make this call at all, so
+      // this stays cheap for the common case of a sync window mostly full
+      // of unpaid/unshipped orders.
+      for (const order of order_list ?? []) {
+        const firstPackage = order.package_list?.[0]
+        if (!firstPackage?.package_number) continue
+        order.shipping_carrier = firstPackage.shipping_carrier
+        order.tracking_number =
+          (await fetchTrackingNumber(
+            accessToken,
+            shopId,
+            order.order_sn,
+            firstPackage.package_number,
+          )) ?? undefined
+      }
+
       orders.push(...((order_list ?? []) as unknown as Record<string, unknown>[]))
     }
     return orders
