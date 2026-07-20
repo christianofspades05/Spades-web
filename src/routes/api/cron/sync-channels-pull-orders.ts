@@ -25,12 +25,28 @@ import type { SyncableMarketplace } from '#/server/integrations/marketplaces/typ
 const LOOKBACK_MINUTES = 15
 
 function isAuthorized(request: Request): boolean {
-  const expected = process.env.CRON_SECRET
+  const expected = process.env.CRON_JOB_ORG_SECRET
   if (!expected) {
-    console.error('CRON_SECRET is not set — rejecting all cron requests.')
+    console.error(
+      'CRON_JOB_ORG_SECRET is not set — rejecting all cron requests.',
+    )
     return false
   }
-  return request.headers.get('authorization') === `Bearer ${expected}`
+  const received = request.headers.get('authorization')
+  const match = received === `Bearer ${expected}`
+  if (!match) {
+    // TEMPORARY debug logging — remove once the cron-job.org 401 is fixed.
+    // Logs lengths/edges only, never the full secret.
+    console.error('[cron-auth-debug]', {
+      expectedLen: expected.length,
+      expectedEdges: `${expected.slice(0, 4)}...${expected.slice(-4)}`,
+      receivedLen: received?.length ?? null,
+      receivedEdges: received
+        ? `${received.slice(0, 11)}...${received.slice(-4)}`
+        : null,
+    })
+  }
+  return match
 }
 
 function isSyncable(
