@@ -91,9 +91,15 @@ async function toOAuthTokens(
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
-    tokenExpiresAt: new Date(
-      Date.now() + token.access_token_expire_in * 1000,
-    ).toISOString(),
+    // TikTok's access_token_expire_in is an absolute Unix timestamp (seconds
+    // since epoch) despite the "_in" name, not a duration to add to now —
+    // confirmed via TikTok's own docs example response, where the value
+    // (e.g. 1660556783) is a real point-in-time far larger than any sane
+    // token duration. Treating it as "seconds from now" (the previous bug
+    // here) pushed every stored expiry ~56 years into the future, so
+    // ensureFreshConnection's refresh check never fired once the real token
+    // actually expired.
+    tokenExpiresAt: new Date(token.access_token_expire_in * 1000).toISOString(),
     shopId: shop?.id ?? token.open_id ?? '',
     shopName: shop?.name ?? token.seller_name,
     shopCipher: shop?.cipher,
