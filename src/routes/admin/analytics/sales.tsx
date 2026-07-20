@@ -411,20 +411,20 @@ function BestSellerCard({
 
   return (
     <Card className="p-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         {product.imageUrl ? (
           <img
             src={product.imageUrl}
             alt=""
-            className="size-11 rounded-md border border-neutral-200 object-cover"
+            className="size-11 shrink-0 rounded-md border border-neutral-200 object-cover"
           />
         ) : (
-          <div className="flex size-11 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
             <Package size={16} className="text-neutral-300" />
           </div>
         )}
         <div className="min-w-0">
-          <p className="truncate font-medium text-neutral-900">
+          <p className="line-clamp-2 font-medium text-neutral-900">
             {product.productName}
           </p>
           <p className="text-sm text-neutral-500">
@@ -595,12 +595,12 @@ function LocationSalesCard({
 
   return (
     <Card className="p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex size-11 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
           <MapPin size={16} className="text-neutral-300" />
         </div>
         <div className="min-w-0">
-          <p className="truncate font-medium text-neutral-900">
+          <p className="line-clamp-2 font-medium text-neutral-900">
             {location.city}
             {location.province && (
               <span className="text-neutral-400">, {location.province}</span>
