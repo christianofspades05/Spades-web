@@ -141,9 +141,16 @@ export function OrderCard({
 
         <div className="mt-2.5 flex items-center justify-between text-xs text-neutral-500">
           <span>{SOURCE_LABELS[order.source]}</span>
-          <span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowItems(true)
+            }}
+            className="underline decoration-dotted hover:text-neutral-900"
+          >
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
-          </span>
+          </button>
         </div>
       </Card>
 

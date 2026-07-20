@@ -106,36 +106,38 @@ function SalesAnalyticsPage() {
         title="Sales Analytics"
         subtitle="Revenue, order value, and best-selling products by channel."
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <DateRangePicker
               preset={search.range}
               from={search.from ?? resolveDateRange(search.range, {}).from}
               to={search.to ?? resolveDateRange(search.range, {}).to}
               onChange={handleRangeChange}
             />
-            <FilterDropdown
-              label="Channel"
-              value={search.channel}
-              options={CHANNEL_OPTIONS}
-              onChange={(channel) =>
-                navigate({ search: (prev) => ({ ...prev, channel }) })
-              }
-            />
-            <button
-              type="button"
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({ ...prev, compare: !prev.compare }),
-                })
-              }
-              className={`rounded-full border px-3 py-2 text-sm font-medium ${
-                search.compare
-                  ? 'border-neutral-900 bg-neutral-900 text-white'
-                  : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
-              }`}
-            >
-              Compare previous period
-            </button>
+            <div className="flex items-center gap-2">
+              <FilterDropdown
+                label="Channel"
+                value={search.channel}
+                options={CHANNEL_OPTIONS}
+                onChange={(channel) =>
+                  navigate({ search: (prev) => ({ ...prev, channel }) })
+                }
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  navigate({
+                    search: (prev) => ({ ...prev, compare: !prev.compare }),
+                  })
+                }
+                className={`rounded-full border px-3 py-2 text-sm font-medium whitespace-nowrap ${
+                  search.compare
+                    ? 'border-neutral-900 bg-neutral-900 text-white'
+                    : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50'
+                }`}
+              >
+                Compare previous period
+              </button>
+            </div>
           </div>
         }
       />

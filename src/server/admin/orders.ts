@@ -541,6 +541,58 @@ export const getOrderById = createServerFn({ method: 'GET' })
     }
   })
 
+export interface AdjacentOrderIds {
+  previousOrderId: string | null
+  nextOrderId: string | null
+}
+
+/**
+ * "Previous"/"Next" relative to the order list's default sort (newest
+ * first): previous is the next-newer order, next is the next-older one —
+ * so stepping "Next" repeatedly walks the same direction paging through the
+ * list would. Not scoped to whatever filters were active on the list page
+ * the staff member came from — just global adjacency by placed_at.
+ */
+export const getAdjacentOrderIds = createServerFn({ method: 'GET' })
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }): Promise<AdjacentOrderIds> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const { data: current, error: currentError } = await admin
+      .from('orders')
+      .select('placed_at')
+      .eq('id', data.id)
+      .maybeSingle()
+    if (currentError) throw currentError
+    if (!current) return { previousOrderId: null, nextOrderId: null }
+
+    const [{ data: previous, error: previousError }, { data: next, error: nextError }] =
+      await Promise.all([
+        admin
+          .from('orders')
+          .select('id')
+          .gt('placed_at', current.placed_at)
+          .order('placed_at', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+        admin
+          .from('orders')
+          .select('id')
+          .lt('placed_at', current.placed_at)
+          .order('placed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+    if (previousError) throw previousError
+    if (nextError) throw nextError
+
+    return {
+      previousOrderId: previous?.id ?? null,
+      nextOrderId: next?.id ?? null,
+    }
+  })
+
 export interface BulkFulfillmentOrder {
   id: string
   order_number: string

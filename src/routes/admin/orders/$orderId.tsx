@@ -1,17 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   createFileRoute,
   Link,
   notFound,
+  useNavigate,
   useRouter,
 } from '@tanstack/react-router'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   cancelOrder,
+  getAdjacentOrderIds,
   getOrderById,
   updateOrderStatus,
   upsertShipment,
 } from '#/server/admin/orders'
-import type { OrderWithDetails } from '#/server/admin/orders'
+import type { AdjacentOrderIds, OrderWithDetails } from '#/server/admin/orders'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
@@ -105,25 +108,84 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
 
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
-    const order = await getOrderById({ data: { id: params.orderId } })
+    const [order, adjacent] = await Promise.all([
+      getOrderById({ data: { id: params.orderId } }),
+      getAdjacentOrderIds({ data: { id: params.orderId } }),
+    ])
     if (!order) throw notFound()
-    return order
+    return { order, adjacent }
   },
   component: OrderDetailPage,
 })
 
+// Swipe left → next order, swipe right → previous order. Ignored when the
+// gesture is more vertical than horizontal (a scroll), or too short to be
+// deliberate.
+const SWIPE_MIN_DISTANCE_PX = 60
+
 function OrderDetailPage() {
-  const order: OrderWithDetails = Route.useLoaderData()
+  const { order, adjacent }: { order: OrderWithDetails; adjacent: AdjacentOrderIds } =
+    Route.useLoaderData()
   const router = useRouter()
+  const navigate = useNavigate()
   const address = order.shipping_address as unknown as OrderShippingAddress
   const fullAddress = formatShippingAddress(address)
   const itemsCopyText = formatOrderItemsForCopy(order.order_items)
   const isCancelled = order.status === 'cancelled'
 
+  const touchStart = useRef({ x: 0, y: 0 })
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStart.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    }
+  }
+  function handleTouchEnd(e: React.TouchEvent) {
+    const dx = e.changedTouches[0].clientX - touchStart.current.x
+    const dy = e.changedTouches[0].clientY - touchStart.current.y
+    if (Math.abs(dx) < SWIPE_MIN_DISTANCE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) {
+      return
+    }
+    const targetOrderId = dx < 0 ? adjacent.nextOrderId : adjacent.previousOrderId
+    if (targetOrderId) {
+      navigate({ to: '/admin/orders/$orderId', params: { orderId: targetOrderId } })
+    }
+  }
+
   return (
-    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
+    <div
+      className="w-full px-4 py-6 sm:px-8 sm:py-10"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <PageHeader
-        title={order.order_number}
+        title={
+          <div className="flex items-center gap-1">
+            <span>{order.order_number}</span>
+            <Link
+              to="/admin/orders/$orderId"
+              params={{ orderId: adjacent.previousOrderId ?? order.id }}
+              aria-disabled={!adjacent.previousOrderId}
+              aria-label="Previous order"
+              className={`rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 ${
+                !adjacent.previousOrderId ? 'pointer-events-none opacity-30' : ''
+              }`}
+            >
+              <ChevronLeft size={18} />
+            </Link>
+            <Link
+              to="/admin/orders/$orderId"
+              params={{ orderId: adjacent.nextOrderId ?? order.id }}
+              aria-disabled={!adjacent.nextOrderId}
+              aria-label="Next order"
+              className={`rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 ${
+                !adjacent.nextOrderId ? 'pointer-events-none opacity-30' : ''
+              }`}
+            >
+              <ChevronRight size={18} />
+            </Link>
+          </div>
+        }
         subtitle={order.customer.email}
         action={<StatusBadge status={order.status} kind="order" />}
       />
