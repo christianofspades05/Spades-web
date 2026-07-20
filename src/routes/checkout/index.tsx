@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import {
@@ -8,6 +8,7 @@ import {
 import { checkoutContactSchema } from '#/lib/validation/checkout'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { formatCentsAsPHP } from '#/lib/utils/money'
+import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import {
   buttonPrimaryClassName,
@@ -22,6 +23,20 @@ function CheckoutPage() {
   const { info, setInfo } = useCheckout()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
+
+  const firedInitiateCheckout = useRef(false)
+  useEffect(() => {
+    if (isLoading || !cart || cart.items.length === 0) return
+    if (firedInitiateCheckout.current) return
+    firedInitiateCheckout.current = true
+    trackPixelEvent('InitiateCheckout', {
+      content_ids: cart.items.map((item) => item.variant.product_id),
+      content_type: 'product',
+      num_items: cart.items.reduce((sum, item) => sum + item.quantity, 0),
+      value: (subtotalCents - discountCents) / 100,
+      currency: 'PHP',
+    })
+  }, [isLoading, cart, subtotalCents, discountCents])
 
   if (isLoading) {
     return (

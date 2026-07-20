@@ -2,15 +2,25 @@ import { useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
+import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 
 export const Route = createFileRoute('/checkout/confirmation')({
-  validateSearch: z.object({ order: z.string().optional() }),
+  validateSearch: z.object({
+    order: z.string().optional(),
+    // Order total in pesos (not cents) — threaded through the redirect URL
+    // from place-order.ts (Xendit's successRedirectUrl) and payment.tsx (the
+    // direct COD path) since this page has no other way to know the value of
+    // an order it never itself fetches, for the Purchase pixel event below.
+    value: z.coerce.number().optional(),
+  }),
   component: ConfirmationPage,
 })
 
+const FIRED_PURCHASE_KEY = 'spades_fb_purchase_fired'
+
 function ConfirmationPage() {
-  const { order } = Route.useSearch()
+  const { order, value } = Route.useSearch()
   const { clear } = useCheckout()
 
   // Reached either directly (COD) or via Xendit's success redirect (online
@@ -18,6 +28,19 @@ function ConfirmationPage() {
   useEffect(() => {
     clear()
   }, [])
+
+  // Guards against double-counting the same order as a second Purchase if
+  // the customer refreshes or revisits this confirmation URL.
+  useEffect(() => {
+    if (!order || value === undefined) return
+    const fired = new Set(
+      JSON.parse(sessionStorage.getItem(FIRED_PURCHASE_KEY) ?? '[]') as string[],
+    )
+    if (fired.has(order)) return
+    fired.add(order)
+    sessionStorage.setItem(FIRED_PURCHASE_KEY, JSON.stringify([...fired]))
+    trackPixelEvent('Purchase', { value, currency: 'PHP' })
+  }, [order, value])
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-20 text-center">

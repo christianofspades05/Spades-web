@@ -11,6 +11,7 @@ import {
 import { getProductReviews } from '#/server/reviews/queries'
 import { recordVisit } from '#/server/analytics/track'
 import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
+import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { useCart } from '#/lib/cart/CartContext'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatSizeLabel } from '#/lib/utils/size-order'
@@ -71,6 +72,20 @@ function ProductPage() {
   const [error, setError] = useState<string | null>(null)
   const [addedItem, setAddedItem] = useState<AddedToCartItem | null>(null)
 
+  useEffect(() => {
+    const lowestPriceCents = Math.min(
+      ...product.variants.map((v) => v.price_cents),
+    )
+    trackPixelEvent('ViewContent', {
+      content_ids: [product.id],
+      content_type: 'product',
+      content_name: product.name,
+      value: lowestPriceCents / 100,
+      currency: 'PHP',
+    })
+    // Only re-fire if the visitor lands on a different product's page.
+  }, [product.id])
+
   // Description and reviews sit in boxes capped to a fixed height so long
   // content scrolls instead of growing the page — but the title/rating
   // block above the description isn't the same height as the size
@@ -122,6 +137,13 @@ function ProductPage() {
         image: product.images[0] ?? null,
         productName: product.name,
         variantLabel: formatVariantLabel(selectedVariant),
+      })
+      trackPixelEvent('AddToCart', {
+        content_ids: [product.id],
+        content_type: 'product',
+        content_name: product.name,
+        value: (selectedVariant.price_cents * quantity) / 100,
+        currency: 'PHP',
       })
       void recordVisit({
         data: {

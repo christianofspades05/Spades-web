@@ -115,7 +115,10 @@ function PaymentPage() {
       clear()
       void navigate({
         to: '/checkout/confirmation',
-        search: { order: result.orderNumber },
+        search: {
+          order: result.orderNumber,
+          value: (totalCents / 100).toFixed(2),
+        },
       })
     } catch (err) {
       setError(getErrorMessage(err))

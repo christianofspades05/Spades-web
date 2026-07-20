@@ -286,7 +286,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             amountPesos: totalCents / 100,
             payerEmail: email,
             description: `Spades order ${order.order_number}`,
-            successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}`,
+            successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}&value=${(totalCents / 100).toFixed(2)}`,
             failureRedirectUrl: `${origin}/checkout/payment?order=${order.order_number}&paymentFailed=true`,
           })
           invoiceUrl = invoice.invoice_url

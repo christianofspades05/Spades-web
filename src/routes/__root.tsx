@@ -8,6 +8,11 @@ import {
 import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
+import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
+import {
+  FB_PIXEL_BOOTSTRAP_SCRIPT,
+  FB_PIXEL_ID,
+} from '#/lib/analytics/facebook-pixel'
 import { CartProvider } from '#/lib/cart/CartContext'
 import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import appCss from '../styles.css?url'
@@ -73,10 +78,27 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         {!isAdminRoute && (
           <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
         )}
+        {!isAdminRoute && FB_PIXEL_BOOTSTRAP_SCRIPT && (
+          <script
+            dangerouslySetInnerHTML={{ __html: FB_PIXEL_BOOTSTRAP_SCRIPT }}
+          />
+        )}
         <HeadContent />
       </head>
       <body>
+        {!isAdminRoute && FB_PIXEL_ID && (
+          <noscript>
+            <img
+              height="1"
+              width="1"
+              alt=""
+              style={{ display: 'none' }}
+              src={`https://www.facebook.com/tr?id=${FB_PIXEL_ID}&ev=PageView&noscript=1`}
+            />
+          </noscript>
+        )}
         <VisitTracker />
+        <FacebookPixelPageView />
         <ThemeProvider>
           <CartProvider>
             {!isAdminRoute && <Header />}
