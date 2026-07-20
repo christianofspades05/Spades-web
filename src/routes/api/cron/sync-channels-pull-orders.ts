@@ -32,21 +32,7 @@ function isAuthorized(request: Request): boolean {
     )
     return false
   }
-  const received = request.headers.get('authorization')
-  const match = received === `Bearer ${expected}`
-  if (!match) {
-    // TEMPORARY debug logging — remove once the cron-job.org 401 is fixed.
-    // Logs lengths/edges only, never the full secret.
-    console.error('[cron-auth-debug]', {
-      expectedLen: expected.length,
-      expectedEdges: `${expected.slice(0, 4)}...${expected.slice(-4)}`,
-      receivedLen: received?.length ?? null,
-      receivedEdges: received
-        ? `${received.slice(0, 11)}...${received.slice(-4)}`
-        : null,
-    })
-  }
-  return match
+  return request.headers.get('authorization') === `Bearer ${expected}`
 }
 
 function isSyncable(
