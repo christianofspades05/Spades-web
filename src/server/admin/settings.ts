@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import {
   createStaffUserSchema,
+  resetStaffUserPasswordSchema,
   setStaffUserActiveSchema,
 } from '#/lib/validation/admin/settings'
 import { requireStaff } from '#/lib/auth/guards'
@@ -69,6 +70,37 @@ export const createStaffUser = createServerFn({ method: 'POST' })
         email: data.email,
         role: data.role,
       },
+    )
+
+    return { ok: true }
+  })
+
+/** Super admins can set a new password for any staff account directly — no reset-email flow, since a staff member locked out has no other way in and this is an internal tool, not customer-facing auth. */
+export const resetStaffUserPassword = createServerFn({ method: 'POST' })
+  .validator(resetStaffUserPasswordSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_STAFF_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: target, error: targetError } = await admin
+      .from('staff_users')
+      .select('auth_user_id')
+      .eq('id', data.staffUserId)
+      .single()
+    if (targetError) throw targetError
+
+    const { error } = await admin.auth.admin.updateUserById(
+      target.auth_user_id,
+      { password: data.newPassword },
+    )
+    if (error) throw error
+
+    // Never log the new password itself — only that a reset happened.
+    await logStaffActivity(
+      staff,
+      'staff.reset_password',
+      'staff_users',
+      data.staffUserId,
     )
 
     return { ok: true }

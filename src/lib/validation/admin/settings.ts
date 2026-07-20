@@ -20,5 +20,13 @@ export const setStaffUserActiveSchema = z.object({
   isActive: z.boolean(),
 })
 
+export const resetStaffUserPasswordSchema = z.object({
+  staffUserId: z.string().uuid(),
+  newPassword: z.string().min(8),
+})
+
 export type CreateStaffUserInput = z.infer<typeof createStaffUserSchema>
 export type SetStaffUserActiveInput = z.infer<typeof setStaffUserActiveSchema>
+export type ResetStaffUserPasswordInput = z.infer<
+  typeof resetStaffUserPasswordSchema
+>

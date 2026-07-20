@@ -3,6 +3,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   createStaffUser,
   listStaffUsers,
+  resetStaffUserPassword,
   setStaffUserActive,
 } from '#/server/admin/settings'
 import type { StaffAccount } from '#/server/admin/settings'
@@ -95,6 +96,7 @@ function StaffRow({
 }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showReset, setShowReset] = useState(false)
 
   async function toggleActive() {
     setSubmitting(true)
@@ -123,17 +125,113 @@ function StaffRow({
         </Badge>
       </td>
       <td className={`${tableCellClassName} text-right`}>
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={toggleActive}
-          className={buttonSecondaryClassName}
-        >
-          {staff.is_active ? 'Deactivate' : 'Reactivate'}
-        </button>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => setShowReset((v) => !v)}
+            className={buttonSecondaryClassName}
+          >
+            Reset password
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={toggleActive}
+            className={buttonSecondaryClassName}
+          >
+            {staff.is_active ? 'Deactivate' : 'Reactivate'}
+          </button>
+        </div>
         {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+        {showReset && (
+          <ResetPasswordForm
+            staffUserId={staff.id}
+            onDone={() => setShowReset(false)}
+            onCancel={() => setShowReset(false)}
+          />
+        )}
       </td>
     </tr>
+  )
+}
+
+function ResetPasswordForm({
+  staffUserId,
+  onDone,
+  onCancel,
+}: {
+  staffUserId: string
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const [newPassword, setNewPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      await resetStaffUserPassword({ data: { staffUserId, newPassword } })
+      setDone(true)
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setSubmitting(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="mt-2 flex items-center justify-end gap-2 text-xs">
+        <span className="text-emerald-600">Password updated.</span>
+        <button
+          type="button"
+          onClick={onDone}
+          className="text-neutral-500 underline"
+        >
+          Close
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="mt-2 flex flex-col items-end gap-2 text-left"
+    >
+      <input
+        type="password"
+        required
+        minLength={8}
+        autoFocus
+        placeholder="New password (min 8 characters)"
+        value={newPassword}
+        onChange={(e) => setNewPassword(e.target.value)}
+        className={`${inputClassName} w-56`}
+      />
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={submitting}
+          className={buttonSecondaryClassName}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={submitting}
+          className={buttonPrimaryClassName}
+        >
+          {submitting ? 'Saving…' : 'Set password'}
+        </button>
+      </div>
+    </form>
   )
 }
 
