@@ -239,12 +239,19 @@ export function ConnectionCard({
   )
 }
 
-export type ProductSort = 'name_asc' | 'name_desc' | 'created_desc'
+export type ProductSort =
+  | 'name_asc'
+  | 'name_desc'
+  | 'created_desc'
+  | 'stock_asc'
+  | 'stock_desc'
 
 export const SORT_LABELS: Record<ProductSort, string> = {
   name_asc: 'Name (A–Z)',
   name_desc: 'Name (Z–A)',
   created_desc: 'Newest first',
+  stock_asc: 'Stock (low to high)',
+  stock_desc: 'Stock (high to low)',
 }
 
 export type ConnectionFilter = 'all' | 'connected' | 'not_connected'
@@ -261,6 +268,7 @@ interface GroupedProduct {
   productImage: string | null
   productCreatedAt: string
   variants: ProductSyncRow[]
+  totalStock: number
 }
 
 function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
@@ -269,6 +277,7 @@ function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
     const existing = byProduct.get(row.productId)
     if (existing) {
       existing.variants.push(row)
+      existing.totalStock += row.quantityAvailable
     } else {
       byProduct.set(row.productId, {
         productId: row.productId,
@@ -276,6 +285,7 @@ function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
         productImage: row.productImage,
         productCreatedAt: row.productCreatedAt,
         variants: [row],
+        totalStock: row.quantityAvailable,
       })
     }
   }
@@ -348,6 +358,8 @@ export function ProductSyncSection({
         return a.productName.localeCompare(b.productName)
       if (sortBy === 'name_desc')
         return b.productName.localeCompare(a.productName)
+      if (sortBy === 'stock_asc') return a.totalStock - b.totalStock
+      if (sortBy === 'stock_desc') return b.totalStock - a.totalStock
       return (
         new Date(b.productCreatedAt).getTime() -
         new Date(a.productCreatedAt).getTime()
@@ -624,10 +636,7 @@ function ProductGroupRow({
   const [error, setError] = useState<string | null>(null)
 
   const mappedVariants = product.variants.filter((v) => v.mapping)
-  const totalStock = product.variants.reduce(
-    (sum, v) => sum + v.quantityAvailable,
-    0,
-  )
+  const totalStock = product.totalStock
 
   async function handleSyncNow() {
     setSubmitting(true)
