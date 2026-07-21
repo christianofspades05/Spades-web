@@ -16,12 +16,16 @@ import {
 } from '#/components/admin/ui'
 import type { ReviewStatus } from '#/types/entities'
 
+const REVIEW_RATINGS = [1, 2, 3, 4, 5] as const
+
 export const Route = createFileRoute('/admin/reviews/')({
   validateSearch: z.object({
     status: z.enum(REVIEW_STATUSES).optional(),
+    rating: z.coerce.number().int().min(1).max(5).optional(),
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => listReviews({ data: { status: deps.status } }),
+  loader: ({ deps }) =>
+    listReviews({ data: { status: deps.status, rating: deps.rating } }),
   component: ReviewsPage,
 })
 
@@ -76,6 +80,36 @@ function ReviewsPage() {
             }`}
           >
             {s}
+          </Link>
+        ))}
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Link
+          to="/admin/reviews"
+          from={Route.fullPath}
+          search={(prev) => ({ ...prev, rating: undefined })}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            !search.rating
+              ? 'bg-neutral-900 text-white'
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+          }`}
+        >
+          All ratings
+        </Link>
+        {REVIEW_RATINGS.map((r) => (
+          <Link
+            key={r}
+            to="/admin/reviews"
+            from={Route.fullPath}
+            search={(prev) => ({ ...prev, rating: r })}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              search.rating === r
+                ? 'bg-neutral-900 text-white'
+                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            {r} ★
           </Link>
         ))}
       </div>

@@ -40,6 +40,7 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       status: z.string().optional(),
       productType: z.string().optional(),
       q: z.string().optional(),
+      collectionId: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }): Promise<ProductWithCollectionNames[]> => {
@@ -55,6 +56,25 @@ export const listAllProducts = createServerFn({ method: 'GET' })
 
     if (data.status) query = query.eq('status', data.status)
     if (data.productType) query = query.eq('product_type', data.productType)
+
+    // Filtered via a separate lookup (rather than an inner-joined embed on
+    // `collections`) so the `collections` field in the response still lists
+    // every collection a matching product belongs to, not just the one
+    // being filtered on.
+    if (data.collectionId) {
+      const { data: memberships, error: membershipError } = await admin
+        .from('product_collections')
+        .select('product_id')
+        .eq('collection_id', data.collectionId)
+      if (membershipError) throw membershipError
+      const productIds = memberships.map((m) => m.product_id)
+      query = query.in(
+        'id',
+        productIds.length
+          ? productIds
+          : ['00000000-0000-0000-0000-000000000000'],
+      )
+    }
 
     const search = data.q?.trim()
     if (search) {

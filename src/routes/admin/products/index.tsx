@@ -12,10 +12,12 @@ import {
   getProductsOverview,
   listAllProducts,
 } from '#/server/admin/products'
+import { listAllCollections } from '#/server/admin/collections'
 import type {
   ProductsOverview,
   ProductWithCollectionNames,
 } from '#/server/admin/products'
+import type { Collection } from '#/types/entities'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
@@ -65,6 +67,7 @@ export const Route = createFileRoute('/admin/products/')({
   validateSearch: z.object({
     status: z.enum(PRODUCT_STATUSES).optional(),
     productType: z.enum(PRODUCT_TYPES).optional(),
+    collectionId: z.string().uuid().optional(),
     q: z.string().optional(),
     sort: z.enum(SORT_FIELDS).catch('created'),
     dir: z.enum(['asc', 'desc']).catch('desc'),
@@ -78,13 +81,19 @@ export const Route = createFileRoute('/admin/products/')({
       from: deps.from,
       to: deps.to,
     })
-    const [products, overview] = await Promise.all([
+    const [products, overview, collections] = await Promise.all([
       listAllProducts({
-        data: { status: deps.status, productType: deps.productType, q: deps.q },
+        data: {
+          status: deps.status,
+          productType: deps.productType,
+          q: deps.q,
+          collectionId: deps.collectionId,
+        },
       }),
       getProductsOverview({ data: resolved }),
+      listAllCollections(),
     ])
-    return { products, overview }
+    return { products, overview, collections }
   },
   component: ProductsPage,
 })
@@ -93,8 +102,12 @@ function ProductsPage() {
   const {
     products,
     overview,
-  }: { products: ProductWithCollectionNames[]; overview: ProductsOverview } =
-    Route.useLoaderData()
+    collections,
+  }: {
+    products: ProductWithCollectionNames[]
+    overview: ProductsOverview
+    collections: Collection[]
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -334,6 +347,26 @@ function ProductsPage() {
           {PRODUCT_TYPES.map((type) => (
             <option key={type} value={type} className="capitalize">
               {type}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={search.collectionId ?? ''}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                collectionId: e.target.value || undefined,
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          <option value="">All collections</option>
+          {collections.map((collection) => (
+            <option key={collection.id} value={collection.id}>
+              {collection.name}
             </option>
           ))}
         </select>

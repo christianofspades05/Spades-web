@@ -15,7 +15,12 @@ export interface ReviewWithContext extends Review {
 }
 
 export const listReviews = createServerFn({ method: 'GET' })
-  .validator(z.object({ status: z.string().optional() }))
+  .validator(
+    z.object({
+      status: z.string().optional(),
+      rating: z.number().int().min(1).max(5).optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<ReviewWithContext[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
@@ -27,6 +32,7 @@ export const listReviews = createServerFn({ method: 'GET' })
       )
       .order('created_at', { ascending: false })
     if (data.status) query = query.eq('status', data.status)
+    if (data.rating) query = query.eq('rating', data.rating)
 
     const { data: reviews, error } = await query
     if (error) throw error
