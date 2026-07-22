@@ -293,10 +293,12 @@ function OrderDetailPage() {
                     </div>
                   ))}
                   <div className="flex justify-between font-semibold text-neutral-900">
-                    <span>Net payout</span>
+                    <span>Net Sales</span>
                     <span>
                       {formatCentsAsPHP(
-                        order.total_cents - order.platform_fees_cents,
+                        order.subtotal_cents +
+                          order.shipping_cents -
+                          order.platform_fees_cents,
                       )}
                     </span>
                   </div>
