@@ -134,12 +134,6 @@ interface ShopeeOrder {
   actual_shipping_fee?: number
   order_status?: string
   package_list?: ShopeePackage[]
-  /** COD orders' total_amount doesn't reconcile against
-   *  item total + estimated_shipping_fee the way non-COD orders' do
-   *  (confirmed against a real COD order — the gap doesn't match either
-   *  shipping fee field) — gates the actual/estimated fallback below to
-   *  non-COD orders only until that's understood. */
-  cod?: boolean
   /** Not part of Shopee's order-detail response at all — filled in by
    *  pullOrders after a separate get_tracking_number call, once
    *  package_list above gives it a package_number to ask about. */
@@ -164,6 +158,18 @@ interface ShopeeOrderIncome {
   service_fee?: number
   seller_transaction_fee?: number
   withholding_tax?: number
+  /** What the buyer actually paid for shipping — confirmed against a real
+   *  order to be the authoritative figure, unlike get_order_detail's
+   *  actual_shipping_fee/estimated_shipping_fee (see the shippingCents doc
+   *  comment in mapOrderToInternalFormat). Present regardless of COD or
+   *  shipped status once escrow data exists at all. */
+  buyer_paid_shipping_fee?: number
+  /** Seller-funded discount only — distinct from the buyer_payment_info
+   *  response's shopee_voucher, which is Shopee's own promo budget and
+   *  must never be netted into our numbers (see NormalizedOrder.discountCents'
+   *  doc comment). Confirmed 0 on a real order that had a ₱240
+   *  Shopee-funded voucher and no seller-funded discount at all. */
+  seller_discount?: number
 }
 
 /** Every status except UNPAID/CANCELLED/IN_CANCEL/TO_RETURN represents a completed sale on Shopee's side. */
@@ -427,7 +433,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
         query: {
           order_sn_list: batch.join(','),
           response_optional_fields:
-            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status,package_list,cod',
+            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status,package_list',
         },
       })
 
@@ -497,34 +503,28 @@ export const shopeeAdapter: MarketplaceAdapter = {
     }))
 
     const totalCents = Math.round((order.total_amount ?? 0) * 100)
-    // actual_shipping_fee comes back as 0 (not null/undefined) until Shopee
-    // actually ships the order — which is after every sync that matters,
-    // since orders get pulled within 5 minutes of being placed — so `??`
-    // never falls through to estimated_shipping_fee like it's meant to.
-    // Confirmed against real orders: an unshipped order's total only
-    // reconciles against item total + estimated_shipping_fee, and a shipped
-    // order's actual_shipping_fee always matched its estimated_shipping_fee
-    // anyway. COD orders are excluded — their total doesn't reconcile
-    // against either shipping fee field (see ShopeeOrder.cod's doc comment).
-    const shippingCents = order.cod
-      ? Math.round(
-          (order.actual_shipping_fee ?? order.estimated_shipping_fee ?? 0) *
-            100,
-        )
-      : Math.round(
-          (order.actual_shipping_fee || order.estimated_shipping_fee || 0) *
-            100,
-        )
+    const income = order.order_income
+
+    // Escrow's buyer_paid_shipping_fee is Shopee's own authoritative "what
+    // the buyer actually paid for shipping" figure — confirmed against a
+    // real COD order where get_order_detail's actual_shipping_fee/
+    // estimated_shipping_fee fields didn't reconcile against the order
+    // total at all (a COD/non-COD split turned out not to be the real
+    // issue). Falls back to those Order Detail fields only for an order
+    // synced before Shopee has escrow data ready yet; actual_shipping_fee
+    // comes back as 0 (not null/undefined) until the order ships, hence
+    // `||` rather than `??` in that fallback.
+    const shippingCents =
+      income?.buyer_paid_shipping_fee != null
+        ? Math.round(income.buyer_paid_shipping_fee * 100)
+        : Math.round(
+            (order.actual_shipping_fee || order.estimated_shipping_fee || 0) *
+              100,
+          )
+
     // Pre-discount item total, from each line's original (not discounted)
     // price — matches how NormalizedOrder.subtotalCents is defined
-    // elsewhere (see its doc comment). UNVERIFIED against a real order (this
-    // shop has none yet, same caveat as the rest of this file): discountCents
-    // here is original-minus-discounted, which on Shopee's basic Order
-    // Detail API can't be split into seller vs. platform-funded — that split
-    // needs the separate Escrow Detail API. Revisit once real orders flow
-    // through, since per the seller-discount-only rule used for TikTok this
-    // may currently overstate the discount (and understate net sales) by
-    // whatever portion Shopee itself funded.
+    // elsewhere (see its doc comment).
     const itemAmountCents = Math.round(
       (order.item_list ?? []).reduce(
         (sum, item) =>
@@ -534,10 +534,17 @@ export const shopeeAdapter: MarketplaceAdapter = {
         0,
       ) * 100,
     )
-    const discountCents = Math.max(
-      0,
-      itemAmountCents - (totalCents - shippingCents),
-    )
+    // Seller-funded discount only, read directly from escrow's
+    // seller_discount field — never inferred by subtracting totals, which
+    // used to conflate Shopee's own voucher subsidy (buyer_payment_info's
+    // shopee_voucher, confirmed ₱240 on a real order with 0 seller
+    // discount) and shippingCents bugs into one wrong number. Defaults to 0
+    // (not a subtraction-based guess) before escrow data is ready — matches
+    // the seller-discount-only rule already used for TikTok.
+    const discountCents =
+      income?.seller_discount != null
+        ? Math.round(income.seller_discount * 100)
+        : 0
     const fulfillmentStatus = order.order_status
       ? SHOPEE_STATUS_TO_FULFILLMENT.get(order.order_status)
       : undefined
@@ -548,7 +555,6 @@ export const shopeeAdapter: MarketplaceAdapter = {
     // "zero fees charged." Each amount is cents-rounded independently
     // (rather than deriving one from the others) since Shopee's fee fields
     // aren't guaranteed to sum exactly to a whole-peso figure.
-    const income = order.order_income
     const platformFees = income
       ? (
           [
