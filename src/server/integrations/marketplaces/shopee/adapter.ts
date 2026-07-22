@@ -139,6 +139,25 @@ interface ShopeeOrder {
    *  package_list above gives it a package_number to ask about. */
   tracking_number?: string
   shipping_carrier?: string
+  /** Also not part of get_order_detail — filled in by pullOrders after a
+   *  separate get_escrow_detail call, see fetchOrderIncome. Only available
+   *  once Shopee has actually calculated the order's payout (typically after
+   *  it ships), so this stays undefined for a freshly-placed order. */
+  order_income?: ShopeeOrderIncome
+}
+
+/** The subset of get_escrow_detail's ~150-field response this app cares
+ *  about — the fees/tax Shopee deducts from the seller's payout. Field
+ *  names confirmed against a real community TypeScript SDK's schema
+ *  (congminh1254/shopee-sdk), not exercised against a live/sandbox escrow
+ *  response yet — same unverified-until-first-live-call caveat as the rest
+ *  of this file. */
+interface ShopeeOrderIncome {
+  escrow_amount?: number
+  commission_fee?: number
+  service_fee?: number
+  seller_transaction_fee?: number
+  withholding_tax?: number
 }
 
 /** Every status except UNPAID/CANCELLED/IN_CANCEL/TO_RETURN represents a completed sale on Shopee's side. */
@@ -249,6 +268,31 @@ async function fetchTrackingNumber(
       query: { order_sn: orderSn, package_number: packageNumber },
     })
     return result.tracking_number ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Shopee's fee/tax breakdown for an order, via the separate Escrow Detail
+ *  API (get_order_detail never returns this) — best-effort, same reasoning
+ *  as fetchTrackingNumber: not every order has this calculated yet (e.g. one
+ *  that hasn't shipped), so a failure or empty response just means "no fee
+ *  breakdown yet," not a broken sync. Must never fail the whole order
+ *  import over one order's lookup. */
+async function fetchOrderIncome(
+  accessToken: string,
+  shopId: string,
+  orderSn: string,
+): Promise<ShopeeOrderIncome | null> {
+  try {
+    const result = await callShopeeApi<{ order_income?: ShopeeOrderIncome }>({
+      method: 'GET',
+      path: '/api/v2/payment/get_escrow_detail',
+      accessToken,
+      shopId,
+      query: { order_sn: orderSn },
+    })
+    return result.order_income ?? null
   } catch {
     return null
   }
@@ -400,6 +444,18 @@ export const shopeeAdapter: MarketplaceAdapter = {
           )) ?? undefined
       }
 
+      // Same one-call-per-order approach for the fee/tax breakdown Shopee
+      // deducts from the payout (see fetchOrderIncome) — this repeats for
+      // orders already imported on a previous pull too (their lookback
+      // window overlaps), which is wasted work but harmless: sync-engine
+      // only reads platformFees while inserting a brand-new order, never on
+      // a dedup hit.
+      for (const order of order_list ?? []) {
+        order.order_income =
+          (await fetchOrderIncome(accessToken, shopId, order.order_sn)) ??
+          undefined
+      }
+
       orders.push(...((order_list ?? []) as unknown as Record<string, unknown>[]))
     }
     return orders
@@ -465,6 +521,26 @@ export const shopeeAdapter: MarketplaceAdapter = {
       ? SHOPEE_STATUS_TO_FULFILLMENT.get(order.order_status)
       : undefined
 
+    // Only present once Shopee has actually calculated the payout (see
+    // fetchOrderIncome) — omitted (rather than a zeroed-out breakdown) for a
+    // freshly-placed order so the UI can tell "no fees yet" apart from
+    // "zero fees charged." Each amount is cents-rounded independently
+    // (rather than deriving one from the others) since Shopee's fee fields
+    // aren't guaranteed to sum exactly to a whole-peso figure.
+    const income = order.order_income
+    const platformFees = income
+      ? (
+          [
+            ['Commission fee', income.commission_fee],
+            ['Service fee', income.service_fee],
+            ['Transaction fee', income.seller_transaction_fee],
+            ['Withholding tax', income.withholding_tax],
+          ] as const
+        ).flatMap(([label, amount]) =>
+          amount ? [{ label, amountCents: Math.round(amount * 100) }] : [],
+        )
+      : undefined
+
     return {
       externalOrderId: order.order_sn,
       placedAt: new Date(order.create_time * 1000).toISOString(),
@@ -474,6 +550,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       discountCents,
       shippingCents,
       totalCents,
+      platformFees,
       isPaid: !UNPAID_LIKE_STATUSES.has(order.order_status ?? ''),
       // IN_CANCEL is a cancellation still in progress on Shopee's side (not
       // guaranteed to finish that way) — only a finalized CANCELLED is

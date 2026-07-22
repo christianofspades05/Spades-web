@@ -60,6 +60,14 @@ export interface NormalizedOrder {
   discountCents: number
   shippingCents: number
   totalCents: number
+  /** Fees/tax the marketplace itself deducts from the seller's payout (e.g.
+   *  Shopee's commission/service/transaction fee, withholding tax) — a
+   *  different concept from discountCents (a price cut the customer sees
+   *  before paying): this never affects totalCents, which stays "what the
+   *  customer paid" everywhere. Undefined when the platform hasn't
+   *  calculated the payout yet (rather than an empty array), and undefined
+   *  entirely for platforms that don't expose this breakdown. */
+  platformFees?: { label: string; amountCents: number }[]
   /** True if the platform has already collected payment (the normal case —
    *  we're importing a completed sale, not taking payment ourselves). */
   isPaid: boolean

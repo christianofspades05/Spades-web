@@ -277,6 +277,31 @@ function OrderDetailPage() {
                   <span>{formatCentsAsPHP(order.total_cents)}</span>
                 </div>
               </div>
+
+              {order.platform_fee_breakdown.length > 0 && (
+                <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
+                  <p className="text-xs font-medium text-neutral-500">
+                    Platform fees ({order.source})
+                  </p>
+                  {order.platform_fee_breakdown.map((fee) => (
+                    <div
+                      key={fee.label}
+                      className="flex justify-between text-neutral-500"
+                    >
+                      <span>{fee.label}</span>
+                      <span>-{formatCentsAsPHP(fee.amountCents)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between font-semibold text-neutral-900">
+                    <span>Net payout</span>
+                    <span>
+                      {formatCentsAsPHP(
+                        order.total_cents - order.platform_fees_cents,
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
