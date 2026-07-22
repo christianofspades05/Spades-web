@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Menu, Search, ShoppingBag, User, X } from 'lucide-react'
 import { useCart } from '#/lib/cart/CartContext'
 import { ThemeToggle } from '#/components/storefront/ThemeToggle'
+import { SearchOverlay } from '#/components/storefront/SearchOverlay'
 
 const NAV_LINKS = [
   { to: '/', label: 'Home Store' },
@@ -15,6 +16,7 @@ const NAV_LINKS = [
 export function Header() {
   const { itemCount } = useCart()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   return (
     <header>
@@ -65,14 +67,14 @@ export function Header() {
             ))}
           </nav>
           <div className="flex items-center gap-5">
-            <Link
-              to="/products"
-              search={{ sort: 'newest', page: 1 }}
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
               className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
               aria-label="Search products"
             >
               <Search className="h-5 w-5" />
-            </Link>
+            </button>
             <Link
               to="/account"
               className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
@@ -114,6 +116,7 @@ export function Header() {
           </nav>
         )}
       </div>
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
     </header>
   )
 }

@@ -360,6 +360,35 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
     },
   )
 
+const QUICK_SEARCH_LIMIT = 6
+
+/** Small, unpaginated product lookup backing the header's in-place search overlay — a live-typing dropdown, not the full /products listing. */
+export const quickSearchProducts = createServerFn({ method: 'GET' })
+  .validator(z.object({ q: z.string().trim().min(1).max(200) }))
+  .handler(
+    async ({
+      data,
+    }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
+      const supabase = getSupabaseServerClient()
+
+      const { data: products, error } = await supabase
+        .from('storefront_product_listing')
+        .select('*')
+        .or(`name.ilike.%${data.q}%,tags.cs.{${data.q}}`)
+        .order('created_at', { ascending: false })
+        .limit(QUICK_SEARCH_LIMIT)
+
+      if (error) throw error
+      const sales = await attachSalePrices(
+        products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
+      )
+      return products.map((p) => ({
+        ...p,
+        ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
+      }))
+    },
+  )
+
 /** Active products sharing a product_type, for a detail page's "related products" section. */
 export const listRelatedProducts = createServerFn({ method: 'GET' })
   .validator(
