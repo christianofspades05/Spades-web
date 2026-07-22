@@ -134,6 +134,12 @@ interface ShopeeOrder {
   actual_shipping_fee?: number
   order_status?: string
   package_list?: ShopeePackage[]
+  /** COD orders' total_amount doesn't reconcile against
+   *  item total + estimated_shipping_fee the way non-COD orders' do
+   *  (confirmed against a real COD order — the gap doesn't match either
+   *  shipping fee field) — gates the actual/estimated fallback below to
+   *  non-COD orders only until that's understood. */
+  cod?: boolean
   /** Not part of Shopee's order-detail response at all — filled in by
    *  pullOrders after a separate get_tracking_number call, once
    *  package_list above gives it a package_number to ask about. */
@@ -421,7 +427,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
         query: {
           order_sn_list: batch.join(','),
           response_optional_fields:
-            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status,package_list',
+            'item_list,total_amount,estimated_shipping_fee,actual_shipping_fee,recipient_address,buyer_username,order_status,package_list,cod',
         },
       })
 
@@ -491,9 +497,24 @@ export const shopeeAdapter: MarketplaceAdapter = {
     }))
 
     const totalCents = Math.round((order.total_amount ?? 0) * 100)
-    const shippingCents = Math.round(
-      (order.actual_shipping_fee ?? order.estimated_shipping_fee ?? 0) * 100,
-    )
+    // actual_shipping_fee comes back as 0 (not null/undefined) until Shopee
+    // actually ships the order — which is after every sync that matters,
+    // since orders get pulled within 5 minutes of being placed — so `??`
+    // never falls through to estimated_shipping_fee like it's meant to.
+    // Confirmed against real orders: an unshipped order's total only
+    // reconciles against item total + estimated_shipping_fee, and a shipped
+    // order's actual_shipping_fee always matched its estimated_shipping_fee
+    // anyway. COD orders are excluded — their total doesn't reconcile
+    // against either shipping fee field (see ShopeeOrder.cod's doc comment).
+    const shippingCents = order.cod
+      ? Math.round(
+          (order.actual_shipping_fee ?? order.estimated_shipping_fee ?? 0) *
+            100,
+        )
+      : Math.round(
+          (order.actual_shipping_fee || order.estimated_shipping_fee || 0) *
+            100,
+        )
     // Pre-discount item total, from each line's original (not discounted)
     // price — matches how NormalizedOrder.subtotalCents is defined
     // elsewhere (see its doc comment). UNVERIFIED against a real order (this
