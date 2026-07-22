@@ -68,6 +68,14 @@ export interface NormalizedOrder {
    *  calculated the payout yet (rather than an empty array), and undefined
    *  entirely for platforms that don't expose this breakdown. */
   platformFees?: { label: string; amountCents: number }[]
+  /** A platform-funded voucher/subsidy (e.g. Shopee's shopee_voucher) —
+   *  never seller-funded, so it must stay out of discountCents. Read
+   *  directly from the marketplace's own voucher field, never inferred by
+   *  subtracting totals. Explains the gap between subtotalCents +
+   *  shippingCents and totalCents on orders where the platform funded part
+   *  of the buyer's price cut. Undefined for platforms that don't expose
+   *  this separately. */
+  platformDiscountCents?: number
   /** True if the platform has already collected payment (the normal case —
    *  we're importing a completed sale, not taking payment ourselves). */
   isPaid: boolean

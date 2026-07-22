@@ -535,6 +535,7 @@ async function importOrder(
         normalized.platformFees?.reduce((sum, f) => sum + f.amountCents, 0) ??
         0,
       platform_fee_breakdown: normalized.platformFees ?? [],
+      platform_discount_cents: normalized.platformDiscountCents ?? 0,
       shipping_address: normalized.shippingAddress as unknown as Record<
         string,
         unknown

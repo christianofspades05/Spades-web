@@ -170,6 +170,10 @@ interface ShopeeOrderIncome {
    *  doc comment). Confirmed 0 on a real order that had a ₱240
    *  Shopee-funded voucher and no seller-funded discount at all. */
   seller_discount?: number
+  /** Shopee's own voucher subsidy — confirmed ₱240 on the same real order
+   *  above (matches buyer_payment_info.shopee_voucher exactly). Never
+   *  seller-funded, so this feeds platformDiscountCents, not discountCents. */
+  voucher_from_shopee?: number
 }
 
 /** Every status except UNPAID/CANCELLED/IN_CANCEL/TO_RETURN represents a completed sale on Shopee's side. */
@@ -545,6 +549,15 @@ export const shopeeAdapter: MarketplaceAdapter = {
       income?.seller_discount != null
         ? Math.round(income.seller_discount * 100)
         : 0
+    // Shopee's own voucher subsidy, read directly from escrow — not
+    // inferred by subtracting totals. Explains the gap between
+    // subtotalCents + shippingCents and totalCents on orders where Shopee
+    // funded part of the buyer's price cut (see NormalizedOrder.
+    // platformDiscountCents' doc comment).
+    const platformDiscountCents =
+      income?.voucher_from_shopee != null
+        ? Math.round(income.voucher_from_shopee * 100)
+        : undefined
     const fulfillmentStatus = order.order_status
       ? SHOPEE_STATUS_TO_FULFILLMENT.get(order.order_status)
       : undefined
@@ -578,6 +591,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       shippingCents,
       totalCents,
       platformFees,
+      platformDiscountCents,
       isPaid: !UNPAID_LIKE_STATUSES.has(order.order_status ?? ''),
       // IN_CANCEL is a cancellation still in progress on Shopee's side (not
       // guaranteed to finish that way) — only a finalized CANCELLED is

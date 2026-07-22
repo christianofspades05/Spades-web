@@ -418,6 +418,9 @@ export interface Database {
           shipping_cents: number
           tax_cents: number
           total_cents: number
+          platform_fees_cents: number
+          platform_fee_breakdown: { label: string; amountCents: number }[]
+          platform_discount_cents: number
           currency: string
           discount_id: string | null
           shipping_address: Record<string, unknown>

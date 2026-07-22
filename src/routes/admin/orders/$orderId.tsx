@@ -268,6 +268,14 @@ function OrderDetailPage() {
                     <span>-{formatCentsAsPHP(order.discount_cents)}</span>
                   </div>
                 )}
+                {order.platform_discount_cents > 0 && (
+                  <div className="flex justify-between text-neutral-500">
+                    <span>Platform discount ({order.source})</span>
+                    <span>
+                      -{formatCentsAsPHP(order.platform_discount_cents)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-neutral-500">
                   <span>Shipping</span>
                   <span>{formatCentsAsPHP(order.shipping_cents)}</span>
