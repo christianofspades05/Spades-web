@@ -50,6 +50,8 @@ export type ProductVariant =
 export type Inventory = Database['public']['Tables']['inventory']['Row']
 export type Cart = Database['public']['Tables']['carts']['Row']
 export type CartItem = Database['public']['Tables']['cart_items']['Row']
+export type CartAbandonmentSend =
+  Database['public']['Tables']['cart_abandonment_sends']['Row']
 export type Order = Database['public']['Tables']['orders']['Row']
 export type OrderItem = Database['public']['Tables']['order_items']['Row']
 export type Payment = Database['public']['Tables']['payments']['Row']

@@ -1,15 +1,19 @@
 /**
- * Abandoned-cart reminder. Trigger via an external scheduler (cron-job.org,
- * recommended hourly) sending `Authorization: Bearer $CRON_SECRET` — NOT
- * added to vercel.json's cron list, which is already at this Vercel plan's
- * 2-daily-cron cap (review-requests, sync-channels-daily).
+ * Abandoned-cart reminder sequence. Trigger via an external scheduler
+ * (cron-job.org, recommended hourly) sending
+ * `Authorization: Bearer $CRON_SECRET` — NOT added to vercel.json's cron
+ * list, which is already at this Vercel plan's 2-daily-cron cap
+ * (review-requests, sync-channels-daily).
  *
- * Content/schedule/discount come from the `email_automations` row
- * (event_type = 'abandoned_cart'), editable from the admin Email page —
- * see lib/email/blocks.ts for how that row's `blocks` become the email
- * body. Skips entirely (rather than falling back to some hardcoded email)
- * if that automation is turned off, since staff turning it off should mean
- * "stop sending this," not "send whatever this cron used to hardcode."
+ * There can be several `email_automations` rows for event_type =
+ * 'abandoned_cart' (e.g. 30 min / 8h / 24h / 48h steps), each with its own
+ * delay_hours/content/discount, editable from the admin Email page — see
+ * lib/email/blocks.ts for how a row's `blocks` become the email body. Each
+ * active row is evaluated independently every run: a cart can receive
+ * every step in sequence as it ages past each one's threshold, tracked
+ * per-(cart, automation) in cart_abandonment_sends so a later step never
+ * gets blocked by an earlier one already having sent. An inactive row is
+ * simply skipped, not substituted with some hardcoded fallback.
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { randomBytes } from 'node:crypto'
@@ -104,162 +108,226 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
         const { sendEmail } = await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
 
-        const { data: automation, error: automationError } = await admin
-          .from('email_automations')
-          .select('*')
-          .eq('event_type', 'abandoned_cart')
-          .single()
-        if (automationError) throw automationError
-        if (!automation.is_active) {
-          return Response.json({ skipped: 'automation is inactive' })
-        }
-
-        const inactivityThresholdMs = automation.delay_hours * 60 * 60 * 1000
-        const cutoffMs = Date.now() - inactivityThresholdMs
-        const cutoffISO = new Date(cutoffMs).toISOString()
-
-        // Coarse filter: any cart that COULD qualify. created_at <= cutoff
-        // is a valid lower-bound proxy — no cart_items row can predate its
-        // parent cart, so a cart created after the cutoff cannot possibly
-        // have been inactive long enough yet, regardless of item activity.
         const [
-          { data: carts, error: cartsError },
+          { data: automations, error: automationsError },
           { data: unsubs, error: unsubError },
         ] = await Promise.all([
           admin
-            .from('carts')
-            .select('id, session_token, email, updated_at')
-            .eq('status', 'active')
-            .eq('abandoned_cart_email_sent', false)
-            .not('email', 'is', null)
-            .lte('created_at', cutoffISO),
+            .from('email_automations')
+            .select('*')
+            .eq('event_type', 'abandoned_cart')
+            .eq('is_active', true)
+            .order('delay_hours', { ascending: true }),
           admin.from('email_unsubscribes').select('email'),
         ])
-        if (cartsError) throw cartsError
+        if (automationsError) throw automationsError
         if (unsubError) throw unsubError
+        if (automations.length === 0) {
+          return Response.json({ skipped: 'no active abandoned-cart steps' })
+        }
 
         const unsubscribed = new Set(unsubs.map((u) => u.email))
 
-        let sent = 0
-        let skipped = 0
-        const failures: { cartId: string; error: string }[] = []
+        const steps: {
+          automationId: string
+          name: string
+          scanned: number
+          sent: number
+          skipped: number
+          failures: { cartId: string; error: string }[]
+        }[] = []
 
-        for (const cart of carts) {
-          if (!cart.email || unsubscribed.has(cart.email)) {
-            skipped += 1
-            continue
+        // Each step (e.g. 30 min / 8h / 24h / 48h) is evaluated
+        // independently against every eligible cart, oldest-threshold
+        // first — a cart can and should receive every step in sequence as
+        // it ages, not just the first one that matches.
+        for (const automation of automations) {
+          const inactivityThresholdMs = automation.delay_hours * 60 * 60 * 1000
+          const cutoffMs = Date.now() - inactivityThresholdMs
+          const cutoffISO = new Date(cutoffMs).toISOString()
+
+          // Coarse filter: any cart that COULD qualify. created_at <= cutoff
+          // is a valid lower-bound proxy — no cart_items row can predate its
+          // parent cart, so a cart created after the cutoff cannot possibly
+          // have been inactive long enough yet, regardless of item activity.
+          const { data: carts, error: cartsError } = await admin
+            .from('carts')
+            .select(
+              'id, session_token, email, updated_at, recovery_token, unsubscribe_token',
+            )
+            .eq('status', 'active')
+            .not('email', 'is', null)
+            .lte('created_at', cutoffISO)
+          if (cartsError) throw cartsError
+
+          // Which of these carts already got THIS step's email — checked
+          // per-automation (not a single cart-wide flag), so an earlier
+          // step already having sent never blocks a later one.
+          let alreadySent = new Set<string>()
+          if (carts.length > 0) {
+            const { data: sends, error: sendsError } = await admin
+              .from('cart_abandonment_sends')
+              .select('cart_id')
+              .eq('email_automation_id', automation.id)
+              .in(
+                'cart_id',
+                carts.map((c) => c.id),
+              )
+            if (sendsError) throw sendsError
+            alreadySent = new Set(sends.map((s) => s.cart_id))
           }
 
-          try {
-            const { data: items, error: itemsError } = await admin
-              .from('cart_items')
-              .select('variant_id, quantity, price_cents_snapshot, updated_at')
-              .eq('cart_id', cart.id)
-            if (itemsError) throw itemsError
+          let sent = 0
+          let skipped = 0
+          const failures: { cartId: string; error: string }[] = []
 
-            if (items.length === 0) {
-              // Nothing to remind them of yet — don't mark sent, they may
-              // add items later and become a real candidate.
+          for (const cart of carts) {
+            if (alreadySent.has(cart.id)) continue
+
+            if (!cart.email || unsubscribed.has(cart.email)) {
               skipped += 1
               continue
             }
 
-            // carts.updated_at alone doesn't reflect item changes (cart_items
-            // has its own separate updated_at trigger that never propagates
-            // to the parent cart), so real "last activity" needs both.
-            const lastActivityMs = Math.max(
-              new Date(cart.updated_at).getTime(),
-              ...items.map((i) => new Date(i.updated_at).getTime()),
-            )
-            if (lastActivityMs > cutoffMs) {
-              // The coarse filter only guaranteed the cart is old enough to
-              // have been created before the cutoff, not that it's been
-              // quiet since — an item added recently means it's not
-              // actually abandoned yet.
-              skipped += 1
-              continue
-            }
-
-            const variantIds = Array.from(
-              new Set(items.map((i) => i.variant_id)),
-            )
-            const { data: variants, error: variantsError } = await admin
-              .from('product_variants')
-              .select('id, size, color, style, product:products(name, images)')
-              .in('id', variantIds)
-            if (variantsError) throw variantsError
-
-            const variantsById = new Map(variants.map((v) => [v.id, v]))
-            const lineItems = items.map((item) => {
-              const v = variantsById.get(item.variant_id)
-              const variantLabel = v
-                ? [v.size, v.color, v.style].filter(Boolean).join(' / ') || null
-                : null
-              return {
-                name: v?.product.name ?? 'Item',
-                variantLabel,
-                image: v?.product.images[0] ?? null,
-                quantity: item.quantity,
-                lineTotalCents: item.quantity * item.price_cents_snapshot,
-              }
-            })
-
-            const recoveryToken = generateToken()
-            const unsubscribeToken = generateToken()
-            // Freshly minted per recipient, never the template's own code —
-            // see mint-discount.ts's doc comment for why.
-            const discount = automation.discount_id
-              ? await mintPerRecipientDiscount(
-                  admin,
-                  automation.discount_id,
-                  automation.id,
+            try {
+              const { data: items, error: itemsError } = await admin
+                .from('cart_items')
+                .select(
+                  'variant_id, quantity, price_cents_snapshot, updated_at',
                 )
-              : null
+                .eq('cart_id', cart.id)
+              if (itemsError) throw itemsError
 
-            await sendEmail({
-              to: cart.email,
-              subject: automation.subject,
-              html: renderEmailBlocks(automation.blocks, {
-                itemsHtml: renderItemsTable(lineItems),
-                placeholders: {
-                  resumeUrl: `${siteUrl}/cart/resume/${recoveryToken}`,
-                },
-                discount,
-                unsubscribeUrl: `${siteUrl}/unsubscribe/${unsubscribeToken}`,
-              }),
-            })
+              if (items.length === 0) {
+                // Nothing to remind them of yet — they may add items later
+                // and become a real candidate for this same step.
+                skipped += 1
+                continue
+              }
 
-            // Only persist the tokens / mark it sent once the email has
-            // actually gone out — if sendEmail throws above, this cart is
-            // untouched and gets a fresh attempt on the next run instead.
-            const { error: updateError } = await admin
-              .from('carts')
-              .update({
-                recovery_token: recoveryToken,
-                unsubscribe_token: unsubscribeToken,
-                abandoned_cart_email_sent: true,
-                abandoned_cart_emailed_at: new Date().toISOString(),
+              // carts.updated_at alone doesn't reflect item changes
+              // (cart_items has its own separate updated_at trigger that
+              // never propagates to the parent cart), so real "last
+              // activity" needs both.
+              const lastActivityMs = Math.max(
+                new Date(cart.updated_at).getTime(),
+                ...items.map((i) => new Date(i.updated_at).getTime()),
+              )
+              if (lastActivityMs > cutoffMs) {
+                // The coarse filter only guaranteed the cart is old enough
+                // to have been created before the cutoff, not that it's
+                // been quiet since — an item added recently means it's not
+                // actually abandoned yet (for this step's threshold).
+                skipped += 1
+                continue
+              }
+
+              const variantIds = Array.from(
+                new Set(items.map((i) => i.variant_id)),
+              )
+              const { data: variants, error: variantsError } = await admin
+                .from('product_variants')
+                .select(
+                  'id, size, color, style, product:products(name, images)',
+                )
+                .in('id', variantIds)
+              if (variantsError) throw variantsError
+
+              const variantsById = new Map(variants.map((v) => [v.id, v]))
+              const lineItems = items.map((item) => {
+                const v = variantsById.get(item.variant_id)
+                const variantLabel = v
+                  ? [v.size, v.color, v.style].filter(Boolean).join(' / ') ||
+                    null
+                  : null
+                return {
+                  name: v?.product.name ?? 'Item',
+                  variantLabel,
+                  image: v?.product.images[0] ?? null,
+                  quantity: item.quantity,
+                  lineTotalCents: item.quantity * item.price_cents_snapshot,
+                }
               })
-              .eq('id', cart.id)
-            if (updateError) throw updateError
 
-            await logEmailSend(
-              admin,
-              automation.id,
-              cart.email,
-              discount?.id ?? null,
-            )
+              // Reused across every step of the sequence rather than
+              // regenerated per send — a fresh token here would silently
+              // invalidate an earlier step's resume/unsubscribe link still
+              // sitting in the customer's inbox.
+              const recoveryToken = cart.recovery_token ?? generateToken()
+              const unsubscribeToken = cart.unsubscribe_token ?? generateToken()
 
-            sent += 1
-          } catch (err) {
-            failures.push({
-              cartId: cart.id,
-              error: err instanceof Error ? err.message : String(err),
-            })
+              // Freshly minted per recipient, never the template's own code
+              // — see mint-discount.ts's doc comment for why.
+              const discount = automation.discount_id
+                ? await mintPerRecipientDiscount(
+                    admin,
+                    automation.discount_id,
+                    automation.id,
+                  )
+                : null
+
+              await sendEmail({
+                to: cart.email,
+                subject: automation.subject,
+                html: renderEmailBlocks(automation.blocks, {
+                  itemsHtml: renderItemsTable(lineItems),
+                  placeholders: {
+                    resumeUrl: `${siteUrl}/cart/resume/${recoveryToken}`,
+                  },
+                  discount,
+                  unsubscribeUrl: `${siteUrl}/unsubscribe/${unsubscribeToken}`,
+                }),
+              })
+
+              // Only persist tokens / record the send once the email has
+              // actually gone out — if sendEmail throws above, this cart is
+              // untouched and gets a fresh attempt on the next run instead.
+              if (!cart.recovery_token || !cart.unsubscribe_token) {
+                const { error: updateError } = await admin
+                  .from('carts')
+                  .update({
+                    recovery_token: recoveryToken,
+                    unsubscribe_token: unsubscribeToken,
+                  })
+                  .eq('id', cart.id)
+                if (updateError) throw updateError
+              }
+
+              const { error: sendLogError } = await admin
+                .from('cart_abandonment_sends')
+                .insert({
+                  cart_id: cart.id,
+                  email_automation_id: automation.id,
+                })
+              if (sendLogError) throw sendLogError
+
+              await logEmailSend(
+                admin,
+                automation.id,
+                cart.email,
+                discount?.id ?? null,
+              )
+
+              sent += 1
+            } catch (err) {
+              failures.push({
+                cartId: cart.id,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
           }
+
+          steps.push({
+            automationId: automation.id,
+            name: automation.name,
+            scanned: carts.length,
+            sent,
+            skipped,
+            failures,
+          })
         }
 
-        return Response.json({ scanned: carts.length, sent, skipped, failures })
+        return Response.json({ steps })
       },
     },
   },

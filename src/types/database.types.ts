@@ -395,14 +395,27 @@ export interface Database {
           email: string | null
           recovery_token: string | null
           unsubscribe_token: string | null
-          abandoned_cart_email_sent: boolean
-          abandoned_cart_emailed_at: string | null
           created_at: string
           updated_at: string
           expires_at: string | null
         }
         Insert: Partial<Database['public']['Tables']['carts']['Row']>
         Update: Partial<Database['public']['Tables']['carts']['Row']>
+        Relationships: []
+      }
+      cart_abandonment_sends: {
+        Row: {
+          id: string
+          cart_id: string
+          email_automation_id: string
+          sent_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['cart_abandonment_sends']['Row']
+        > & { cart_id: string; email_automation_id: string }
+        Update: Partial<
+          Database['public']['Tables']['cart_abandonment_sends']['Row']
+        >
         Relationships: []
       }
       email_unsubscribes: {

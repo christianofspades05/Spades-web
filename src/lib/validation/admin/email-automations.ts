@@ -66,9 +66,9 @@ export const updateEmailAutomationSchema = z.object({
   discountId: z.string().uuid().nullable(),
   // Bounded to 2 years — anything longer almost certainly means a mistaken
   // days/hours mix-up when typing the schedule in, not a real intent.
+  // Fractional (e.g. 0.5 = 30 min) is allowed for fast steps in a sequence.
   delayHours: z
     .number()
-    .int()
     .min(0)
     .max(24 * 365 * 2),
 })

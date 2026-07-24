@@ -281,10 +281,11 @@ function EmailAutomationEditorPage() {
 
         {isDelayBased && (
           <label className={labelClassName}>
-            Send this many hours after the trigger
+            Send this many hours after the trigger (e.g. 0.5 = 30 min)
             <input
               type="number"
               min={0}
+              step={0.5}
               value={delayHours}
               onChange={(e) => setDelayHours(Number(e.target.value))}
               className={inputClassName}
