@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { sendWelcomeEmailIfDue } from '#/server/account/welcome-email'
 
 export const Route = createFileRoute('/auth/callback')({
   component: AuthCallbackPage,
 })
+
+// Supabase treats a first-time Google sign-in the same as any other login
+// (no distinct "signup" event to hook), so this is the only place a
+// Google-signup customer's welcome email can fire — idempotent via
+// customers.welcome_emailed_at, so calling it from both a state-change event
+// and the immediate getSession() check below is a harmless double-check, not
+// a double-send.
+async function handleSession() {
+  try {
+    await sendWelcomeEmailIfDue()
+  } catch {
+    // Swallowed deliberately — must never block getting the user signed in.
+  }
+}
 
 function AuthCallbackPage() {
   const navigate = useNavigate()
@@ -20,11 +35,15 @@ function AuthCallbackPage() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) void navigate({ to: '/account' })
+      if (session) {
+        void handleSession().then(() => navigate({ to: '/account' }))
+      }
     })
 
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: '/account' })
+      if (data.session) {
+        void handleSession().then(() => navigate({ to: '/account' }))
+      }
     })
 
     const timeout = setTimeout(() => {

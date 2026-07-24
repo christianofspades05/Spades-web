@@ -3,13 +3,19 @@
  * recommended hourly) sending `Authorization: Bearer $CRON_SECRET` — NOT
  * added to vercel.json's cron list, which is already at this Vercel plan's
  * 2-daily-cron cap (review-requests, sync-channels-daily).
+ *
+ * Content/schedule/discount come from the `email_automations` row
+ * (event_type = 'abandoned_cart'), editable from the admin Email page —
+ * see lib/email/blocks.ts for how that row's `blocks` become the email
+ * body. Skips entirely (rather than falling back to some hardcoded email)
+ * if that automation is turned off, since staff turning it off should mean
+ * "stop sending this," not "send whatever this cron used to hardcode."
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { randomBytes } from 'node:crypto'
-import {
-  ABANDONED_CART_EMAIL_SUBJECT,
-  abandonedCartEmailHtml,
-} from '#/lib/email/templates/abandoned-cart'
+import { renderEmailBlocks } from '#/lib/email/blocks'
+import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
+import { logEmailSend } from '#/lib/email/log-send'
 
 // getSupabaseAdminClient and sendEmail are imported dynamically inside the
 // handler below, not at the top level — see review-requests.ts's identical
@@ -17,8 +23,6 @@ import {
 // out of the client bundle the way createServerFn does; a top-level import
 // here would leak RESEND_API_KEY-touching code into every visitor's
 // browser bundle.
-
-const INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000 // 1 hour
 
 function isAuthorized(request: Request): boolean {
   const expected = process.env.CRON_SECRET
@@ -31,6 +35,53 @@ function isAuthorized(request: Request): boolean {
 
 function generateToken(): string {
   return randomBytes(32).toString('base64url')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderItemsTable(
+  items: {
+    name: string
+    variantLabel: string | null
+    image: string | null
+    quantity: number
+    lineTotalCents: number
+  }[],
+): string {
+  const rows = items
+    .map(
+      (item) => `
+        <tr>
+          <td style="padding: 8px 0;">
+            ${
+              item.image
+                ? `<img src="${escapeHtml(item.image)}" alt="" width="56" height="56" style="border-radius: 8px; object-fit: cover; vertical-align: middle;" />`
+                : ''
+            }
+            <span style="margin-left: 12px; font-size: 14px; color: #171717; vertical-align: middle;">
+              ${escapeHtml(item.name)}${item.variantLabel ? ` <span style="color: #a3a3a3;">(${escapeHtml(item.variantLabel)})</span>` : ''} × ${item.quantity}
+            </span>
+          </td>
+          <td style="padding: 8px 0; font-size: 14px; color: #404040; text-align: right;">
+            ${(item.lineTotalCents / 100).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+          </td>
+        </tr>
+      `,
+    )
+    .join('')
+  const subtotalCents = items.reduce((sum, i) => sum + i.lineTotalCents, 0)
+  return `
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">${rows}</table>
+    <p style="font-size: 15px; font-weight: 600; text-align: right; margin: 0 0 20px;">
+      Subtotal: ${(subtotalCents / 100).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+    </p>
+  `
 }
 
 export const Route = createFileRoute('/api/cron/abandoned-cart')({
@@ -53,7 +104,18 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
         const { sendEmail } = await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
 
-        const cutoffMs = Date.now() - INACTIVITY_THRESHOLD_MS
+        const { data: automation, error: automationError } = await admin
+          .from('email_automations')
+          .select('*')
+          .eq('event_type', 'abandoned_cart')
+          .single()
+        if (automationError) throw automationError
+        if (!automation.is_active) {
+          return Response.json({ skipped: 'automation is inactive' })
+        }
+
+        const inactivityThresholdMs = automation.delay_hours * 60 * 60 * 1000
+        const cutoffMs = Date.now() - inactivityThresholdMs
         const cutoffISO = new Date(cutoffMs).toISOString()
 
         // Coarse filter: any cart that COULD qualify. created_at <= cutoff
@@ -131,8 +193,7 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
             const lineItems = items.map((item) => {
               const v = variantsById.get(item.variant_id)
               const variantLabel = v
-                ? [v.size, v.color, v.style].filter(Boolean).join(' / ') ||
-                  null
+                ? [v.size, v.color, v.style].filter(Boolean).join(' / ') || null
                 : null
               return {
                 name: v?.product.name ?? 'Item',
@@ -142,21 +203,28 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
                 lineTotalCents: item.quantity * item.price_cents_snapshot,
               }
             })
-            const subtotalCents = lineItems.reduce(
-              (sum, i) => sum + i.lineTotalCents,
-              0,
-            )
 
             const recoveryToken = generateToken()
             const unsubscribeToken = generateToken()
+            // Freshly minted per recipient, never the template's own code —
+            // see mint-discount.ts's doc comment for why.
+            const discount = automation.discount_id
+              ? await mintPerRecipientDiscount(
+                  admin,
+                  automation.discount_id,
+                  automation.id,
+                )
+              : null
 
             await sendEmail({
               to: cart.email,
-              subject: ABANDONED_CART_EMAIL_SUBJECT,
-              html: abandonedCartEmailHtml({
-                items: lineItems,
-                subtotalCents,
-                resumeUrl: `${siteUrl}/cart/resume/${recoveryToken}`,
+              subject: automation.subject,
+              html: renderEmailBlocks(automation.blocks, {
+                itemsHtml: renderItemsTable(lineItems),
+                placeholders: {
+                  resumeUrl: `${siteUrl}/cart/resume/${recoveryToken}`,
+                },
+                discount,
                 unsubscribeUrl: `${siteUrl}/unsubscribe/${unsubscribeToken}`,
               }),
             })
@@ -174,6 +242,13 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
               })
               .eq('id', cart.id)
             if (updateError) throw updateError
+
+            await logEmailSend(
+              admin,
+              automation.id,
+              cart.email,
+              discount?.id ?? null,
+            )
 
             sent += 1
           } catch (err) {

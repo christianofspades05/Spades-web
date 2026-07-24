@@ -5,20 +5,24 @@
  * `Authorization: Bearer $CRON_SECRET`.
  *
  * The match condition is "review_request_sent = false AND placed_at at
- * least 14 days ago" rather than "placed_at exactly 14 days ago" — the
+ * least automation.delay_hours ago" rather than an exact-day match — the
  * spec's literal wording would silently skip an order forever if a single
  * day's send failed (a network blip, Resend being down), since by the next
- * run that order would be 15 days old and fall outside an exact-day match.
- * With an open-ended lower bound, a failed order simply gets retried on the
- * next run, since review_request_sent only gets set to true after the email
- * actually sends successfully.
+ * run that order would be past the exact-day window. With an open-ended
+ * lower bound, a failed order simply gets retried on the next run, since
+ * review_request_sent only gets set to true after the email actually sends
+ * successfully.
+ *
+ * Content/schedule/discount come from the `email_automations` row
+ * (event_type = 'post_purchase_review'), editable from the admin Email page
+ * — see lib/email/blocks.ts for how that row's `blocks` become the email
+ * body. Skips entirely if that automation is turned off.
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { generateReviewToken } from '#/lib/utils/review-token'
-import {
-  REVIEW_REQUEST_EMAIL_SUBJECT,
-  reviewRequestEmailHtml,
-} from '#/lib/email/templates/review-request'
+import { renderEmailBlocks } from '#/lib/email/blocks'
+import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
+import { logEmailSend } from '#/lib/email/log-send'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 
 // getSupabaseAdminClient and sendEmail are imported dynamically inside the
@@ -29,7 +33,6 @@ import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 // top-level import here would run admin.ts's and resend.ts's browser guards
 // in every visitor's browser.
 
-const REVIEW_REQUEST_DELAY_DAYS = 14
 const REVIEW_TOKEN_VALID_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -40,6 +43,36 @@ function isAuthorized(request: Request): boolean {
     return false
   }
   return request.headers.get('authorization') === `Bearer ${expected}`
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderItemsTable(
+  items: { name: string; image: string | null }[],
+): string {
+  const rows = items
+    .map(
+      (item) => `
+        <tr>
+          <td style="padding: 8px 0;">
+            ${
+              item.image
+                ? `<img src="${escapeHtml(item.image)}" alt="" width="56" height="56" style="border-radius: 8px; object-fit: cover; vertical-align: middle;" />`
+                : ''
+            }
+            <span style="margin-left: 12px; font-size: 14px; color: #171717; vertical-align: middle;">${escapeHtml(item.name)}</span>
+          </td>
+        </tr>
+      `,
+    )
+    .join('')
+  return `<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">${rows}</table>`
 }
 
 export const Route = createFileRoute('/api/cron/review-requests')({
@@ -61,8 +94,19 @@ export const Route = createFileRoute('/api/cron/review-requests')({
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
         const { sendEmail } = await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
+
+        const { data: automation, error: automationError } = await admin
+          .from('email_automations')
+          .select('*')
+          .eq('event_type', 'post_purchase_review')
+          .single()
+        if (automationError) throw automationError
+        if (!automation.is_active) {
+          return Response.json({ skipped: 'automation is inactive' })
+        }
+
         const cutoff = new Date(
-          Date.now() - REVIEW_REQUEST_DELAY_DAYS * DAY_MS,
+          Date.now() - automation.delay_hours * 60 * 60 * 1000,
         ).toISOString()
 
         const { data: orders, error } = await admin
@@ -125,15 +169,27 @@ export const Route = createFileRoute('/api/cron/review-requests')({
             const token = generateReviewToken()
             const address =
               order.shipping_address as unknown as OrderShippingAddress
+            // Freshly minted per recipient, never the template's own code —
+            // see mint-discount.ts's doc comment for why.
+            const discount = automation.discount_id
+              ? await mintPerRecipientDiscount(
+                  admin,
+                  automation.discount_id,
+                  automation.id,
+                )
+              : null
 
             await sendEmail({
               to: address.email,
-              subject: REVIEW_REQUEST_EMAIL_SUBJECT,
-              html: reviewRequestEmailHtml({
-                customerName: address.recipientName,
-                orderNumber: order.order_number,
-                reviewUrl: `${siteUrl}/review/${token}`,
-                items: Array.from(productsById.values()),
+              subject: automation.subject,
+              html: renderEmailBlocks(automation.blocks, {
+                itemsHtml: renderItemsTable(Array.from(productsById.values())),
+                placeholders: {
+                  customerFirstName: address.recipientName.split(' ')[0],
+                  orderNumber: order.order_number,
+                  reviewUrl: `${siteUrl}/review/${token}`,
+                },
+                discount,
               }),
             })
 
@@ -152,6 +208,13 @@ export const Route = createFileRoute('/api/cron/review-requests')({
               })
               .eq('id', order.id)
             if (updateError) throw updateError
+
+            await logEmailSend(
+              admin,
+              automation.id,
+              address.email,
+              discount?.id ?? null,
+            )
 
             sent += 1
           } catch (err) {

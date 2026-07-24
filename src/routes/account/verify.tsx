@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { sendWelcomeEmailIfDue } from '#/server/account/welcome-email'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -49,6 +50,16 @@ function VerifyPage() {
       setError(verifyError.message)
       setSubmitting(false)
       return
+    }
+
+    // This is the actual first-login moment — signUp() itself only starts
+    // the flow, verifyOtp() is what establishes the real session (see
+    // sendWelcomeEmailIfDue's own doc comment). Best-effort: a failure here
+    // shouldn't block account creation from completing.
+    try {
+      await sendWelcomeEmailIfDue()
+    } catch {
+      // Swallowed deliberately.
     }
 
     await navigate({ to: '/account' })

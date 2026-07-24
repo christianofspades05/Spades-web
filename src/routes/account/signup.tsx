@@ -17,6 +17,7 @@ function SignupPage() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -25,8 +26,12 @@ function SignupPage() {
     setSubmitting(true)
     setError(null)
 
+    // Passed through to the handle_new_auth_user() trigger via
+    // raw_user_meta_data, same mechanism full_name already uses — see
+    // 0035_email_marketing.sql. Can't be changed once set (enforced by a DB
+    // trigger, not just this form), since it's asked for exactly once here.
     const { error: signUpError } = await getSupabaseBrowserClient().auth.signUp(
-      { email, password },
+      { email, password, options: { data: { date_of_birth: dateOfBirth } } },
     )
 
     if (signUpError) {
@@ -77,6 +82,20 @@ function SignupPage() {
             minLength={8}
             autoComplete="new-password"
           />
+        </label>
+        <label className={labelClassName}>
+          Date of birth
+          <input
+            type="date"
+            required
+            max={new Date().toISOString().slice(0, 10)}
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            className={inputClassName}
+          />
+          <span className="text-xs font-normal text-neutral-400">
+            Can't be changed once your account is created.
+          </span>
         </label>
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>

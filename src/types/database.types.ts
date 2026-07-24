@@ -72,6 +72,42 @@ export type DiscountScope = 'all' | 'collection' | 'product' | 'variant'
 export type CodRestrictionScope = 'collection' | 'product'
 export type ReviewStatus = 'pending' | 'approved' | 'rejected'
 
+export type EmailAutomationEventType =
+  'welcome' | 'abandoned_cart' | 'post_purchase_review' | 'birthday'
+
+export type EmailBlockType =
+  | 'header_image'
+  | 'heading'
+  | 'text'
+  | 'button'
+  | 'discount_code'
+  | 'cart_items'
+  | 'order_items'
+  | 'footer'
+
+/** One content block in an email_automations.blocks array. Loosely typed
+ *  (every field optional) rather than a strict discriminated union, same
+ *  reasoning as storefront_sections: which fields apply depends on `type`,
+ *  and that's enforced at the app layer (see
+ *  lib/validation/admin/email-automations.ts), not in this type. The
+ *  discount_code/footer block types carry no extra fields — the discount's
+ *  actual code/value is resolved from the automation's discount_id at send
+ *  time, and the footer is always a fixed unsubscribe line.
+ *  cart_items/order_items carry no fields either — a positionable
+ *  placeholder for that event's per-recipient item list, which varies per
+ *  send and is never stored on the automation itself (see
+ *  lib/email/blocks.ts's renderEmailBlocks). */
+export interface EmailBlock {
+  type: EmailBlockType
+  /** header_image */
+  imageUrl?: string
+  /** heading, text */
+  text?: string
+  /** button */
+  buttonLabel?: string
+  buttonUrl?: string
+}
+
 export type StaffRole =
   'super_admin' | 'admin' | 'manager' | 'packer' | 'support'
 
@@ -131,6 +167,9 @@ export interface Database {
           last_login_at: string | null
           imported_total_spent_cents: number | null
           imported_source: string | null
+          date_of_birth: string | null
+          welcome_emailed_at: string | null
+          birthday_last_emailed_at: string | null
           created_at: string
           updated_at: string
         }
@@ -565,6 +604,7 @@ export interface Database {
           kind: DiscountKind
           title: string
           excluded_collection_ids: string[]
+          email_automation_id: string | null
           created_at: string
           updated_at: string
         }
@@ -574,6 +614,45 @@ export interface Database {
           title: string
         }
         Update: Partial<Database['public']['Tables']['discounts']['Row']>
+        Relationships: []
+      }
+      email_automations: {
+        Row: {
+          id: string
+          event_type: EmailAutomationEventType
+          name: string
+          is_active: boolean
+          subject: string
+          blocks: EmailBlock[]
+          discount_id: string | null
+          delay_hours: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['email_automations']['Row']
+        > & {
+          event_type: EmailAutomationEventType
+          name: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['email_automations']['Row']
+        >
+        Relationships: []
+      }
+      email_sends: {
+        Row: {
+          id: string
+          email_automation_id: string
+          recipient_email: string
+          discount_id: string | null
+          sent_at: string
+        }
+        Insert: Partial<Database['public']['Tables']['email_sends']['Row']> & {
+          email_automation_id: string
+          recipient_email: string
+        }
+        Update: Partial<Database['public']['Tables']['email_sends']['Row']>
         Relationships: []
       }
       cod_restrictions: {

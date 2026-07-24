@@ -14,11 +14,15 @@ export const Route = createFileRoute('/admin')({
 })
 
 function AdminLayout() {
+  const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   return (
     <div className="flex min-h-screen">
-      <AdminNav className="hidden w-60 shrink-0 border-r lg:flex" />
+      <AdminNav
+        staffRole={staff.role}
+        className="hidden w-60 shrink-0 border-r lg:flex"
+      />
 
       <div
         className={`fixed inset-0 z-40 lg:hidden ${mobileNavOpen ? '' : 'pointer-events-none'}`}
@@ -30,6 +34,7 @@ function AdminLayout() {
           }`}
         />
         <AdminNav
+          staffRole={staff.role}
           onNavigate={() => setMobileNavOpen(false)}
           className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r shadow-xl transition-transform duration-200 ${
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

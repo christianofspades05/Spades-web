@@ -9,6 +9,7 @@ import {
   Home,
   LayoutTemplate,
   LogOut,
+  Mail,
   Package,
   Plug,
   Settings,
@@ -18,6 +19,7 @@ import {
   Users,
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import type { StaffRole } from '#/types/entities'
 
 const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
@@ -33,9 +35,16 @@ const ANALYTICS_SUB_LINKS = [
 export function AdminNav({
   className = '',
   onNavigate,
+  staffRole,
 }: {
   className?: string
   onNavigate?: () => void
+  /** Settings is only visible to super_admin — every other role's own
+   *  requireStaff(['super_admin']) check in server/admin/settings.ts would
+   *  reject them anyway, and without this the link was shown to everyone,
+   *  crashing to a raw "something went wrong" for any staff member who
+   *  clicked it. */
+  staffRole: StaffRole
 }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -52,9 +61,7 @@ export function AdminNav({
   }
 
   return (
-    <aside
-      className={`flex flex-col border-neutral-200 bg-white ${className}`}
-    >
+    <aside className={`flex flex-col border-neutral-200 bg-white ${className}`}>
       <div className="px-4 py-5">
         <img src="/logo-black.png" alt="Spades" className="h-5 w-auto" />
         <p className="mt-1 text-xs text-neutral-500">Admin</p>
@@ -252,21 +259,36 @@ export function AdminNav({
           <Star size={17} strokeWidth={2} />
           Reviews
         </Link>
-      </nav>
 
-      <div className="border-t border-neutral-200 p-2">
         <Link
-          to="/admin/settings"
+          to="/admin/email"
           onClick={onNavigate}
           className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
-            pathname.startsWith('/admin/settings')
+            pathname.startsWith('/admin/email')
               ? 'bg-neutral-100 text-neutral-950'
               : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
           }`}
         >
-          <Settings size={17} strokeWidth={2} />
-          Settings
+          <Mail size={17} strokeWidth={2} />
+          Email
         </Link>
+      </nav>
+
+      <div className="border-t border-neutral-200 p-2">
+        {staffRole === 'super_admin' && (
+          <Link
+            to="/admin/settings"
+            onClick={onNavigate}
+            className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+              pathname.startsWith('/admin/settings')
+                ? 'bg-neutral-100 text-neutral-950'
+                : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+            }`}
+          >
+            <Settings size={17} strokeWidth={2} />
+            Settings
+          </Link>
+        )}
         <button
           type="button"
           onClick={handleSignOut}

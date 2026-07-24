@@ -26,6 +26,21 @@ import {
 export const Route = createFileRoute('/admin/settings/')({
   loader: () => listStaffUsers(),
   component: SettingsPage,
+  // Settings is hidden from the nav for non-super_admin staff (see
+  // AdminNav.tsx), but listStaffUsers's own requireStaff(['super_admin'])
+  // still rejects anyone who lands here directly (an old bookmark, a
+  // shared link) — show a plain explanation instead of the generic crash
+  // screen that check used to produce uncaught.
+  errorComponent: ({ error }) => (
+    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
+      <PageHeader title="Settings" />
+      <p className="mt-2 text-sm text-neutral-600">
+        {getErrorMessage(error) === 'Not allowed'
+          ? 'You need super admin access to view this page.'
+          : getErrorMessage(error)}
+      </p>
+    </div>
+  ),
 })
 
 function SettingsPage() {

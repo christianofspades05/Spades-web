@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { sendWelcomeEmailIfDue } from '#/server/account/welcome-email'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
 import { PasswordInput } from '#/components/storefront/PasswordInput'
 import {
@@ -42,6 +43,15 @@ function LoginPage() {
       setError(signInError.message)
       setSubmitting(false)
       return
+    }
+
+    // Idempotent (no-op after the first real send) — a retry point in case
+    // it failed at verify.tsx's own first-login attempt, not the primary
+    // trigger.
+    try {
+      await sendWelcomeEmailIfDue()
+    } catch {
+      // Swallowed deliberately.
     }
 
     await navigate({ to: '/account' })

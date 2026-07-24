@@ -15,6 +15,9 @@ export type {
   DiscountKind,
   DiscountScope,
   DiscountType,
+  EmailAutomationEventType,
+  EmailBlock,
+  EmailBlockType,
   InventoryMovementType,
   MarketplaceConnectionStatus,
   MarketplaceName,
@@ -58,6 +61,9 @@ export type StorefrontSection =
 export type CodRestriction =
   Database['public']['Tables']['cod_restrictions']['Row']
 export type Review = Database['public']['Tables']['reviews']['Row']
+export type EmailAutomation =
+  Database['public']['Tables']['email_automations']['Row']
+export type EmailSend = Database['public']['Tables']['email_sends']['Row']
 export type StaffUser = Database['public']['Tables']['staff_users']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
 export type MarketplaceConnection =
