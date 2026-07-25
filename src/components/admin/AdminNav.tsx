@@ -16,6 +16,7 @@ import {
   ShoppingBag,
   Star,
   Store,
+  Truck,
   Users,
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
@@ -272,6 +273,20 @@ export function AdminNav({
           <Mail size={17} strokeWidth={2} />
           Email
         </Link>
+
+        <p className="mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+          Operations
+        </p>
+
+        <a
+          href="https://tanstack-start-app.spades-dev.workers.dev/"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950"
+        >
+          <Truck size={17} strokeWidth={2} />
+          Shipmate
+        </a>
       </nav>
 
       <div className="border-t border-neutral-200 p-2">
