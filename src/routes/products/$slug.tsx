@@ -75,7 +75,7 @@ function ProductPage() {
   const { product, related, reviews } = Route.useLoaderData()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { addItem, itemCount } = useCart()
-  const { currency, rates } = useCurrency()
+  const { currency, rates, formatPriceWithMarkup: formatPrice } = useCurrency()
 
   const [selectedVariant, setSelectedVariant] = useState<
     VariantWithStock | undefined
@@ -138,6 +138,19 @@ function ProductPage() {
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
+
+  // Shown next to the title so a price is always visible, even before the
+  // shopper has picked a variant — falls back to the cheapest active
+  // variant, then reflects whichever one they actually select.
+  const displayVariant =
+    selectedVariant ??
+    product.variants
+      .filter((v) => v.is_active)
+      .reduce<VariantWithStock | undefined>(
+        (lowest, v) =>
+          !lowest || v.price_cents < lowest.price_cents ? v : lowest,
+        undefined,
+      )
 
   const availableStock =
     selectedVariant?.inventory.reduce(
@@ -221,6 +234,27 @@ function ProductPage() {
               averageRating={reviews.averageRating}
               reviewCount={reviews.reviewCount}
             />
+            {displayVariant &&
+              (displayVariant.salePriceCents != null &&
+              displayVariant.salePriceCents < displayVariant.price_cents ? (
+                <p className="mt-2 text-2xl font-semibold text-red-600 dark:text-red-400">
+                  {formatPrice(displayVariant.salePriceCents)}
+                  <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
+                    {formatPrice(displayVariant.price_cents)}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-2 text-2xl font-semibold text-neutral-900 dark:text-white">
+                  {formatPrice(displayVariant.price_cents)}
+                  {displayVariant.compare_at_price_cents != null &&
+                    displayVariant.compare_at_price_cents >
+                      displayVariant.price_cents && (
+                      <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
+                        {formatPrice(displayVariant.compare_at_price_cents)}
+                      </span>
+                    )}
+                </p>
+              ))}
           </div>
           {product.description && (
             <div
