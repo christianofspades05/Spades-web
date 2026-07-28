@@ -36,6 +36,9 @@ export interface StorefrontScope {
   logoDark: string
   colorHex: string
   colorDarkHex: string
+  /** Theme a first-time visitor sees before ever toggling it themselves —
+   *  an explicit stored preference (light or dark) always wins over this. */
+  defaultTheme: 'light' | 'dark'
   promoBannerText: string
   social: { facebook: string; instagram: string; tiktok: string }
   fbPixelId: string | undefined
@@ -76,6 +79,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     logoDark: '/logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
+    defaultTheme: 'light',
     promoBannerText:
       'Free shipping minimum of ₱2,000 purchase. Extra 10% off minimum of 5 items',
     social: {
@@ -98,6 +102,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     logoDark: '/logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
+    defaultTheme: 'light',
     promoBannerText: '',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_YSRAEL as string | undefined,
@@ -118,6 +123,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     logoDark: '/aspire365-logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
+    defaultTheme: 'dark',
     promoBannerText: '',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_ASPIRE365 as string | undefined,

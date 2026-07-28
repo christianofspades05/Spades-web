@@ -18,12 +18,21 @@ import { getStorefrontScope } from '#/server/storefront/domain'
 import appCss from '../styles.css?url'
 
 /**
- * Runs before hydration so a returning dark-mode visitor never sees a flash
- * of the light theme. Sets the class directly via the DOM (not React state)
- * — ThemeProvider's own state starts at 'light' on both server and client to
+ * Runs before hydration so a returning visitor never sees a flash of the
+ * wrong theme. Sets the class directly via the DOM (not React state) —
+ * ThemeProvider's own state starts at 'light' on both server and client to
  * keep hydration consistent, then syncs to match whatever this already set.
+ * An explicit stored preference always wins; otherwise falls back to the
+ * current brand's own default (see StorefrontScope.defaultTheme) — e.g.
+ * Aspire 365 defaults to dark for a first-time visitor.
  */
-const NO_FLASH_THEME_SCRIPT = `try{if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}`
+function buildNoFlashThemeScript(defaultTheme: 'light' | 'dark'): string {
+  const fallback =
+    defaultTheme === 'dark'
+      ? "document.documentElement.classList.add('dark')"
+      : ''
+  return `try{var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.classList.add('dark')}else if(t!=='light'){${fallback}}}catch(e){}`
+}
 
 export const Route = createRootRoute({
   beforeLoad: async () => {
@@ -86,12 +95,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   // — it always stays Spades-branded, so the accent-color override below
   // (and the rest of storefrontScope) only applies to non-admin routes.
   const brandColorStyle = `:root{--color-brand:${storefrontScope.colorHex};--color-brand-dark:${storefrontScope.colorDarkHex}}`
+  const noFlashThemeScript = buildNoFlashThemeScript(
+    storefrontScope.defaultTheme,
+  )
 
   return (
     <html lang="en">
       <head>
         {!isAdminRoute && (
-          <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
+          <script dangerouslySetInnerHTML={{ __html: noFlashThemeScript }} />
         )}
         {!isAdminRoute && (
           <style dangerouslySetInnerHTML={{ __html: brandColorStyle }} />
@@ -115,7 +127,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         )}
         <VisitTracker />
         <FacebookPixelPageView />
-        <ThemeProvider>
+        <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
           <CurrencyProvider
             geoDefaultCurrency={geoDefaultCurrency}
             geoCountry={geoCountry}

@@ -20,18 +20,24 @@ function applyThemeClass(theme: Theme) {
  * client render (so hydration always matches) — the actual dark/light paint
  * is handled by a blocking inline script in __root.tsx that runs before
  * hydration, so there's no flash even though this state starts as 'light'.
- * The effect below just syncs this context's state to match what that script
- * already applied.
+ * The effect below syncs this context's state to match what that script
+ * already applied: an explicit stored preference if there is one, otherwise
+ * `defaultTheme` (the current brand's out-of-the-box theme — see
+ * StorefrontScope.defaultTheme in server/storefront/domain.ts).
  */
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider({
+  children,
+  defaultTheme,
+}: {
+  children: React.ReactNode
+  defaultTheme: Theme
+}) {
   const [theme, setTheme] = useState<Theme>('light')
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'dark' || stored === 'light') {
-      setTheme(stored)
-    }
-  }, [])
+    setTheme(stored === 'dark' || stored === 'light' ? stored : defaultTheme)
+  }, [defaultTheme])
 
   function toggleTheme() {
     setTheme((prev) => {
