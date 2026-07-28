@@ -5,62 +5,33 @@ import { useCart } from '#/lib/cart/CartContext'
 import { ThemeToggle } from '#/components/storefront/ThemeToggle'
 import { CurrencySelector } from '#/components/storefront/CurrencySelector'
 import { SearchOverlay } from '#/components/storefront/SearchOverlay'
+import { getCrossBrandLinks } from '#/server/storefront/domain'
 import type { StorefrontScope } from '#/server/storefront/domain'
 
 interface HeaderProps {
   scope: StorefrontScope
 }
 
-const NAV_LINKS = [
+// Spades is the flagship brand with its own content pages; Ysrael/Aspire
+// 365 are collection-scoped sub-brands with no About/Reviews/Contact copy
+// of their own yet, so their header only needs a way home plus the
+// cross-brand "Shop X" links appended below.
+const FULL_NAV_LINKS = [
   { to: '/', label: 'Home Store' },
   { to: '/about', label: 'About Us' },
   { to: '/reviews', label: 'Reviews' },
   { to: '/contact', label: 'Contact Us' },
 ] as const
 
-/** "Shop" should never lead to the full multi-brand catalog when locked to
- *  one brand's collection — send it to that brand's own collection page
- *  instead of the generic /collections index. */
-function ShopNavLink({
-  scope,
-  className,
-  activeClassName,
-  onClick,
-}: {
-  scope: StorefrontScope
-  className: string
-  activeClassName: string
-  onClick?: () => void
-}) {
-  if (scope.collectionSlug) {
-    return (
-      <Link
-        to="/collections/$slug"
-        params={{ slug: scope.collectionSlug }}
-        onClick={onClick}
-        className={className}
-        activeProps={{ className: activeClassName }}
-      >
-        Shop Aspire
-      </Link>
-    )
-  }
-  return (
-    <Link
-      to="/collections"
-      onClick={onClick}
-      className={className}
-      activeProps={{ className: activeClassName }}
-    >
-      Shop Aspire
-    </Link>
-  )
-}
+const MINIMAL_NAV_LINKS = [{ to: '/', label: 'Home Store' }] as const
 
 export function Header({ scope }: HeaderProps) {
   const { itemCount } = useCart()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const navLinks =
+    scope.collectionSlug === null ? FULL_NAV_LINKS : MINIMAL_NAV_LINKS
+  const crossBrandLinks = getCrossBrandLinks(scope.brand)
 
   return (
     <header>
@@ -86,17 +57,17 @@ export function Header({ scope }: HeaderProps) {
               <img
                 src={scope.logoLight}
                 alt={scope.name}
-                className="h-6 w-auto dark:hidden"
+                className="h-9 w-auto dark:hidden"
               />
               <img
                 src={scope.logoDark}
                 alt={scope.name}
-                className="hidden h-6 w-auto dark:block"
+                className="hidden h-9 w-auto dark:block"
               />
             </Link>
           </div>
           <nav className="hidden items-center gap-5 text-xs font-medium uppercase tracking-wide lg:flex lg:gap-6">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}
@@ -108,11 +79,15 @@ export function Header({ scope }: HeaderProps) {
                 {link.label}
               </Link>
             ))}
-            <ShopNavLink
-              scope={scope}
-              className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-              activeClassName="text-neutral-950 dark:text-white"
-            />
+            {crossBrandLinks.map((link) => (
+              <a
+                key={link.brand}
+                href={link.url}
+                className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
+              >
+                {link.label}
+              </a>
+            ))}
           </nav>
           <div className="flex items-center gap-5">
             <button
@@ -149,7 +124,7 @@ export function Header({ scope }: HeaderProps) {
 
         {mobileMenuOpen && (
           <nav className="flex flex-col gap-1 border-t border-neutral-200 px-6 py-3 text-sm font-medium uppercase tracking-wide lg:hidden dark:border-neutral-800">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}
@@ -162,12 +137,16 @@ export function Header({ scope }: HeaderProps) {
                 {link.label}
               </Link>
             ))}
-            <ShopNavLink
-              scope={scope}
-              onClick={() => setMobileMenuOpen(false)}
-              className="rounded-md px-2 py-2.5 text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
-              activeClassName="text-neutral-950 dark:text-white"
-            />
+            {crossBrandLinks.map((link) => (
+              <a
+                key={link.brand}
+                href={link.url}
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-md px-2 py-2.5 text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
+              >
+                {link.label}
+              </a>
+            ))}
           </nav>
         )}
       </div>

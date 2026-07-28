@@ -27,6 +27,9 @@ export interface StorefrontScope {
    *  for 'spades', which stays unscoped (full catalog, as today). */
   collectionSlug: string | null
   name: string
+  /** Short form of `name` for the header's "Shop X" cross-brand nav links
+   *  (e.g. 'Aspire' rather than the full 'Aspire 365'). */
+  shopLabel: string
   title: string
   tagline: string
   logoLight: string
@@ -39,6 +42,7 @@ export interface StorefrontScope {
 }
 
 const HOSTNAME_TO_BRAND: Record<string, Brand> = {
+  'spades-web-seven.vercel.app': 'spades',
   'ysraelbrand.com': 'ysrael',
   'www.ysraelbrand.com': 'ysrael',
   'aspire365.co': 'aspire365',
@@ -65,6 +69,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     brand: 'spades',
     collectionSlug: null,
     name: 'Spades',
+    shopLabel: 'Spades',
     title: 'Spades — Philippine Streetwear',
     tagline: 'Philippine streetwear for those who bet on themselves.',
     logoLight: '/logo-black.png',
@@ -86,6 +91,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     brand: 'ysrael',
     collectionSlug: 'ysrael',
     name: 'Ysrael',
+    shopLabel: 'Ysrael',
     title: 'Ysrael',
     tagline: '',
     logoLight: '/logo-black.png',
@@ -105,6 +111,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     // brand key itself).
     collectionSlug: 'aspire-365',
     name: 'Aspire 365',
+    shopLabel: 'Aspire',
     title: 'Aspire 365',
     tagline: '',
     logoLight: '/aspire365-logo-black.png',
@@ -156,6 +163,34 @@ export function getBrandPreviewUrl(brand: Brand, path: string): string {
   }
   const separator = path.includes('?') ? '&' : '?'
   return `${path}${separator}__brand=${brand}`
+}
+
+export interface CrossBrandLink {
+  brand: Brand
+  label: string
+  url: string
+}
+
+/**
+ * The *other* brands' live stores, for the header's "Shop X" cross-brand
+ * nav links — never includes `currentBrand` itself (can't "shop" the store
+ * you're already on), and skips any brand whose domain isn't confirmed
+ * live yet (DOMAIN_LIVE), so a customer is never sent to an unfinished or
+ * still-Shopify-hosted site.
+ */
+export function getCrossBrandLinks(currentBrand: Brand): CrossBrandLink[] {
+  return BRANDS.filter((brand) => brand !== currentBrand)
+    .map((brand): CrossBrandLink | null => {
+      if (!DOMAIN_LIVE[brand]) return null
+      const hostname = primaryHostnameFor(brand)
+      if (!hostname) return null
+      return {
+        brand,
+        label: `Shop ${SCOPES[brand].shopLabel}`,
+        url: `https://${hostname}`,
+      }
+    })
+    .filter((link): link is CrossBrandLink => link !== null)
 }
 
 export const getStorefrontScope = createServerFn({ method: 'GET' }).handler(
