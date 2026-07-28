@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { badgeOutOfStockClassName } from './ui'
 import type {
   StorefrontListingProduct,
@@ -11,6 +11,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const imageUrl = product.images[0]
   const outOfStock = product.total_stock <= 0
   const onSale =
@@ -54,15 +55,15 @@ export function ProductCard({ product }: ProductCardProps) {
         {onSale ? (
           <p className="flex items-center gap-1.5 text-sm">
             <span className="text-red-600 dark:text-red-400">
-              {formatCentsAsPHP(product.salePriceCents!)}
+              {formatPrice(product.salePriceCents!)}
             </span>
             <span className="text-neutral-400 line-through dark:text-neutral-600">
-              {formatCentsAsPHP(product.min_price_cents)}
+              {formatPrice(product.min_price_cents)}
             </span>
           </p>
         ) : (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            {formatCentsAsPHP(product.min_price_cents)}
+            {formatPrice(product.min_price_cents)}
           </p>
         )}
       </div>

@@ -1,9 +1,32 @@
 /**
  * Flat-rate shipping by macro-region. Free shipping over FREE_SHIPPING_THRESHOLD_CENTS
- * matches the site-wide banner ("Free shipping minimum of ₱2,000 purchase").
+ * matches the site-wide banner ("Free shipping minimum of ₱2,000 purchase") —
+ * that promo is PH-domestic only and does not apply to international orders.
  */
 
 export const FREE_SHIPPING_THRESHOLD_CENTS = 200_000
+
+/** Flat international shipping fee, in US dollars. */
+export const INTERNATIONAL_SHIPPING_USD = 10
+
+// Used only in the brief window before a live USD/PHP rate has loaded from
+// the exchange_rates table (see lib/currency/CurrencyContext.tsx) — an
+// approximate PHP-per-USD rate so the checkout page never shows $0 or NaN
+// shipping while rates are still fetching. place-order.ts always re-derives
+// the real charge from the live rate server-side, so this never affects
+// what a customer is actually charged — only a possible instant of display
+// imprecision before the real rate arrives.
+const FALLBACK_PHP_PER_USD = 58
+
+/** International shipping cost in PHP cents — `usdToPhpRate` is
+ *  exchange_rates.rate_to_php for 'USD' (units of USD per 1 PHP), or null
+ *  if it hasn't loaded yet. */
+export function internationalShippingCostCents(
+  usdToPhpRate: number | null,
+): number {
+  const phpPerUsd = usdToPhpRate ? 1 / usdToPhpRate : FALLBACK_PHP_PER_USD
+  return Math.round(INTERNATIONAL_SHIPPING_USD * phpPerUsd * 100)
+}
 
 export const SHIPPING_ZONES = [
   'metro_manila',
@@ -56,10 +79,20 @@ export function shippingZoneForRegion(region: string): ShippingZone {
   return 'mindanao'
 }
 
+/** Single entry point for shipping cost, dispatching by destination
+ *  country. PH orders use the existing region-based zone rates (with the
+ *  free-shipping threshold); every other country is a flat
+ *  INTERNATIONAL_SHIPPING_USD, converted to PHP cents via `usdToPhpRate`
+ *  (exchange_rates.rate_to_php for 'USD' — pass null if not loaded yet). */
 export function shippingCostCents(
+  country: string,
   region: string,
   subtotalCents: number,
+  usdToPhpRate: number | null,
 ): number {
+  if (country !== 'PH') {
+    return internationalShippingCostCents(usdToPhpRate)
+  }
   if (subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) return 0
   const zone = shippingZoneForRegion(region)
   return SHIPPING_ZONE_RATE_CENTS[zone]

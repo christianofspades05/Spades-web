@@ -5,6 +5,10 @@ export interface CheckoutInfo {
   email: string
   recipientName: string
   phone: string
+  /** ISO 3166-1 alpha-2. 'PH' drives the region/province/barangay PH
+   *  address flow; anything else uses the general international fields
+   *  (province/city as free text, postalCode required, no barangay). */
+  country: string
   region: string
   province: string
   city: string
@@ -19,6 +23,7 @@ export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
   email: '',
   recipientName: '',
   phone: '',
+  country: 'PH',
   region: '',
   province: '',
   city: '',
@@ -52,15 +57,19 @@ export function withSubmittableProvince(info: CheckoutInfo): CheckoutInfo {
 
 /** True once the contact + delivery address fields are all filled in. */
 export function isCheckoutInfoComplete(info: CheckoutInfo): boolean {
-  return Boolean(
+  const hasCommon = Boolean(
     info.email &&
     info.recipientName &&
     info.phone &&
-    info.region &&
     info.city &&
-    info.barangay &&
-    info.addressLine1,
+    info.addressLine1 &&
+    info.postalCode,
   )
+  if (!hasCommon) return false
+  if (info.country === 'PH') {
+    return Boolean(info.region && info.barangay)
+  }
+  return Boolean(info.province)
 }
 
 interface CheckoutContextValue {

@@ -1,11 +1,20 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { loadStorefrontCollectionSections } from '#/server/collections/sections'
 import { CollectionSections } from '#/components/storefront/CollectionSections'
 import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 export const Route = createFileRoute('/collections/')({
   headers: () => STOREFRONT_CACHE_HEADERS,
-  loader: async () => {
+  loader: async ({ context }) => {
+    // Locked to one brand's collection (see server/storefront/domain.ts) —
+    // there's only ever one collection to browse to on this domain.
+    const { collectionSlug } = context.storefrontScope
+    if (collectionSlug) {
+      throw redirect({
+        to: '/collections/$slug',
+        params: { slug: collectionSlug },
+      })
+    }
     const sections = await loadStorefrontCollectionSections()
     return { sections }
   },

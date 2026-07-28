@@ -114,8 +114,16 @@ async function getProductImagesByVariantId(
 const listOrdersFilterSchema = z.object({
   status: z.string().optional(),
   source: z.string().optional(),
+  brand: z.string().optional(),
   fulfillment: z
-    .enum(['unfulfilled', 'fulfilled', 'pending', 'packed', 'in_transit', 'delivered'])
+    .enum([
+      'unfulfilled',
+      'fulfilled',
+      'pending',
+      'packed',
+      'in_transit',
+      'delivered',
+    ])
     .optional(),
   q: z.string().optional(),
 })
@@ -184,9 +192,7 @@ async function resolveSearchOrConditions(
   ])
   const customerIds = (matchingCustomers ?? []).map((c) => c.id)
   const orderIdsFromItems = (matchingItems ?? []).map((i) => i.order_id)
-  const orderIdsFromShipments = (matchingShipments ?? []).map(
-    (s) => s.order_id,
-  )
+  const orderIdsFromShipments = (matchingShipments ?? []).map((s) => s.order_id)
   const matchedOrderIds = Array.from(
     new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
   )
@@ -233,6 +239,7 @@ export const listOrders = createServerFn({ method: 'GET' })
 
     if (data.status) query = query.eq('status', data.status)
     if (data.source) query = query.eq('source', data.source)
+    if (data.brand) query = query.eq('brand', data.brand)
 
     const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
       admin,
@@ -291,10 +298,13 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    let query = admin.from('orders').select('id', { count: 'exact', head: true })
+    let query = admin
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
 
     if (data.status) query = query.eq('status', data.status)
     if (data.source) query = query.eq('source', data.source)
+    if (data.brand) query = query.eq('brand', data.brand)
 
     const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
       admin,
@@ -567,23 +577,25 @@ export const getAdjacentOrderIds = createServerFn({ method: 'GET' })
     if (currentError) throw currentError
     if (!current) return { previousOrderId: null, nextOrderId: null }
 
-    const [{ data: previous, error: previousError }, { data: next, error: nextError }] =
-      await Promise.all([
-        admin
-          .from('orders')
-          .select('id')
-          .gt('placed_at', current.placed_at)
-          .order('placed_at', { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-        admin
-          .from('orders')
-          .select('id')
-          .lt('placed_at', current.placed_at)
-          .order('placed_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ])
+    const [
+      { data: previous, error: previousError },
+      { data: next, error: nextError },
+    ] = await Promise.all([
+      admin
+        .from('orders')
+        .select('id')
+        .gt('placed_at', current.placed_at)
+        .order('placed_at', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      admin
+        .from('orders')
+        .select('id')
+        .lt('placed_at', current.placed_at)
+        .order('placed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
     if (previousError) throw previousError
     if (nextError) throw nextError
 

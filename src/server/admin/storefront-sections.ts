@@ -5,6 +5,7 @@ import {
   reorderStorefrontSectionsSchema,
   setStorefrontSectionActiveSchema,
   storefrontSectionInputSchema,
+  STOREFRONT_BRANDS,
   STOREFRONT_PAGES,
   updateStorefrontSectionSchema,
 } from '#/lib/validation/admin/storefront-sections'
@@ -22,51 +23,55 @@ export interface StorefrontSectionWithCollection extends StorefrontSection {
 export const listAllStorefrontSections = createServerFn({
   method: 'GET',
 })
-  .validator(z.object({ page: z.enum(STOREFRONT_PAGES) }))
-  .handler(
-    async ({ data }): Promise<StorefrontSectionWithCollection[]> => {
-  await requireStaff()
-  const admin = getSupabaseAdminClient()
-
-  // Flat query + in-memory join rather than an embedded `collections(...)`
-  // select — this project's Supabase types have empty Relationships
-  // metadata (see src/server/admin/orders.ts and friends for the same
-  // workaround), which breaks TypeScript's inference for embedded selects.
-  const { data: sections, error } = await admin
-    .from('storefront_sections')
-    .select('*')
-    .eq('page', data.page)
-    .order('sort_order', { ascending: true })
-  if (error) throw error
-
-  const collectionIds = Array.from(
-    new Set(
-      sections
-        .map((s) => s.collection_id)
-        .filter((id): id is string => id !== null),
-    ),
+  .validator(
+    z.object({
+      page: z.enum(STOREFRONT_PAGES),
+      brand: z.enum(STOREFRONT_BRANDS).default('spades'),
+    }),
   )
-  const collectionsById = new Map<
-    string,
-    { id: string; name: string; slug: string }
-  >()
-  if (collectionIds.length > 0) {
-    const { data: collections, error: collectionsError } = await admin
-      .from('collections')
-      .select('id, name, slug')
-      .in('id', collectionIds)
-    if (collectionsError) throw collectionsError
-    for (const c of collections) collectionsById.set(c.id, c)
-  }
+  .handler(async ({ data }): Promise<StorefrontSectionWithCollection[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
 
-  return sections.map((s) => ({
-    ...s,
-    collection: s.collection_id
-      ? (collectionsById.get(s.collection_id) ?? null)
-      : null,
-  }))
-    },
-  )
+    // Flat query + in-memory join rather than an embedded `collections(...)`
+    // select — this project's Supabase types have empty Relationships
+    // metadata (see src/server/admin/orders.ts and friends for the same
+    // workaround), which breaks TypeScript's inference for embedded selects.
+    const { data: sections, error } = await admin
+      .from('storefront_sections')
+      .select('*')
+      .eq('page', data.page)
+      .eq('brand', data.brand)
+      .order('sort_order', { ascending: true })
+    if (error) throw error
+
+    const collectionIds = Array.from(
+      new Set(
+        sections
+          .map((s) => s.collection_id)
+          .filter((id): id is string => id !== null),
+      ),
+    )
+    const collectionsById = new Map<
+      string,
+      { id: string; name: string; slug: string }
+    >()
+    if (collectionIds.length > 0) {
+      const { data: collections, error: collectionsError } = await admin
+        .from('collections')
+        .select('id, name, slug')
+        .in('id', collectionIds)
+      if (collectionsError) throw collectionsError
+      for (const c of collections) collectionsById.set(c.id, c)
+    }
+
+    return sections.map((s) => ({
+      ...s,
+      collection: s.collection_id
+        ? (collectionsById.get(s.collection_id) ?? null)
+        : null,
+    }))
+  })
 
 export const createStorefrontSection = createServerFn({ method: 'POST' })
   .validator(storefrontSectionInputSchema)
@@ -78,6 +83,7 @@ export const createStorefrontSection = createServerFn({ method: 'POST' })
       .from('storefront_sections')
       .select('sort_order')
       .eq('page', data.page)
+      .eq('brand', data.brand)
       .order('sort_order', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -88,6 +94,7 @@ export const createStorefrontSection = createServerFn({ method: 'POST' })
       .insert({
         type: data.type,
         page: data.page,
+        brand: data.brand,
         title: data.title ?? null,
         subtitle: data.subtitle ?? null,
         media_url: data.mediaUrl ?? null,
@@ -121,6 +128,7 @@ export const updateStorefrontSection = createServerFn({ method: 'POST' })
       .update({
         type: data.type,
         page: data.page,
+        brand: data.brand,
         title: data.title ?? null,
         subtitle: data.subtitle ?? null,
         media_url: data.mediaUrl ?? null,
@@ -156,9 +164,7 @@ export const setStorefrontSectionActive = createServerFn({ method: 'POST' })
 
     await logStaffActivity(
       staff,
-      data.isActive
-        ? 'storefront_section.show'
-        : 'storefront_section.hide',
+      data.isActive ? 'storefront_section.show' : 'storefront_section.hide',
       'storefront_sections',
       data.id,
     )
@@ -231,7 +237,9 @@ export const createStorefrontSectionUploadUrl = createServerFn({
     }),
   )
   .handler(
-    async ({ data }): Promise<{ path: string; token: string; publicUrl: string }> => {
+    async ({
+      data,
+    }): Promise<{ path: string; token: string; publicUrl: string }> => {
       await requireStaff(MANAGE_ROLES)
       const admin = getSupabaseAdminClient()
 

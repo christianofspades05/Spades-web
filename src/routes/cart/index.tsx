@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { getErrorMessage } from '#/lib/utils/errors'
 import {
   buttonPrimaryClassName,
@@ -14,6 +14,7 @@ export const Route = createFileRoute('/cart/')({
 })
 
 function CartPage() {
+  const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const {
     cart,
     subtotalCents,
@@ -104,7 +105,7 @@ function CartPage() {
     ? discount.type === 'percentage'
       ? `${discount.value}% off`
       : discount.type === 'fixed_amount'
-        ? `${formatCentsAsPHP(discount.value)} off`
+        ? `${formatPrice(discount.value)} off`
         : 'Free shipping'
     : null
 
@@ -188,7 +189,7 @@ function CartPage() {
               </div>
 
               <p className="whitespace-nowrap font-medium text-neutral-900 dark:text-white">
-                {formatCentsAsPHP(item.quantity * item.price_cents_snapshot)}
+                {formatPrice(item.quantity * item.price_cents_snapshot)}
               </p>
             </li>
           )
@@ -242,18 +243,18 @@ function CartPage() {
             Subtotal
           </span>
           <span className="font-medium text-neutral-900 dark:text-white">
-            {formatCentsAsPHP(subtotalCents)}
+            {formatPrice(subtotalCents)}
           </span>
         </div>
         {discountCents > 0 && (
           <div className="mt-2 flex items-center justify-between text-green-700 dark:text-green-400">
             <span>Discount</span>
-            <span>-{formatCentsAsPHP(discountCents)}</span>
+            <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
         <div className="mt-3 flex items-center justify-between border-t border-neutral-200 pt-3 text-lg font-semibold dark:border-neutral-800">
           <span>Total</span>
-          <span>{formatCentsAsPHP(totalCents)}</span>
+          <span>{formatPrice(totalCents)}</span>
         </div>
       </div>
 

@@ -7,7 +7,7 @@ import type {
   StorefrontListingProduct,
   WithSalePrice,
 } from '#/server/products/queries'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { inputClassName } from './ui'
 
 /**
@@ -18,10 +18,13 @@ import { inputClassName } from './ui'
 export function SearchOverlay({
   open,
   onClose,
+  collectionSlug,
 }: {
   open: boolean
   onClose: () => void
+  collectionSlug: string | null
 }) {
+  const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedValue(query, 300)
   const [results, setResults] = useState<
@@ -52,7 +55,7 @@ export function SearchOverlay({
     }
     let cancelled = false
     setLoading(true)
-    quickSearchProducts({ data: { q: trimmed } })
+    quickSearchProducts({ data: { q: trimmed, collectionSlug } })
       .then((products) => {
         if (!cancelled) setResults(products)
       })
@@ -150,15 +153,15 @@ export function SearchOverlay({
                       {onSale ? (
                         <p className="flex items-center gap-1.5 text-xs">
                           <span className="text-red-600 dark:text-red-400">
-                            {formatCentsAsPHP(product.salePriceCents!)}
+                            {formatPrice(product.salePriceCents!)}
                           </span>
                           <span className="text-neutral-400 line-through dark:text-neutral-600">
-                            {formatCentsAsPHP(product.min_price_cents)}
+                            {formatPrice(product.min_price_cents)}
                           </span>
                         </p>
                       ) : (
                         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatCentsAsPHP(product.min_price_cents)}
+                          {formatPrice(product.min_price_cents)}
                         </p>
                       )}
                     </div>

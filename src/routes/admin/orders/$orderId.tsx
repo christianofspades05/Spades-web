@@ -22,7 +22,7 @@ import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { formatOrderItemsForCopy } from '#/lib/utils/order-items-text'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
-import { StatusBadge } from '#/components/admin/Badge'
+import { Badge, StatusBadge } from '#/components/admin/Badge'
 import { CopyButton } from '#/components/admin/CopyButton'
 import {
   buttonPrimaryClassName,
@@ -43,12 +43,13 @@ import type {
 // reason actually is. Distinct from the narrower CANCELLATION_REASON_LABELS
 // below, which only powers the manual-cancel dialog's dropdown — staff can't
 // pick "cancelled on marketplace" as a reason themselves.
-const ALL_CANCELLATION_REASON_LABELS: Record<OrderCancellationReason, string> = {
-  failed_delivery: 'Failed Delivery',
-  customer_request: 'Customer Request',
-  out_of_stock: 'Out of Stock',
-  platform_cancelled: 'Cancelled on Marketplace',
-}
+const ALL_CANCELLATION_REASON_LABELS: Record<OrderCancellationReason, string> =
+  {
+    failed_delivery: 'Failed Delivery',
+    customer_request: 'Customer Request',
+    out_of_stock: 'Out of Stock',
+    platform_cancelled: 'Cancelled on Marketplace',
+  }
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
   storefront: 'Online Store',
@@ -56,6 +57,14 @@ const SOURCE_LABELS: Record<OrderSource, string> = {
   tiktok_shop: 'TikTok Shop',
   shopee: 'Shopee',
   lazada: 'Lazada',
+}
+
+// Spades/Ysrael/Aspire 365 share this database, distinguished by which
+// storefront the order was placed on — see server/storefront/domain.ts.
+const BRAND_LABELS: Record<string, string> = {
+  spades: 'Spades',
+  ysrael: 'Ysrael',
+  aspire365: 'Aspire 365',
 }
 
 const RETURN_STATUS_LABELS: Record<ReturnStatus, string> = {
@@ -124,7 +133,10 @@ export const Route = createFileRoute('/admin/orders/$orderId')({
 const SWIPE_MIN_DISTANCE_PX = 60
 
 function OrderDetailPage() {
-  const { order, adjacent }: { order: OrderWithDetails; adjacent: AdjacentOrderIds } =
+  const {
+    order,
+    adjacent,
+  }: { order: OrderWithDetails; adjacent: AdjacentOrderIds } =
     Route.useLoaderData()
   const router = useRouter()
   const navigate = useNavigate()
@@ -143,12 +155,19 @@ function OrderDetailPage() {
   function handleTouchEnd(e: React.TouchEvent) {
     const dx = e.changedTouches[0].clientX - touchStart.current.x
     const dy = e.changedTouches[0].clientY - touchStart.current.y
-    if (Math.abs(dx) < SWIPE_MIN_DISTANCE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) {
+    if (
+      Math.abs(dx) < SWIPE_MIN_DISTANCE_PX ||
+      Math.abs(dx) < Math.abs(dy) * 1.5
+    ) {
       return
     }
-    const targetOrderId = dx < 0 ? adjacent.nextOrderId : adjacent.previousOrderId
+    const targetOrderId =
+      dx < 0 ? adjacent.nextOrderId : adjacent.previousOrderId
     if (targetOrderId) {
-      navigate({ to: '/admin/orders/$orderId', params: { orderId: targetOrderId } })
+      navigate({
+        to: '/admin/orders/$orderId',
+        params: { orderId: targetOrderId },
+      })
     }
   }
 
@@ -168,7 +187,9 @@ function OrderDetailPage() {
               aria-disabled={!adjacent.previousOrderId}
               aria-label="Previous order"
               className={`rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 ${
-                !adjacent.previousOrderId ? 'pointer-events-none opacity-30' : ''
+                !adjacent.previousOrderId
+                  ? 'pointer-events-none opacity-30'
+                  : ''
               }`}
             >
               <ChevronLeft size={18} />
@@ -187,7 +208,16 @@ function OrderDetailPage() {
           </div>
         }
         subtitle={order.customer.email}
-        action={<StatusBadge status={order.status} kind="order" />}
+        action={
+          <div className="flex items-center gap-2">
+            {order.brand !== 'spades' && (
+              <Badge tone="neutral">
+                {BRAND_LABELS[order.brand] ?? order.brand}
+              </Badge>
+            )}
+            <StatusBadge status={order.status} kind="order" />
+          </div>
+        }
       />
 
       {isCancelled && (
@@ -262,6 +292,12 @@ function OrderDetailPage() {
                   <span>Subtotal</span>
                   <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
                 </div>
+                {order.market_markup_percent != null && (
+                  <div className="flex justify-between text-neutral-500">
+                    <span>Market markup (+{order.market_markup_percent}%)</span>
+                    <span>Included in subtotal</span>
+                  </div>
+                )}
                 {order.discount_cents > 0 && (
                   <div className="flex justify-between text-neutral-500">
                     <span>Discount</span>

@@ -10,6 +10,22 @@ export const STOREFRONT_PAGE_LABELS: Record<
   about: 'About Us',
 }
 
+// Spades/Ysrael/Aspire 365 share this codebase/database — see
+// server/storefront/domain.ts for how a request's domain resolves to one
+// of these. Kept as its own local constant (like STOREFRONT_PAGES above)
+// rather than importing from server/storefront/domain.ts, since this
+// validation module is shared with client-rendered admin UI.
+export const STOREFRONT_BRANDS = ['spades', 'ysrael', 'aspire365'] as const
+
+export const STOREFRONT_BRAND_LABELS: Record<
+  (typeof STOREFRONT_BRANDS)[number],
+  string
+> = {
+  spades: 'Spades',
+  ysrael: 'Ysrael',
+  aspire365: 'Aspire 365',
+}
+
 export const STOREFRONT_SECTION_TYPES = [
   'hero',
   'tagline',
@@ -33,6 +49,7 @@ export const storefrontSectionInputSchema = z
   .object({
     type: z.enum(STOREFRONT_SECTION_TYPES),
     page: z.enum(STOREFRONT_PAGES),
+    brand: z.enum(STOREFRONT_BRANDS).default('spades'),
     title: z.string().trim().max(200).optional(),
     subtitle: z.string().trim().max(2000).optional(),
     mediaUrl: z.string().trim().max(2000).optional(),
@@ -42,13 +59,14 @@ export const storefrontSectionInputSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      (data.type === 'hero' || data.type === 'image' || data.type === 'video') &&
+      (data.type === 'hero' ||
+        data.type === 'image' ||
+        data.type === 'video') &&
       !data.mediaUrl
     ) {
       ctx.addIssue({
         code: 'custom',
-        message:
-          data.type === 'video' ? 'Upload a video' : 'Upload an image',
+        message: data.type === 'video' ? 'Upload a video' : 'Upload an image',
         path: ['mediaUrl'],
       })
     }

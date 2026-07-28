@@ -44,7 +44,23 @@ function requireEnv(name: string): string {
 
 export interface CreateInvoiceInput {
   externalId: string
-  amountPesos: number
+  /** Major units (not minor/cents) of `currency` — e.g. pesos for PHP,
+   *  dollars for USD. */
+  amount: number
+  /** ISO 4217 currency code. GCash/Maya/bank transfer are Philippine-only
+   *  rails that cannot settle outside PHP, so any non-'PHP' currency here
+   *  restricts the hosted invoice page to card payment only — see
+   *  https://docs.xendit.co/docs/card-multi-currency-processing. That doc
+   *  currently lists Payment Session / Xendit Components / Payments API
+   *  (v3) as the supported integrations for multi-currency card
+   *  processing, NOT this legacy Invoice API — passing a non-PHP currency
+   *  here is unverified against Xendit's live behavior for this endpoint
+   *  and may be rejected. Treat any resulting error as a real failure
+   *  (place-order.ts already rolls back the order/reservation on invoice
+   *  creation failure) — never silently fall back to charging PHP while
+   *  telling the customer they were charged in their selected currency.
+   */
+  currency: string
   payerEmail: string
   description: string
   successRedirectUrl: string
@@ -65,10 +81,11 @@ export async function createXenditInvoice(
     },
     body: JSON.stringify({
       external_id: input.externalId,
-      amount: input.amountPesos,
+      amount: input.amount,
       payer_email: input.payerEmail,
       description: input.description,
-      currency: 'PHP',
+      currency: input.currency,
+      ...(input.currency !== 'PHP' ? { payment_methods: ['CARDS'] } : {}),
       success_redirect_url: input.successRedirectUrl,
       failure_redirect_url: input.failureRedirectUrl,
     }),

@@ -8,8 +8,12 @@ import {
   withSubmittableProvince,
 } from '#/lib/checkout/CheckoutContext'
 import { shippingCostCents } from '#/lib/checkout/shipping'
+import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import { getActiveMarketMarkups } from '#/server/storefront/market-pricing'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
+import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
@@ -19,14 +23,22 @@ export const Route = createFileRoute('/checkout/payment')({
     order: z.string().optional(),
     paymentFailed: z.boolean().optional(),
   }),
+  loader: () => getActiveMarketMarkups(),
   component: PaymentPage,
 })
 
 type PaymentMethod = 'cod' | 'online'
 
 function PaymentPage() {
-  const { cart, subtotalCents, discountCents, isLoading, codAvailable } =
-    useCart()
+  const marketMarkups = Route.useLoaderData()
+  const { currency, rates, formatPrice } = useCurrency()
+  const {
+    cart,
+    subtotalCents: rawSubtotalCents,
+    discountCents,
+    isLoading,
+    codAvailable,
+  } = useCart()
   const { info, clear } = useCheckout()
   const { paymentFailed } = Route.useSearch()
   const navigate = useNavigate()
@@ -82,18 +94,38 @@ function PaymentPage() {
     )
   }
 
+  // Per-country product markup (see lib/checkout/market-pricing.ts) — keyed
+  // by shipping destination, never touches the shipping fee below. Must
+  // stay in sync with place-order.ts's own markup lookup, or the customer
+  // would see one total here and be charged another.
+  const subtotalCents = applyMarketMarkup(
+    rawSubtotalCents,
+    marketMarkups[info.country],
+  )
+
   const shippingCents = shippingCostCents(
+    info.country,
     info.region,
     subtotalCents - discountCents,
+    rates.USD ?? null,
   )
   const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
-  const addressLines = [
-    info.addressLine1,
-    info.addressLine2,
-    info.barangay,
-    [info.city, info.province].filter(Boolean).join(', '),
-    formatRegionLabel(info.region),
-  ].filter(Boolean)
+  const addressLines =
+    info.country === 'PH'
+      ? [
+          info.addressLine1,
+          info.addressLine2,
+          info.barangay,
+          [info.city, info.province].filter(Boolean).join(', '),
+          formatRegionLabel(info.region),
+        ].filter(Boolean)
+      : [
+          info.addressLine1,
+          info.addressLine2,
+          [info.city, info.province].filter(Boolean).join(', '),
+          info.postalCode,
+          formatCountryName(info.country),
+        ].filter(Boolean)
 
   async function handlePlaceOrder() {
     setError(null)
@@ -103,6 +135,7 @@ function PaymentPage() {
         data: {
           contact: withSubmittableProvince(info),
           paymentProvider: method,
+          currency: method === 'cod' ? 'PHP' : currency,
         },
       })
       if (result.invoiceUrl) {
@@ -118,6 +151,7 @@ function PaymentPage() {
         search: {
           order: result.orderNumber,
           value: (totalCents / 100).toFixed(2),
+          currency: 'PHP',
         },
       })
     } catch (err) {
@@ -157,31 +191,25 @@ function PaymentPage() {
       <section className="mt-8">
         <h2 className="mb-4 text-lg font-semibold">Payment method</h2>
         <div className="space-y-2">
-          <label
-            className={`flex items-center gap-3 rounded-md border-2 px-4 py-3 ${
-              !codAvailable ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-            } ${
-              method === 'cod'
-                ? 'border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
-                : 'border-neutral-200 dark:border-neutral-800'
-            }`}
-          >
-            <input
-              type="radio"
-              name="payment"
-              disabled={!codAvailable}
-              checked={method === 'cod'}
-              onChange={() => setMethod('cod')}
-            />
-            <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
-              Cash on Delivery (COD)
-              {!codAvailable && (
-                <span className="mt-0.5 block text-xs font-normal text-neutral-500 dark:text-neutral-400">
-                  Not available for items in your cart — pay online instead.
-                </span>
-              )}
-            </span>
-          </label>
+          {codAvailable && (
+            <label
+              className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-4 py-3 ${
+                method === 'cod'
+                  ? 'border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                  : 'border-neutral-200 dark:border-neutral-800'
+              }`}
+            >
+              <input
+                type="radio"
+                name="payment"
+                checked={method === 'cod'}
+                onChange={() => setMethod('cod')}
+              />
+              <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
+                Cash on Delivery (COD)
+              </span>
+            </label>
+          )}
 
           <label
             className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-4 py-3 ${
@@ -198,6 +226,12 @@ function PaymentPage() {
             />
             <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
               Pay Online — GCash, Maya, Cards, Bank Transfer
+              {currency !== 'PHP' && (
+                <span className="mt-0.5 block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                  Prices are shown in {currency} for reference — you'll be
+                  charged the PHP equivalent, {formatCentsAsPHP(totalCents)}.
+                </span>
+              )}
             </span>
           </label>
         </div>
@@ -208,12 +242,12 @@ function PaymentPage() {
           <span className="text-neutral-600 dark:text-neutral-400">
             Subtotal
           </span>
-          <span className="font-medium">{formatCentsAsPHP(subtotalCents)}</span>
+          <span className="font-medium">{formatPrice(subtotalCents)}</span>
         </div>
         {discountCents > 0 && (
           <div className="flex items-center justify-between text-green-700 dark:text-green-400">
             <span>Discount</span>
-            <span>-{formatCentsAsPHP(discountCents)}</span>
+            <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
         <div className="flex items-center justify-between">
@@ -221,12 +255,12 @@ function PaymentPage() {
             Shipping
           </span>
           <span className="font-medium">
-            {shippingCents === 0 ? 'Free' : formatCentsAsPHP(shippingCents)}
+            {shippingCents === 0 ? 'Free' : formatPrice(shippingCents)}
           </span>
         </div>
         <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">
           <span>Total</span>
-          <span>{formatCentsAsPHP(totalCents)}</span>
+          <span>{formatPrice(totalCents)}</span>
         </div>
       </section>
 
@@ -247,8 +281,8 @@ function PaymentPage() {
             ? 'Redirecting to payment...'
             : 'Placing order...'
           : method === 'online'
-            ? `Continue to pay — ${formatCentsAsPHP(totalCents)}`
-            : `Place order — ${formatCentsAsPHP(totalCents)}`}
+            ? `Continue to pay — ${formatPrice(totalCents)}`
+            : `Place order — ${formatPrice(totalCents)}`}
       </button>
     </div>
   )

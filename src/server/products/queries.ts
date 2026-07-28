@@ -72,7 +72,8 @@ async function withSalePrices<T extends ProductWithVariants>(
       id: p.id,
       priceCents:
         p.variants.reduce<number | null>(
-          (min, v) => (min === null || v.price_cents < min ? v.price_cents : min),
+          (min, v) =>
+            min === null || v.price_cents < min ? v.price_cents : min,
           null,
         ) ?? 0,
     })),
@@ -138,6 +139,69 @@ function sortProducts(
   return withPrice.map((p) => p.product)
 }
 
+/**
+ * Every active product id belonging to a collection — manual assignments
+ * (product_collections) union rule-matched products, same membership test
+ * listActiveProducts uses for its own product-grid rendering (kept as a
+ * separate, simpler function rather than a shared refactor, since the two
+ * have different needs: this only needs membership, not sort/limit/pinning
+ * order). Used to lock a scoped domain's search and product-detail pages
+ * to one brand's collection — see server/storefront/domain.ts. Returns
+ * null if the collection doesn't exist or is inactive.
+ */
+async function getCollectionProductIds(
+  collectionSlug: string,
+): Promise<Set<string> | null> {
+  const supabase = getSupabaseServerClient()
+
+  const { data: collection } = await supabase
+    .from('collections')
+    .select('id, match_type, rules')
+    .eq('slug', collectionSlug)
+    .eq('is_active', true)
+    .maybeSingle<{
+      id: string
+      match_type: 'all' | 'any'
+      rules: unknown
+    }>()
+  if (!collection) return null
+
+  const [{ data: products, error }, { data: memberships }] = await Promise.all([
+    supabase
+      .from('products')
+      .select('*, variants:product_variants(*, inventory(quantity_available))')
+      .eq('status', 'active')
+      .overrideTypes<ProductWithStock[], { merge: false }>(),
+    supabase
+      .from('product_collections')
+      .select('product_id')
+      .eq('collection_id', collection.id),
+  ])
+  if (error) throw error
+
+  const ids = new Set((memberships ?? []).map((m) => m.product_id))
+  const rules = z.array(collectionRuleSchema).parse(collection.rules)
+  for (const p of products) {
+    if (
+      matchesRules(
+        {
+          name: p.name,
+          productType: p.product_type,
+          status: p.status,
+          tags: p.tags,
+          inventoryStock: inventoryStockOf(p),
+          lowestPriceCents: lowestPriceCentsOf(p),
+        },
+        rules,
+        collection.match_type,
+      )
+    ) {
+      ids.add(p.id)
+    }
+  }
+  return ids
+}
+
 export const listActiveProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -146,93 +210,91 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
     }),
   )
   .handler(
-    async ({
-      data,
-    }): Promise<(ProductWithVariants & WithSalePrice)[]> => {
-    const supabase = getSupabaseServerClient()
+    async ({ data }): Promise<(ProductWithVariants & WithSalePrice)[]> => {
+      const supabase = getSupabaseServerClient()
 
-    if (!data.collectionSlug) {
-      const { data: products, error } = await supabase
-        .from('products')
-        .select('*, variants:product_variants(*)')
-        .eq('status', 'active')
-        .limit(data.limit)
-      if (error) throw error
-      return withSalePrices(products)
-    }
-
-    const { data: collection } = await supabase
-      .from('collections')
-      .select('id, match_type, rules, sort_by, hide_out_of_stock_products')
-      .eq('slug', data.collectionSlug)
-      .eq('is_active', true)
-      .maybeSingle<{
-        id: string
-        match_type: 'all' | 'any'
-        rules: unknown
-        sort_by: string
-        hide_out_of_stock_products: boolean
-      }>()
-    if (!collection) return []
-
-    const [{ data: products, error }, { data: memberships }] =
-      await Promise.all([
-        supabase
+      if (!data.collectionSlug) {
+        const { data: products, error } = await supabase
           .from('products')
-          .select(
-            '*, variants:product_variants(*, inventory(quantity_available))',
-          )
+          .select('*, variants:product_variants(*)')
           .eq('status', 'active')
-          .overrideTypes<ProductWithStock[], { merge: false }>(),
-        supabase
-          .from('product_collections')
-          .select('product_id, sort_order')
-          .eq('collection_id', collection.id)
-          .order('sort_order', { ascending: true })
-          .overrideTypes<
-            { product_id: string; sort_order: number }[],
-            { merge: false }
-          >(),
-      ])
-    if (error) throw error
+          .limit(data.limit)
+        if (error) throw error
+        return withSalePrices(products)
+      }
 
-    // Manually pinned products always stay in, regardless of `rules` — they
-    // lead the list in their drag order, then rule-matched products fill in
-    // after (deduped), sorted by `sort_by`.
-    const orderById = new Map(
-      (memberships ?? []).map((m) => [m.product_id, m.sort_order]),
-    )
-    const manual = products
-      .filter((p) => orderById.has(p.id))
-      .sort((a, b) => orderById.get(a.id)! - orderById.get(b.id)!)
+      const { data: collection } = await supabase
+        .from('collections')
+        .select('id, match_type, rules, sort_by, hide_out_of_stock_products')
+        .eq('slug', data.collectionSlug)
+        .eq('is_active', true)
+        .maybeSingle<{
+          id: string
+          match_type: 'all' | 'any'
+          rules: unknown
+          sort_by: string
+          hide_out_of_stock_products: boolean
+        }>()
+      if (!collection) return []
 
-    const rules = z.array(collectionRuleSchema).parse(collection.rules)
-    const autoMatched = sortProducts(
-      products.filter(
-        (p) =>
-          !orderById.has(p.id) &&
-          matchesRules(
-            {
-              name: p.name,
-              productType: p.product_type,
-              status: p.status,
-              tags: p.tags,
-              inventoryStock: inventoryStockOf(p),
-              lowestPriceCents: lowestPriceCentsOf(p),
-            },
-            rules,
-            collection.match_type,
-          ),
-      ),
-      collection.sort_by as SortOption,
-    )
+      const [{ data: products, error }, { data: memberships }] =
+        await Promise.all([
+          supabase
+            .from('products')
+            .select(
+              '*, variants:product_variants(*, inventory(quantity_available))',
+            )
+            .eq('status', 'active')
+            .overrideTypes<ProductWithStock[], { merge: false }>(),
+          supabase
+            .from('product_collections')
+            .select('product_id, sort_order')
+            .eq('collection_id', collection.id)
+            .order('sort_order', { ascending: true })
+            .overrideTypes<
+              { product_id: string; sort_order: number }[],
+              { merge: false }
+            >(),
+        ])
+      if (error) throw error
 
-    let matching = [...manual, ...autoMatched]
-    if (collection.hide_out_of_stock_products) {
-      matching = matching.filter((p) => inventoryStockOf(p) > 0)
-    }
+      // Manually pinned products always stay in, regardless of `rules` — they
+      // lead the list in their drag order, then rule-matched products fill in
+      // after (deduped), sorted by `sort_by`.
+      const orderById = new Map(
+        (memberships ?? []).map((m) => [m.product_id, m.sort_order]),
+      )
+      const manual = products
+        .filter((p) => orderById.has(p.id))
+        .sort((a, b) => orderById.get(a.id)! - orderById.get(b.id)!)
 
-    return withSalePrices(matching.slice(0, data.limit))
+      const rules = z.array(collectionRuleSchema).parse(collection.rules)
+      const autoMatched = sortProducts(
+        products.filter(
+          (p) =>
+            !orderById.has(p.id) &&
+            matchesRules(
+              {
+                name: p.name,
+                productType: p.product_type,
+                status: p.status,
+                tags: p.tags,
+                inventoryStock: inventoryStockOf(p),
+                lowestPriceCents: lowestPriceCentsOf(p),
+              },
+              rules,
+              collection.match_type,
+            ),
+        ),
+        collection.sort_by as SortOption,
+      )
+
+      let matching = [...manual, ...autoMatched]
+      if (collection.hide_out_of_stock_products) {
+        matching = matching.filter((p) => inventoryStockOf(p) > 0)
+      }
+
+      return withSalePrices(matching.slice(0, data.limit))
     },
   )
 
@@ -241,14 +303,23 @@ export type VariantWithSalePrice = ProductWithVariants['variants'][number] & {
 } & WithSalePrice
 
 export const getProductBySlug = createServerFn({ method: 'GET' })
-  .validator(z.object({ slug: z.string().min(1) }))
+  .validator(
+    z.object({
+      slug: z.string().min(1),
+      // The current domain's collection scope (see
+      // server/storefront/domain.ts) — when set, a product outside that
+      // collection doesn't exist as far as this storefront is concerned.
+      collectionSlug: z.string().nullable().optional(),
+    }),
+  )
   .handler(
     async ({
       data,
     }): Promise<
-      (Omit<ProductWithVariants, 'variants'> & {
-        variants: VariantWithSalePrice[]
-      }) | null
+      | (Omit<ProductWithVariants, 'variants'> & {
+          variants: VariantWithSalePrice[]
+        })
+      | null
     > => {
       const supabase = getSupabaseServerClient()
 
@@ -263,6 +334,11 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
 
       if (error) throw error
       if (!product) return null
+
+      if (data.collectionSlug) {
+        const memberIds = await getCollectionProductIds(data.collectionSlug)
+        if (!memberIds?.has(product.id)) return null
+      }
 
       // Each variant priced (and its best discount picked) individually —
       // its own price is what a shopper who picks that size/color actually
@@ -317,6 +393,14 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
         .from('storefront_product_listing')
         .select('*', { count: 'exact' })
 
+      if (data.collectionSlug) {
+        const memberIds = await getCollectionProductIds(data.collectionSlug)
+        if (!memberIds || memberIds.size === 0) {
+          return { products: [], total: 0 }
+        }
+        query = query.in('id', Array.from(memberIds))
+      }
+
       if (data.type) query = query.eq('product_type', data.type)
       if (data.q) {
         query = query.or(`name.ilike.%${data.q}%,tags.cs.{${data.q}}`)
@@ -364,19 +448,34 @@ const QUICK_SEARCH_LIMIT = 6
 
 /** Small, unpaginated product lookup backing the header's in-place search overlay — a live-typing dropdown, not the full /products listing. */
 export const quickSearchProducts = createServerFn({ method: 'GET' })
-  .validator(z.object({ q: z.string().trim().min(1).max(200) }))
+  .validator(
+    z.object({
+      q: z.string().trim().min(1).max(200),
+      // The current domain's collection scope (see
+      // server/storefront/domain.ts) — when set, search never surfaces a
+      // product outside that collection.
+      collectionSlug: z.string().nullable().optional(),
+    }),
+  )
   .handler(
-    async ({
-      data,
-    }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
+    async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
       const supabase = getSupabaseServerClient()
 
-      const { data: products, error } = await supabase
+      let memberIds: Set<string> | null = null
+      if (data.collectionSlug) {
+        memberIds = await getCollectionProductIds(data.collectionSlug)
+        if (!memberIds || memberIds.size === 0) return []
+      }
+
+      let query = supabase
         .from('storefront_product_listing')
         .select('*')
         .or(`name.ilike.%${data.q}%,tags.cs.{${data.q}}`)
         .order('created_at', { ascending: false })
-        .limit(QUICK_SEARCH_LIMIT)
+      if (memberIds) {
+        query = query.in('id', Array.from(memberIds))
+      }
+      const { data: products, error } = await query.limit(QUICK_SEARCH_LIMIT)
 
       if (error) throw error
       const sales = await attachSalePrices(
@@ -399,9 +498,7 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
     }),
   )
   .handler(
-    async ({
-      data,
-    }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
+    async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
       const supabase = getSupabaseServerClient()
 
       const { data: products, error } = await supabase

@@ -34,10 +34,7 @@ export type OrderStatus =
   | 'failed'
 
 export type OrderCancellationReason =
-  | 'failed_delivery'
-  | 'customer_request'
-  | 'out_of_stock'
-  | 'platform_cancelled'
+  'failed_delivery' | 'customer_request' | 'out_of_stock' | 'platform_cancelled'
 
 export type OrderSource =
   'storefront' | 'admin' | 'tiktok_shop' | 'shopee' | 'lazada'
@@ -123,11 +120,7 @@ export type InventoryMovementType =
 export type MarketplaceName = 'tiktok_shop' | 'shopee' | 'lazada' | 'other'
 
 export type StorefrontSectionType =
-  | 'hero'
-  | 'tagline'
-  | 'image'
-  | 'video'
-  | 'product_grid'
+  'hero' | 'tagline' | 'image' | 'video' | 'product_grid'
 
 export type StorefrontPage = 'home' | 'about'
 export type MarketplaceConnectionStatus =
@@ -244,6 +237,7 @@ export interface Database {
           id: string
           type: StorefrontSectionType
           page: StorefrontPage
+          brand: string
           sort_order: number
           is_active: boolean
           title: string | null
@@ -426,7 +420,9 @@ export interface Database {
         Insert: Partial<
           Database['public']['Tables']['email_unsubscribes']['Row']
         > & { email: string }
-        Update: Partial<Database['public']['Tables']['email_unsubscribes']['Row']>
+        Update: Partial<
+          Database['public']['Tables']['email_unsubscribes']['Row']
+        >
         Relationships: []
       }
       cart_items: {
@@ -474,6 +470,8 @@ export interface Database {
           platform_fee_breakdown: { label: string; amountCents: number }[]
           platform_discount_cents: number
           currency: string
+          brand: string
+          market_markup_percent: number | null
           discount_id: string | null
           shipping_address: Record<string, unknown>
           billing_address: Record<string, unknown> | null
@@ -542,6 +540,9 @@ export interface Database {
           captured_at: string | null
           created_at: string
           updated_at: string
+          charged_currency: string | null
+          charged_amount_cents: number | null
+          fx_rate_to_php: number | null
         }
         Insert: Partial<Database['public']['Tables']['payments']['Row']> & {
           order_id: string
@@ -668,6 +669,21 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['email_sends']['Row']>
         Relationships: []
       }
+      exchange_rates: {
+        Row: {
+          currency: string
+          rate_to_php: number
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['exchange_rates']['Row']
+        > & {
+          currency: string
+          rate_to_php: number
+        }
+        Update: Partial<Database['public']['Tables']['exchange_rates']['Row']>
+        Relationships: []
+      }
       cod_restrictions: {
         Row: {
           id: string
@@ -685,6 +701,24 @@ export interface Database {
           scope: CodRestrictionScope
         }
         Update: Partial<Database['public']['Tables']['cod_restrictions']['Row']>
+        Relationships: []
+      }
+      market_pricing: {
+        Row: {
+          id: string
+          country_code: string
+          markup_percent: number
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['market_pricing']['Row']
+        > & {
+          country_code: string
+          markup_percent: number
+        }
+        Update: Partial<Database['public']['Tables']['market_pricing']['Row']>
         Relationships: []
       }
       reviews: {

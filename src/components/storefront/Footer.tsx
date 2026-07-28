@@ -1,44 +1,82 @@
 import { Link } from '@tanstack/react-router'
 import { Facebook, Instagram } from 'lucide-react'
 import { TikTokIcon } from '#/components/storefront/TikTokIcon'
+import type { StorefrontScope } from '#/server/storefront/domain'
 
-export function Footer() {
+interface FooterProps {
+  scope: StorefrontScope
+}
+
+function CollectionOrCatalogLink({
+  scope,
+  label,
+}: {
+  scope: StorefrontScope
+  label: string
+}) {
+  if (scope.collectionSlug) {
+    return (
+      <Link
+        to="/collections/$slug"
+        params={{ slug: scope.collectionSlug }}
+        className="hover:text-white"
+      >
+        {label}
+      </Link>
+    )
+  }
+  return (
+    <Link to="/collections" className="hover:text-white">
+      {label}
+    </Link>
+  )
+}
+
+export function Footer({ scope }: FooterProps) {
   return (
     <footer className="bg-neutral-950 text-neutral-300">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-10 px-6 py-14 sm:grid-cols-4">
         <div className="col-span-2 sm:col-span-1">
-          <img src="/logo-white.png" alt="Spades" className="h-6 w-auto" />
-          <p className="mt-4 max-w-xs text-sm text-neutral-400">
-            Philippine streetwear for those who bet on themselves.
-          </p>
+          <img src={scope.logoDark} alt={scope.name} className="h-6 w-auto" />
+          {scope.tagline && (
+            <p className="mt-4 max-w-xs text-sm text-neutral-400">
+              {scope.tagline}
+            </p>
+          )}
           <div className="mt-5 flex items-center gap-4">
-            <a
-              href="https://www.facebook.com/spadesofficialph/"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Facebook"
-              className="text-neutral-400 hover:text-white"
-            >
-              <Facebook className="h-5 w-5" />
-            </a>
-            <a
-              href="https://www.instagram.com/spades_officialph/"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Instagram"
-              className="text-neutral-400 hover:text-white"
-            >
-              <Instagram className="h-5 w-5" />
-            </a>
-            <a
-              href="https://www.tiktok.com/@spades_officialbrand"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="TikTok"
-              className="text-neutral-400 hover:text-white"
-            >
-              <TikTokIcon size={20} />
-            </a>
+            {scope.social.facebook && (
+              <a
+                href={scope.social.facebook}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Facebook"
+                className="text-neutral-400 hover:text-white"
+              >
+                <Facebook className="h-5 w-5" />
+              </a>
+            )}
+            {scope.social.instagram && (
+              <a
+                href={scope.social.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Instagram"
+                className="text-neutral-400 hover:text-white"
+              >
+                <Instagram className="h-5 w-5" />
+              </a>
+            )}
+            {scope.social.tiktok && (
+              <a
+                href={scope.social.tiktok}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="TikTok"
+                className="text-neutral-400 hover:text-white"
+              >
+                <TikTokIcon size={20} />
+              </a>
+            )}
           </div>
         </div>
 
@@ -48,18 +86,20 @@ export function Footer() {
           </h3>
           <ul className="mt-4 space-y-2 text-sm">
             <li>
-              <Link
-                to="/products"
-                search={{ sort: 'newest', page: 1 }}
-                className="hover:text-white"
-              >
-                All Products
-              </Link>
+              {scope.collectionSlug ? (
+                <CollectionOrCatalogLink scope={scope} label="All Products" />
+              ) : (
+                <Link
+                  to="/products"
+                  search={{ sort: 'newest', page: 1 }}
+                  className="hover:text-white"
+                >
+                  All Products
+                </Link>
+              )}
             </li>
             <li>
-              <Link to="/collections" className="hover:text-white">
-                Collections
-              </Link>
+              <CollectionOrCatalogLink scope={scope} label="Collections" />
             </li>
             <li>
               <Link to="/cart" className="hover:text-white">
@@ -116,7 +156,7 @@ export function Footer() {
       </div>
 
       <div className="border-t border-neutral-800 px-6 py-5 text-center text-xs text-neutral-500">
-        © {new Date().getFullYear()} Spades. All rights reserved.
+        © {new Date().getFullYear()} {scope.name}. All rights reserved.
       </div>
     </footer>
   )

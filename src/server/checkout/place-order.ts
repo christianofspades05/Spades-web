@@ -24,7 +24,9 @@ import {
 } from '#/server/cart/internal'
 import { assertDiscountIsRedeemable } from '#/server/cart/discount'
 import { shippingCostCents } from '#/lib/checkout/shipping'
+import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import { createXenditInvoice } from '#/lib/xendit/client'
+import { getStorefrontScope } from '#/server/storefront/domain'
 import { sendEmail } from '#/lib/email/resend'
 import {
   newOrderEmailHtml,
@@ -42,6 +44,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
       invoiceUrl: string | null
     }> => {
       const admin = getSupabaseAdminClient()
+      const scope = await getStorefrontScope()
       const token = getCartToken()
       if (!token) throw new Error('Your cart is empty')
 
@@ -99,14 +102,55 @@ export const placeOrder = createServerFn({ method: 'POST' })
         discountRow = freshDiscount
       }
 
-      const subtotalCents = cart.items.reduce(
+      const rawSubtotalCents = cart.items.reduce(
         (sum, item) => sum + item.quantity * item.price_cents_snapshot,
         0,
       )
       const discountCents = cart.discount?.amountCents ?? 0
+
+      // Needed for international orders' flat USD shipping fee (converted
+      // to PHP cents) regardless of payment method — re-fetched server-side
+      // rather than trusting anything the client computed, same principle
+      // as the currency-charging rate lookup further below.
+      let usdToPhpRate: number | null = null
+      if (data.contact.country !== 'PH') {
+        const { data: usdRateRow } = await admin
+          .from('exchange_rates')
+          .select('rate_to_php')
+          .eq('currency', 'USD')
+          .maybeSingle()
+        usdToPhpRate = usdRateRow?.rate_to_php ?? null
+      }
+
+      // Per-country product markup (see lib/checkout/market-pricing.ts) —
+      // keyed by shipping destination, never by the customer's display
+      // currency, and never applied to the shipping fee below. Re-fetched
+      // server-side rather than trusting anything the client computed, same
+      // principle as the exchange-rate lookup above. `subtotalCents` from
+      // here on is the marked-up figure — order_items keep their original
+      // (unmarked) per-line snapshot pricing, so `market_markup_percent` is
+      // what reconciles orders.subtotal_cents against the item lines for a
+      // marked-up international order.
+      let marketMarkupPercent: number | undefined
+      if (data.contact.country !== 'PH') {
+        const { data: marketRow } = await admin
+          .from('market_pricing')
+          .select('markup_percent')
+          .eq('country_code', data.contact.country)
+          .eq('is_active', true)
+          .maybeSingle()
+        marketMarkupPercent = marketRow?.markup_percent
+      }
+      const subtotalCents = applyMarketMarkup(
+        rawSubtotalCents,
+        marketMarkupPercent,
+      )
+
       const shippingCents = shippingCostCents(
-        data.contact.region,
+        data.contact.country,
+        data.contact.region ?? '',
         subtotalCents - discountCents,
+        usdToPhpRate,
       )
       const totalCents = Math.max(
         0,
@@ -191,11 +235,12 @@ export const placeOrder = createServerFn({ method: 'POST' })
         email,
         recipientName: data.contact.recipientName,
         phone: data.contact.phone,
-        region: data.contact.region,
+        country: data.contact.country,
+        region: data.contact.region ?? null,
         province: data.contact.province,
         city: data.contact.city,
-        barangay: data.contact.barangay,
-        postalCode: data.contact.postalCode ?? null,
+        barangay: data.contact.barangay ?? null,
+        postalCode: data.contact.postalCode,
         addressLine1: data.contact.addressLine1,
         addressLine2: data.contact.addressLine2 ?? null,
         landmark: data.contact.landmark ?? null,
@@ -214,6 +259,18 @@ export const placeOrder = createServerFn({ method: 'POST' })
           discount_id: cart.discount?.id ?? null,
           shipping_address: shippingAddress,
           is_cod: data.paymentProvider === 'cod',
+          // Display currency only (what the customer was browsing in) —
+          // COD/GCash/Maya/bank transfer always actually charge PHP
+          // regardless of this value; see the online-payment branch below
+          // for the one path (card) that can honor it.
+          currency: data.currency,
+          // Which of the three storefronts (Spades/Ysrael/Aspire 365) the
+          // order was placed on — see server/storefront/domain.ts.
+          brand: scope.brand,
+          // Set only when a per-country markup actually applied (see
+          // lib/checkout/market-pricing.ts) — null for PH and for any
+          // country with no active market_pricing row.
+          market_markup_percent: marketMarkupPercent ?? null,
         })
         .select('id, order_number')
         .single()
@@ -266,6 +323,18 @@ export const placeOrder = createServerFn({ method: 'POST' })
         })
         if (paymentError) throw paymentError
       } else {
+        // Xendit's legacy Invoice API (used here) rejects any currency the
+        // merchant hasn't had explicitly enabled on their account — live-
+        // tested and confirmed for this account (only PHP is enabled;
+        // trying SGD returned "currency SGD is not configured in your
+        // settings yet"). So online payment always actually charges PHP
+        // regardless of the customer's selected display currency —
+        // browsing/checkout/payment-summary still show their chosen
+        // currency (see CurrencyContext.tsx), this is only about what
+        // Xendit itself is told to charge. If more currencies get enabled
+        // on the Xendit side later, this is the one place to start passing
+        // data.currency through again (see git history for the previous
+        // per-currency attempt).
         const { data: payment, error: paymentError } = await admin
           .from('payments')
           .insert({
@@ -283,10 +352,11 @@ export const placeOrder = createServerFn({ method: 'POST' })
         try {
           const invoice = await createXenditInvoice({
             externalId: order.order_number,
-            amountPesos: totalCents / 100,
+            amount: totalCents / 100,
+            currency: 'PHP',
             payerEmail: email,
-            description: `Spades order ${order.order_number}`,
-            successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}&value=${(totalCents / 100).toFixed(2)}`,
+            description: `${scope.name} order ${order.order_number}`,
+            successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
             failureRedirectUrl: `${origin}/checkout/payment?order=${order.order_number}&paymentFailed=true`,
           })
           invoiceUrl = invoice.invoice_url

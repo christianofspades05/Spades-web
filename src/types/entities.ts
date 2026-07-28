@@ -62,6 +62,8 @@ export type StorefrontSection =
   Database['public']['Tables']['storefront_sections']['Row']
 export type CodRestriction =
   Database['public']['Tables']['cod_restrictions']['Row']
+export type MarketPricing =
+  Database['public']['Tables']['market_pricing']['Row']
 export type Review = Database['public']['Tables']['reviews']['Row']
 export type EmailAutomation =
   Database['public']['Tables']['email_automations']['Row']

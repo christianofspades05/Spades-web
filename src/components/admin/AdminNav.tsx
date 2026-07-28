@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   EyeOff,
+  Globe,
   Home,
   LayoutTemplate,
   LogOut,
@@ -272,6 +273,23 @@ export function AdminNav({
         >
           <Mail size={17} strokeWidth={2} />
           Email
+        </Link>
+
+        <p className="mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+          Market Development
+        </p>
+
+        <Link
+          to="/admin/markets"
+          onClick={onNavigate}
+          className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
+            pathname.startsWith('/admin/markets')
+              ? 'bg-neutral-100 text-neutral-950'
+              : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+          }`}
+        >
+          <Globe size={17} strokeWidth={2} />
+          Markets
         </Link>
 
         <p className="mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">

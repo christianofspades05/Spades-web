@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, notFound } from '@tanstack/react-router'
 import { listActiveProducts } from '#/server/products/queries'
 import { toListingProduct } from '#/lib/utils/product-shape'
 import { collectionTitleForSlug } from '#/lib/collections/display'
@@ -11,20 +11,28 @@ const FETCH_LIMIT = 100
 
 export const Route = createFileRoute('/collections/$slug')({
   headers: () => STOREFRONT_CACHE_HEADERS,
-  loader: async ({ params }) => {
+  loader: async ({ params, context }) => {
+    // Locked to one brand's collection (see server/storefront/domain.ts) —
+    // any other collection's URL doesn't exist on this domain.
+    const { collectionSlug } = context.storefrontScope
+    if (collectionSlug && params.slug !== collectionSlug) {
+      throw notFound()
+    }
+
     const products = await listActiveProducts({
       data: { collectionSlug: params.slug, limit: FETCH_LIMIT },
     })
     return {
       title: collectionTitleForSlug(params.slug),
       products: products.map(toListingProduct),
+      isScoped: collectionSlug !== null,
     }
   },
   component: CollectionDetailPage,
 })
 
 function CollectionDetailPage() {
-  const { title, products } = Route.useLoaderData()
+  const { title, products, isScoped } = Route.useLoaderData()
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
@@ -32,12 +40,14 @@ function CollectionDetailPage() {
         <h1 className="text-3xl font-black uppercase tracking-tight">
           {title}
         </h1>
-        <Link
-          to="/collections"
-          className="text-sm text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-        >
-          All Collections
-        </Link>
+        {!isScoped && (
+          <Link
+            to="/collections"
+            className="text-sm text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
+          >
+            All Collections
+          </Link>
+        )}
       </div>
       <ProductGrid
         products={products}

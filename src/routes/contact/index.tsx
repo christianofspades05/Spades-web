@@ -4,25 +4,22 @@ import { TikTokIcon } from '#/components/storefront/TikTokIcon'
 
 export const Route = createFileRoute('/contact/')({ component: ContactPage })
 
-const SOCIAL_LINKS = [
-  {
-    label: 'Facebook',
-    href: 'https://www.facebook.com/spadesofficialph/',
-    Icon: Facebook,
-  },
-  {
-    label: 'Instagram',
-    href: 'https://www.instagram.com/spades_officialph/',
-    Icon: Instagram,
-  },
-  {
-    label: 'TikTok',
-    href: 'https://www.tiktok.com/@spades_officialbrand',
-    Icon: TikTokIcon,
-  },
-] as const
-
 function ContactPage() {
+  const { storefrontScope } = Route.useRouteContext()
+  const socialLinks = [
+    {
+      label: 'Facebook',
+      href: storefrontScope.social.facebook,
+      Icon: Facebook,
+    },
+    {
+      label: 'Instagram',
+      href: storefrontScope.social.instagram,
+      Icon: Instagram,
+    },
+    { label: 'TikTok', href: storefrontScope.social.tiktok, Icon: TikTokIcon },
+  ].filter((link) => link.href)
+
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
       <h1 className="text-3xl font-bold">Contact Us</h1>
@@ -31,7 +28,7 @@ function ContactPage() {
       </p>
 
       <div className="mt-10 flex justify-center gap-8">
-        {SOCIAL_LINKS.map(({ label, href, Icon }) => (
+        {socialLinks.map(({ label, href, Icon }) => (
           <a
             key={label}
             href={href}

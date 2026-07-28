@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '#/lib/utils/cn'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { compareSizes, formatSizeLabel } from '#/lib/utils/size-order'
 import type { ProductVariant } from '#/types/entities'
 
@@ -25,6 +25,7 @@ export function VariantSelector({
   variants,
   onVariantChange,
 }: VariantSelectorProps) {
+  const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const activeVariants = useMemo(
     () => variants.filter((v) => v.is_active),
     [variants],
@@ -124,19 +125,19 @@ export function VariantSelector({
         (resolvedVariant.salePriceCents != null &&
         resolvedVariant.salePriceCents < resolvedVariant.price_cents ? (
           <p className="text-2xl font-semibold text-red-600 dark:text-red-400">
-            {formatCentsAsPHP(resolvedVariant.salePriceCents)}
+            {formatPrice(resolvedVariant.salePriceCents)}
             <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
-              {formatCentsAsPHP(resolvedVariant.price_cents)}
+              {formatPrice(resolvedVariant.price_cents)}
             </span>
           </p>
         ) : (
           <p className="text-2xl font-semibold text-neutral-900 dark:text-white">
-            {formatCentsAsPHP(resolvedVariant.price_cents)}
+            {formatPrice(resolvedVariant.price_cents)}
             {resolvedVariant.compare_at_price_cents != null &&
               resolvedVariant.compare_at_price_cents >
                 resolvedVariant.price_cents && (
                 <span className="ml-2 text-base font-normal text-neutral-400 line-through dark:text-neutral-600">
-                  {formatCentsAsPHP(resolvedVariant.compare_at_price_cents)}
+                  {formatPrice(resolvedVariant.compare_at_price_cents)}
                 </span>
               )}
           </p>

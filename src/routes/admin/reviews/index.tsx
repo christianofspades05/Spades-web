@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { listReviews, setReviewStatus } from '#/server/admin/reviews'
+import {
+  getReviewsCount,
+  listReviews,
+  setReviewStatus,
+} from '#/server/admin/reviews'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { REVIEW_STATUSES } from '#/lib/validation/admin/reviews'
 import { PageHeader } from '#/components/admin/PageHeader'
@@ -17,24 +21,37 @@ import {
 import type { ReviewStatus } from '#/types/entities'
 
 const REVIEW_RATINGS = [1, 2, 3, 4, 5] as const
+const REVIEWS_PAGE_SIZE = 100
 
 export const Route = createFileRoute('/admin/reviews/')({
   validateSearch: z.object({
     status: z.enum(REVIEW_STATUSES).optional(),
     rating: z.coerce.number().int().min(1).max(5).optional(),
+    page: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) =>
-    listReviews({ data: { status: deps.status, rating: deps.rating } }),
+  loader: async ({ deps }) => {
+    const filters = { status: deps.status, rating: deps.rating }
+    const [reviews, { total }] = await Promise.all([
+      listReviews({ data: { ...filters, page: deps.page } }),
+      getReviewsCount({ data: filters }),
+    ])
+    return { reviews, total }
+  },
   component: ReviewsPage,
 })
 
 function ReviewsPage() {
-  const reviews = Route.useLoaderData()
+  const { reviews, total } = Route.useLoaderData()
   const search = Route.useSearch()
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const page = search.page
+  const totalPages = Math.max(1, Math.ceil(total / REVIEWS_PAGE_SIZE))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * REVIEWS_PAGE_SIZE + 1
+  const rangeEndIndex = Math.min(page * REVIEWS_PAGE_SIZE, total)
 
   async function handleSetStatus(id: string, status: ReviewStatus) {
     setPendingId(id)
@@ -53,13 +70,13 @@ function ReviewsPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Reviews"
-        subtitle={`${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'}`}
+        subtitle={`${total} ${total === 1 ? 'review' : 'reviews'}`}
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Link
           to="/admin/reviews"
-          search={(prev) => ({ ...prev, status: undefined })}
+          search={(prev) => ({ ...prev, status: undefined, page: 1 })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.status
               ? 'bg-neutral-900 text-white'
@@ -72,7 +89,7 @@ function ReviewsPage() {
           <Link
             key={s}
             to="/admin/reviews"
-            search={(prev) => ({ ...prev, status: s })}
+            search={(prev) => ({ ...prev, status: s, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
               search.status === s
                 ? 'bg-neutral-900 text-white'
@@ -88,7 +105,7 @@ function ReviewsPage() {
         <Link
           to="/admin/reviews"
           from={Route.fullPath}
-          search={(prev) => ({ ...prev, rating: undefined })}
+          search={(prev) => ({ ...prev, rating: undefined, page: 1 })}
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             !search.rating
               ? 'bg-neutral-900 text-white'
@@ -102,7 +119,7 @@ function ReviewsPage() {
             key={r}
             to="/admin/reviews"
             from={Route.fullPath}
-            search={(prev) => ({ ...prev, rating: r })}
+            search={(prev) => ({ ...prev, rating: r, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               search.rating === r
                 ? 'bg-neutral-900 text-white'
@@ -224,6 +241,37 @@ function ReviewsPage() {
           </div>
         )}
       </div>
+
+      {total > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
+          <p>
+            Showing {rangeStartIndex}–{rangeEndIndex} of {total}
+          </p>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/admin/reviews"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page - 1 })}
+              aria-disabled={page <= 1}
+              className={`${buttonSecondaryClassName} ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Previous
+            </Link>
+            <span className="text-xs text-neutral-400">
+              Page {page} of {totalPages}
+            </span>
+            <Link
+              to="/admin/reviews"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page + 1 })}
+              aria-disabled={page >= totalPages}
+              className={`${buttonSecondaryClassName} ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Next
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

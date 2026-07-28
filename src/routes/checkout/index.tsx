@@ -5,10 +5,21 @@ import {
   useCheckout,
   withSubmittableProvince,
 } from '#/lib/checkout/CheckoutContext'
-import { checkoutContactSchema } from '#/lib/validation/checkout'
+import {
+  checkoutContactBaseSchema,
+  checkoutContactSchema,
+} from '#/lib/validation/checkout'
 import { saveCartEmail } from '#/server/cart/mutations'
 import { shippingCostCents } from '#/lib/checkout/shipping'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import { getActiveMarketMarkups } from '#/server/storefront/market-pricing'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
+import {
+  centsToMajorUnits,
+  convertCents,
+  effectiveCurrency,
+} from '#/lib/utils/money'
+import { COUNTRIES } from '#/lib/utils/countries'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import {
@@ -17,10 +28,20 @@ import {
   labelClassName,
 } from '#/components/storefront/ui'
 
-export const Route = createFileRoute('/checkout/')({ component: CheckoutPage })
+export const Route = createFileRoute('/checkout/')({
+  loader: () => getActiveMarketMarkups(),
+  component: CheckoutPage,
+})
 
 function CheckoutPage() {
-  const { cart, subtotalCents, discountCents, isLoading } = useCart()
+  const marketMarkups = Route.useLoaderData()
+  const { currency, rates, formatPrice } = useCurrency()
+  const {
+    cart,
+    subtotalCents: rawSubtotalCents,
+    discountCents,
+    isLoading,
+  } = useCart()
   const { info, setInfo } = useCheckout()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
@@ -30,14 +51,18 @@ function CheckoutPage() {
     if (isLoading || !cart || cart.items.length === 0) return
     if (firedInitiateCheckout.current) return
     firedInitiateCheckout.current = true
+    const target = effectiveCurrency(currency, rates)
     trackPixelEvent('InitiateCheckout', {
       content_ids: cart.items.map((item) => item.variant.product_id),
       content_type: 'product',
       num_items: cart.items.reduce((sum, item) => sum + item.quantity, 0),
-      value: (subtotalCents - discountCents) / 100,
-      currency: 'PHP',
+      value: centsToMajorUnits(
+        convertCents(rawSubtotalCents - discountCents, target, rates),
+        target,
+      ),
+      currency: target,
     })
-  }, [isLoading, cart, subtotalCents, discountCents])
+  }, [isLoading, cart, rawSubtotalCents, discountCents, currency, rates])
 
   if (isLoading) {
     return (
@@ -62,10 +87,36 @@ function CheckoutPage() {
     )
   }
 
-  const shippingCents = info.region
-    ? shippingCostCents(info.region, subtotalCents - discountCents)
-    : null
+  // Per-country product markup (see lib/checkout/market-pricing.ts) — keyed
+  // by shipping destination, never touches the shipping fee below. Must
+  // stay in sync with place-order.ts's own markup lookup, or the customer
+  // would see one total here and be charged another.
+  const subtotalCents = applyMarketMarkup(
+    rawSubtotalCents,
+    marketMarkups[info.country],
+  )
+
+  const shippingCents =
+    info.country !== 'PH' || info.region
+      ? shippingCostCents(
+          info.country,
+          info.region,
+          subtotalCents - discountCents,
+          rates.USD ?? null,
+        )
+      : null
   const totalCents = subtotalCents - discountCents + (shippingCents ?? 0)
+
+  function handleCountryChange(country: string) {
+    setInfo({
+      ...info,
+      country,
+      region: '',
+      province: '',
+      city: '',
+      barangay: '',
+    })
+  }
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -99,9 +150,10 @@ function CheckoutPage() {
                 value={info.email}
                 onChange={(e) => setInfo({ ...info, email: e.target.value })}
                 onBlur={(e) => {
-                  const result = checkoutContactSchema.shape.email.safeParse(
-                    e.target.value,
-                  )
+                  const result =
+                    checkoutContactBaseSchema.shape.email.safeParse(
+                      e.target.value,
+                    )
                   if (!result.success) return
                   void saveCartEmail({ data: { email: result.data } }).catch(
                     () => {},
@@ -115,6 +167,23 @@ function CheckoutPage() {
           <section>
             <h2 className="mb-4 text-lg font-semibold">Delivery</h2>
             <div className="space-y-4">
+              <label className={labelClassName}>
+                Country
+                <select
+                  required
+                  value={info.country}
+                  onChange={(e) => handleCountryChange(e.target.value)}
+                  className={inputClassName}
+                >
+                  <option value="PH">Philippines</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
                   Recipient name
@@ -131,7 +200,9 @@ function CheckoutPage() {
                   Phone
                   <input
                     required
-                    placeholder="09171234567"
+                    placeholder={
+                      info.country === 'PH' ? '09171234567' : undefined
+                    }
                     value={info.phone}
                     onChange={(e) =>
                       setInfo({ ...info, phone: e.target.value })
@@ -141,15 +212,42 @@ function CheckoutPage() {
                 </label>
               </div>
 
-              <PHAddressFields
-                value={{
-                  region: info.region,
-                  province: info.province,
-                  city: info.city,
-                  barangay: info.barangay,
-                }}
-                onChange={(addr) => setInfo({ ...info, ...addr })}
-              />
+              {info.country === 'PH' ? (
+                <PHAddressFields
+                  value={{
+                    region: info.region,
+                    province: info.province,
+                    city: info.city,
+                    barangay: info.barangay,
+                  }}
+                  onChange={(addr) => setInfo({ ...info, ...addr })}
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className={labelClassName}>
+                    City
+                    <input
+                      required
+                      value={info.city}
+                      onChange={(e) =>
+                        setInfo({ ...info, city: e.target.value })
+                      }
+                      className={inputClassName}
+                    />
+                  </label>
+                  <label className={labelClassName}>
+                    State / Province
+                    <input
+                      required
+                      value={info.province}
+                      onChange={(e) =>
+                        setInfo({ ...info, province: e.target.value })
+                      }
+                      className={inputClassName}
+                    />
+                  </label>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
@@ -188,8 +286,9 @@ function CheckoutPage() {
                   />
                 </label>
                 <label className={labelClassName}>
-                  Postal code (optional)
+                  Postal code
                   <input
+                    required
                     value={info.postalCode}
                     onChange={(e) =>
                       setInfo({ ...info, postalCode: e.target.value })
@@ -213,9 +312,7 @@ function CheckoutPage() {
                   Standard shipping
                 </span>
                 <span className="font-medium text-neutral-900 dark:text-white">
-                  {shippingCents === 0
-                    ? 'Free'
-                    : formatCentsAsPHP(shippingCents)}
+                  {shippingCents === 0 ? 'Free' : formatPrice(shippingCents)}
                 </span>
               </div>
             )}
@@ -272,9 +369,7 @@ function CheckoutPage() {
                       )}
                     </div>
                     <p className="whitespace-nowrap text-sm font-medium text-neutral-900 dark:text-white">
-                      {formatCentsAsPHP(
-                        item.quantity * item.price_cents_snapshot,
-                      )}
+                      {formatPrice(item.quantity * item.price_cents_snapshot)}
                     </p>
                   </div>
                 </li>
@@ -287,14 +382,12 @@ function CheckoutPage() {
               <span className="text-neutral-600 dark:text-neutral-400">
                 Subtotal
               </span>
-              <span className="font-medium">
-                {formatCentsAsPHP(subtotalCents)}
-              </span>
+              <span className="font-medium">{formatPrice(subtotalCents)}</span>
             </div>
             {discountCents > 0 && (
               <div className="flex items-center justify-between text-green-700 dark:text-green-400">
                 <span>Discount</span>
-                <span>-{formatCentsAsPHP(discountCents)}</span>
+                <span>-{formatPrice(discountCents)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
@@ -306,12 +399,12 @@ function CheckoutPage() {
                   ? 'Enter delivery region'
                   : shippingCents === 0
                     ? 'Free'
-                    : formatCentsAsPHP(shippingCents)}
+                    : formatPrice(shippingCents)}
               </span>
             </div>
             <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">
               <span>Total</span>
-              <span>{formatCentsAsPHP(Math.max(0, totalCents))}</span>
+              <span>{formatPrice(Math.max(0, totalCents))}</span>
             </div>
           </div>
         </aside>

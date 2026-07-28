@@ -3,26 +3,69 @@ import { Link } from '@tanstack/react-router'
 import { Menu, Search, ShoppingBag, User, X } from 'lucide-react'
 import { useCart } from '#/lib/cart/CartContext'
 import { ThemeToggle } from '#/components/storefront/ThemeToggle'
+import { CurrencySelector } from '#/components/storefront/CurrencySelector'
 import { SearchOverlay } from '#/components/storefront/SearchOverlay'
+import type { StorefrontScope } from '#/server/storefront/domain'
+
+interface HeaderProps {
+  scope: StorefrontScope
+}
 
 const NAV_LINKS = [
   { to: '/', label: 'Home Store' },
   { to: '/about', label: 'About Us' },
   { to: '/reviews', label: 'Reviews' },
   { to: '/contact', label: 'Contact Us' },
-  { to: '/collections', label: 'Shop Aspire' },
 ] as const
 
-export function Header() {
+/** "Shop" should never lead to the full multi-brand catalog when locked to
+ *  one brand's collection — send it to that brand's own collection page
+ *  instead of the generic /collections index. */
+function ShopNavLink({
+  scope,
+  className,
+  activeClassName,
+  onClick,
+}: {
+  scope: StorefrontScope
+  className: string
+  activeClassName: string
+  onClick?: () => void
+}) {
+  if (scope.collectionSlug) {
+    return (
+      <Link
+        to="/collections/$slug"
+        params={{ slug: scope.collectionSlug }}
+        onClick={onClick}
+        className={className}
+        activeProps={{ className: activeClassName }}
+      >
+        Shop Aspire
+      </Link>
+    )
+  }
+  return (
+    <Link
+      to="/collections"
+      onClick={onClick}
+      className={className}
+      activeProps={{ className: activeClassName }}
+    >
+      Shop Aspire
+    </Link>
+  )
+}
+
+export function Header({ scope }: HeaderProps) {
   const { itemCount } = useCart()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
   return (
     <header>
-      <div className="bg-[#BD2100] px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-white sm:text-xs">
-        Free shipping minimum of &#8369;2,000 purchase. Extra 10% off minimum of
-        5 items
+      <div className="bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-white sm:text-xs">
+        {scope.promoBannerText}
       </div>
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
@@ -41,13 +84,13 @@ export function Header() {
             </button>
             <Link to="/" className="flex items-center">
               <img
-                src="/logo-black.png"
-                alt="Spades"
+                src={scope.logoLight}
+                alt={scope.name}
                 className="h-6 w-auto dark:hidden"
               />
               <img
-                src="/logo-white.png"
-                alt="Spades"
+                src={scope.logoDark}
+                alt={scope.name}
                 className="hidden h-6 w-auto dark:block"
               />
             </Link>
@@ -65,6 +108,11 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
+            <ShopNavLink
+              scope={scope}
+              className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
+              activeClassName="text-neutral-950 dark:text-white"
+            />
           </nav>
           <div className="flex items-center gap-5">
             <button
@@ -94,6 +142,7 @@ export function Header() {
                 </span>
               )}
             </Link>
+            <CurrencySelector />
             <ThemeToggle />
           </div>
         </div>
@@ -113,10 +162,20 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
+            <ShopNavLink
+              scope={scope}
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-md px-2 py-2.5 text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
+              activeClassName="text-neutral-950 dark:text-white"
+            />
           </nav>
         )}
       </div>
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        collectionSlug={scope.collectionSlug}
+      />
     </header>
   )
 }

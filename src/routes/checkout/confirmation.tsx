@@ -8,11 +8,17 @@ import { buttonPrimaryClassName } from '#/components/storefront/ui'
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
     order: z.string().optional(),
-    // Order total in pesos (not cents) — threaded through the redirect URL
-    // from place-order.ts (Xendit's successRedirectUrl) and payment.tsx (the
-    // direct COD path) since this page has no other way to know the value of
-    // an order it never itself fetches, for the Purchase pixel event below.
+    // Order total in major units of `currency` (not minor units/cents) —
+    // threaded through the redirect URL from place-order.ts (Xendit's
+    // successRedirectUrl) and payment.tsx (the direct COD path) since this
+    // page has no other way to know the value of an order it never itself
+    // fetches, for the Purchase pixel event below.
     value: z.coerce.number().optional(),
+    // The currency `value` is actually denominated in — the currency the
+    // customer was actually charged, not necessarily their browse-time
+    // display currency (COD/GCash/Maya/bank transfer always charge PHP
+    // regardless of what was selected).
+    currency: z.string().default('PHP'),
   }),
   component: ConfirmationPage,
 })
@@ -20,7 +26,7 @@ export const Route = createFileRoute('/checkout/confirmation')({
 const FIRED_PURCHASE_KEY = 'spades_fb_purchase_fired'
 
 function ConfirmationPage() {
-  const { order, value } = Route.useSearch()
+  const { order, value, currency } = Route.useSearch()
   const { clear } = useCheckout()
 
   // Reached either directly (COD) or via Xendit's success redirect (online
@@ -34,13 +40,15 @@ function ConfirmationPage() {
   useEffect(() => {
     if (!order || value === undefined) return
     const fired = new Set(
-      JSON.parse(sessionStorage.getItem(FIRED_PURCHASE_KEY) ?? '[]') as string[],
+      JSON.parse(
+        sessionStorage.getItem(FIRED_PURCHASE_KEY) ?? '[]',
+      ) as string[],
     )
     if (fired.has(order)) return
     fired.add(order)
     sessionStorage.setItem(FIRED_PURCHASE_KEY, JSON.stringify([...fired]))
-    trackPixelEvent('Purchase', { value, currency: 'PHP' })
-  }, [order, value])
+    trackPixelEvent('Purchase', { value, currency })
+  }, [order, value, currency])
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-20 text-center">

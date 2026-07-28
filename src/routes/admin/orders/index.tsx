@@ -90,6 +90,20 @@ const CHANNEL_OPTIONS = [
   { value: 'lazada', label: 'Lazada' },
 ] as const
 
+// Spades/Ysrael/Aspire 365 share this database, distinguished by which
+// storefront the order was placed on — see server/storefront/domain.ts.
+const BRAND_OPTIONS = [
+  { value: 'spades', label: 'Spades' },
+  { value: 'ysrael', label: 'Ysrael' },
+  { value: 'aspire365', label: 'Aspire 365' },
+] as const
+
+const BRAND_LABELS: Record<string, string> = {
+  spades: 'Spades',
+  ysrael: 'Ysrael',
+  aspire365: 'Aspire 365',
+}
+
 type CancellationReason =
   'failed_delivery' | 'customer_request' | 'out_of_stock'
 
@@ -107,6 +121,7 @@ const ZONE_LABELS: Record<ShippingZone, string> = {
 }
 
 interface OrderShippingAddress {
+  country?: string
   region: string
   [key: string]: unknown
 }
@@ -117,6 +132,7 @@ export const Route = createFileRoute('/admin/orders/')({
     source: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    brand: z.enum(['spades', 'ysrael', 'aspire365']).optional(),
     fulfillment: z
       .enum([
         'unfulfilled',
@@ -142,6 +158,7 @@ export const Route = createFileRoute('/admin/orders/')({
     const filters = {
       status: deps.status,
       source: deps.source,
+      brand: deps.brand,
       fulfillment: deps.fulfillment,
       q: deps.q,
     }
@@ -412,6 +429,14 @@ function OrdersPage() {
               navigate({ search: (prev) => ({ ...prev, source, page: 1 }) })
             }
           />
+          <FilterDropdown
+            label="Brand"
+            value={search.brand}
+            options={BRAND_OPTIONS}
+            onChange={(brand) =>
+              navigate({ search: (prev) => ({ ...prev, brand, page: 1 }) })
+            }
+          />
         </div>
       </div>
 
@@ -531,7 +556,9 @@ function OrdersPage() {
                   const address =
                     order.shipping_address as unknown as OrderShippingAddress
                   const zone =
-                    ZONE_LABELS[shippingZoneForRegion(address.region)]
+                    address.country && address.country !== 'PH'
+                      ? 'International'
+                      : ZONE_LABELS[shippingZoneForRegion(address.region)]
                   const isOpen = openItemsFor === order.id
 
                   return (
@@ -701,6 +728,12 @@ function OrdersPage() {
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {zone}
+                        {BRAND_LABELS[order.brand] &&
+                          order.brand !== 'spades' && (
+                            <span className="ml-1">
+                              · {BRAND_LABELS[order.brand]}
+                            </span>
+                          )}
                       </td>
                     </tr>
                   )

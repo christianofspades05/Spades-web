@@ -37,6 +37,7 @@ import { Route as AdminSettingsIndexRouteImport } from './routes/admin/settings/
 import { Route as AdminReviewsIndexRouteImport } from './routes/admin/reviews/index'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
+import { Route as AdminMarketsIndexRouteImport } from './routes/admin/markets/index'
 import { Route as AdminInventoryIndexRouteImport } from './routes/admin/inventory/index'
 import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-payments/index'
 import { Route as AdminEmailIndexRouteImport } from './routes/admin/email/index'
@@ -46,6 +47,7 @@ import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collec
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
+import { Route as ApiCronSyncExchangeRatesRouteImport } from './routes/api/cron/sync-exchange-rates'
 import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
 import { Route as ApiCronReviewRequestsRouteImport } from './routes/api/cron/review-requests'
@@ -56,6 +58,8 @@ import { Route as AdminProductsBulkEditRouteImport } from './routes/admin/produc
 import { Route as AdminProductsProductIdRouteImport } from './routes/admin/products/$productId'
 import { Route as AdminOrdersBulkFulfillRouteImport } from './routes/admin/orders/bulk-fulfill'
 import { Route as AdminOrdersOrderIdRouteImport } from './routes/admin/orders/$orderId'
+import { Route as AdminMarketsNewRouteImport } from './routes/admin/markets/new'
+import { Route as AdminMarketsMarketIdRouteImport } from './routes/admin/markets/$marketId'
 import { Route as AdminHidePaymentsNewRouteImport } from './routes/admin/hide-payments/new'
 import { Route as AdminHidePaymentsRestrictionIdRouteImport } from './routes/admin/hide-payments/$restrictionId'
 import { Route as AdminEmailAutomationIdRouteImport } from './routes/admin/email/$automationId'
@@ -213,6 +217,11 @@ const AdminOrdersIndexRoute = AdminOrdersIndexRouteImport.update({
   path: '/orders/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminMarketsIndexRoute = AdminMarketsIndexRouteImport.update({
+  id: '/markets/',
+  path: '/markets/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminInventoryIndexRoute = AdminInventoryIndexRouteImport.update({
   id: '/inventory/',
   path: '/inventory/',
@@ -258,6 +267,12 @@ const ApiWebhooksXenditRoute = ApiWebhooksXenditRouteImport.update({
   path: '/api/webhooks/xendit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronSyncExchangeRatesRoute =
+  ApiCronSyncExchangeRatesRouteImport.update({
+    id: '/api/cron/sync-exchange-rates',
+    path: '/api/cron/sync-exchange-rates',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCronSyncChannelsPullOrdersRoute =
   ApiCronSyncChannelsPullOrdersRouteImport.update({
     id: '/api/cron/sync-channels-pull-orders',
@@ -308,6 +323,16 @@ const AdminOrdersBulkFulfillRoute = AdminOrdersBulkFulfillRouteImport.update({
 const AdminOrdersOrderIdRoute = AdminOrdersOrderIdRouteImport.update({
   id: '/orders/$orderId',
   path: '/orders/$orderId',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMarketsNewRoute = AdminMarketsNewRouteImport.update({
+  id: '/markets/new',
+  path: '/markets/new',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMarketsMarketIdRoute = AdminMarketsMarketIdRouteImport.update({
+  id: '/markets/$marketId',
+  path: '/markets/$marketId',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminHidePaymentsNewRoute = AdminHidePaymentsNewRouteImport.update({
@@ -433,6 +458,8 @@ export interface FileRoutesByFullPath {
   '/admin/email/$automationId': typeof AdminEmailAutomationIdRoute
   '/admin/hide-payments/$restrictionId': typeof AdminHidePaymentsRestrictionIdRoute
   '/admin/hide-payments/new': typeof AdminHidePaymentsNewRoute
+  '/admin/markets/$marketId': typeof AdminMarketsMarketIdRoute
+  '/admin/markets/new': typeof AdminMarketsNewRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
   '/admin/orders/bulk-fulfill': typeof AdminOrdersBulkFulfillRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -443,6 +470,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
@@ -452,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/admin/email/': typeof AdminEmailIndexRoute
   '/admin/hide-payments/': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory/': typeof AdminInventoryIndexRoute
+  '/admin/markets/': typeof AdminMarketsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
@@ -496,6 +525,8 @@ export interface FileRoutesByTo {
   '/admin/email/$automationId': typeof AdminEmailAutomationIdRoute
   '/admin/hide-payments/$restrictionId': typeof AdminHidePaymentsRestrictionIdRoute
   '/admin/hide-payments/new': typeof AdminHidePaymentsNewRoute
+  '/admin/markets/$marketId': typeof AdminMarketsMarketIdRoute
+  '/admin/markets/new': typeof AdminMarketsNewRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
   '/admin/orders/bulk-fulfill': typeof AdminOrdersBulkFulfillRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -506,6 +537,7 @@ export interface FileRoutesByTo {
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
@@ -515,6 +547,7 @@ export interface FileRoutesByTo {
   '/admin/email': typeof AdminEmailIndexRoute
   '/admin/hide-payments': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory': typeof AdminInventoryIndexRoute
+  '/admin/markets': typeof AdminMarketsIndexRoute
   '/admin/orders': typeof AdminOrdersIndexRoute
   '/admin/products': typeof AdminProductsIndexRoute
   '/admin/reviews': typeof AdminReviewsIndexRoute
@@ -562,6 +595,8 @@ export interface FileRoutesById {
   '/admin/email/$automationId': typeof AdminEmailAutomationIdRoute
   '/admin/hide-payments/$restrictionId': typeof AdminHidePaymentsRestrictionIdRoute
   '/admin/hide-payments/new': typeof AdminHidePaymentsNewRoute
+  '/admin/markets/$marketId': typeof AdminMarketsMarketIdRoute
+  '/admin/markets/new': typeof AdminMarketsNewRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
   '/admin/orders/bulk-fulfill': typeof AdminOrdersBulkFulfillRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -572,6 +607,7 @@ export interface FileRoutesById {
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
+  '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
@@ -581,6 +617,7 @@ export interface FileRoutesById {
   '/admin/email/': typeof AdminEmailIndexRoute
   '/admin/hide-payments/': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory/': typeof AdminInventoryIndexRoute
+  '/admin/markets/': typeof AdminMarketsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
@@ -629,6 +666,8 @@ export interface FileRouteTypes {
     | '/admin/email/$automationId'
     | '/admin/hide-payments/$restrictionId'
     | '/admin/hide-payments/new'
+    | '/admin/markets/$marketId'
+    | '/admin/markets/new'
     | '/admin/orders/$orderId'
     | '/admin/orders/bulk-fulfill'
     | '/admin/products/$productId'
@@ -639,6 +678,7 @@ export interface FileRouteTypes {
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-exchange-rates'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
@@ -648,6 +688,7 @@ export interface FileRouteTypes {
     | '/admin/email/'
     | '/admin/hide-payments/'
     | '/admin/inventory/'
+    | '/admin/markets/'
     | '/admin/orders/'
     | '/admin/products/'
     | '/admin/reviews/'
@@ -692,6 +733,8 @@ export interface FileRouteTypes {
     | '/admin/email/$automationId'
     | '/admin/hide-payments/$restrictionId'
     | '/admin/hide-payments/new'
+    | '/admin/markets/$marketId'
+    | '/admin/markets/new'
     | '/admin/orders/$orderId'
     | '/admin/orders/bulk-fulfill'
     | '/admin/products/$productId'
@@ -702,6 +745,7 @@ export interface FileRouteTypes {
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-exchange-rates'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels'
@@ -711,6 +755,7 @@ export interface FileRouteTypes {
     | '/admin/email'
     | '/admin/hide-payments'
     | '/admin/inventory'
+    | '/admin/markets'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/reviews'
@@ -757,6 +802,8 @@ export interface FileRouteTypes {
     | '/admin/email/$automationId'
     | '/admin/hide-payments/$restrictionId'
     | '/admin/hide-payments/new'
+    | '/admin/markets/$marketId'
+    | '/admin/markets/new'
     | '/admin/orders/$orderId'
     | '/admin/orders/bulk-fulfill'
     | '/admin/products/$productId'
@@ -767,6 +814,7 @@ export interface FileRouteTypes {
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
+    | '/api/cron/sync-exchange-rates'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
@@ -776,6 +824,7 @@ export interface FileRouteTypes {
     | '/admin/email/'
     | '/admin/hide-payments/'
     | '/admin/inventory/'
+    | '/admin/markets/'
     | '/admin/orders/'
     | '/admin/products/'
     | '/admin/reviews/'
@@ -813,6 +862,7 @@ export interface RootRouteChildren {
   ApiCronReviewRequestsRoute: typeof ApiCronReviewRequestsRoute
   ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
+  ApiCronSyncExchangeRatesRoute: typeof ApiCronSyncExchangeRatesRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   CartResumeTokenRoute: typeof CartResumeTokenRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
@@ -1020,6 +1070,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/markets/': {
+      id: '/admin/markets/'
+      path: '/markets'
+      fullPath: '/admin/markets/'
+      preLoaderRoute: typeof AdminMarketsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/inventory/': {
       id: '/admin/inventory/'
       path: '/inventory'
@@ -1081,6 +1138,13 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/xendit'
       fullPath: '/api/webhooks/xendit'
       preLoaderRoute: typeof ApiWebhooksXenditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/sync-exchange-rates': {
+      id: '/api/cron/sync-exchange-rates'
+      path: '/api/cron/sync-exchange-rates'
+      fullPath: '/api/cron/sync-exchange-rates'
+      preLoaderRoute: typeof ApiCronSyncExchangeRatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/sync-channels-pull-orders': {
@@ -1151,6 +1215,20 @@ declare module '@tanstack/react-router' {
       path: '/orders/$orderId'
       fullPath: '/admin/orders/$orderId'
       preLoaderRoute: typeof AdminOrdersOrderIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/markets/new': {
+      id: '/admin/markets/new'
+      path: '/markets/new'
+      fullPath: '/admin/markets/new'
+      preLoaderRoute: typeof AdminMarketsNewRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/markets/$marketId': {
+      id: '/admin/markets/$marketId'
+      path: '/markets/$marketId'
+      fullPath: '/admin/markets/$marketId'
+      preLoaderRoute: typeof AdminMarketsMarketIdRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/hide-payments/new': {
@@ -1281,6 +1359,8 @@ interface AdminRouteChildren {
   AdminEmailAutomationIdRoute: typeof AdminEmailAutomationIdRoute
   AdminHidePaymentsRestrictionIdRoute: typeof AdminHidePaymentsRestrictionIdRoute
   AdminHidePaymentsNewRoute: typeof AdminHidePaymentsNewRoute
+  AdminMarketsMarketIdRoute: typeof AdminMarketsMarketIdRoute
+  AdminMarketsNewRoute: typeof AdminMarketsNewRoute
   AdminOrdersOrderIdRoute: typeof AdminOrdersOrderIdRoute
   AdminOrdersBulkFulfillRoute: typeof AdminOrdersBulkFulfillRoute
   AdminProductsProductIdRoute: typeof AdminProductsProductIdRoute
@@ -1293,6 +1373,7 @@ interface AdminRouteChildren {
   AdminEmailIndexRoute: typeof AdminEmailIndexRoute
   AdminHidePaymentsIndexRoute: typeof AdminHidePaymentsIndexRoute
   AdminInventoryIndexRoute: typeof AdminInventoryIndexRoute
+  AdminMarketsIndexRoute: typeof AdminMarketsIndexRoute
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminProductsIndexRoute: typeof AdminProductsIndexRoute
   AdminReviewsIndexRoute: typeof AdminReviewsIndexRoute
@@ -1313,6 +1394,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminEmailAutomationIdRoute: AdminEmailAutomationIdRoute,
   AdminHidePaymentsRestrictionIdRoute: AdminHidePaymentsRestrictionIdRoute,
   AdminHidePaymentsNewRoute: AdminHidePaymentsNewRoute,
+  AdminMarketsMarketIdRoute: AdminMarketsMarketIdRoute,
+  AdminMarketsNewRoute: AdminMarketsNewRoute,
   AdminOrdersOrderIdRoute: AdminOrdersOrderIdRoute,
   AdminOrdersBulkFulfillRoute: AdminOrdersBulkFulfillRoute,
   AdminProductsProductIdRoute: AdminProductsProductIdRoute,
@@ -1325,6 +1408,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminEmailIndexRoute: AdminEmailIndexRoute,
   AdminHidePaymentsIndexRoute: AdminHidePaymentsIndexRoute,
   AdminInventoryIndexRoute: AdminInventoryIndexRoute,
+  AdminMarketsIndexRoute: AdminMarketsIndexRoute,
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminProductsIndexRoute: AdminProductsIndexRoute,
   AdminReviewsIndexRoute: AdminReviewsIndexRoute,
@@ -1375,6 +1459,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronReviewRequestsRoute: ApiCronReviewRequestsRoute,
   ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
+  ApiCronSyncExchangeRatesRoute: ApiCronSyncExchangeRatesRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   CartResumeTokenRoute: CartResumeTokenRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,

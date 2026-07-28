@@ -13,7 +13,10 @@ import {
 } from '#/server/admin/storefront-sections'
 import type { StorefrontSectionWithCollection } from '#/server/admin/storefront-sections'
 import { listAllCollections } from '#/server/admin/collections'
+import { getBrandPreviewUrl } from '#/server/storefront/domain'
 import {
+  STOREFRONT_BRANDS,
+  STOREFRONT_BRAND_LABELS,
   STOREFRONT_PAGES,
   STOREFRONT_PAGE_LABELS,
   STOREFRONT_SECTION_TYPES,
@@ -40,11 +43,14 @@ import type {
 export const Route = createFileRoute('/admin/storefront/')({
   validateSearch: z.object({
     page: z.enum(STOREFRONT_PAGES).default('home'),
+    brand: z.enum(STOREFRONT_BRANDS).default('spades'),
   }),
-  loaderDeps: ({ search }) => ({ page: search.page }),
+  loaderDeps: ({ search }) => ({ page: search.page, brand: search.brand }),
   loader: async ({ deps }) => {
     const [sections, collections] = await Promise.all([
-      listAllStorefrontSections({ data: { page: deps.page } }),
+      listAllStorefrontSections({
+        data: { page: deps.page, brand: deps.brand },
+      }),
       listAllCollections(),
     ])
     return { sections, collections }
@@ -54,7 +60,7 @@ export const Route = createFileRoute('/admin/storefront/')({
 
 function StorefrontSectionsPage() {
   const { sections, collections } = Route.useLoaderData()
-  const { page } = Route.useSearch()
+  const { page, brand } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
 
@@ -69,6 +75,10 @@ function StorefrontSectionsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const dragIndex = useRef<number | null>(null)
   const [reordering, setReordering] = useState(false)
+  // Bumped on every save/reorder/etc. to force the preview iframe to reload
+  // — an <iframe> has no reason to know the page it's showing just changed
+  // otherwise.
+  const [previewNonce, setPreviewNonce] = useState(0)
 
   const byId = new Map(sections.map((s) => [s.id, s]))
   const orderedSections = order
@@ -77,7 +87,10 @@ function StorefrontSectionsPage() {
 
   function refresh() {
     router.invalidate()
+    setPreviewNonce((n) => n + 1)
   }
+
+  const previewUrl = getBrandPreviewUrl(brand, page === 'home' ? '/' : '/about')
 
   async function persistOrder(newOrder: string[]) {
     setOrder(newOrder)
@@ -120,101 +133,161 @@ function StorefrontSectionsPage() {
   }
 
   async function handleDelete(section: StorefrontSectionWithCollection) {
-    if (!confirm('Delete this section? This can\'t be undone.')) return
+    if (!confirm("Delete this section? This can't be undone.")) return
     await deleteStorefrontSection({ data: { id: section.id } })
     refresh()
   }
 
   return (
-    <div className="w-full max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
-      <PageHeader
-        title="Storefront"
-        subtitle="Edit your pages — drag to reorder, click a section to edit it."
-      />
+    <div className="flex w-full gap-6 px-4 py-6 sm:px-8 sm:py-10">
+      <div className="w-full max-w-3xl">
+        <PageHeader
+          title="Storefront"
+          subtitle="Edit your pages — drag to reorder, click a section to edit it."
+        />
 
-      <div className="mb-6 flex gap-1 border-b border-neutral-200">
-        {STOREFRONT_PAGES.map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() =>
-              navigate({ search: (prev) => ({ ...prev, page: p }) })
+        <label className="mb-4 block max-w-xs text-sm font-medium text-neutral-700">
+          Brand
+          <select
+            value={brand}
+            onChange={(e) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  brand: e.target.value as (typeof STOREFRONT_BRANDS)[number],
+                }),
+              })
             }
-            className={`border-b-2 px-3 pb-2 text-sm font-medium ${
-              page === p
-                ? 'border-neutral-900 text-neutral-900'
-                : 'border-transparent text-neutral-500 hover:text-neutral-900'
-            }`}
+            className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
           >
-            {STOREFRONT_PAGE_LABELS[p]}
-          </button>
-        ))}
-      </div>
+            {STOREFRONT_BRANDS.map((b) => (
+              <option key={b} value={b}>
+                {STOREFRONT_BRAND_LABELS[b]}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      {orderedSections.length === 0 && !addingType && (
-        <Card className="p-6 text-sm text-neutral-500">
-          No sections yet — add one below to start building this page.
-        </Card>
-      )}
-
-      <div className="flex flex-col gap-2">
-        {orderedSections.map((section, index) =>
-          editingId === section.id ? (
-            <SectionForm
-              key={section.id}
-              page={page}
-              collections={collections}
-              initial={section}
-              onCancel={() => setEditingId(null)}
-              onSaved={() => {
-                setEditingId(null)
-                refresh()
-              }}
-            />
-          ) : (
-            <SectionRow
-              key={section.id}
-              section={section}
-              draggable={!reordering}
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragEnd={handleDragEnd}
-              onEdit={() => setEditingId(section.id)}
-              onToggleActive={() => toggleActive(section)}
-              onDelete={() => handleDelete(section)}
-            />
-          ),
-        )}
-      </div>
-
-      {addingType ? (
-        <div className="mt-4">
-          <SectionForm
-            page={page}
-            collections={collections}
-            initialType={addingType}
-            onCancel={() => setAddingType(null)}
-            onSaved={() => {
-              setAddingType(null)
-              refresh()
-            }}
-          />
-        </div>
-      ) : (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {STOREFRONT_SECTION_TYPES.map((type) => (
+        <div className="mb-6 flex gap-1 border-b border-neutral-200">
+          {STOREFRONT_PAGES.map((p) => (
             <button
-              key={type}
+              key={p}
               type="button"
-              onClick={() => setAddingType(type)}
-              className={`${buttonSecondaryClassName} inline-flex items-center gap-1.5`}
+              onClick={() =>
+                navigate({ search: (prev) => ({ ...prev, page: p }) })
+              }
+              className={`border-b-2 px-3 pb-2 text-sm font-medium ${
+                page === p
+                  ? 'border-neutral-900 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-900'
+              }`}
             >
-              <Plus size={14} />
-              {STOREFRONT_SECTION_TYPE_LABELS[type]}
+              {STOREFRONT_PAGE_LABELS[p]}
             </button>
           ))}
         </div>
-      )}
+
+        {orderedSections.length === 0 && !addingType && (
+          <Card className="p-6 text-sm text-neutral-500">
+            No sections yet — add one below to start building this page.
+          </Card>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {orderedSections.map((section, index) =>
+            editingId === section.id ? (
+              <SectionForm
+                key={section.id}
+                page={page}
+                brand={brand}
+                collections={collections}
+                initial={section}
+                onCancel={() => setEditingId(null)}
+                onSaved={() => {
+                  setEditingId(null)
+                  refresh()
+                }}
+              />
+            ) : (
+              <SectionRow
+                key={section.id}
+                section={section}
+                draggable={!reordering}
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragEnd={handleDragEnd}
+                onEdit={() => setEditingId(section.id)}
+                onToggleActive={() => toggleActive(section)}
+                onDelete={() => handleDelete(section)}
+              />
+            ),
+          )}
+        </div>
+
+        {addingType ? (
+          <div className="mt-4">
+            <SectionForm
+              page={page}
+              brand={brand}
+              collections={collections}
+              initialType={addingType}
+              onCancel={() => setAddingType(null)}
+              onSaved={() => {
+                setAddingType(null)
+                refresh()
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {STOREFRONT_SECTION_TYPES.map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setAddingType(type)}
+                className={`${buttonSecondaryClassName} inline-flex items-center gap-1.5`}
+              >
+                <Plus size={14} />
+                {STOREFRONT_SECTION_TYPE_LABELS[type]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="sticky top-6 hidden h-[calc(100vh-3rem)] flex-1 flex-col lg:flex">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            Preview — {STOREFRONT_BRAND_LABELS[brand]}{' '}
+            {STOREFRONT_PAGE_LABELS[page]}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPreviewNonce((n) => n + 1)}
+              className="text-xs font-medium text-neutral-500 hover:text-neutral-900"
+            >
+              Refresh
+            </button>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-neutral-500 hover:text-neutral-900"
+            >
+              Open in new tab
+            </a>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+          <iframe
+            key={previewNonce}
+            src={previewUrl}
+            title="Storefront preview"
+            className="h-full w-full"
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -255,7 +328,11 @@ function SectionRow({
       {section.media_url && (
         <div className="h-10 w-14 shrink-0 overflow-hidden rounded bg-neutral-100">
           {section.type === 'video' ? (
-            <video src={section.media_url} className="h-full w-full object-cover" muted />
+            <video
+              src={section.media_url}
+              className="h-full w-full object-cover"
+              muted
+            />
           ) : (
             <img
               src={section.media_url}
@@ -281,7 +358,11 @@ function SectionRow({
       >
         {section.is_active ? 'Hide' : 'Show'}
       </button>
-      <button type="button" onClick={onEdit} className={buttonSecondaryClassName}>
+      <button
+        type="button"
+        onClick={onEdit}
+        className={buttonSecondaryClassName}
+      >
         Edit
       </button>
       <button
@@ -298,6 +379,7 @@ function SectionRow({
 
 function SectionForm({
   page,
+  brand,
   collections,
   initial,
   initialType,
@@ -305,6 +387,7 @@ function SectionForm({
   onSaved,
 }: {
   page: StorefrontPage
+  brand: (typeof STOREFRONT_BRANDS)[number]
   collections: Collection[]
   initial?: StorefrontSectionWithCollection
   initialType?: StorefrontSectionType
@@ -316,9 +399,7 @@ function SectionForm({
   const [subtitle, setSubtitle] = useState(initial?.subtitle ?? '')
   const [mediaUrl, setMediaUrl] = useState(initial?.media_url ?? '')
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? '')
-  const [collectionId, setCollectionId] = useState(
-    initial?.collection_id ?? '',
-  )
+  const [collectionId, setCollectionId] = useState(initial?.collection_id ?? '')
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
   const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -355,6 +436,7 @@ function SectionForm({
     const input: StorefrontSectionInput = {
       type,
       page,
+      brand,
       title: title || undefined,
       subtitle: subtitle || undefined,
       mediaUrl: mediaUrl || undefined,
@@ -457,7 +539,10 @@ function SectionForm({
 
         {(type === 'hero' || type === 'image' || type === 'product_grid') && (
           <label className={labelClassName}>
-            Link {type === 'product_grid' ? '("View all" button, optional)' : '(optional)'}
+            Link{' '}
+            {type === 'product_grid'
+              ? '("View all" button, optional)'
+              : '(optional)'}
             <input
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}

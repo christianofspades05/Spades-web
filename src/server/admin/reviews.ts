@@ -14,29 +14,54 @@ export interface ReviewWithContext extends Review {
   order: Pick<Order, 'id' | 'order_number'> | null
 }
 
+const REVIEWS_PAGE_SIZE = 100
+
+const reviewFilterSchema = z.object({
+  status: z.string().optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+})
+
 export const listReviews = createServerFn({ method: 'GET' })
   .validator(
-    z.object({
-      status: z.string().optional(),
-      rating: z.number().int().min(1).max(5).optional(),
+    reviewFilterSchema.extend({
+      page: z.number().int().min(1).default(1),
     }),
   )
   .handler(async ({ data }): Promise<ReviewWithContext[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
+    const offset = (data.page - 1) * REVIEWS_PAGE_SIZE
     let query = admin
       .from('reviews')
       .select(
         '*, product:products(id, name, slug), order:orders(id, order_number)',
       )
       .order('created_at', { ascending: false })
+      .range(offset, offset + REVIEWS_PAGE_SIZE - 1)
     if (data.status) query = query.eq('status', data.status)
     if (data.rating) query = query.eq('rating', data.rating)
 
     const { data: reviews, error } = await query
     if (error) throw error
     return reviews
+  })
+
+export const getReviewsCount = createServerFn({ method: 'GET' })
+  .validator(reviewFilterSchema)
+  .handler(async ({ data }): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    let query = admin
+      .from('reviews')
+      .select('id', { count: 'exact', head: true })
+    if (data.status) query = query.eq('status', data.status)
+    if (data.rating) query = query.eq('rating', data.rating)
+
+    const { count, error } = await query
+    if (error) throw error
+    return { total: count ?? 0 }
   })
 
 export const setReviewStatus = createServerFn({ method: 'POST' })

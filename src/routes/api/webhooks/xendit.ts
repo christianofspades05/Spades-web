@@ -26,6 +26,8 @@ interface XenditInvoiceWebhookPayload {
   status: string
   payment_channel?: string
   payment_method?: string
+  currency?: string
+  amount?: number
   [key: string]: unknown
 }
 
@@ -117,6 +119,24 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
               .update({ status: 'paid' })
               .eq('id', order.id)
             if (payment) {
+              const { majorUnitsToCents } = await import('#/lib/utils/money')
+              // Xendit's payload is the authoritative record of what was
+              // actually charged — overwrite our upfront (request-time)
+              // estimate from place-order.ts with it whenever present, in
+              // case the confirmed amount ever differs (e.g. an FX rate
+              // that moved between invoice creation and payment).
+              const chargedFields =
+                payload.currency &&
+                payload.currency !== 'PHP' &&
+                typeof payload.amount === 'number'
+                  ? {
+                      charged_currency: payload.currency,
+                      charged_amount_cents: majorUnitsToCents(
+                        payload.amount,
+                        payload.currency,
+                      ),
+                    }
+                  : {}
               await admin
                 .from('payments')
                 .update({
@@ -124,6 +144,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                   provider: mapPaymentProvider(payload),
                   provider_reference: payload.id,
                   captured_at: new Date().toISOString(),
+                  ...chargedFields,
                 })
                 .eq('id', payment.id)
             }

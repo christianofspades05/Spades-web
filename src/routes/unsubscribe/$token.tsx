@@ -9,6 +9,7 @@ export const Route = createFileRoute('/unsubscribe/$token')({
 
 function UnsubscribePage() {
   const { email } = Route.useLoaderData()
+  const { storefrontScope } = Route.useRouteContext()
 
   if (!email) {
     return (
@@ -25,7 +26,8 @@ function UnsubscribePage() {
     <div className="mx-auto max-w-lg px-6 py-24 text-center">
       <h1 className="text-2xl font-bold">You're unsubscribed</h1>
       <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-        {email} won't receive any more cart reminder emails from Spades.
+        {email} won't receive any more cart reminder emails from{' '}
+        {storefrontScope.name}.
       </p>
     </div>
   )

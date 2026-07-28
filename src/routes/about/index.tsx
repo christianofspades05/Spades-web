@@ -5,8 +5,10 @@ import { STATIC_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 export const Route = createFileRoute('/about/')({
   headers: () => STATIC_CACHE_HEADERS,
-  loader: async () => {
-    const sections = await loadStorefrontSections({ data: { page: 'about' } })
+  loader: async ({ context }) => {
+    const sections = await loadStorefrontSections({
+      data: { page: 'about', brand: context.storefrontScope.brand },
+    })
     return { sections }
   },
   component: AboutPage,

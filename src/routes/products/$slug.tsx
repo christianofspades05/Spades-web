@@ -13,6 +13,12 @@ import { recordVisit } from '#/server/analytics/track'
 import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { useCart } from '#/lib/cart/CartContext'
+import { useCurrency } from '#/lib/currency/CurrencyContext'
+import {
+  centsToMajorUnits,
+  convertCents,
+  effectiveCurrency,
+} from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatSizeLabel } from '#/lib/utils/size-order'
 import { ImageGallery } from '#/components/storefront/ImageGallery'
@@ -39,8 +45,13 @@ function formatVariantLabel(variant: VariantWithStock): string {
 
 export const Route = createFileRoute('/products/$slug')({
   headers: () => STOREFRONT_CACHE_HEADERS,
-  loader: async ({ params }) => {
-    const product = await getProductBySlug({ data: { slug: params.slug } })
+  loader: async ({ params, context }) => {
+    const product = await getProductBySlug({
+      data: {
+        slug: params.slug,
+        collectionSlug: context.storefrontScope.collectionSlug,
+      },
+    })
     if (!product) throw notFound()
 
     const [related, reviews] = await Promise.all([
@@ -63,6 +74,7 @@ function ProductPage() {
   const { product, related, reviews } = Route.useLoaderData()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { addItem, itemCount } = useCart()
+  const { currency, rates } = useCurrency()
 
   const [selectedVariant, setSelectedVariant] = useState<
     VariantWithStock | undefined
@@ -76,14 +88,21 @@ function ProductPage() {
     const lowestPriceCents = Math.min(
       ...product.variants.map((v) => v.price_cents),
     )
+    const target = effectiveCurrency(currency, rates)
     trackPixelEvent('ViewContent', {
       content_ids: [product.id],
       content_type: 'product',
       content_name: product.name,
-      value: lowestPriceCents / 100,
-      currency: 'PHP',
+      value: centsToMajorUnits(
+        convertCents(lowestPriceCents, target, rates),
+        target,
+      ),
+      currency: target,
     })
-    // Only re-fire if the visitor lands on a different product's page.
+    // Only re-fire if the visitor lands on a different product's page —
+    // deliberately excludes currency/rates so switching currency mid-visit
+    // doesn't double-count this event; it just reflects whatever currency
+    // was active the moment the product page was viewed.
   }, [product.id])
 
   // Description and reviews sit in boxes capped to a fixed height so long
@@ -138,12 +157,16 @@ function ProductPage() {
         productName: product.name,
         variantLabel: formatVariantLabel(selectedVariant),
       })
+      const target = effectiveCurrency(currency, rates)
       trackPixelEvent('AddToCart', {
         content_ids: [product.id],
         content_type: 'product',
         content_name: product.name,
-        value: (selectedVariant.price_cents * quantity) / 100,
-        currency: 'PHP',
+        value: centsToMajorUnits(
+          convertCents(selectedVariant.price_cents * quantity, target, rates),
+          target,
+        ),
+        currency: target,
       })
       void recordVisit({
         data: {

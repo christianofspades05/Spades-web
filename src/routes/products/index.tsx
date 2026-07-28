@@ -16,7 +16,7 @@ export const Route = createFileRoute('/products/')({
   headers: () => STOREFRONT_CACHE_HEADERS,
   validateSearch: productListingSearchSchema,
   loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) =>
+  loader: async ({ deps, context }) =>
     listStorefrontProducts({
       data: {
         type: deps.type,
@@ -29,6 +29,7 @@ export const Route = createFileRoute('/products/')({
         sort: deps.sort,
         page: deps.page,
         pageSize: PRODUCT_LISTING_PAGE_SIZE,
+        collectionSlug: context.storefrontScope.collectionSlug,
       },
     }),
   component: ProductsPage,
