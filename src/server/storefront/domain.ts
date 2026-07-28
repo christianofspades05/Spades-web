@@ -96,8 +96,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_YSRAEL as string | undefined,
   },
-  // Placeholder brand/collection/logo/color values — replace once Aspire
-  // 365's real assets and product collection exist.
+  // Placeholder tagline/social values — replace once Aspire 365 has copy
+  // and social links ready.
   aspire365: {
     brand: 'aspire365',
     // Matches the "Aspire 365" collection that already exists in the admin
@@ -107,8 +107,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     name: 'Aspire 365',
     title: 'Aspire 365',
     tagline: '',
-    logoLight: '/logo-black.png',
-    logoDark: '/logo-white.png',
+    logoLight: '/aspire365-logo-black.png',
+    logoDark: '/aspire365-logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
     promoBannerText: '',
