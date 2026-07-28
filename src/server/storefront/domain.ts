@@ -57,7 +57,7 @@ const HOSTNAME_TO_BRAND: Record<string, Brand> = {
 const DOMAIN_LIVE: Record<Brand, boolean> = {
   spades: true,
   ysrael: false,
-  aspire365: false,
+  aspire365: true,
 }
 
 const SCOPES: Record<Brand, StorefrontScope> = {

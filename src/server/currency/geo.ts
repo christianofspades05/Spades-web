@@ -16,6 +16,8 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   TH: 'THB',
   VN: 'VND',
   HK: 'HKD',
+  JP: 'JPY',
+  MO: 'MOP',
   // Eurozone
   AT: 'EUR',
   BE: 'EUR',

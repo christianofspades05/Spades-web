@@ -24,9 +24,11 @@ export function formatCentsAsPHP(cents: number): string {
  *  a 'PHP' key since converting PHP to PHP is always a no-op. */
 export type ExchangeRates = Record<string, number>
 
-// Matches exactly what Xendit's card multi-currency processing supports for
-// PH merchants (see lib/xendit/client.ts) — the display selector never
-// needs to change if/when charging currencies expand.
+// Originally matched exactly what Xendit's card multi-currency processing
+// supports for PH merchants (see lib/xendit/client.ts) — JPY/MOP were added
+// on top for display purposes (Japan/Macau markets) even though Xendit
+// support for them isn't confirmed yet; harmless since every card charge
+// still settles in PHP regardless of display currency until that's resolved.
 export const SUPPORTED_CURRENCIES = [
   'PHP',
   'USD',
@@ -36,6 +38,8 @@ export const SUPPORTED_CURRENCIES = [
   'MYR',
   'THB',
   'VND',
+  'JPY',
+  'MOP',
 ] as const
 export type Currency = (typeof SUPPORTED_CURRENCIES)[number]
 
@@ -48,14 +52,16 @@ const CURRENCY_LOCALE: Record<string, string> = {
   MYR: 'ms-MY',
   THB: 'th-TH',
   VND: 'vi-VN',
+  JPY: 'ja-JP',
+  MOP: 'zh-MO',
 }
 
 // Most of our supported currencies use 2 decimal places (100 minor units
-// per major unit) — VND is the exception: Vietnamese Dong has no
-// subdivision in everyday use, and Intl.NumberFormat formats it with 0
-// fraction digits by default (confirmed: formatting 423233.955 as VND
-// prints "423,234 ₫", not "4,232.34 ₫"). "Cents" below always means
-// "minor units," which is 1 for VND, not 100.
+// per major unit) — VND and JPY are exceptions: neither has a subdivision
+// in everyday use, and Intl.NumberFormat formats both with 0 fraction
+// digits by default (confirmed: formatting 423233.955 as VND prints
+// "423,234 ₫", not "4,232.34 ₫"; same for JPY). "Cents" below always means
+// "minor units," which is 1 for these two, not 100.
 const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   PHP: 100,
   USD: 100,
@@ -65,6 +71,8 @@ const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   MYR: 100,
   THB: 100,
   VND: 1,
+  JPY: 1,
+  MOP: 100,
 }
 
 function minorUnitsPerMajor(currency: string): number {
