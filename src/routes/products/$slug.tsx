@@ -60,6 +60,7 @@ export const Route = createFileRoute('/products/$slug')({
           productType: product.product_type,
           excludeProductId: product.id,
           limit: 4,
+          collectionSlug: context.storefrontScope.collectionSlug,
         },
       }),
       getProductReviews({ data: { productId: product.id } }),

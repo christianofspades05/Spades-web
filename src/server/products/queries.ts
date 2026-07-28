@@ -495,18 +495,32 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
       productType: z.enum(PRODUCT_TYPES),
       excludeProductId: z.string().uuid(),
       limit: z.number().int().min(1).max(24).default(4),
+      // The current domain's collection scope (see
+      // server/storefront/domain.ts) — when set, "related products" never
+      // surfaces a product outside that collection (e.g. Spades items on
+      // Aspire 365's product pages).
+      collectionSlug: z.string().nullable().optional(),
     }),
   )
   .handler(
     async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
       const supabase = getSupabaseServerClient()
 
-      const { data: products, error } = await supabase
+      let memberIds: Set<string> | null = null
+      if (data.collectionSlug) {
+        memberIds = await getCollectionProductIds(data.collectionSlug)
+        if (!memberIds || memberIds.size === 0) return []
+      }
+
+      let query = supabase
         .from('storefront_product_listing')
         .select('*')
         .eq('product_type', data.productType)
         .neq('id', data.excludeProductId)
-        .limit(data.limit)
+      if (memberIds) {
+        query = query.in('id', Array.from(memberIds))
+      }
+      const { data: products, error } = await query.limit(data.limit)
 
       if (error) throw error
       const sales = await attachSalePrices(
