@@ -130,7 +130,7 @@ export const bulkUpdateProductStatus = createServerFn({ method: 'POST' })
       staff,
       'product.bulk_status_update',
       'products',
-      'bulk',
+      null,
       {
         productIds: data.productIds,
         status: data.status,
@@ -158,7 +158,7 @@ export const bulkDeleteProducts = createServerFn({ method: 'POST' })
       .in('id', data.productIds)
     if (error) throw error
 
-    await logStaffActivity(staff, 'product.bulk_delete', 'products', 'bulk', {
+    await logStaffActivity(staff, 'product.bulk_delete', 'products', null, {
       productIds: data.productIds,
     })
   })

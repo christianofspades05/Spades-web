@@ -1,12 +1,17 @@
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { StaffUser } from '#/types/entities'
 
-/** Every admin mutation writes one of these, per src/server/admin/README.md. */
+/**
+ * Every admin mutation writes one of these, per src/server/admin/README.md.
+ * `entityId` is a uuid column — pass null for bulk operations spanning
+ * multiple entities (there's no single id to record); the affected ids
+ * belong in `metadata` instead.
+ */
 export async function logStaffActivity(
   staff: StaffUser,
   action: string,
   entityType: string,
-  entityId: string,
+  entityId: string | null,
   metadata: Record<string, unknown> = {},
 ) {
   const admin = getSupabaseAdminClient()
