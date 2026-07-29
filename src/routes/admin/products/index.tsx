@@ -6,10 +6,11 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { Package, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Package, Search } from 'lucide-react'
 import {
   bulkDeleteProducts,
   bulkUpdateProductStatus,
+  getProductsCount,
   getProductsOverview,
   listAllProducts,
 } from '#/server/admin/products'
@@ -64,6 +65,7 @@ const SORT_LABELS: Record<(typeof SORT_FIELDS)[number], string> = {
   created: 'Created',
   updated: 'Updated',
 }
+const PAGE_SIZE = 50
 
 export const Route = createFileRoute('/admin/products/')({
   validateSearch: z.object({
@@ -73,6 +75,7 @@ export const Route = createFileRoute('/admin/products/')({
     q: z.string().optional(),
     sort: z.enum(SORT_FIELDS).catch('created'),
     dir: z.enum(['asc', 'desc']).catch('desc'),
+    page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
     to: z.string().optional(),
@@ -83,19 +86,27 @@ export const Route = createFileRoute('/admin/products/')({
       from: deps.from,
       to: deps.to,
     })
-    const [products, overview, collections] = await Promise.all([
+    const filters = {
+      status: deps.status,
+      productType: deps.productType,
+      q: deps.q,
+      collectionId: deps.collectionId,
+    }
+    const [products, total, overview, collections] = await Promise.all([
       listAllProducts({
         data: {
-          status: deps.status,
-          productType: deps.productType,
-          q: deps.q,
-          collectionId: deps.collectionId,
+          ...filters,
+          sort: deps.sort,
+          dir: deps.dir,
+          page: deps.page,
+          pageSize: PAGE_SIZE,
         },
       }),
+      getProductsCount({ data: filters }),
       getProductsOverview({ data: resolved }),
       listAllCollections(),
     ])
-    return { products, overview, collections }
+    return { products, total: total.total, overview, collections }
   },
   component: ProductsPage,
 })
@@ -103,14 +114,20 @@ export const Route = createFileRoute('/admin/products/')({
 function ProductsPage() {
   const {
     products,
+    total,
     overview,
     collections,
   }: {
     products: ProductWithCollectionNames[]
+    total: number
     overview: ProductsOverview
     collections: Collection[]
   } = Route.useLoaderData()
   const search = Route.useSearch()
+  const page = search.page
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
   const [searchInput, setSearchInput] = useState(search.q ?? '')
@@ -182,7 +199,9 @@ function ProductsPage() {
 
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
-    navigate({ search: (prev) => ({ ...prev, q: searchInput || undefined }) })
+    navigate({
+      search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
+    })
   }
 
   const abcTotal =
@@ -241,7 +260,7 @@ function ProductsPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Products"
-        subtitle={`${products.length} ${products.length === 1 ? 'product' : 'products'}`}
+        subtitle={`${total} ${total === 1 ? 'product' : 'products'}`}
         action={
           <Link to="/admin/products/new" className={buttonPrimaryClassName}>
             Add product
@@ -326,7 +345,7 @@ function ProductsPage() {
           <Link
             to="/admin/products"
             from={Route.fullPath}
-            search={(prev) => ({ ...prev, status: undefined })}
+            search={(prev) => ({ ...prev, status: undefined, page: 1 })}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               !search.status
                 ? 'bg-neutral-900 text-white'
@@ -340,7 +359,7 @@ function ProductsPage() {
               key={s}
               to="/admin/products"
               from={Route.fullPath}
-              search={(prev) => ({ ...prev, status: s })}
+              search={(prev) => ({ ...prev, status: s, page: 1 })}
               className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
                 search.status === s
                   ? 'bg-neutral-900 text-white'
@@ -363,6 +382,7 @@ function ProductsPage() {
                 productType: e.target.value
                   ? (e.target.value as (typeof PRODUCT_TYPES)[number])
                   : undefined,
+                page: 1,
               }),
             })
           }
@@ -383,6 +403,7 @@ function ProductsPage() {
               search: (prev) => ({
                 ...prev,
                 collectionId: e.target.value || undefined,
+                page: 1,
               }),
             })
           }
@@ -403,6 +424,7 @@ function ProductsPage() {
               search: (prev) => ({
                 ...prev,
                 sort: e.target.value as (typeof SORT_FIELDS)[number],
+                page: 1,
               }),
             })
           }
@@ -422,6 +444,7 @@ function ProductsPage() {
               search: (prev) => ({
                 ...prev,
                 dir: prev.dir === 'asc' ? 'desc' : 'asc',
+                page: 1,
               }),
             })
           }
@@ -601,6 +624,39 @@ function ProductsPage() {
           </div>
         )}
       </div>
+
+      {total > 0 && (
+        <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+          <p>
+            Showing {rangeStartIndex}–{rangeEndIndex} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/admin/products"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page - 1 })}
+              aria-disabled={page <= 1}
+              className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              <ChevronLeft size={14} />
+              Previous
+            </Link>
+            <span className="text-xs text-neutral-400">
+              Page {page} of {totalPages}
+            </span>
+            <Link
+              to="/admin/products"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page + 1 })}
+              aria-disabled={page >= totalPages}
+              className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Next
+              <ChevronRight size={14} />
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

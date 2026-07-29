@@ -40,6 +40,17 @@ export interface ProductWithCollectionNames extends ProductWithDetails {
   collections: Array<{ collection_id: string; collection: { name: string } }>
 }
 
+// Maps the list page's sort dropdown to a real column — 'inventory' has no
+// direct column (on-hand stock is aggregated client-side from each row's
+// nested variants/inventory) and so isn't sorted server-side; once
+// paginated, that option only sorts within whichever page is loaded.
+const SORT_COLUMNS = {
+  title: 'name',
+  type: 'product_type',
+  created: 'created_at',
+  updated: 'updated_at',
+} as const
+
 export const listAllProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -47,18 +58,29 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       productType: z.string().optional(),
       q: z.string().optional(),
       collectionId: z.string().uuid().optional(),
+      sort: z
+        .enum(['title', 'inventory', 'type', 'created', 'updated'])
+        .default('created'),
+      dir: z.enum(['asc', 'desc']).default('desc'),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(50),
     }),
   )
   .handler(async ({ data }): Promise<ProductWithCollectionNames[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
+    const sortColumn =
+      data.sort in SORT_COLUMNS
+        ? SORT_COLUMNS[data.sort as keyof typeof SORT_COLUMNS]
+        : 'created_at'
+
     let query = admin
       .from('products')
       .select(
         '*, variants:product_variants(*, inventory(*)), collections:product_collections(collection_id, collection:collections(name))',
       )
-      .order('created_at', { ascending: false })
+      .order(sortColumn, { ascending: data.dir === 'asc' })
 
     if (data.status) query = query.eq('status', data.status)
     if (data.productType) query = query.eq('product_type', data.productType)
@@ -87,9 +109,57 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
     }
 
+    const offset = (data.page - 1) * data.pageSize
+    query = query.range(offset, offset + data.pageSize - 1)
+
     const { data: products, error } = await query
     if (error) throw error
     return products
+  })
+
+export const getProductsCount = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      status: z.string().optional(),
+      productType: z.string().optional(),
+      q: z.string().optional(),
+      collectionId: z.string().uuid().optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    let query = admin
+      .from('products')
+      .select('id', { count: 'exact', head: true })
+
+    if (data.status) query = query.eq('status', data.status)
+    if (data.productType) query = query.eq('product_type', data.productType)
+
+    if (data.collectionId) {
+      const { data: memberships, error: membershipError } = await admin
+        .from('product_collections')
+        .select('product_id')
+        .eq('collection_id', data.collectionId)
+      if (membershipError) throw membershipError
+      const productIds = memberships.map((m) => m.product_id)
+      query = query.in(
+        'id',
+        productIds.length
+          ? productIds
+          : ['00000000-0000-0000-0000-000000000000'],
+      )
+    }
+
+    const search = data.q?.trim()
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
+    }
+
+    const { count, error } = await query
+    if (error) throw error
+    return { total: count ?? 0 }
   })
 
 export const getProductsByIds = createServerFn({ method: 'GET' })
