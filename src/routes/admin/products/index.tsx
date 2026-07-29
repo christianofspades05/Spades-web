@@ -547,6 +547,7 @@ function ProductsPage() {
                             : new Set(),
                         )
                       }
+                      className="size-4 cursor-pointer"
                     />
                   </th>
                   <th className={tableHeadClassName}>Product</th>
@@ -565,6 +566,7 @@ function ProductsPage() {
                           type="checkbox"
                           checked={selected.has(product.id)}
                           onChange={() => toggleSelected(product.id)}
+                          className="size-4 cursor-pointer"
                         />
                       </td>
                       <td className={tableCellClassName}>

@@ -36,7 +36,12 @@ export function ProductCard({
       className="flex cursor-pointer items-center gap-3 border-b border-neutral-100 py-3 first:pt-0 last:border-b-0"
     >
       <div onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={checked} onChange={onToggle} />
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="size-4 cursor-pointer"
+        />
       </div>
       {product.images[0] ? (
         <img
