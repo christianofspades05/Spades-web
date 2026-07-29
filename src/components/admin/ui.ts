@@ -11,6 +11,9 @@ export const buttonPrimaryClassName =
 export const buttonSecondaryClassName =
   'inline-flex w-fit items-center justify-center rounded-md border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 shadow-sm hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50'
 
+export const buttonDangerClassName =
+  'inline-flex w-fit items-center justify-center rounded-md border border-red-300 bg-white px-3.5 py-2 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50'
+
 export const tableWrapperClassName =
   'overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm'
 

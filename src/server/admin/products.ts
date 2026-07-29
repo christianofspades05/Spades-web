@@ -19,9 +19,15 @@ import { slugify } from '#/lib/utils/slug'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
-import type { Inventory, Product, ProductVariant } from '#/types/entities'
+import type {
+  Inventory,
+  Product,
+  ProductVariant,
+  StaffRole,
+} from '#/types/entities'
 
-const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
+// Not `as const` — requireStaff expects a plain mutable StaffRole[].
+const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin', 'manager']
 
 interface VariantWithInventory extends ProductVariant {
   inventory: Inventory[]
@@ -130,6 +136,31 @@ export const bulkUpdateProductStatus = createServerFn({ method: 'POST' })
         status: data.status,
       },
     )
+  })
+
+/**
+ * Permanently deletes products (and, via `on delete cascade`, their
+ * variants/collection memberships/marketplace mappings) — safe to do even
+ * for products with order history, since order_items snapshots
+ * product_name_snapshot/sku_snapshot/etc. at time of purchase and only
+ * sets its variant_id to null (see 0001_init_schema.sql), so past orders
+ * keep displaying correctly after the underlying product is gone.
+ */
+export const bulkDeleteProducts = createServerFn({ method: 'POST' })
+  .validator(z.object({ productIds: z.array(z.string().uuid()) }))
+  .handler(async ({ data }): Promise<void> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('products')
+      .delete()
+      .in('id', data.productIds)
+    if (error) throw error
+
+    await logStaffActivity(staff, 'product.bulk_delete', 'products', 'bulk', {
+      productIds: data.productIds,
+    })
   })
 
 export interface ProductsOverview {

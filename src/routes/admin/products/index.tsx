@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router'
 import { Package, Search } from 'lucide-react'
 import {
+  bulkDeleteProducts,
   bulkUpdateProductStatus,
   getProductsOverview,
   listAllProducts,
@@ -28,6 +29,7 @@ import { StatusBadge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { ProductCard } from '#/components/admin/ProductCard'
 import {
+  buttonDangerClassName,
   buttonPrimaryClassName,
   buttonSecondaryClassName,
   inputClassName,
@@ -115,6 +117,7 @@ function ProductsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkStatusError, setBulkStatusError] = useState<string | null>(null)
   const [bulkStatusSubmitting, setBulkStatusSubmitting] = useState(false)
+  const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false)
 
   function toggleSelected(productId: string) {
     setSelected((prev) => {
@@ -138,6 +141,28 @@ function ProductsPage() {
       setBulkStatusError(getErrorMessage(err))
     } finally {
       setBulkStatusSubmitting(false)
+    }
+  }
+
+  async function handleBulkDelete() {
+    const count = selected.size
+    if (
+      !confirm(
+        `Permanently delete ${count} ${count === 1 ? 'product' : 'products'}? This can't be undone.`,
+      )
+    ) {
+      return
+    }
+    setBulkDeleteSubmitting(true)
+    setBulkStatusError(null)
+    try {
+      await bulkDeleteProducts({ data: { productIds: Array.from(selected) } })
+      setSelected(new Set())
+      await router.invalidate()
+    } catch (err) {
+      setBulkStatusError(getErrorMessage(err))
+    } finally {
+      setBulkDeleteSubmitting(false)
     }
   }
 
@@ -434,6 +459,14 @@ function ProductsPage() {
           >
             Bulk edit
           </Link>
+          <button
+            type="button"
+            disabled={bulkDeleteSubmitting}
+            onClick={handleBulkDelete}
+            className={buttonDangerClassName}
+          >
+            {bulkDeleteSubmitting ? 'Deleting...' : 'Delete'}
+          </button>
           {bulkStatusError && (
             <span className="text-sm text-red-600">{bulkStatusError}</span>
           )}

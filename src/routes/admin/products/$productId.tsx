@@ -109,6 +109,7 @@ function EditProductPage() {
 
   const [newImageUrl, setNewImageUrl] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [dragImageIndex, setDragImageIndex] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -132,6 +133,15 @@ function EditProductPage() {
 
   function removeImage(index: number) {
     setForm({ ...form, images: form.images.filter((_, i) => i !== index) })
+  }
+
+  function moveImage(targetIndex: number) {
+    if (dragImageIndex === null || dragImageIndex === targetIndex) return
+    const next = [...form.images]
+    const [moved] = next.splice(dragImageIndex, 1)
+    next.splice(targetIndex, 0, moved)
+    setDragImageIndex(null)
+    setForm({ ...form, images: next })
   }
 
   async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
@@ -311,13 +321,20 @@ function EditProductPage() {
                 {form.images.map((src, index) => (
                   <div
                     key={`${src}-${index}`}
-                    className="group relative aspect-square overflow-hidden rounded-md border border-neutral-200"
+                    draggable
+                    onDragStart={() => setDragImageIndex(index)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => moveImage(index)}
+                    className="group relative aspect-square cursor-grab overflow-hidden rounded-md border border-neutral-200 active:cursor-grabbing"
                   >
                     <img
                       src={src}
                       alt=""
                       className="h-full w-full object-cover"
                     />
+                    <span className="absolute top-1 left-1 rounded-full bg-black/60 p-1 text-white opacity-0 group-hover:opacity-100">
+                      <GripVertical size={12} />
+                    </span>
                     <button
                       type="button"
                       onClick={() => removeImage(index)}
