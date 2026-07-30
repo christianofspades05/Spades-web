@@ -94,7 +94,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   // Admin is the one shared control panel across all three brands' domains
   // — it always stays Spades-branded, so the accent-color override below
   // (and the rest of storefrontScope) only applies to non-admin routes.
-  const brandColorStyle = `:root{--color-brand:${storefrontScope.colorHex};--color-brand-dark:${storefrontScope.colorDarkHex}}`
+  const priceTextVars = storefrontScope.priceTextHex
+    ? `--price-text-light:${storefrontScope.priceTextHex};--price-text-dark:${storefrontScope.priceTextDarkHex};`
+    : ''
+  const brandColorStyle = `:root{--color-brand:${storefrontScope.colorHex};--color-brand-dark:${storefrontScope.colorDarkHex};${priceTextVars}}`
   const noFlashThemeScript = buildNoFlashThemeScript(
     storefrontScope.defaultTheme,
   )

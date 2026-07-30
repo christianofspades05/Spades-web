@@ -36,6 +36,19 @@ export interface StorefrontScope {
   logoDark: string
   colorHex: string
   colorDarkHex: string
+  /** Text color class for the promo banner, which sits on a solid
+   *  `colorHex` background — a light background (e.g. Ysrael's yellow)
+   *  needs dark text; a dark background (e.g. Spades'/Aspire's red) needs
+   *  white text. */
+  promoBannerTextClassName: string
+  /** Overrides the default neutral price-text color on product cards, for
+   *  brands whose identity leans on a colored price (e.g. Ysrael's yellow)
+   *  — null means "use the default gray," leaving other brands unaffected.
+   *  Applied via CSS variables (see __root.tsx's brandColorStyle) rather
+   *  than a prop threaded through ProductGrid/ProductCard, since it only
+   *  needs to reach one style rule, not change any component's behavior. */
+  priceTextHex: string | null
+  priceTextDarkHex: string | null
   /** Theme a first-time visitor sees before ever toggling it themselves —
    *  an explicit stored preference (light or dark) always wins over this. */
   defaultTheme: 'light' | 'dark'
@@ -79,6 +92,9 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     logoDark: '/logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
+    promoBannerTextClassName: 'text-white',
+    priceTextHex: null,
+    priceTextDarkHex: null,
     defaultTheme: 'light',
     promoBannerText:
       'Free shipping minimum of ₱2,000 purchase. Extra 10% off minimum of 5 items',
@@ -100,10 +116,13 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: '',
     logoLight: '/ysrael-logo-black.png',
     logoDark: '/ysrael-logo-white.png',
-    colorHex: '#e11d2e',
-    colorDarkHex: '#b3131f',
+    colorHex: '#f5e401',
+    colorDarkHex: '#d4c400',
+    promoBannerTextClassName: 'text-neutral-900',
+    priceTextHex: '#d4c400',
+    priceTextDarkHex: '#f5e401',
     defaultTheme: 'light',
-    promoBannerText: '',
+    promoBannerText: 'Free shipping minimum of ₱2,500 worth of items',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_YSRAEL as string | undefined,
   },
@@ -123,6 +142,9 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     logoDark: '/aspire365-logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
+    promoBannerTextClassName: 'text-white',
+    priceTextHex: null,
+    priceTextDarkHex: null,
     defaultTheme: 'dark',
     promoBannerText: '',
     social: { facebook: '', instagram: '', tiktok: '' },

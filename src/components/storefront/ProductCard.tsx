@@ -62,7 +62,7 @@ export function ProductCard({ product }: ProductCardProps) {
             </span>
           </p>
         ) : (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          <p className="text-[color:var(--price-text-light,#737373)] text-sm dark:text-[color:var(--price-text-dark,#a3a3a3)]">
             {formatPrice(product.min_price_cents)}
           </p>
         )}

@@ -35,7 +35,9 @@ export function Header({ scope }: HeaderProps) {
 
   return (
     <header>
-      <div className="bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-white sm:text-xs">
+      <div
+        className={`bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider sm:text-xs ${scope.promoBannerTextClassName}`}
+      >
         {scope.promoBannerText}
       </div>
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
