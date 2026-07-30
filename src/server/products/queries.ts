@@ -202,6 +202,30 @@ async function getCollectionProductIds(
   return ids
 }
 
+// Ysrael and Aspire 365 each have their own dedicated collection (see
+// collectionSlug on their entries in server/storefront/domain.ts) — Spades
+// has none of its own (it's the original, unscoped catalog), so keeping
+// their products out of Spades' storefront needs an *exclude* filter
+// instead of the *include* filter the other two already get from their own
+// collectionSlug. Add a new brand's collection slug here if it gets one.
+// Exported so routes/collections/$slug.tsx can also block Spades visitors
+// from reaching these collections' pages directly by URL.
+export const OTHER_BRAND_COLLECTION_SLUGS = ['ysrael', 'aspire-365']
+
+/** Union of every OTHER_BRAND_COLLECTION_SLUGS collection's product ids —
+ *  what Spades' otherwise-unscoped storefront queries need to exclude. */
+async function getOtherBrandProductIds(): Promise<Set<string>> {
+  const sets = await Promise.all(
+    OTHER_BRAND_COLLECTION_SLUGS.map((slug) => getCollectionProductIds(slug)),
+  )
+  const excluded = new Set<string>()
+  for (const set of sets) {
+    if (!set) continue
+    for (const id of set) excluded.add(id)
+  }
+  return excluded
+}
+
 export const listActiveProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -338,6 +362,9 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
       if (data.collectionSlug) {
         const memberIds = await getCollectionProductIds(data.collectionSlug)
         if (!memberIds?.has(product.id)) return null
+      } else {
+        const excluded = await getOtherBrandProductIds()
+        if (excluded.has(product.id)) return null
       }
 
       // Each variant priced (and its best discount picked) individually —
@@ -399,6 +426,11 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
           return { products: [], total: 0 }
         }
         query = query.in('id', Array.from(memberIds))
+      } else {
+        const excluded = await getOtherBrandProductIds()
+        if (excluded.size > 0) {
+          query = query.not('id', 'in', `(${Array.from(excluded).join(',')})`)
+        }
       }
 
       if (data.type) query = query.eq('product_type', data.type)
@@ -462,9 +494,12 @@ export const quickSearchProducts = createServerFn({ method: 'GET' })
       const supabase = getSupabaseServerClient()
 
       let memberIds: Set<string> | null = null
+      let excludedIds: Set<string> | null = null
       if (data.collectionSlug) {
         memberIds = await getCollectionProductIds(data.collectionSlug)
         if (!memberIds || memberIds.size === 0) return []
+      } else {
+        excludedIds = await getOtherBrandProductIds()
       }
 
       let query = supabase
@@ -474,6 +509,8 @@ export const quickSearchProducts = createServerFn({ method: 'GET' })
         .order('created_at', { ascending: false })
       if (memberIds) {
         query = query.in('id', Array.from(memberIds))
+      } else if (excludedIds && excludedIds.size > 0) {
+        query = query.not('id', 'in', `(${Array.from(excludedIds).join(',')})`)
       }
       const { data: products, error } = await query.limit(QUICK_SEARCH_LIMIT)
 
@@ -507,9 +544,12 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
       const supabase = getSupabaseServerClient()
 
       let memberIds: Set<string> | null = null
+      let excludedIds: Set<string> | null = null
       if (data.collectionSlug) {
         memberIds = await getCollectionProductIds(data.collectionSlug)
         if (!memberIds || memberIds.size === 0) return []
+      } else {
+        excludedIds = await getOtherBrandProductIds()
       }
 
       let query = supabase
@@ -519,6 +559,8 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
         .neq('id', data.excludeProductId)
       if (memberIds) {
         query = query.in('id', Array.from(memberIds))
+      } else if (excludedIds && excludedIds.size > 0) {
+        query = query.not('id', 'in', `(${Array.from(excludedIds).join(',')})`)
       }
       const { data: products, error } = await query.limit(data.limit)
 
