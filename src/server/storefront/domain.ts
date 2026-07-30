@@ -63,7 +63,7 @@ const HOSTNAME_TO_BRAND: Record<string, Brand> = {
  */
 const DOMAIN_LIVE: Record<Brand, boolean> = {
   spades: true,
-  ysrael: false,
+  ysrael: true,
   aspire365: true,
 }
 
@@ -89,8 +89,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID as string | undefined,
   },
-  // Placeholder brand/collection/logo/color values — replace once Ysrael's
-  // real assets and product collection exist.
+  // Placeholder tagline/color values — replace once Ysrael has copy and a
+  // brand color ready.
   ysrael: {
     brand: 'ysrael',
     collectionSlug: 'ysrael',
@@ -98,8 +98,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     shopLabel: 'Ysrael',
     title: 'Ysrael',
     tagline: '',
-    logoLight: '/logo-black.png',
-    logoDark: '/logo-white.png',
+    logoLight: '/ysrael-logo-black.png',
+    logoDark: '/ysrael-logo-white.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
     defaultTheme: 'light',
