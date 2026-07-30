@@ -128,7 +128,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             />
           </noscript>
         )}
-        <VisitTracker />
+        <VisitTracker brand={storefrontScope.brand} />
         <FacebookPixelPageView />
         <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
           <CurrencyProvider

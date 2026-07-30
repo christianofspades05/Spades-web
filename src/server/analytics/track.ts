@@ -18,6 +18,7 @@ export const recordVisit = createServerFn({ method: 'POST' })
       event_type: data.eventType,
       product_id: data.productId,
       metadata: data.metadata,
+      brand: data.brand,
     })
     if (error) throw error
     return { ok: true as const }

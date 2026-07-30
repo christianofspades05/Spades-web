@@ -9,6 +9,10 @@ export const recordVisitSchema = z.object({
   eventType: z.enum(EVENT_TYPES).default('page_view'),
   productId: z.string().uuid().optional(),
   metadata: z.record(z.string(), z.unknown()).default({}),
+  // Which brand's domain this visit happened on (see
+  // server/storefront/domain.ts) — plain string, not that module's Brand
+  // enum, to keep this validation module free of a server/ dependency.
+  brand: z.string().default('spades'),
 })
 
 export type RecordVisitInput = z.infer<typeof recordVisitSchema>

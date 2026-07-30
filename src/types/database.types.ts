@@ -881,6 +881,7 @@ export interface Database {
           event_type: string
           product_id: string | null
           metadata: Record<string, unknown>
+          brand: string
           created_at: string
         }
         Insert: Partial<

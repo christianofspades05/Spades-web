@@ -8,9 +8,14 @@ import {
   resolveDateRange,
 } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
+import {
+  STOREFRONT_BRAND_LABELS,
+  STOREFRONT_BRANDS,
+} from '#/lib/validation/admin/storefront-sections'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import {
   MetricSparkline,
   TrendLineChart,
@@ -21,23 +26,30 @@ const ORDERS_COLOR = '#16a34a'
 const VISITORS_COLOR = '#ea580c'
 const CONVERSION_COLOR = '#7c3aed'
 
+const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
+  value: brand,
+  label: STOREFRONT_BRAND_LABELS[brand],
+}))
+
 export const Route = createFileRoute('/admin/')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
     to: z.string().optional(),
+    brand: z.enum(STOREFRONT_BRANDS).optional(),
   }),
   loaderDeps: ({ search }) => ({
     range: search.range,
     from: search.from,
     to: search.to,
+    brand: search.brand,
   }),
   loader: ({ deps }) => {
     const resolved = resolveDateRange(deps.range, {
       from: deps.from,
       to: deps.to,
     })
-    return getDashboardAnalytics({ data: resolved })
+    return getDashboardAnalytics({ data: { ...resolved, brand: deps.brand } })
   },
   component: AdminPage,
 })
@@ -52,7 +64,12 @@ function AdminPage() {
     custom?: { from: string; to: string },
   ) {
     navigate({
-      search: { range: preset, from: custom?.from, to: custom?.to },
+      search: (prev) => ({
+        ...prev,
+        range: preset,
+        from: custom?.from,
+        to: custom?.to,
+      }),
     })
   }
 
@@ -104,12 +121,22 @@ function AdminPage() {
         title="Home"
         subtitle="A quick look at your store."
         action={
-          <DateRangePicker
-            preset={search.range}
-            from={analytics.range.from}
-            to={analytics.range.to}
-            onChange={handleRangeChange}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterDropdown
+              label="Brand"
+              value={search.brand}
+              options={BRAND_OPTIONS}
+              onChange={(brand) =>
+                navigate({ search: (prev) => ({ ...prev, brand }) })
+              }
+            />
+            <DateRangePicker
+              preset={search.range}
+              from={analytics.range.from}
+              to={analytics.range.to}
+              onChange={handleRangeChange}
+            />
+          </div>
         }
       />
 

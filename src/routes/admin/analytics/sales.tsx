@@ -7,13 +7,17 @@ import {
   getSalesAnalytics,
   getSalesByLocation,
 } from '#/server/admin/analytics'
-import type { LocationSalesRow, ProductProfitRow } from '#/server/admin/analytics'
+import type {
+  LocationSalesRow,
+  ProductProfitRow,
+} from '#/server/admin/analytics'
 import { formatCentsAsPHP } from '#/lib/utils/money'
-import {
-  DATE_RANGE_PRESETS,
-  resolveDateRange,
-} from '#/lib/utils/date-range'
+import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
+import {
+  STOREFRONT_BRAND_LABELS,
+  STOREFRONT_BRANDS,
+} from '#/lib/validation/admin/storefront-sections'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
@@ -34,6 +38,11 @@ const CHANNEL_OPTIONS = [
   { value: 'lazada', label: 'Lazada' },
 ] as const
 
+const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
+  value: brand,
+  label: STOREFRONT_BRAND_LABELS[brand],
+}))
+
 export const Route = createFileRoute('/admin/analytics/sales')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
@@ -42,6 +51,7 @@ export const Route = createFileRoute('/admin/analytics/sales')({
     channel: z
       .enum(['storefront', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    brand: z.enum(STOREFRONT_BRANDS).optional(),
     compare: z.boolean().catch(false),
   }),
   loaderDeps: ({ search }) => search,
@@ -55,14 +65,15 @@ export const Route = createFileRoute('/admin/analytics/sales')({
         data: {
           ...resolved,
           channel: deps.channel,
+          brand: deps.brand,
           comparePrevious: deps.compare,
         },
       }),
       getProductProfitBreakdown({
-        data: { ...resolved, channel: deps.channel },
+        data: { ...resolved, channel: deps.channel, brand: deps.brand },
       }),
       getSalesByLocation({
-        data: { ...resolved, channel: deps.channel },
+        data: { ...resolved, channel: deps.channel, brand: deps.brand },
       }),
     ])
     return { salesAnalytics, bestSellers, topLocations }
@@ -114,6 +125,14 @@ function SalesAnalyticsPage() {
               onChange={handleRangeChange}
             />
             <div className="flex items-center gap-2">
+              <FilterDropdown
+                label="Brand"
+                value={search.brand}
+                options={BRAND_OPTIONS}
+                onChange={(brand) =>
+                  navigate({ search: (prev) => ({ ...prev, brand }) })
+                }
+              />
               <FilterDropdown
                 label="Channel"
                 value={search.channel}
@@ -428,7 +447,8 @@ function BestSellerCard({
             {product.productName}
           </p>
           <p className="text-sm text-neutral-500">
-            {product.unitsSold} sold · {formatCentsAsPHP(product.grossSalesCents)}
+            {product.unitsSold} sold ·{' '}
+            {formatCentsAsPHP(product.grossSalesCents)}
           </p>
         </div>
       </div>
@@ -443,7 +463,11 @@ function BestSellerCard({
 
 const LOCATIONS_PAGE_SIZE = 10
 
-function LocationSalesSection({ locations }: { locations: LocationSalesRow[] }) {
+function LocationSalesSection({
+  locations,
+}: {
+  locations: LocationSalesRow[]
+}) {
   const [page, setPage] = useState(1)
 
   const totalRevenueCents = locations.reduce(

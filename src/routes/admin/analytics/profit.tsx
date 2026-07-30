@@ -31,6 +31,10 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
+import {
+  STOREFRONT_BRAND_LABELS,
+  STOREFRONT_BRANDS,
+} from '#/lib/validation/admin/storefront-sections'
 import type { OrderSource } from '#/types/entities'
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
@@ -59,6 +63,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
     channel: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    brand: z.enum(STOREFRONT_BRANDS).optional(),
     compare: z.boolean().catch(false),
     orderPage: z.number().int().min(1).catch(1),
   }),
@@ -73,16 +78,18 @@ export const Route = createFileRoute('/admin/analytics/profit')({
         data: {
           ...resolved,
           channel: deps.channel,
+          brand: deps.brand,
           comparePrevious: deps.compare,
         },
       }),
       getProductProfitBreakdown({
-        data: { ...resolved, channel: deps.channel },
+        data: { ...resolved, channel: deps.channel, brand: deps.brand },
       }),
       getOrderProfitList({
         data: {
           ...resolved,
           channel: deps.channel,
+          brand: deps.brand,
           page: deps.orderPage,
           pageSize: ORDER_PROFIT_PAGE_SIZE,
         },
@@ -167,6 +174,26 @@ function ProfitPage() {
               to={search.to ?? resolveDateRange(search.range, {}).to}
               onChange={handleRangeChange}
             />
+            <select
+              value={search.brand ?? ''}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    brand: (e.target.value || undefined) as
+                      (typeof STOREFRONT_BRANDS)[number] | undefined,
+                  }),
+                })
+              }
+              className={inputClassName}
+            >
+              <option value="">All Brands</option>
+              {STOREFRONT_BRANDS.map((b) => (
+                <option key={b} value={b}>
+                  {STOREFRONT_BRAND_LABELS[b]}
+                </option>
+              ))}
+            </select>
             <select
               value={search.channel ?? ''}
               onChange={(e) =>
@@ -270,9 +297,7 @@ function ProfitPage() {
       </div>
 
       <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Top Products
-        </h2>
+        <h2 className="text-sm font-semibold text-neutral-900">Top Products</h2>
         <p className="text-xs text-neutral-500">Ranked by net profit</p>
         <div className="mt-4">
           <ProductProfitBarChart
@@ -287,7 +312,10 @@ function ProfitPage() {
         {pagedProducts.length > 0 && (
           <div className="mt-5 flex flex-col gap-3 md:hidden">
             {pagedProducts.map((p) => (
-              <ProductProfitCard key={p.productId ?? p.productName} product={p} />
+              <ProductProfitCard
+                key={p.productId ?? p.productName}
+                product={p}
+              />
             ))}
           </div>
         )}
@@ -673,9 +701,7 @@ function OrderProfitSection({
                     <th className={`${tableHeadClassName} text-right`}>
                       Net Sales
                     </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Cost
-                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>Cost</th>
                     <th className={`${tableHeadClassName} text-right`}>
                       Shipping
                     </th>
@@ -728,94 +754,98 @@ function OrderProfitSection({
                             </div>
                           </div>
                         </td>
-                      <td
-                        className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}
-                      >
-                        {new Date(order.placedAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </td>
-                      <td className={tableCellClassName}>
-                        <StatusBadge status={order.status} kind="order" />
-                      </td>
-                      <td className={`${tableCellClassName} text-neutral-500`}>
-                        {SOURCE_LABELS[order.source]}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(order.grossSalesCents)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(order.netSalesCents)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(order.costCents)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(order.shippingCents)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {order.refundCents > 0
-                          ? formatCentsAsPHP(order.refundCents)
-                          : '—'}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} text-right font-medium ${
-                          order.profitCents >= 0
-                            ? 'text-emerald-600'
-                            : 'text-red-600'
-                        }`}
-                      >
-                        {formatCentsAsPHP(order.profitCents)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {order.marginPct !== null
-                          ? `${order.marginPct.toFixed(1)}%`
-                          : '—'}
-                      </td>
-                    </tr>
-                    {expandedOrderIds.has(order.id) &&
-                      order.items.length > 0 && (
-                        <tr className="border-b border-neutral-100 bg-neutral-50">
-                          <td colSpan={11} className="px-4 py-3">
-                            <table className="w-full">
-                              <tbody>
-                                {order.items.map((item, index) => (
-                                  <tr key={index} className="text-xs">
-                                    <td className="py-1 pr-4 text-neutral-700">
-                                      {item.quantity}× {item.productName}
-                                      {item.variantLabel && (
-                                        <span className="text-neutral-400">
-                                          {' '}
-                                          · {item.variantLabel}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="py-1 pr-4 text-right text-neutral-500">
-                                      {formatCentsAsPHP(item.lineTotalCents)}
-                                    </td>
-                                    <td className="py-1 pr-4 text-right text-neutral-500">
-                                      cost{' '}
-                                      {formatCentsAsPHP(item.costCents)}
-                                    </td>
-                                    <td
-                                      className={`py-1 text-right font-medium ${
-                                        item.profitCents >= 0
-                                          ? 'text-emerald-600'
-                                          : 'text-red-600'
-                                      }`}
-                                    >
-                                      {formatCentsAsPHP(item.profitCents)}{' '}
-                                      profit
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-                      )}
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}
+                        >
+                          {new Date(order.placedAt).toLocaleDateString(
+                            'en-US',
+                            {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            },
+                          )}
+                        </td>
+                        <td className={tableCellClassName}>
+                          <StatusBadge status={order.status} kind="order" />
+                        </td>
+                        <td
+                          className={`${tableCellClassName} text-neutral-500`}
+                        >
+                          {SOURCE_LABELS[order.source]}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {formatCentsAsPHP(order.grossSalesCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {formatCentsAsPHP(order.netSalesCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {formatCentsAsPHP(order.costCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {formatCentsAsPHP(order.shippingCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {order.refundCents > 0
+                            ? formatCentsAsPHP(order.refundCents)
+                            : '—'}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} text-right font-medium ${
+                            order.profitCents >= 0
+                              ? 'text-emerald-600'
+                              : 'text-red-600'
+                          }`}
+                        >
+                          {formatCentsAsPHP(order.profitCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {order.marginPct !== null
+                            ? `${order.marginPct.toFixed(1)}%`
+                            : '—'}
+                        </td>
+                      </tr>
+                      {expandedOrderIds.has(order.id) &&
+                        order.items.length > 0 && (
+                          <tr className="border-b border-neutral-100 bg-neutral-50">
+                            <td colSpan={11} className="px-4 py-3">
+                              <table className="w-full">
+                                <tbody>
+                                  {order.items.map((item, index) => (
+                                    <tr key={index} className="text-xs">
+                                      <td className="py-1 pr-4 text-neutral-700">
+                                        {item.quantity}× {item.productName}
+                                        {item.variantLabel && (
+                                          <span className="text-neutral-400">
+                                            {' '}
+                                            · {item.variantLabel}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="py-1 pr-4 text-right text-neutral-500">
+                                        {formatCentsAsPHP(item.lineTotalCents)}
+                                      </td>
+                                      <td className="py-1 pr-4 text-right text-neutral-500">
+                                        cost {formatCentsAsPHP(item.costCents)}
+                                      </td>
+                                      <td
+                                        className={`py-1 text-right font-medium ${
+                                          item.profitCents >= 0
+                                            ? 'text-emerald-600'
+                                            : 'text-red-600'
+                                        }`}
+                                      >
+                                        {formatCentsAsPHP(item.profitCents)}{' '}
+                                        profit
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
                     </Fragment>
                   ))}
                 </tbody>

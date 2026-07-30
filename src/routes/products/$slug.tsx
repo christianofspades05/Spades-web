@@ -73,6 +73,7 @@ export const Route = createFileRoute('/products/$slug')({
 
 function ProductPage() {
   const { product, related, reviews } = Route.useLoaderData()
+  const { storefrontScope } = Route.useRouteContext()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { addItem, itemCount } = useCart()
   const { currency, rates, formatPriceWithMarkup: formatPrice } = useCurrency()
@@ -189,6 +190,7 @@ function ProductPage() {
           eventType: 'checkout_start',
           productId: product.id,
           metadata: { variantId: selectedVariant.id, quantity },
+          brand: storefrontScope.brand,
         },
       })
     } catch (err) {

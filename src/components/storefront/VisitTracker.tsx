@@ -4,14 +4,14 @@ import { recordVisit } from '#/server/analytics/track'
 import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
 
 /** Fires a page-view beacon on every route change so the admin Home dashboard can show real visitor/conversion-rate numbers. Renders nothing. */
-export function VisitTracker() {
+export function VisitTracker({ brand }: { brand: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   useEffect(() => {
     if (pathname.startsWith('/admin')) return
     const visitorId = getOrCreateVisitorId()
-    void recordVisit({ data: { visitorId, path: pathname } })
-  }, [pathname])
+    void recordVisit({ data: { visitorId, path: pathname, brand } })
+  }, [pathname, brand])
 
   return null
 }

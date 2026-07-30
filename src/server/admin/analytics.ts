@@ -106,6 +106,7 @@ async function computeChannelSales(
   from: string,
   to: string,
   channelFilter: OrderSource | undefined,
+  brandFilter: string | undefined,
 ): Promise<{
   channels: ChannelSales[]
   totals: ChannelSales
@@ -123,6 +124,7 @@ async function computeChannelSales(
       .lte('placed_at', rangeEnd)
       .range(offset, offset + 999)
     if (channelFilter) orderQuery = orderQuery.eq('source', channelFilter)
+    if (brandFilter) orderQuery = orderQuery.eq('brand', brandFilter)
     return orderQuery
   })
 
@@ -350,7 +352,10 @@ export interface CancelledReturnsResult {
   byChannelAndReason: {
     source: OrderSource
     total: number
-    byReason: { reason: OrderCancellationReason | 'unspecified'; count: number }[]
+    byReason: {
+      reason: OrderCancellationReason | 'unspecified'
+      count: number
+    }[]
   }[]
   returns: {
     totalCount: number
@@ -379,157 +384,154 @@ async function computeCancelledAndReturns(
     return query
   })
 
-    // A single-day range (e.g. "Today") gets bucketed by hour instead of by
-    // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
-    const isSingleDay = from === to
-    const bucketKey = (iso: string) =>
-      isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
+  // A single-day range (e.g. "Today") gets bucketed by hour instead of by
+  // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
+  const isSingleDay = from === to
+  const bucketKey = (iso: string) =>
+    isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
 
-    const dailyMap = new Map<string, number>()
-    if (isSingleDay) {
-      for (let hour = 0; hour < 24; hour++) {
-        dailyMap.set(`${from}T${String(hour).padStart(2, '0')}`, 0)
-      }
-    } else {
-      for (
-        const d = new Date(`${from}T00:00:00Z`);
-        d <= new Date(`${to}T00:00:00Z`);
-        d.setUTCDate(d.getUTCDate() + 1)
-      ) {
-        dailyMap.set(d.toISOString().slice(0, 10), 0)
-      }
+  const dailyMap = new Map<string, number>()
+  if (isSingleDay) {
+    for (let hour = 0; hour < 24; hour++) {
+      dailyMap.set(`${from}T${String(hour).padStart(2, '0')}`, 0)
     }
-    const byReasonMap = new Map<
-      OrderCancellationReason | 'unspecified',
-      number
-    >()
-    const byChannelMap = new Map<OrderSource, number>()
-    const byChannelAndReasonMap = new Map<
-      OrderSource,
-      Map<OrderCancellationReason | 'unspecified', number>
-    >()
-
-    let cancelledAmountCents = 0
-    let failedDeliveryAmountCents = 0
-    for (const order of cancelledOrders) {
-      if (order.cancelled_at) {
-        const key = bucketKey(order.cancelled_at)
-        dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1)
-      }
-      const reasonKey = order.cancellation_reason ?? 'unspecified'
-      byReasonMap.set(reasonKey, (byReasonMap.get(reasonKey) ?? 0) + 1)
-      byChannelMap.set(order.source, (byChannelMap.get(order.source) ?? 0) + 1)
-
-      const channelReasons = byChannelAndReasonMap.get(order.source) ?? new Map()
-      channelReasons.set(reasonKey, (channelReasons.get(reasonKey) ?? 0) + 1)
-      byChannelAndReasonMap.set(order.source, channelReasons)
-
-      cancelledAmountCents += order.total_cents
-      if (order.source === 'storefront' && reasonKey === 'failed_delivery') {
-        failedDeliveryAmountCents += order.total_cents
-      }
+  } else {
+    for (
+      const d = new Date(`${from}T00:00:00Z`);
+      d <= new Date(`${to}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1)
+    ) {
+      dailyMap.set(d.toISOString().slice(0, 10), 0)
     }
+  }
+  const byReasonMap = new Map<OrderCancellationReason | 'unspecified', number>()
+  const byChannelMap = new Map<OrderSource, number>()
+  const byChannelAndReasonMap = new Map<
+    OrderSource,
+    Map<OrderCancellationReason | 'unspecified', number>
+  >()
 
-    const returnsRaw = await fetchAllRows((offset) =>
-      admin
-        .from('returns')
-        .select('id, order_id, refund_amount_cents, requested_at')
-        .gte('requested_at', rangeStart)
-        .lte('requested_at', rangeEnd)
-        .range(offset, offset + 999),
-    )
+  let cancelledAmountCents = 0
+  let failedDeliveryAmountCents = 0
+  for (const order of cancelledOrders) {
+    if (order.cancelled_at) {
+      const key = bucketKey(order.cancelled_at)
+      dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1)
+    }
+    const reasonKey = order.cancellation_reason ?? 'unspecified'
+    byReasonMap.set(reasonKey, (byReasonMap.get(reasonKey) ?? 0) + 1)
+    byChannelMap.set(order.source, (byChannelMap.get(order.source) ?? 0) + 1)
 
-    const returnOrderIds = Array.from(new Set(returnsRaw.map((r) => r.order_id)))
-    const returnOrders =
-      returnOrderIds.length > 0
-        ? await fetchAllRows((offset) =>
-            admin
-              .from('orders')
-              .select('id, source')
-              .in('id', returnOrderIds)
-              .range(offset, offset + 999),
-          )
-        : []
-    const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
+    const channelReasons = byChannelAndReasonMap.get(order.source) ?? new Map()
+    channelReasons.set(reasonKey, (channelReasons.get(reasonKey) ?? 0) + 1)
+    byChannelAndReasonMap.set(order.source, channelReasons)
 
-    // Returns aren't tied to `orders.source` directly (see the join above),
-    // so the channel filter has to be applied after that lookup rather than
-    // as a query predicate.
-    const returns = channelFilter
-      ? returnsRaw.filter(
-          (r) => sourceByOrderId.get(r.order_id) === channelFilter,
+    cancelledAmountCents += order.total_cents
+    if (order.source === 'storefront' && reasonKey === 'failed_delivery') {
+      failedDeliveryAmountCents += order.total_cents
+    }
+  }
+
+  const returnsRaw = await fetchAllRows((offset) =>
+    admin
+      .from('returns')
+      .select('id, order_id, refund_amount_cents, requested_at')
+      .gte('requested_at', rangeStart)
+      .lte('requested_at', rangeEnd)
+      .range(offset, offset + 999),
+  )
+
+  const returnOrderIds = Array.from(new Set(returnsRaw.map((r) => r.order_id)))
+  const returnOrders =
+    returnOrderIds.length > 0
+      ? await fetchAllRows((offset) =>
+          admin
+            .from('orders')
+            .select('id, source')
+            .in('id', returnOrderIds)
+            .range(offset, offset + 999),
         )
-      : returnsRaw
+      : []
+  const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
 
-    const returnsByChannelMap = new Map<OrderSource, number>()
-    let totalRefundCents = 0
-    for (const ret of returns) {
-      totalRefundCents += ret.refund_amount_cents ?? 0
-      const source = sourceByOrderId.get(ret.order_id)
-      if (source) {
-        returnsByChannelMap.set(
-          source,
-          (returnsByChannelMap.get(source) ?? 0) + 1,
-        )
-      }
+  // Returns aren't tied to `orders.source` directly (see the join above),
+  // so the channel filter has to be applied after that lookup rather than
+  // as a query predicate.
+  const returns = channelFilter
+    ? returnsRaw.filter(
+        (r) => sourceByOrderId.get(r.order_id) === channelFilter,
+      )
+    : returnsRaw
+
+  const returnsByChannelMap = new Map<OrderSource, number>()
+  let totalRefundCents = 0
+  for (const ret of returns) {
+    totalRefundCents += ret.refund_amount_cents ?? 0
+    const source = sourceByOrderId.get(ret.order_id)
+    if (source) {
+      returnsByChannelMap.set(
+        source,
+        (returnsByChannelMap.get(source) ?? 0) + 1,
+      )
     }
+  }
 
-    // A storefront order cancelled for failed delivery and a TikTok/Shopee
-    // return are the same real-world event from the business's point of
-    // view — a parcel that didn't reach the buyer and came back — just
-    // recorded through two different mechanisms (a cancellation reason vs.
-    // a marketplace return sync). Combined here so the two don't read as
-    // unrelated numbers.
-    const failedDeliveryCount =
-      byChannelAndReasonMap.get('storefront')?.get('failed_delivery') ?? 0
-    const marketplaceReturnsCount =
-      (returnsByChannelMap.get('tiktok_shop') ?? 0) +
-      (returnsByChannelMap.get('shopee') ?? 0)
+  // A storefront order cancelled for failed delivery and a TikTok/Shopee
+  // return are the same real-world event from the business's point of
+  // view — a parcel that didn't reach the buyer and came back — just
+  // recorded through two different mechanisms (a cancellation reason vs.
+  // a marketplace return sync). Combined here so the two don't read as
+  // unrelated numbers.
+  const failedDeliveryCount =
+    byChannelAndReasonMap.get('storefront')?.get('failed_delivery') ?? 0
+  const marketplaceReturnsCount =
+    (returnsByChannelMap.get('tiktok_shop') ?? 0) +
+    (returnsByChannelMap.get('shopee') ?? 0)
 
-    return {
-      range: { from, to },
-      totalCancelled: cancelledOrders.length,
-      cancelledAmountCents,
-      failedDeliveryOrReturn: {
-        total: failedDeliveryCount + marketplaceReturnsCount,
-        failedDeliveryCount,
-        failedDeliveryAmountCents,
-        marketplaceReturnsCount,
-      },
-      daily: Array.from(dailyMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, count]) => ({
-          date: isSingleDay
-            ? new Date(`${key}:00:00`).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-              })
-            : key,
-          count,
-        })),
-      previousDaily: [],
-      byReason: Array.from(byReasonMap.entries())
-        .map(([reason, count]) => ({ reason, count }))
-        .sort((a, b) => b.count - a.count),
-      byChannel: Array.from(byChannelMap.entries())
+  return {
+    range: { from, to },
+    totalCancelled: cancelledOrders.length,
+    cancelledAmountCents,
+    failedDeliveryOrReturn: {
+      total: failedDeliveryCount + marketplaceReturnsCount,
+      failedDeliveryCount,
+      failedDeliveryAmountCents,
+      marketplaceReturnsCount,
+    },
+    daily: Array.from(dailyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, count]) => ({
+        date: isSingleDay
+          ? new Date(`${key}:00:00`).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+            })
+          : key,
+        count,
+      })),
+    previousDaily: [],
+    byReason: Array.from(byReasonMap.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count),
+    byChannel: Array.from(byChannelMap.entries())
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count),
+    byChannelAndReason: Array.from(byChannelAndReasonMap.entries())
+      .map(([source, reasonMap]) => ({
+        source,
+        total: Array.from(reasonMap.values()).reduce((a, b) => a + b, 0),
+        byReason: Array.from(reasonMap.entries())
+          .map(([reason, count]) => ({ reason, count }))
+          .sort((a, b) => b.count - a.count),
+      }))
+      .sort((a, b) => b.total - a.total),
+    returns: {
+      totalCount: returns.length,
+      totalRefundCents,
+      byChannel: Array.from(returnsByChannelMap.entries())
         .map(([source, count]) => ({ source, count }))
         .sort((a, b) => b.count - a.count),
-      byChannelAndReason: Array.from(byChannelAndReasonMap.entries())
-        .map(([source, reasonMap]) => ({
-          source,
-          total: Array.from(reasonMap.values()).reduce((a, b) => a + b, 0),
-          byReason: Array.from(reasonMap.entries())
-            .map(([reason, count]) => ({ reason, count }))
-            .sort((a, b) => b.count - a.count),
-        }))
-        .sort((a, b) => b.total - a.total),
-      returns: {
-        totalCount: returns.length,
-        totalRefundCents,
-        byChannel: Array.from(returnsByChannelMap.entries())
-          .map(([source, count]) => ({ source, count }))
-          .sort((a, b) => b.count - a.count),
-      },
-    }
+    },
+  }
 }
 
 export const getCancelledAndReturns = createServerFn({ method: 'GET' })
@@ -577,6 +579,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
       channel: z
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
+      brand: z.string().optional(),
       comparePrevious: z.boolean().default(false),
     }),
   )
@@ -589,6 +592,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
       data.from,
       data.to,
       data.channel,
+      data.brand,
     )
 
     let previous: SalesByChannelResult['previous'] = null
@@ -599,6 +603,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
         prev.from,
         prev.to,
         data.channel,
+        data.brand,
       )
       previous = {
         channels: prevResult.channels,
@@ -650,6 +655,7 @@ async function computeSalesAnalytics(
   from: string,
   to: string,
   channelFilter: OrderSource | undefined,
+  brandFilter: string | undefined,
 ): Promise<{
   totals: SalesAnalyticsTotals
   daily: SalesAnalyticsDailyPoint[]
@@ -666,6 +672,7 @@ async function computeSalesAnalytics(
       .lte('placed_at', rangeEnd)
       .range(offset, offset + 999)
     if (channelFilter) query = query.eq('source', channelFilter)
+    if (brandFilter) query = query.eq('brand', brandFilter)
     return query
   })
 
@@ -705,6 +712,7 @@ async function computeSalesAnalytics(
       .lte('cancelled_at', rangeEnd)
       .range(offset, offset + 999)
     if (channelFilter) query = query.eq('source', channelFilter)
+    if (brandFilter) query = query.eq('brand', brandFilter)
     return query
   })
   const cancelledOrderCount = cancelledOrders.length
@@ -716,7 +724,8 @@ async function computeSalesAnalytics(
     0,
   )
   const failedDeliveryOrders = cancelledOrders.filter(
-    (o) => o.source === 'storefront' && o.cancellation_reason === 'failed_delivery',
+    (o) =>
+      o.source === 'storefront' && o.cancellation_reason === 'failed_delivery',
   )
   const failedDeliveryCount = failedDeliveryOrders.length
   const failedDeliveryAmountCents = failedDeliveryOrders.reduce(
@@ -758,20 +767,19 @@ async function computeSalesAnalytics(
     const grossCents = grossSalesCentsForOrder(order)
     bucket.grossSalesCents += grossCents
     bucket.netSalesCents +=
-      grossCents -
-      order.discount_cents -
-      (refundByOrderId.get(order.id) ?? 0)
+      grossCents - order.discount_cents - (refundByOrderId.get(order.id) ?? 0)
     bucket.orderCount += 1
   }
-  const daily: SalesAnalyticsDailyPoint[] = Array.from(
-    dailyMap.entries(),
-  ).map(([date, b]) => ({
-    date,
-    grossSalesCents: b.grossSalesCents,
-    netSalesCents: b.netSalesCents,
-    orderCount: b.orderCount,
-    aovCents: b.orderCount > 0 ? Math.round(b.netSalesCents / b.orderCount) : 0,
-  }))
+  const daily: SalesAnalyticsDailyPoint[] = Array.from(dailyMap.entries()).map(
+    ([date, b]) => ({
+      date,
+      grossSalesCents: b.grossSalesCents,
+      netSalesCents: b.netSalesCents,
+      orderCount: b.orderCount,
+      aovCents:
+        b.orderCount > 0 ? Math.round(b.netSalesCents / b.orderCount) : 0,
+    }),
+  )
 
   return {
     totals: {
@@ -815,13 +823,14 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
       channel: z
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
+      brand: z.string().optional(),
       comparePrevious: z.boolean().default(false),
     }),
   )
   .handler(async ({ data }): Promise<SalesAnalyticsResult> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.comparePrevious}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.comparePrevious}`
     const cached = salesAnalyticsCache.get(cacheKey)
     if (cached) return cached
 
@@ -832,6 +841,7 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
       data.from,
       data.to,
       data.channel,
+      data.brand,
     )
 
     let previousTotals: SalesAnalyticsTotals | null = null
@@ -843,6 +853,7 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
         prev.from,
         prev.to,
         data.channel,
+        data.brand,
       )
       previousTotals = prevResult.totals
       previousDaily = prevResult.daily
@@ -890,12 +901,13 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       channel: z
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
+      brand: z.string().optional(),
     }),
   )
   .handler(async ({ data }): Promise<ProductProfitRow[]> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}`
     const cached = productProfitCache.get(cacheKey)
     if (cached) return cached
 
@@ -914,6 +926,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         .lte('placed_at', rangeEnd)
         .range(offset, offset + 999)
       if (data.channel) query = query.eq('source', data.channel)
+      if (data.brand) query = query.eq('brand', data.brand)
       return query
     })
     const liveOrderIds = orders
@@ -929,7 +942,9 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         fetchAllRows((offset) =>
           admin
             .from('order_items')
-            .select('variant_id, product_name_snapshot, quantity, line_total_cents')
+            .select(
+              'variant_id, product_name_snapshot, quantity, line_total_cents',
+            )
             .in('order_id', ids)
             .range(offset, offset + 999),
         ),
@@ -982,7 +997,9 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     }
     const buckets = new Map<string, Bucket>()
     for (const item of items) {
-      const variant = item.variant_id ? variantById.get(item.variant_id) : undefined
+      const variant = item.variant_id
+        ? variantById.get(item.variant_id)
+        : undefined
       const productId = variant?.product_id ?? null
       // Line items with no variant (e.g. a manual price adjustment) get
       // grouped by their own snapshot name instead of a shared product.
@@ -1079,6 +1096,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       channel: z
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
+      brand: z.string().optional(),
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(1).max(100).default(25),
     }),
@@ -1102,6 +1120,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       .lte('placed_at', rangeEnd)
       .order('placed_at', { ascending: false })
     if (data.channel) query = query.eq('source', data.channel)
+    if (data.brand) query = query.eq('brand', data.brand)
 
     const offset = (data.page - 1) * data.pageSize
     query = query.range(offset, offset + data.pageSize - 1)
@@ -1139,7 +1158,10 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
     const refundByOrderId = new Map<string, number>()
     for (const ret of returnsRes.data) {
       const current = refundByOrderId.get(ret.order_id) ?? 0
-      refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
+      refundByOrderId.set(
+        ret.order_id,
+        current + (ret.refund_amount_cents ?? 0),
+      )
     }
 
     const variantIds = Array.from(
@@ -1260,12 +1282,13 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
       channel: z
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
+      brand: z.string().optional(),
     }),
   )
   .handler(async ({ data }): Promise<LocationSalesRow[]> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}`
     const cached = locationSalesCache.get(cacheKey)
     if (cached) return cached
 
@@ -1285,6 +1308,7 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
         .lte('placed_at', rangeEnd)
         .range(offset, offset + 999)
       if (data.channel) query = query.eq('source', data.channel)
+      if (data.brand) query = query.eq('brand', data.brand)
       return query
     })
     const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
@@ -1295,7 +1319,12 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
     // "Unknown" location that would otherwise dominate the ranking.
     const buckets = new Map<
       string,
-      { city: string; province: string | null; orderCount: number; grossSalesCents: number }
+      {
+        city: string
+        province: string | null
+        orderCount: number
+        grossSalesCents: number
+      }
     >()
     for (const order of liveOrders) {
       const address = order.shipping_address

@@ -119,7 +119,13 @@ export interface DashboardAnalytics {
 }
 
 export const getDashboardAnalytics = createServerFn({ method: 'GET' })
-  .validator(z.object({ from: z.string(), to: z.string() }))
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.string().optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<DashboardAnalytics> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
@@ -136,40 +142,48 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
 
     const [currentOrders, previousOrders, currentVisits, previousVisits] =
       await Promise.all([
-        fetchAllRows((offset) =>
-          admin
+        fetchAllRows((offset) => {
+          let query = admin
             .from('orders')
             .select('placed_at, total_cents, status, source')
             .gte('placed_at', rangeStart)
             .lte('placed_at', rangeEnd)
-            .range(offset, offset + 999),
-        ),
-        fetchAllRows((offset) =>
-          admin
+            .range(offset, offset + 999)
+          if (data.brand) query = query.eq('brand', data.brand)
+          return query
+        }),
+        fetchAllRows((offset) => {
+          let query = admin
             .from('orders')
             .select('placed_at, total_cents, status, source')
             .gte('placed_at', prevStart)
             .lte('placed_at', prevEnd)
-            .range(offset, offset + 999),
-        ),
-        fetchAllRows((offset) =>
-          admin
+            .range(offset, offset + 999)
+          if (data.brand) query = query.eq('brand', data.brand)
+          return query
+        }),
+        fetchAllRows((offset) => {
+          let query = admin
             .from('storefront_visits')
             .select('visitor_id, created_at')
             .eq('event_type', 'page_view')
             .gte('created_at', rangeStart)
             .lte('created_at', rangeEnd)
-            .range(offset, offset + 999),
-        ),
-        fetchAllRows((offset) =>
-          admin
+            .range(offset, offset + 999)
+          if (data.brand) query = query.eq('brand', data.brand)
+          return query
+        }),
+        fetchAllRows((offset) => {
+          let query = admin
             .from('storefront_visits')
             .select('visitor_id, created_at')
             .eq('event_type', 'page_view')
             .gte('created_at', prevStart)
             .lte('created_at', prevEnd)
-            .range(offset, offset + 999),
-        ),
+            .range(offset, offset + 999)
+          if (data.brand) query = query.eq('brand', data.brand)
+          return query
+        }),
       ])
 
     // A single-day range (e.g. "Today") gets bucketed by hour instead of by
