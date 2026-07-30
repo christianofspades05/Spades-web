@@ -25,6 +25,7 @@ const REASON_LABELS: Record<OrderCancellationReason | 'unspecified', string> = {
   customer_request: 'Customer Request',
   out_of_stock: 'Out of Stock',
   platform_cancelled: 'Cancelled on Marketplace',
+  payment_expired: 'Payment Never Completed',
   unspecified: 'Unspecified',
 }
 
@@ -62,7 +63,11 @@ export const Route = createFileRoute('/admin/analytics/cancelled-returns')({
       to: deps.to,
     })
     return getCancelledAndReturns({
-      data: { ...resolved, channel: deps.channel, comparePrevious: deps.compare },
+      data: {
+        ...resolved,
+        channel: deps.channel,
+        comparePrevious: deps.compare,
+      },
     })
   },
   component: CancelledReturnsPage,
@@ -184,8 +189,8 @@ function CancelledReturnsPage() {
             {result.failedDeliveryOrReturn.total}
           </p>
           <p className="mt-0.5 text-xs text-neutral-400">
-            {result.failedDeliveryOrReturn.failedDeliveryCount} online store
-            + {result.failedDeliveryOrReturn.marketplaceReturnsCount}{' '}
+            {result.failedDeliveryOrReturn.failedDeliveryCount} online store +{' '}
+            {result.failedDeliveryOrReturn.marketplaceReturnsCount}{' '}
             TikTok/Shopee
           </p>
         </Card>

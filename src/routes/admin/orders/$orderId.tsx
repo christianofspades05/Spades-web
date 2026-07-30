@@ -49,6 +49,7 @@ const ALL_CANCELLATION_REASON_LABELS: Record<OrderCancellationReason, string> =
     customer_request: 'Customer Request',
     out_of_stock: 'Out of Stock',
     platform_cancelled: 'Cancelled on Marketplace',
+    payment_expired: 'Payment Never Completed',
   }
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
@@ -144,6 +145,14 @@ function OrderDetailPage() {
   const fullAddress = formatShippingAddress(address)
   const itemsCopyText = formatOrderItemsForCopy(order.order_items)
   const isCancelled = order.status === 'cancelled'
+  // Distinguishes an online (Xendit) order still awaiting payment
+  // confirmation from a COD order, which is *supposed* to sit at
+  // pending_payment until delivery — both share the same status, so
+  // without this check fulfillment could mistake an unpaid online order
+  // for one that's just awaiting COD collection. See
+  // api/cron/expire-unpaid-orders.ts, which auto-cancels this after 60
+  // minutes if payment never completes.
+  const isUnpaidOnline = order.status === 'pending_payment' && !order.is_cod
 
   const touchStart = useRef({ x: 0, y: 0 })
   function handleTouchStart(e: React.TouchEvent) {
@@ -239,6 +248,14 @@ function OrderDetailPage() {
                 : `${SOURCE_LABELS[order.source]} says: "${order.cancellation_detail}"`}
             </span>
           )}
+        </div>
+      )}
+
+      {isUnpaidOnline && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          Payment not yet confirmed — do not ship. This order will auto-cancel
+          and release its reserved stock if payment isn't completed within an
+          hour of being placed.
         </div>
       )}
 

@@ -80,9 +80,11 @@ function bucketPeriod(
     if (idx === undefined) continue
     const point = points[idx]
     const isVoid = VOID_STATUSES.has(order.status)
-    point.orders += 1
-    if (!isVoid) point.salesCents += order.total_cents
-    if (order.source === 'storefront') point.storefrontOrders += 1
+    if (!isVoid) {
+      point.orders += 1
+      point.salesCents += order.total_cents
+      if (order.source === 'storefront') point.storefrontOrders += 1
+    }
   }
 
   for (const visit of visits) {
@@ -241,18 +243,26 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       previousVisits.map((v) => v.visitor_id),
     )
 
-    const ordersCount = currentOrders.length
-    const previousOrdersCount = previousOrders.length
+    // Excludes cancelled/failed orders — an abandoned online-payment
+    // checkout (never actually paid; see api/cron/expire-unpaid-orders.ts)
+    // shouldn't count as a real order any more than it should count as a
+    // sale.
+    const ordersCount = currentOrders.filter(
+      (o) => !VOID_STATUSES.has(o.status),
+    ).length
+    const previousOrdersCount = previousOrders.filter(
+      (o) => !VOID_STATUSES.has(o.status),
+    ).length
 
     // Conversion rate is an online-store-only metric: storefront visits
     // vs. storefront purchases. Orders placed on TikTok/Shopee/Lazada never
     // came through a storefront page view, so counting them here would
     // inflate the rate against a denominator that can't see them.
     const storefrontOrdersCount = currentOrders.filter(
-      (o) => o.source === 'storefront',
+      (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
     ).length
     const previousStorefrontOrdersCount = previousOrders.filter(
-      (o) => o.source === 'storefront',
+      (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
     ).length
     const conversionRate =
       uniqueVisitors.size > 0

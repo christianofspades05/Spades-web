@@ -62,18 +62,26 @@ export const Route = createRootRoute({
       {
         rel: 'icon',
         type: 'image/png',
-        sizes: '32x32',
-        href: '/favicon-32.png',
+        href: match.context.storefrontScope.faviconUrl,
       },
-      {
-        rel: 'icon',
-        href: '/favicon.ico',
-      },
-      {
-        rel: 'apple-touch-icon',
-        sizes: '180x180',
-        href: '/apple-touch-icon.png',
-      },
+      // Spades has dedicated, properly-sized icon assets; Ysrael/Aspire 365
+      // fall back to their logo file (see StorefrontScope.faviconUrl) until
+      // they get their own square favicon/apple-touch-icon.
+      ...(match.context.storefrontScope.brand === 'spades'
+        ? [
+            { rel: 'icon', href: '/favicon.ico' },
+            {
+              rel: 'apple-touch-icon',
+              sizes: '180x180',
+              href: '/apple-touch-icon.png',
+            },
+          ]
+        : [
+            {
+              rel: 'apple-touch-icon',
+              href: match.context.storefrontScope.faviconUrl,
+            },
+          ]),
       {
         rel: 'manifest',
         href: '/manifest.json',

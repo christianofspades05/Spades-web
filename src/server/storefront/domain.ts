@@ -34,6 +34,10 @@ export interface StorefrontScope {
   tagline: string
   logoLight: string
   logoDark: string
+  /** Browser-tab icon and iOS home-screen icon — falls back to the brand's
+   *  own logo file where there's no dedicated square favicon asset yet
+   *  (only Spades has one today). */
+  faviconUrl: string
   colorHex: string
   colorDarkHex: string
   /** Text color class for the promo banner, which sits on a solid
@@ -90,6 +94,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: 'Philippine streetwear for those who bet on themselves.',
     logoLight: '/logo-black.png',
     logoDark: '/logo-white.png',
+    faviconUrl: '/favicon-32.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
     promoBannerTextClassName: 'text-white',
@@ -116,6 +121,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: '',
     logoLight: '/ysrael-logo-black.png',
     logoDark: '/ysrael-logo-white.png',
+    faviconUrl: '/ysrael-logo-black.png',
     colorHex: '#f5e401',
     colorDarkHex: '#d4c400',
     promoBannerTextClassName: 'text-neutral-900',
@@ -140,6 +146,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: '',
     logoLight: '/aspire365-logo-black.png',
     logoDark: '/aspire365-logo-white.png',
+    faviconUrl: '/aspire365-logo-black.png',
     colorHex: '#e11d2e',
     colorDarkHex: '#b3131f',
     promoBannerTextClassName: 'text-white',

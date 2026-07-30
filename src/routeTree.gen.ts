@@ -51,6 +51,7 @@ import { Route as ApiCronSyncExchangeRatesRouteImport } from './routes/api/cron/
 import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
 import { Route as ApiCronReviewRequestsRouteImport } from './routes/api/cron/review-requests'
+import { Route as ApiCronExpireUnpaidOrdersRouteImport } from './routes/api/cron/expire-unpaid-orders'
 import { Route as ApiCronBirthdayRouteImport } from './routes/api/cron/birthday'
 import { Route as ApiCronAbandonedCartRouteImport } from './routes/api/cron/abandoned-cart'
 import { Route as AdminProductsNewRouteImport } from './routes/admin/products/new'
@@ -290,6 +291,12 @@ const ApiCronReviewRequestsRoute = ApiCronReviewRequestsRouteImport.update({
   path: '/api/cron/review-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronExpireUnpaidOrdersRoute =
+  ApiCronExpireUnpaidOrdersRouteImport.update({
+    id: '/api/cron/expire-unpaid-orders',
+    path: '/api/cron/expire-unpaid-orders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCronBirthdayRoute = ApiCronBirthdayRouteImport.update({
   id: '/api/cron/birthday',
   path: '/api/cron/birthday',
@@ -467,6 +474,7 @@ export interface FileRoutesByFullPath {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/birthday': typeof ApiCronBirthdayRoute
+  '/api/cron/expire-unpaid-orders': typeof ApiCronExpireUnpaidOrdersRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
@@ -534,6 +542,7 @@ export interface FileRoutesByTo {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/birthday': typeof ApiCronBirthdayRoute
+  '/api/cron/expire-unpaid-orders': typeof ApiCronExpireUnpaidOrdersRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
@@ -604,6 +613,7 @@ export interface FileRoutesById {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/api/cron/abandoned-cart': typeof ApiCronAbandonedCartRoute
   '/api/cron/birthday': typeof ApiCronBirthdayRoute
+  '/api/cron/expire-unpaid-orders': typeof ApiCronExpireUnpaidOrdersRoute
   '/api/cron/review-requests': typeof ApiCronReviewRequestsRoute
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
@@ -675,6 +685,7 @@ export interface FileRouteTypes {
     | '/admin/products/new'
     | '/api/cron/abandoned-cart'
     | '/api/cron/birthday'
+    | '/api/cron/expire-unpaid-orders'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
@@ -742,6 +753,7 @@ export interface FileRouteTypes {
     | '/admin/products/new'
     | '/api/cron/abandoned-cart'
     | '/api/cron/birthday'
+    | '/api/cron/expire-unpaid-orders'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
@@ -811,6 +823,7 @@ export interface FileRouteTypes {
     | '/admin/products/new'
     | '/api/cron/abandoned-cart'
     | '/api/cron/birthday'
+    | '/api/cron/expire-unpaid-orders'
     | '/api/cron/review-requests'
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
@@ -859,6 +872,7 @@ export interface RootRouteChildren {
   ReviewsIndexRoute: typeof ReviewsIndexRoute
   ApiCronAbandonedCartRoute: typeof ApiCronAbandonedCartRoute
   ApiCronBirthdayRoute: typeof ApiCronBirthdayRoute
+  ApiCronExpireUnpaidOrdersRoute: typeof ApiCronExpireUnpaidOrdersRoute
   ApiCronReviewRequestsRoute: typeof ApiCronReviewRequestsRoute
   ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
@@ -1168,6 +1182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronReviewRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/expire-unpaid-orders': {
+      id: '/api/cron/expire-unpaid-orders'
+      path: '/api/cron/expire-unpaid-orders'
+      fullPath: '/api/cron/expire-unpaid-orders'
+      preLoaderRoute: typeof ApiCronExpireUnpaidOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/birthday': {
       id: '/api/cron/birthday'
       path: '/api/cron/birthday'
@@ -1456,6 +1477,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReviewsIndexRoute: ReviewsIndexRoute,
   ApiCronAbandonedCartRoute: ApiCronAbandonedCartRoute,
   ApiCronBirthdayRoute: ApiCronBirthdayRoute,
+  ApiCronExpireUnpaidOrdersRoute: ApiCronExpireUnpaidOrdersRoute,
   ApiCronReviewRequestsRoute: ApiCronReviewRequestsRoute,
   ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
