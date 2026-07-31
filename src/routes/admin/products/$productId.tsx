@@ -56,6 +56,7 @@ const PRODUCT_TYPES = [
   'other',
 ] as const
 const PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const
+const MAX_PRODUCT_IMAGES = 10
 
 const FORM_ID = 'product-edit-form'
 
@@ -127,6 +128,10 @@ function EditProductPage() {
   function addImage() {
     const url = newImageUrl.trim()
     if (!url) return
+    if (form.images.length >= MAX_PRODUCT_IMAGES) {
+      setError(`A product can have at most ${MAX_PRODUCT_IMAGES} images.`)
+      return
+    }
     setForm({ ...form, images: [...form.images, url] })
     setNewImageUrl('')
   }
@@ -150,7 +155,10 @@ function EditProductPage() {
     if (files.length === 0) return
 
     const tooLarge = files.filter((f) => f.size > 8 * 1024 * 1024)
-    const toUpload = files.filter((f) => f.size <= 8 * 1024 * 1024)
+    const withinSizeLimit = files.filter((f) => f.size <= 8 * 1024 * 1024)
+    const remainingSlots = Math.max(0, MAX_PRODUCT_IMAGES - form.images.length)
+    const toUpload = withinSizeLimit.slice(0, remainingSlots)
+    const overLimit = withinSizeLimit.slice(remainingSlots)
 
     setUploading(true)
     setError(null)
@@ -177,13 +185,18 @@ function EditProductPage() {
     if (uploaded.length > 0) {
       setForm({ ...form, images: [...form.images, ...uploaded] })
     }
-    if (tooLarge.length > 0 || failedCount > 0) {
+    if (tooLarge.length > 0 || overLimit.length > 0 || failedCount > 0) {
       const parts: string[] = []
       if (tooLarge.length > 0) {
         parts.push(
           `${tooLarge.length} image${tooLarge.length === 1 ? '' : 's'} over 8MB (${tooLarge
             .map((f) => f.name)
             .join(', ')})`,
+        )
+      }
+      if (overLimit.length > 0) {
+        parts.push(
+          `${overLimit.length} image${overLimit.length === 1 ? '' : 's'} skipped — a product can have at most ${MAX_PRODUCT_IMAGES} images`,
         )
       }
       if (failedCount > 0) {
@@ -315,7 +328,10 @@ function EditProductPage() {
 
             <Card className="p-6">
               <p className="mb-3 text-sm font-semibold text-neutral-900">
-                Media
+                Media{' '}
+                <span className="font-normal text-neutral-400">
+                  ({form.images.length}/{MAX_PRODUCT_IMAGES})
+                </span>
               </p>
               <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
                 {form.images.map((src, index) => (
@@ -345,37 +361,46 @@ function EditProductPage() {
                   </div>
                 ))}
               </div>
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={newImageUrl}
-                  onChange={(e) => setNewImageUrl(e.target.value)}
-                  placeholder="Image URL"
-                  className={`${inputClassName} flex-1`}
-                />
-                <button
-                  type="button"
-                  onClick={addImage}
-                  className={buttonSecondaryClassName}
-                >
-                  Add
-                </button>
-              </div>
-              <div className="mt-2">
-                <label
-                  className={`${buttonSecondaryClassName} w-fit cursor-pointer`}
-                >
-                  <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
-                  {uploading ? 'Uploading…' : 'Upload from computer'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileSelect}
-                    disabled={uploading}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              {form.images.length < MAX_PRODUCT_IMAGES ? (
+                <>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={newImageUrl}
+                      onChange={(e) => setNewImageUrl(e.target.value)}
+                      placeholder="Image URL"
+                      className={`${inputClassName} flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={addImage}
+                      className={buttonSecondaryClassName}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <div className="mt-2">
+                    <label
+                      className={`${buttonSecondaryClassName} w-fit cursor-pointer`}
+                    >
+                      <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
+                      {uploading ? 'Uploading…' : 'Upload from computer'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileSelect}
+                        disabled={uploading}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-neutral-400">
+                  Maximum of {MAX_PRODUCT_IMAGES} images reached — remove one to
+                  add another.
+                </p>
+              )}
             </Card>
           </div>
 
