@@ -586,7 +586,10 @@ function OrdersPage() {
                           onChange={() => toggleOne(order.id)}
                         />
                       </td>
-                      <td className={tableCellClassName}>
+                      <td
+                        className={tableCellClassName}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <Link
                           to="/admin/orders/$orderId"
                           params={{ orderId: order.id }}
