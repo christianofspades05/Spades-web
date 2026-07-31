@@ -25,6 +25,12 @@ export interface SendEmailInput {
   to: string
   subject: string
   html: string
+  /** Overrides RESEND_FROM_EMAIL for this one send — each automation cron
+   *  resolves its own optional category-specific env var (e.g.
+   *  RESEND_FROM_EMAIL_ABANDONED_CART) and passes it here, falling back to
+   *  undefined (this function's own RESEND_FROM_EMAIL default) when that
+   *  category has no override configured. */
+  from?: string
 }
 
 export async function sendEmail(input: SendEmailInput): Promise<void> {
@@ -35,7 +41,7 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
   }
 
   const apiKey = requireEnv('RESEND_API_KEY')
-  const from = requireEnv('RESEND_FROM_EMAIL')
+  const from = input.from ?? requireEnv('RESEND_FROM_EMAIL')
 
   const res = await fetch(`${RESEND_API_BASE}/emails`, {
     method: 'POST',

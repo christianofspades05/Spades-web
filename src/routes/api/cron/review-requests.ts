@@ -182,6 +182,7 @@ export const Route = createFileRoute('/api/cron/review-requests')({
             await sendEmail({
               to: address.email,
               subject: automation.subject,
+              from: process.env.RESEND_FROM_EMAIL_REVIEWS,
               html: renderEmailBlocks(automation.blocks, {
                 itemsHtml: renderItemsTable(Array.from(productsById.values())),
                 placeholders: {

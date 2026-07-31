@@ -42,6 +42,7 @@ export const sendWelcomeEmailIfDue = createServerFn({ method: 'POST' }).handler(
     await sendEmail({
       to: customer.email,
       subject: automation.subject,
+      from: process.env.RESEND_FROM_EMAIL_WELCOME,
       html: renderEmailBlocks(automation.blocks, {
         placeholders: {
           customerFirstName:

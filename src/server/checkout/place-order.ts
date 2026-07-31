@@ -399,6 +399,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         void sendEmail({
           to: storeOwnerEmail,
           subject: newOrderEmailSubject(order.order_number),
+          from: process.env.RESEND_FROM_EMAIL_ORDERS,
           html: newOrderEmailHtml({
             orderNumber: order.order_number,
             customerName: data.contact.recipientName,

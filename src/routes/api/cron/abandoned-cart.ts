@@ -306,6 +306,7 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
               await sendEmail({
                 to: cart.email,
                 subject: automation.subject,
+                from: process.env.RESEND_FROM_EMAIL_ABANDONED_CART,
                 html: renderEmailBlocks(automation.blocks, {
                   itemsHtml: renderItemsTable(lineItems),
                   placeholders: {
