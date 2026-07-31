@@ -127,6 +127,14 @@ function EmailAutomationEditorPage() {
               code: `${selectedDiscount.code ?? 'CODE'}-A1B2C3`,
               type: selectedDiscount.type,
               value: selectedDiscount.value,
+              // Only abandoned-cart codes ever actually expire (see
+              // mint-discount.ts's expiresInDays) — sample a 3-day-out
+              // date here so the preview matches a real send, but only
+              // for the one event type that's ever true for.
+              endsAt:
+                automation.event_type === 'abandoned_cart'
+                  ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+                  : null,
             }
           : null,
         unsubscribeUrl: '#',

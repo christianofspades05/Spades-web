@@ -25,6 +25,10 @@ export interface EmailDiscountInfo {
   code: string | null
   type: DiscountType
   value: number
+  /** ISO timestamp, when the code expires — only abandoned-cart codes
+   *  currently set this (see mint-discount.ts's expiresInDays option);
+   *  every other automation's code has no expiry and this is null. */
+  endsAt?: string | null
 }
 
 export interface EmailRenderContext {
@@ -63,6 +67,16 @@ function discountLabel(discount: EmailDiscountInfo): string {
   return discount.code ? `${value} — use code ${discount.code}` : value
 }
 
+function discountExpiryText(discount: EmailDiscountInfo): string | null {
+  if (!discount.endsAt) return null
+  const formatted = new Date(discount.endsAt).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  return `Expires ${formatted}`
+}
+
 function renderBlock(block: EmailBlock, context: EmailRenderContext): string {
   switch (block.type) {
     case 'header_image':
@@ -93,10 +107,14 @@ function renderBlock(block: EmailBlock, context: EmailRenderContext): string {
       )
       return `<a href="${escapeHtml(url)}" style="display: inline-block; background: #0a0a0a; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 999px; margin: 8px 0;">${escapeHtml(block.buttonLabel)}</a>`
     }
-    case 'discount_code':
-      return context.discount
-        ? `<p style="font-size: 14px; font-weight: 600; color: #171717; background: #f5f5f5; border-radius: 8px; padding: 12px 16px; text-align: center;">${escapeHtml(discountLabel(context.discount))}</p>`
-        : ''
+    case 'discount_code': {
+      if (!context.discount) return ''
+      const expiry = discountExpiryText(context.discount)
+      return `<div style="background: #f5f5f5; border-radius: 8px; padding: 12px 16px; text-align: center;">
+        <p style="margin: 0; font-size: 14px; font-weight: 600; color: #171717;">${escapeHtml(discountLabel(context.discount))}</p>
+        ${expiry ? `<p style="margin: 4px 0 0; font-size: 12px; color: #737373;">${escapeHtml(expiry)}</p>` : ''}
+      </div>`
+    }
     case 'cart_items':
     case 'order_items':
       return context.itemsHtml ?? ''

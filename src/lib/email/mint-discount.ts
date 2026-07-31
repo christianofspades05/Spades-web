@@ -24,6 +24,7 @@ export interface MintedDiscount {
   code: string
   type: 'percentage' | 'fixed_amount' | 'free_shipping'
   value: number
+  endsAt: string | null
 }
 
 function randomCodeSuffix(): string {
@@ -71,7 +72,7 @@ export async function mintPerRecipientDiscount(
       email_automation_id: automationId,
       ends_at: endsAt,
     })
-    .select('id, code, type, value')
+    .select('id, code, type, value, ends_at')
     .single()
   if (insertError) throw insertError
   // discounts.code is nullable at the schema level (an 'automatic' kind
@@ -81,5 +82,5 @@ export async function mintPerRecipientDiscount(
   if (!minted.code) {
     throw new Error('Minted discount was inserted without a code')
   }
-  return { ...minted, code: minted.code }
+  return { ...minted, code: minted.code, endsAt: minted.ends_at }
 }

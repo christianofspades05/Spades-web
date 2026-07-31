@@ -273,13 +273,17 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
                 if (cart.abandoned_cart_discount_id) {
                   const { data: existing, error: existingError } = await admin
                     .from('discounts')
-                    .select('id, code, type, value')
+                    .select('id, code, type, value, ends_at')
                     .eq('id', cart.abandoned_cart_discount_id)
                     .maybeSingle()
                   if (existingError) throw existingError
                   discount =
                     existing && existing.code
-                      ? { ...existing, code: existing.code }
+                      ? {
+                          ...existing,
+                          code: existing.code,
+                          endsAt: existing.ends_at,
+                        }
                       : null
                 }
                 if (!discount) {
