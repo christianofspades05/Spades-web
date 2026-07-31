@@ -394,6 +394,7 @@ export interface Database {
           email: string | null
           recovery_token: string | null
           unsubscribe_token: string | null
+          abandoned_cart_discount_id: string | null
           created_at: string
           updated_at: string
           expires_at: string | null

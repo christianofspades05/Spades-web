@@ -19,6 +19,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { randomBytes } from 'node:crypto'
 import { renderEmailBlocks } from '#/lib/email/blocks'
 import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
+import type { MintedDiscount } from '#/lib/email/mint-discount'
 import { logEmailSend } from '#/lib/email/log-send'
 
 // getSupabaseAdminClient and sendEmail are imported dynamically inside the
@@ -153,7 +154,7 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
           const { data: carts, error: cartsError } = await admin
             .from('carts')
             .select(
-              'id, session_token, email, updated_at, recovery_token, unsubscribe_token',
+              'id, session_token, email, updated_at, recovery_token, unsubscribe_token, abandoned_cart_discount_id',
             )
             .eq('status', 'active')
             .not('email', 'is', null)
@@ -256,15 +257,47 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
               const recoveryToken = cart.recovery_token ?? generateToken()
               const unsubscribeToken = cart.unsubscribe_token ?? generateToken()
 
-              // Freshly minted per recipient, never the template's own code
-              // — see mint-discount.ts's doc comment for why.
-              const discount = automation.discount_id
-                ? await mintPerRecipientDiscount(
+              // Reused across every later step of the sequence that also
+              // has a discount configured — a 24h and 48h email are the
+              // same "flow" from the customer's perspective, so they get
+              // shown the same code, not a fresh one each time (which
+              // would also silently orphan whichever code is already
+              // sitting in an earlier email in their inbox). Only the
+              // first step to mint one sets carts.abandoned_cart_discount_id;
+              // every step after that just reads it back. Expires 3 days
+              // after that first mint (mintPerRecipientDiscount's
+              // expiresInDays) — abandoned-cart is the one automation this
+              // applies to; the others never expire their codes.
+              let discount: MintedDiscount | null = null
+              if (automation.discount_id) {
+                if (cart.abandoned_cart_discount_id) {
+                  const { data: existing, error: existingError } = await admin
+                    .from('discounts')
+                    .select('id, code, type, value')
+                    .eq('id', cart.abandoned_cart_discount_id)
+                    .maybeSingle()
+                  if (existingError) throw existingError
+                  discount =
+                    existing && existing.code
+                      ? { ...existing, code: existing.code }
+                      : null
+                }
+                if (!discount) {
+                  discount = await mintPerRecipientDiscount(
                     admin,
                     automation.discount_id,
                     automation.id,
+                    { expiresInDays: 3 },
                   )
-                : null
+                  if (discount) {
+                    const { error: cartDiscountError } = await admin
+                      .from('carts')
+                      .update({ abandoned_cart_discount_id: discount.id })
+                      .eq('id', cart.id)
+                    if (cartDiscountError) throw cartDiscountError
+                  }
+                }
+              }
 
               await sendEmail({
                 to: cart.email,

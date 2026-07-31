@@ -11,6 +11,10 @@
  * max_uses: 1 code per send. See 0037_discount_per_recipient_codes.sql for
  * the email_automation_id column this tags each clone with, which is what
  * the admin Email page's attribution stats sum over.
+ *
+ * `options.expiresInDays`, when passed, sets ends_at that many days out
+ * from mint time — omitted (the default for every automation except
+ * abandoned-cart), the minted code never expires.
  */
 import { randomBytes } from 'node:crypto'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -30,6 +34,7 @@ export async function mintPerRecipientDiscount(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   templateDiscountId: string,
   automationId: string,
+  options?: { expiresInDays?: number },
 ): Promise<MintedDiscount | null> {
   const { data: template, error } = await admin
     .from('discounts')
@@ -45,6 +50,11 @@ export async function mintPerRecipientDiscount(
       .replace(/[^A-Z0-9]/g, '')
       .slice(0, 12) || 'SAVE'
   const code = `${codeBase}-${randomCodeSuffix()}`
+  const endsAt = options?.expiresInDays
+    ? new Date(
+        Date.now() + options.expiresInDays * 24 * 60 * 60 * 1000,
+      ).toISOString()
+    : null
 
   const { data: minted, error: insertError } = await admin
     .from('discounts')
@@ -59,6 +69,7 @@ export async function mintPerRecipientDiscount(
       max_uses_per_customer: 1,
       is_active: true,
       email_automation_id: automationId,
+      ends_at: endsAt,
     })
     .select('id, code, type, value')
     .single()
