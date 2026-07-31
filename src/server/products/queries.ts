@@ -140,7 +140,7 @@ function sortProducts(
 }
 
 /**
- * Every active product id belonging to a collection — manual assignments
+ * Every product id belonging to a collection — manual assignments
  * (product_collections) union rule-matched products, same membership test
  * listActiveProducts uses for its own product-grid rendering (kept as a
  * separate, simpler function rather than a shared refactor, since the two
@@ -148,11 +148,22 @@ function sortProducts(
  * order). Used to lock a scoped domain's search and product-detail pages
  * to one brand's collection — see server/storefront/domain.ts. Returns
  * null if the collection doesn't exist or is inactive.
+ *
+ * Defaults to the request-scoped (anon) client and active-only products,
+ * which is what every storefront caller wants — pass `client`/`activeOnly`
+ * to reuse this from an admin context instead (server/admin/products.ts'
+ * Brand filter), which needs the admin client and every status, not just
+ * active.
  */
-async function getCollectionProductIds(
+export async function getCollectionProductIds(
   collectionSlug: string,
+  options?: {
+    client?: ReturnType<typeof getSupabaseServerClient>
+    activeOnly?: boolean
+  },
 ): Promise<Set<string> | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = options?.client ?? getSupabaseServerClient()
+  const activeOnly = options?.activeOnly ?? true
 
   const { data: collection } = await supabase
     .from('collections')
@@ -166,12 +177,15 @@ async function getCollectionProductIds(
     }>()
   if (!collection) return null
 
+  const baseProductsQuery = supabase
+    .from('products')
+    .select('*, variants:product_variants(*, inventory(quantity_available))')
+  const productsQuery = (
+    activeOnly ? baseProductsQuery.eq('status', 'active') : baseProductsQuery
+  ).overrideTypes<ProductWithStock[], { merge: false }>()
+
   const [{ data: products, error }, { data: memberships }] = await Promise.all([
-    supabase
-      .from('products')
-      .select('*, variants:product_variants(*, inventory(quantity_available))')
-      .eq('status', 'active')
-      .overrideTypes<ProductWithStock[], { merge: false }>(),
+    productsQuery,
     supabase
       .from('product_collections')
       .select('product_id')

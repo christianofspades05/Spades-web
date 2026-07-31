@@ -24,10 +24,15 @@ import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
+import {
+  STOREFRONT_BRAND_LABELS,
+  STOREFRONT_BRANDS,
+} from '#/lib/validation/admin/storefront-sections'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { StatusBadge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { ProductCard } from '#/components/admin/ProductCard'
 import {
   buttonDangerClassName,
@@ -67,11 +72,17 @@ const SORT_LABELS: Record<(typeof SORT_FIELDS)[number], string> = {
 }
 const PAGE_SIZE = 50
 
+const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
+  value: brand,
+  label: STOREFRONT_BRAND_LABELS[brand],
+}))
+
 export const Route = createFileRoute('/admin/products/')({
   validateSearch: z.object({
     status: z.enum(PRODUCT_STATUSES).optional(),
     productType: z.enum(PRODUCT_TYPES).optional(),
     collectionId: z.string().uuid().optional(),
+    brand: z.enum(STOREFRONT_BRANDS).optional(),
     q: z.string().optional(),
     sort: z.enum(SORT_FIELDS).catch('created'),
     dir: z.enum(['asc', 'desc']).catch('desc'),
@@ -91,6 +102,7 @@ export const Route = createFileRoute('/admin/products/')({
       productType: deps.productType,
       q: deps.q,
       collectionId: deps.collectionId,
+      brand: deps.brand,
     }
     const [products, total, overview, collections] = await Promise.all([
       listAllProducts({
@@ -373,6 +385,15 @@ function ProductsPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <FilterDropdown
+          label="Brand"
+          value={search.brand}
+          options={BRAND_OPTIONS}
+          onChange={(brand) =>
+            navigate({ search: (prev) => ({ ...prev, brand, page: 1 }) })
+          }
+        />
+
         <select
           value={search.productType ?? ''}
           onChange={(e) =>

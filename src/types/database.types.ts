@@ -480,6 +480,7 @@ export interface Database {
           shipping_address: Record<string, unknown>
           billing_address: Record<string, unknown> | null
           is_cod: boolean
+          has_shipment: boolean
           cod_eligibility_reason: string | null
           requires_partial_payment: boolean
           risk_score: number | null

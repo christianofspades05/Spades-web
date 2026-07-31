@@ -129,28 +129,27 @@ const listOrdersFilterSchema = z.object({
 })
 
 /**
- * Resolves the fulfillment filter (derived from the joined `shipments` row,
- * not an `orders` column) into a set of order ids up front — shared by both
- * `listOrders` and `getOrdersCount` so they filter identically. Returns
- * `{ excludeIds }` for "unfulfilled", `{ includeIds }` for "fulfilled" (any
- * shipment exists) or a specific shipment status (empty array means "no
- * orders match"), or `{}` when no filter is set.
+ * Resolves the fulfillment filter, shared by both `listOrders` and
+ * `getOrdersCount` so they filter identically. Returns `{ hasShipment }`
+ * for "unfulfilled"/"fulfilled" (a plain boolean equality check against
+ * orders.has_shipment), or `{ includeIds }` for a specific shipment status
+ * (empty array means "no orders match"), or `{}` when no filter is set.
  */
 async function resolveFulfillmentOrderIds(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   fulfillment: z.infer<typeof listOrdersFilterSchema>['fulfillment'],
-): Promise<{ excludeIds?: string[]; includeIds?: string[] }> {
+): Promise<{
+  excludeIds?: string[]
+  includeIds?: string[]
+  hasShipment?: boolean
+}> {
+  // 'fulfilled'/'unfulfilled' answer via orders.has_shipment (a plain
+  // boolean column) instead of fetching every shipment's order_id — this
+  // store has 3,000+ shipments, and passing that many ids as a REST
+  // .in()/.not(in) filter blew past Supabase's request-URL length limit
+  // ("414 Request-URI Too Large"). See 0048_orders_has_shipment.sql.
   if (fulfillment === 'unfulfilled' || fulfillment === 'fulfilled') {
-    const shipped = await fetchAllRows((offset) =>
-      admin
-        .from('shipments')
-        .select('order_id')
-        .range(offset, offset + 999),
-    )
-    const shippedOrderIds = shipped.map((s) => s.order_id)
-    return fulfillment === 'unfulfilled'
-      ? { excludeIds: shippedOrderIds }
-      : { includeIds: shippedOrderIds }
+    return { hasShipment: fulfillment === 'fulfilled' }
   }
   if (fulfillment) {
     const matching = await fetchAllRows((offset) =>
@@ -241,10 +240,11 @@ export const listOrders = createServerFn({ method: 'GET' })
     if (data.source) query = query.eq('source', data.source)
     if (data.brand) query = query.eq('brand', data.brand)
 
-    const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
-      admin,
-      data.fulfillment,
-    )
+    const { excludeIds, includeIds, hasShipment } =
+      await resolveFulfillmentOrderIds(admin, data.fulfillment)
+    if (hasShipment !== undefined) {
+      query = query.eq('has_shipment', hasShipment)
+    }
     if (excludeIds && excludeIds.length > 0) {
       query = query.not('id', 'in', `(${excludeIds.join(',')})`)
     }
@@ -306,10 +306,11 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     if (data.source) query = query.eq('source', data.source)
     if (data.brand) query = query.eq('brand', data.brand)
 
-    const { excludeIds, includeIds } = await resolveFulfillmentOrderIds(
-      admin,
-      data.fulfillment,
-    )
+    const { excludeIds, includeIds, hasShipment } =
+      await resolveFulfillmentOrderIds(admin, data.fulfillment)
+    if (hasShipment !== undefined) {
+      query = query.eq('has_shipment', hasShipment)
+    }
     if (excludeIds && excludeIds.length > 0) {
       query = query.not('id', 'in', `(${excludeIds.join(',')})`)
     }

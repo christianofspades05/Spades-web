@@ -18,6 +18,7 @@ import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
+import { getCollectionProductIds } from '#/server/products/queries'
 import { logStaffActivity } from './activity-log'
 import type {
   Inventory,
@@ -40,6 +41,51 @@ export interface ProductWithCollectionNames extends ProductWithDetails {
   collections: Array<{ collection_id: string; collection: { name: string } }>
 }
 
+// Ysrael/Aspire 365 each have their own dedicated collection; Spades has
+// none of its own (it's the original, unscoped catalog) — matches the same
+// slugs/reasoning as OTHER_BRAND_COLLECTION_SLUGS in
+// server/products/queries.ts, which the storefront side uses for the same
+// exclude-vs-include distinction.
+const BRAND_COLLECTION_SLUGS: Record<'ysrael' | 'aspire365', string> = {
+  ysrael: 'ysrael',
+  aspire365: 'aspire-365',
+}
+
+/** Resolves the products list's Brand filter into an id include/exclude
+ *  list — Ysrael/Aspire 365 include-filter on their own collection;
+ *  Spades exclude-filters both (it has no collection of its own). Reuses
+ *  getCollectionProductIds against the admin client and every product
+ *  status (not just active), since staff need to see draft/archived
+ *  products too. */
+async function resolveBrandProductIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  brand: 'spades' | 'ysrael' | 'aspire365' | undefined,
+): Promise<{ includeIds?: string[]; excludeIds?: string[] }> {
+  if (!brand) return {}
+  if (brand === 'spades') {
+    const [ysraelIds, aspireIds] = await Promise.all([
+      getCollectionProductIds(BRAND_COLLECTION_SLUGS.ysrael, {
+        client: admin,
+        activeOnly: false,
+      }),
+      getCollectionProductIds(BRAND_COLLECTION_SLUGS.aspire365, {
+        client: admin,
+        activeOnly: false,
+      }),
+    ])
+    const excluded = new Set<string>([
+      ...(ysraelIds ?? []),
+      ...(aspireIds ?? []),
+    ])
+    return excluded.size > 0 ? { excludeIds: Array.from(excluded) } : {}
+  }
+  const ids = await getCollectionProductIds(BRAND_COLLECTION_SLUGS[brand], {
+    client: admin,
+    activeOnly: false,
+  })
+  return { includeIds: ids ? Array.from(ids) : [] }
+}
+
 // Maps the list page's sort dropdown to a real column — 'inventory' has no
 // direct column (on-hand stock is aggregated client-side from each row's
 // nested variants/inventory) and so isn't sorted server-side; once
@@ -58,6 +104,7 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       productType: z.string().optional(),
       q: z.string().optional(),
       collectionId: z.string().uuid().optional(),
+      brand: z.enum(['spades', 'ysrael', 'aspire365']).optional(),
       sort: z
         .enum(['title', 'inventory', 'type', 'created', 'updated'])
         .default('created'),
@@ -104,6 +151,20 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       )
     }
 
+    const { includeIds: brandIncludeIds, excludeIds: brandExcludeIds } =
+      await resolveBrandProductIds(admin, data.brand)
+    if (brandIncludeIds) {
+      query = query.in(
+        'id',
+        brandIncludeIds.length
+          ? brandIncludeIds
+          : ['00000000-0000-0000-0000-000000000000'],
+      )
+    }
+    if (brandExcludeIds && brandExcludeIds.length > 0) {
+      query = query.not('id', 'in', `(${brandExcludeIds.join(',')})`)
+    }
+
     const search = data.q?.trim()
     if (search) {
       query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
@@ -124,6 +185,7 @@ export const getProductsCount = createServerFn({ method: 'GET' })
       productType: z.string().optional(),
       q: z.string().optional(),
       collectionId: z.string().uuid().optional(),
+      brand: z.enum(['spades', 'ysrael', 'aspire365']).optional(),
     }),
   )
   .handler(async ({ data }): Promise<{ total: number }> => {
@@ -150,6 +212,20 @@ export const getProductsCount = createServerFn({ method: 'GET' })
           ? productIds
           : ['00000000-0000-0000-0000-000000000000'],
       )
+    }
+
+    const { includeIds: brandIncludeIds, excludeIds: brandExcludeIds } =
+      await resolveBrandProductIds(admin, data.brand)
+    if (brandIncludeIds) {
+      query = query.in(
+        'id',
+        brandIncludeIds.length
+          ? brandIncludeIds
+          : ['00000000-0000-0000-0000-000000000000'],
+      )
+    }
+    if (brandExcludeIds && brandExcludeIds.length > 0) {
+      query = query.not('id', 'in', `(${brandExcludeIds.join(',')})`)
     }
 
     const search = data.q?.trim()

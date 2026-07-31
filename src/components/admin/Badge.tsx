@@ -51,7 +51,7 @@ const SHIPMENT_STATUS_TONE: Record<string, BadgeTone> = {
   failed: 'critical',
   returned_to_sender: 'critical',
   fulfilled: 'success',
-  unfulfilled: 'neutral',
+  unfulfilled: 'warning',
 }
 
 const PAYMENT_STATUS_TONE: Record<string, BadgeTone> = {

@@ -19,9 +19,9 @@ import {
   convertCents,
   effectiveCurrency,
 } from '#/lib/utils/money'
-import { COUNTRIES } from '#/lib/utils/countries'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
+import { CountrySelect } from '#/components/storefront/CountrySelect'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -167,22 +167,13 @@ function CheckoutPage() {
           <section>
             <h2 className="mb-4 text-lg font-semibold">Delivery</h2>
             <div className="space-y-4">
-              <label className={labelClassName}>
+              <div className={labelClassName}>
                 Country
-                <select
-                  required
+                <CountrySelect
                   value={info.country}
-                  onChange={(e) => handleCountryChange(e.target.value)}
-                  className={inputClassName}
-                >
-                  <option value="PH">Philippines</option>
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={handleCountryChange}
+                />
+              </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
