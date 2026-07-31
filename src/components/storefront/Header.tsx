@@ -155,7 +155,7 @@ export function Header({ scope }: HeaderProps) {
       <SearchOverlay
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        collectionSlug={scope.collectionSlug}
+        brand={scope.brand}
       />
     </header>
   )

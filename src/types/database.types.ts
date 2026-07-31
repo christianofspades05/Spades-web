@@ -8,6 +8,7 @@
  */
 
 export type ProductStatus = 'draft' | 'active' | 'archived'
+export type ProductBrand = 'spades' | 'ysrael' | 'aspire365'
 export type CollectionMatchType = 'all' | 'any'
 export type ProductType =
   | 'tee'
@@ -226,6 +227,7 @@ export interface Database {
           match_type: CollectionMatchType
           rules: unknown
           sort_by: string
+          brand: ProductBrand
           created_at: string
           updated_at: string
         }
@@ -271,6 +273,7 @@ export interface Database {
           description: string | null
           product_type: ProductType
           status: ProductStatus
+          brand: ProductBrand
           images: string[]
           tags: string[]
           seo_title: string | null
@@ -953,6 +956,7 @@ export interface Database {
           updated_at: string
           min_price_cents: number
           total_stock: number
+          brand: ProductBrand
         }
         Relationships: []
       }

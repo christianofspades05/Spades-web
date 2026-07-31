@@ -19,7 +19,6 @@ import { slugify } from '#/lib/utils/slug'
 import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
-import { getCollectionProductIds } from '#/server/products/queries'
 import { logStaffActivity } from './activity-log'
 import type {
   Inventory,
@@ -40,51 +39,6 @@ interface ProductWithDetails extends Product {
 }
 export interface ProductWithCollectionNames extends ProductWithDetails {
   collections: Array<{ collection_id: string; collection: { name: string } }>
-}
-
-// Ysrael/Aspire 365 each have their own dedicated collection; Spades has
-// none of its own (it's the original, unscoped catalog) — matches the same
-// slugs/reasoning as OTHER_BRAND_COLLECTION_SLUGS in
-// server/products/queries.ts, which the storefront side uses for the same
-// exclude-vs-include distinction.
-const BRAND_COLLECTION_SLUGS: Record<'ysrael' | 'aspire365', string> = {
-  ysrael: 'ysrael',
-  aspire365: 'aspire-365',
-}
-
-/** Resolves the products list's Brand filter into an id include/exclude
- *  list — Ysrael/Aspire 365 include-filter on their own collection;
- *  Spades exclude-filters both (it has no collection of its own). Reuses
- *  getCollectionProductIds against the admin client and every product
- *  status (not just active), since staff need to see draft/archived
- *  products too. */
-async function resolveBrandProductIds(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  brand: 'spades' | 'ysrael' | 'aspire365' | undefined,
-): Promise<{ includeIds?: string[]; excludeIds?: string[] }> {
-  if (!brand) return {}
-  if (brand === 'spades') {
-    const [ysraelIds, aspireIds] = await Promise.all([
-      getCollectionProductIds(BRAND_COLLECTION_SLUGS.ysrael, {
-        client: admin,
-        activeOnly: false,
-      }),
-      getCollectionProductIds(BRAND_COLLECTION_SLUGS.aspire365, {
-        client: admin,
-        activeOnly: false,
-      }),
-    ])
-    const excluded = new Set<string>([
-      ...(ysraelIds ?? []),
-      ...(aspireIds ?? []),
-    ])
-    return excluded.size > 0 ? { excludeIds: Array.from(excluded) } : {}
-  }
-  const ids = await getCollectionProductIds(BRAND_COLLECTION_SLUGS[brand], {
-    client: admin,
-    activeOnly: false,
-  })
-  return { includeIds: ids ? Array.from(ids) : [] }
 }
 
 // Maps the list page's sort dropdown to a real column — 'inventory' has no
@@ -152,19 +106,7 @@ export const listAllProducts = createServerFn({ method: 'GET' })
       )
     }
 
-    const { includeIds: brandIncludeIds, excludeIds: brandExcludeIds } =
-      await resolveBrandProductIds(admin, data.brand)
-    if (brandIncludeIds) {
-      query = query.in(
-        'id',
-        brandIncludeIds.length
-          ? brandIncludeIds
-          : ['00000000-0000-0000-0000-000000000000'],
-      )
-    }
-    if (brandExcludeIds && brandExcludeIds.length > 0) {
-      query = query.not('id', 'in', `(${brandExcludeIds.join(',')})`)
-    }
+    if (data.brand) query = query.eq('brand', data.brand)
 
     const search = data.q?.trim()
     if (search) {
@@ -218,19 +160,7 @@ export const getProductsCount = createServerFn({ method: 'GET' })
       )
     }
 
-    const { includeIds: brandIncludeIds, excludeIds: brandExcludeIds } =
-      await resolveBrandProductIds(admin, data.brand)
-    if (brandIncludeIds) {
-      query = query.in(
-        'id',
-        brandIncludeIds.length
-          ? brandIncludeIds
-          : ['00000000-0000-0000-0000-000000000000'],
-      )
-    }
-    if (brandExcludeIds && brandExcludeIds.length > 0) {
-      query = query.not('id', 'in', `(${brandExcludeIds.join(',')})`)
-    }
+    if (data.brand) query = query.eq('brand', data.brand)
 
     const search = data.q?.trim()
     if (search) {
@@ -525,6 +455,7 @@ export const createProduct = createServerFn({ method: 'POST' })
         description: data.description ?? null,
         product_type: data.productType,
         status: data.status,
+        brand: data.brand,
         images: data.images,
         tags: data.tags,
         seo_title: data.seoTitle ?? null,
@@ -554,6 +485,7 @@ export const updateProduct = createServerFn({ method: 'POST' })
         description: data.description ?? null,
         product_type: data.productType,
         status: data.status,
+        brand: data.brand,
         images: data.images,
         tags: data.tags,
         seo_title: data.seoTitle ?? null,
@@ -630,6 +562,7 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
         description: original.description,
         product_type: original.product_type,
         status: 'draft',
+        brand: original.brand,
         images: data.duplicateImages ? original.images : [],
         tags: original.tags,
         seo_title: null,

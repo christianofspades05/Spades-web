@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 
 const PRODUCT_TYPES = [
   'tee',
@@ -26,6 +27,7 @@ export const productInputSchema = z.object({
   description: z.string().trim().max(5000).optional(),
   productType: z.enum(PRODUCT_TYPES),
   status: z.enum(PRODUCT_STATUSES),
+  brand: z.enum(STOREFRONT_BRANDS).default('spades'),
   images: z.array(z.string().trim().url()).default([]),
   tags: z.array(z.string().trim().min(1).max(50)).default([]),
   seoTitle: z.string().trim().max(200).optional(),

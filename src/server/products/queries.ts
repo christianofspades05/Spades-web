@@ -8,7 +8,7 @@
  * `product_variants.price_cents` here; nothing in this file accepts a price
  * from the caller.
  */
-import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
+import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -19,6 +19,7 @@ import {
   listStorefrontProductsSchema,
   PRODUCT_TYPES,
 } from '#/lib/validation/product-listing'
+import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 import {
   getActiveAutomaticDiscounts,
   resolveSalePrices,
@@ -140,109 +141,12 @@ function sortProducts(
   return withPrice.map((p) => p.product)
 }
 
-/**
- * Every product id belonging to a collection — manual assignments
- * (product_collections) union rule-matched products, same membership test
- * listActiveProducts uses for its own product-grid rendering (kept as a
- * separate, simpler function rather than a shared refactor, since the two
- * have different needs: this only needs membership, not sort/limit/pinning
- * order). Used to lock a scoped domain's search and product-detail pages
- * to one brand's collection — see server/storefront/domain.ts. Returns
- * null if the collection doesn't exist or is inactive.
- *
- * Defaults to the request-scoped (anon) client and active-only products,
- * which is what every storefront caller wants — pass `client`/`activeOnly`
- * to reuse this from an admin context instead (server/admin/products.ts'
- * Brand filter), which needs the admin client and every status, not just
- * active.
- */
-export const getCollectionProductIds = createServerOnlyFn(
-  async (
-    collectionSlug: string,
-    options?: {
-      client?: ReturnType<typeof getSupabaseServerClient>
-      activeOnly?: boolean
-    },
-  ): Promise<Set<string> | null> => {
-    const supabase = options?.client ?? getSupabaseServerClient()
-    const activeOnly = options?.activeOnly ?? true
-
-    const { data: collection } = await supabase
-      .from('collections')
-      .select('id, match_type, rules')
-      .eq('slug', collectionSlug)
-      .eq('is_active', true)
-      .maybeSingle<{
-        id: string
-        match_type: 'all' | 'any'
-        rules: unknown
-      }>()
-    if (!collection) return null
-
-    const baseProductsQuery = supabase
-      .from('products')
-      .select('*, variants:product_variants(*, inventory(quantity_available))')
-    const productsQuery = (
-      activeOnly ? baseProductsQuery.eq('status', 'active') : baseProductsQuery
-    ).overrideTypes<ProductWithStock[], { merge: false }>()
-
-    const [{ data: products, error }, { data: memberships }] =
-      await Promise.all([
-        productsQuery,
-        supabase
-          .from('product_collections')
-          .select('product_id')
-          .eq('collection_id', collection.id),
-      ])
-    if (error) throw error
-
-    const ids = new Set((memberships ?? []).map((m) => m.product_id))
-    const rules = z.array(collectionRuleSchema).parse(collection.rules)
-    for (const p of products) {
-      if (
-        matchesRules(
-          {
-            name: p.name,
-            productType: p.product_type,
-            status: p.status,
-            tags: p.tags,
-            inventoryStock: inventoryStockOf(p),
-            lowestPriceCents: lowestPriceCentsOf(p),
-          },
-          rules,
-          collection.match_type,
-        )
-      ) {
-        ids.add(p.id)
-      }
-    }
-    return ids
-  },
-)
-
-// Ysrael and Aspire 365 each have their own dedicated collection (see
-// collectionSlug on their entries in server/storefront/domain.ts) — Spades
-// has none of its own (it's the original, unscoped catalog), so keeping
-// their products out of Spades' storefront needs an *exclude* filter
-// instead of the *include* filter the other two already get from their own
-// collectionSlug. Add a new brand's collection slug here if it gets one.
-// Exported so routes/collections/$slug.tsx can also block Spades visitors
-// from reaching these collections' pages directly by URL.
+// Collections dedicated to another brand's storefront — blocked from
+// direct-URL browsing on Spades' own /collections/$slug (see
+// routes/collections/$slug.tsx). Brand *product* scoping itself no longer
+// depends on these (see products.brand, migration 0051); this list is only
+// for that one URL-blocking check.
 export const OTHER_BRAND_COLLECTION_SLUGS = ['ysrael', 'aspire-365']
-
-/** Union of every OTHER_BRAND_COLLECTION_SLUGS collection's product ids —
- *  what Spades' otherwise-unscoped storefront queries need to exclude. */
-async function getOtherBrandProductIds(): Promise<Set<string>> {
-  const sets = await Promise.all(
-    OTHER_BRAND_COLLECTION_SLUGS.map((slug) => getCollectionProductIds(slug)),
-  )
-  const excluded = new Set<string>()
-  for (const set of sets) {
-    if (!set) continue
-    for (const id of set) excluded.add(id)
-  }
-  return excluded
-}
 
 export const listActiveProducts = createServerFn({ method: 'GET' })
   .validator(
@@ -348,10 +252,10 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
   .validator(
     z.object({
       slug: z.string().min(1),
-      // The current domain's collection scope (see
-      // server/storefront/domain.ts) — when set, a product outside that
-      // collection doesn't exist as far as this storefront is concerned.
-      collectionSlug: z.string().nullable().optional(),
+      // The current domain's brand (see server/storefront/domain.ts) — a
+      // product belonging to another brand doesn't exist as far as this
+      // storefront is concerned.
+      brand: z.enum(STOREFRONT_BRANDS),
     }),
   )
   .handler(
@@ -372,18 +276,11 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
         )
         .eq('slug', data.slug)
         .eq('status', 'active')
+        .eq('brand', data.brand)
         .maybeSingle()
 
       if (error) throw error
       if (!product) return null
-
-      if (data.collectionSlug) {
-        const memberIds = await getCollectionProductIds(data.collectionSlug)
-        if (!memberIds?.has(product.id)) return null
-      } else {
-        const excluded = await getOtherBrandProductIds()
-        if (excluded.has(product.id)) return null
-      }
 
       // Each variant priced (and its best discount picked) individually —
       // its own price is what a shopper who picks that size/color actually
@@ -437,19 +334,7 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
       let query = supabase
         .from('storefront_product_listing')
         .select('*', { count: 'exact' })
-
-      if (data.collectionSlug) {
-        const memberIds = await getCollectionProductIds(data.collectionSlug)
-        if (!memberIds || memberIds.size === 0) {
-          return { products: [], total: 0 }
-        }
-        query = query.in('id', Array.from(memberIds))
-      } else {
-        const excluded = await getOtherBrandProductIds()
-        if (excluded.size > 0) {
-          query = query.not('id', 'in', `(${Array.from(excluded).join(',')})`)
-        }
-      }
+        .eq('brand', data.brand)
 
       if (data.type) query = query.eq('product_type', data.type)
       if (data.q) {
@@ -504,36 +389,22 @@ export const quickSearchProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
       q: z.string().trim().min(1).max(200),
-      // The current domain's collection scope (see
-      // server/storefront/domain.ts) — when set, search never surfaces a
-      // product outside that collection.
-      collectionSlug: z.string().nullable().optional(),
+      // The current domain's brand (see server/storefront/domain.ts) —
+      // search never surfaces a product belonging to another brand.
+      brand: z.enum(STOREFRONT_BRANDS),
     }),
   )
   .handler(
     async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
       const supabase = getSupabaseServerClient()
 
-      let memberIds: Set<string> | null = null
-      let excludedIds: Set<string> | null = null
-      if (data.collectionSlug) {
-        memberIds = await getCollectionProductIds(data.collectionSlug)
-        if (!memberIds || memberIds.size === 0) return []
-      } else {
-        excludedIds = await getOtherBrandProductIds()
-      }
-
       const normalizedQuery = normalizeSearchTerm(data.q)
-      let query = supabase
+      const query = supabase
         .from('storefront_product_listing')
         .select('*')
+        .eq('brand', data.brand)
         .or(`name_search.ilike.%${normalizedQuery}%,tags.cs.{${data.q}}`)
         .order('created_at', { ascending: false })
-      if (memberIds) {
-        query = query.in('id', Array.from(memberIds))
-      } else if (excludedIds && excludedIds.size > 0) {
-        query = query.not('id', 'in', `(${Array.from(excludedIds).join(',')})`)
-      }
       const { data: products, error } = await query.limit(QUICK_SEARCH_LIMIT)
 
       if (error) throw error
@@ -554,36 +425,22 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
       productType: z.enum(PRODUCT_TYPES),
       excludeProductId: z.string().uuid(),
       limit: z.number().int().min(1).max(24).default(4),
-      // The current domain's collection scope (see
-      // server/storefront/domain.ts) — when set, "related products" never
-      // surfaces a product outside that collection (e.g. Spades items on
-      // Aspire 365's product pages).
-      collectionSlug: z.string().nullable().optional(),
+      // The current domain's brand (see server/storefront/domain.ts) —
+      // "related products" never surfaces a product belonging to another
+      // brand (e.g. Spades items on Aspire 365's product pages).
+      brand: z.enum(STOREFRONT_BRANDS),
     }),
   )
   .handler(
     async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
       const supabase = getSupabaseServerClient()
 
-      let memberIds: Set<string> | null = null
-      let excludedIds: Set<string> | null = null
-      if (data.collectionSlug) {
-        memberIds = await getCollectionProductIds(data.collectionSlug)
-        if (!memberIds || memberIds.size === 0) return []
-      } else {
-        excludedIds = await getOtherBrandProductIds()
-      }
-
-      let query = supabase
+      const query = supabase
         .from('storefront_product_listing')
         .select('*')
+        .eq('brand', data.brand)
         .eq('product_type', data.productType)
         .neq('id', data.excludeProductId)
-      if (memberIds) {
-        query = query.in('id', Array.from(memberIds))
-      } else if (excludedIds && excludedIds.size > 0) {
-        query = query.not('id', 'in', `(${Array.from(excludedIds).join(',')})`)
-      }
       const { data: products, error } = await query.limit(data.limit)
 
       if (error) throw error

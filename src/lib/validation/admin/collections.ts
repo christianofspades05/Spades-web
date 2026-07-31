@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { collectionRuleSchema, SORT_OPTIONS } from '#/lib/collections/rules'
+import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 
 export const collectionInputSchema = z.object({
   slug: z
@@ -20,6 +21,7 @@ export const collectionInputSchema = z.object({
   matchType: z.enum(['all', 'any']).default('all'),
   rules: z.array(collectionRuleSchema).default([]),
   sortBy: z.enum(SORT_OPTIONS).default('title_asc'),
+  brand: z.enum(STOREFRONT_BRANDS).default('spades'),
 })
 
 export const updateCollectionSchema = collectionInputSchema.extend({

@@ -9,6 +9,11 @@ import { slugify } from '#/lib/utils/slug'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
+import { FilterDropdown } from '#/components/admin/FilterDropdown'
+import {
+  STOREFRONT_BRANDS,
+  STOREFRONT_BRAND_LABELS,
+} from '#/lib/validation/admin/storefront-sections'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -18,6 +23,12 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
+import type { ProductBrand } from '#/types/database.types'
+
+const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
+  value: brand,
+  label: STOREFRONT_BRAND_LABELS[brand],
+}))
 
 export const Route = createFileRoute('/admin/collections/')({
   loader: () => listAllCollections(),
@@ -31,8 +42,14 @@ function CollectionsPage() {
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
   const [name, setName] = useState('')
+  const [brand, setBrand] = useState<ProductBrand>('spades')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [brandFilter, setBrandFilter] = useState<ProductBrand>()
+
+  const visibleCollections = brandFilter
+    ? collections.filter((c) => c.brand === brandFilter)
+    : collections
 
   function handleNameChange(value: string) {
     setName(value)
@@ -46,7 +63,13 @@ function CollectionsPage() {
 
     try {
       const collection = await createCollection({
-        data: { slug, name, isActive: true, sortOrder: collections.length },
+        data: {
+          slug,
+          name,
+          brand,
+          isActive: true,
+          sortOrder: collections.length,
+        },
       })
       await navigate({
         to: '/admin/collections/$collectionId',
@@ -62,30 +85,47 @@ function CollectionsPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Collections"
-        subtitle={`${collections.length} ${collections.length === 1 ? 'collection' : 'collections'}`}
+        subtitle={`${visibleCollections.length} of ${collections.length} ${collections.length === 1 ? 'collection' : 'collections'}`}
       />
 
+      <div className="mb-4 flex items-center gap-2">
+        <FilterDropdown
+          label="Brand"
+          value={brandFilter}
+          options={BRAND_OPTIONS}
+          onChange={setBrandFilter}
+        />
+      </div>
+
       <div className={tableWrapperClassName}>
-        {collections.length === 0 ? (
-          <p className="p-6 text-sm text-neutral-500">No collections yet.</p>
+        {visibleCollections.length === 0 ? (
+          <p className="p-6 text-sm text-neutral-500">
+            {collections.length === 0
+              ? 'No collections yet.'
+              : 'No collections match this filter.'}
+          </p>
         ) : (
           <table className="w-full">
             <thead>
               <tr>
                 <th className={tableHeadClassName}>Name</th>
                 <th className={tableHeadClassName}>Slug</th>
+                <th className={tableHeadClassName}>Brand</th>
                 <th className={tableHeadClassName}>Status</th>
                 <th className={tableHeadClassName} />
               </tr>
             </thead>
             <tbody>
-              {collections.map((collection) => (
+              {visibleCollections.map((collection) => (
                 <tr key={collection.id} className={tableRowClassName}>
                   <td className={`${tableCellClassName} font-medium`}>
                     {collection.name}
                   </td>
                   <td className={`${tableCellClassName} text-neutral-500`}>
                     /{collection.slug}
+                  </td>
+                  <td className={`${tableCellClassName} text-neutral-500`}>
+                    {STOREFRONT_BRAND_LABELS[collection.brand]}
                   </td>
                   <td className={tableCellClassName}>
                     <Badge tone={collection.is_active ? 'success' : 'neutral'}>
@@ -139,6 +179,20 @@ function CollectionsPage() {
               Auto-filled from the name; lowercase letters, numbers, and hyphens
               only.
             </span>
+          </label>
+          <label className={labelClassName}>
+            Brand
+            <select
+              value={brand}
+              onChange={(e) => setBrand(e.target.value as ProductBrand)}
+              className={inputClassName}
+            >
+              {BRAND_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button

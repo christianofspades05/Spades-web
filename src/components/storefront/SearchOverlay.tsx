@@ -8,6 +8,7 @@ import type {
   WithSalePrice,
 } from '#/server/products/queries'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import type { Brand } from '#/server/storefront/domain'
 import { inputClassName } from './ui'
 
 /**
@@ -18,11 +19,11 @@ import { inputClassName } from './ui'
 export function SearchOverlay({
   open,
   onClose,
-  collectionSlug,
+  brand,
 }: {
   open: boolean
   onClose: () => void
-  collectionSlug: string | null
+  brand: Brand
 }) {
   const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const [query, setQuery] = useState('')
@@ -55,7 +56,7 @@ export function SearchOverlay({
     }
     let cancelled = false
     setLoading(true)
-    quickSearchProducts({ data: { q: trimmed, collectionSlug } })
+    quickSearchProducts({ data: { q: trimmed, brand } })
       .then((products) => {
         if (!cancelled) setResults(products)
       })

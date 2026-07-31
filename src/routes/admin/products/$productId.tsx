@@ -38,12 +38,17 @@ import {
   tableRowClassName,
   tableWrapperClassName,
 } from '#/components/admin/ui'
+import {
+  STOREFRONT_BRANDS,
+  STOREFRONT_BRAND_LABELS,
+} from '#/lib/validation/admin/storefront-sections'
 import type {
   Inventory,
   ProductStatus,
   ProductType,
   ProductVariant,
 } from '#/types/entities'
+import type { ProductBrand } from '#/types/database.types'
 
 const PRODUCT_TYPES = [
   'tee',
@@ -79,6 +84,7 @@ interface ProductFormState {
   description: string
   productType: ProductType
   status: ProductStatus
+  brand: ProductBrand
   images: string[]
   tags: string[]
   collectionIds: string[]
@@ -102,6 +108,7 @@ function EditProductPage() {
     description: product.description ?? '',
     productType: product.product_type,
     status: product.status,
+    brand: product.brand,
     images: product.images,
     tags: product.tags,
     collectionIds: product.collections.map((c) => c.collection_id),
@@ -224,6 +231,7 @@ function EditProductPage() {
           description: form.description || undefined,
           productType: form.productType,
           status: form.status,
+          brand: form.brand,
           images: form.images,
           tags: form.tags,
         },
@@ -468,6 +476,29 @@ function EditProductPage() {
                       </option>
                     ))}
                   </select>
+                </label>
+
+                <label className={labelClassName}>
+                  Brand
+                  <select
+                    value={form.brand}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        brand: e.target.value as ProductBrand,
+                      })
+                    }
+                    className={inputClassName}
+                  >
+                    {STOREFRONT_BRANDS.map((brand) => (
+                      <option key={brand} value={brand}>
+                        {STOREFRONT_BRAND_LABELS[brand]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs font-normal text-neutral-500">
+                    Which storefront this product shows on.
+                  </span>
                 </label>
 
                 {collections.length > 0 && (

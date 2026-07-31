@@ -49,7 +49,7 @@ export const Route = createFileRoute('/products/$slug')({
     const product = await getProductBySlug({
       data: {
         slug: params.slug,
-        collectionSlug: context.storefrontScope.collectionSlug,
+        brand: context.storefrontScope.brand,
       },
     })
     if (!product) throw notFound()
@@ -60,7 +60,7 @@ export const Route = createFileRoute('/products/$slug')({
           productType: product.product_type,
           excludeProductId: product.id,
           limit: 4,
-          collectionSlug: context.storefrontScope.collectionSlug,
+          brand: context.storefrontScope.brand,
         },
       }),
       getProductReviews({ data: { productId: product.id } }),

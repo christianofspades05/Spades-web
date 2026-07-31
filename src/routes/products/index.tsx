@@ -29,7 +29,7 @@ export const Route = createFileRoute('/products/')({
         sort: deps.sort,
         page: deps.page,
         pageSize: PRODUCT_LISTING_PAGE_SIZE,
-        collectionSlug: context.storefrontScope.collectionSlug,
+        brand: context.storefrontScope.brand,
       },
     }),
   component: ProductsPage,

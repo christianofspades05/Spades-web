@@ -25,6 +25,10 @@ import type {
   RuleOperator,
   SortOption,
 } from '#/lib/collections/rules'
+import {
+  STOREFRONT_BRANDS,
+  STOREFRONT_BRAND_LABELS,
+} from '#/lib/validation/admin/storefront-sections'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { useUndoableState } from '#/lib/hooks/useUndoableState'
 import { useUndoRedoShortcuts } from '#/lib/hooks/useUndoRedoShortcuts'
@@ -38,6 +42,7 @@ import {
   labelClassName,
 } from '#/components/admin/ui'
 import type { CollectionMatchType } from '#/types/entities'
+import type { ProductBrand } from '#/types/database.types'
 
 const PRODUCT_TYPES = [
   'tee',
@@ -112,6 +117,7 @@ interface CollectionFormState {
   matchType: CollectionMatchType
   rules: CollectionRule[]
   sortBy: SortOption
+  brand: ProductBrand
 }
 
 function EditCollectionPage() {
@@ -136,6 +142,7 @@ function EditCollectionPage() {
     matchType: collection.match_type,
     rules: collection.rules as CollectionRule[],
     sortBy: collection.sort_by as SortOption,
+    brand: collection.brand,
   })
   useUndoRedoShortcuts(undo, redo)
 
@@ -225,6 +232,7 @@ function EditCollectionPage() {
           matchType: form.matchType,
           rules: form.rules,
           sortBy: form.sortBy,
+          brand: form.brand,
         },
       })
       setSaved(true)
@@ -269,6 +277,26 @@ function EditCollectionPage() {
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
               className={inputClassName}
             />
+          </label>
+          <label className={labelClassName}>
+            Brand
+            <select
+              value={form.brand}
+              onChange={(e) =>
+                setForm({ ...form, brand: e.target.value as ProductBrand })
+              }
+              className={inputClassName}
+            >
+              {STOREFRONT_BRANDS.map((brand) => (
+                <option key={brand} value={brand}>
+                  {STOREFRONT_BRAND_LABELS[brand]}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs font-normal text-neutral-500">
+              For organizing the Collections list — doesn't affect which
+              storefront this collection's products show on.
+            </span>
           </label>
           <label className={labelClassName}>
             Description

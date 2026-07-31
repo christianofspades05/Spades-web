@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 
 export const PRODUCT_TYPES = [
   'tee',
@@ -55,7 +56,7 @@ export const listStorefrontProductsSchema = z.object({
   sort: z.enum(SORT_OPTIONS).default('newest'),
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(100).default(PRODUCT_LISTING_PAGE_SIZE),
-  // The current domain's collection scope (see server/storefront/domain.ts)
-  // — when set, the listing never surfaces a product outside it.
-  collectionSlug: z.string().nullable().optional(),
+  // The current domain's brand (see server/storefront/domain.ts) — the
+  // listing only ever shows this brand's own products.
+  brand: z.enum(STOREFRONT_BRANDS),
 })

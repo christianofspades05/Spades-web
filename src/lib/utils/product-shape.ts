@@ -35,6 +35,7 @@ export function toListingProduct(
     updated_at: p.updated_at,
     min_price_cents: prices.length ? Math.min(...prices) : 0,
     total_stock: totalStock,
+    brand: p.brand,
     salePriceCents: p.salePriceCents ?? null,
     saleTitle: p.saleTitle ?? null,
   }

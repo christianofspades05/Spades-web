@@ -60,6 +60,7 @@ export const createCollection = createServerFn({ method: 'POST' })
         match_type: data.matchType,
         rules: data.rules,
         sort_by: data.sortBy,
+        brand: data.brand,
       })
       .select('*')
       .single()
@@ -94,6 +95,7 @@ export const updateCollection = createServerFn({ method: 'POST' })
         match_type: data.matchType,
         rules: data.rules,
         sort_by: data.sortBy,
+        brand: data.brand,
       })
       .eq('id', data.id)
       .select('*')
