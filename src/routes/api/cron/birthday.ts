@@ -101,6 +101,7 @@ export const Route = createFileRoute('/api/cron/birthday')({
             await sendEmail({
               to: customer.email,
               subject: automation.subject,
+              from: process.env.RESEND_FROM_EMAIL_BIRTHDAY,
               html: renderEmailBlocks(automation.blocks, {
                 placeholders: {
                   customerFirstName:
