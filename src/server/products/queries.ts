@@ -8,7 +8,7 @@
  * `product_variants.price_cents` here; nothing in this file accepts a price
  * from the caller.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -156,66 +156,69 @@ function sortProducts(
  * Brand filter), which needs the admin client and every status, not just
  * active.
  */
-export async function getCollectionProductIds(
-  collectionSlug: string,
-  options?: {
-    client?: ReturnType<typeof getSupabaseServerClient>
-    activeOnly?: boolean
-  },
-): Promise<Set<string> | null> {
-  const supabase = options?.client ?? getSupabaseServerClient()
-  const activeOnly = options?.activeOnly ?? true
+export const getCollectionProductIds = createServerOnlyFn(
+  async (
+    collectionSlug: string,
+    options?: {
+      client?: ReturnType<typeof getSupabaseServerClient>
+      activeOnly?: boolean
+    },
+  ): Promise<Set<string> | null> => {
+    const supabase = options?.client ?? getSupabaseServerClient()
+    const activeOnly = options?.activeOnly ?? true
 
-  const { data: collection } = await supabase
-    .from('collections')
-    .select('id, match_type, rules')
-    .eq('slug', collectionSlug)
-    .eq('is_active', true)
-    .maybeSingle<{
-      id: string
-      match_type: 'all' | 'any'
-      rules: unknown
-    }>()
-  if (!collection) return null
+    const { data: collection } = await supabase
+      .from('collections')
+      .select('id, match_type, rules')
+      .eq('slug', collectionSlug)
+      .eq('is_active', true)
+      .maybeSingle<{
+        id: string
+        match_type: 'all' | 'any'
+        rules: unknown
+      }>()
+    if (!collection) return null
 
-  const baseProductsQuery = supabase
-    .from('products')
-    .select('*, variants:product_variants(*, inventory(quantity_available))')
-  const productsQuery = (
-    activeOnly ? baseProductsQuery.eq('status', 'active') : baseProductsQuery
-  ).overrideTypes<ProductWithStock[], { merge: false }>()
+    const baseProductsQuery = supabase
+      .from('products')
+      .select('*, variants:product_variants(*, inventory(quantity_available))')
+    const productsQuery = (
+      activeOnly ? baseProductsQuery.eq('status', 'active') : baseProductsQuery
+    ).overrideTypes<ProductWithStock[], { merge: false }>()
 
-  const [{ data: products, error }, { data: memberships }] = await Promise.all([
-    productsQuery,
-    supabase
-      .from('product_collections')
-      .select('product_id')
-      .eq('collection_id', collection.id),
-  ])
-  if (error) throw error
+    const [{ data: products, error }, { data: memberships }] =
+      await Promise.all([
+        productsQuery,
+        supabase
+          .from('product_collections')
+          .select('product_id')
+          .eq('collection_id', collection.id),
+      ])
+    if (error) throw error
 
-  const ids = new Set((memberships ?? []).map((m) => m.product_id))
-  const rules = z.array(collectionRuleSchema).parse(collection.rules)
-  for (const p of products) {
-    if (
-      matchesRules(
-        {
-          name: p.name,
-          productType: p.product_type,
-          status: p.status,
-          tags: p.tags,
-          inventoryStock: inventoryStockOf(p),
-          lowestPriceCents: lowestPriceCentsOf(p),
-        },
-        rules,
-        collection.match_type,
-      )
-    ) {
-      ids.add(p.id)
+    const ids = new Set((memberships ?? []).map((m) => m.product_id))
+    const rules = z.array(collectionRuleSchema).parse(collection.rules)
+    for (const p of products) {
+      if (
+        matchesRules(
+          {
+            name: p.name,
+            productType: p.product_type,
+            status: p.status,
+            tags: p.tags,
+            inventoryStock: inventoryStockOf(p),
+            lowestPriceCents: lowestPriceCentsOf(p),
+          },
+          rules,
+          collection.match_type,
+        )
+      ) {
+        ids.add(p.id)
+      }
     }
-  }
-  return ids
-}
+    return ids
+  },
+)
 
 // Ysrael and Aspire 365 each have their own dedicated collection (see
 // collectionSlug on their entries in server/storefront/domain.ts) — Spades
