@@ -12,6 +12,10 @@ alter table products add column name_search text
 -- storefront_product_listing (0008_storefront_product_listing_view.sql)
 -- needs the same column — views can't inherit a generated column from
 -- their base table automatically, so it's recomputed here the same way.
+-- name_search must be the LAST column: CREATE OR REPLACE VIEW matches
+-- existing columns by ordinal position, so inserting a new one in the
+-- middle reads as "rename min_price_cents to name_search" and Postgres
+-- rejects it.
 create or replace view storefront_product_listing
 with (security_invoker = true) as
 select
@@ -24,9 +28,9 @@ select
   p.tags,
   p.created_at,
   p.updated_at,
-  regexp_replace(lower(p.name), '[^a-z0-9]', '', 'g') as name_search,
   coalesce(v.min_price_cents, 0) as min_price_cents,
-  coalesce(v.total_stock, 0) as total_stock
+  coalesce(v.total_stock, 0) as total_stock,
+  regexp_replace(lower(p.name), '[^a-z0-9]', '', 'g') as name_search
 from products p
 left join lateral (
   select
