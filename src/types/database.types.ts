@@ -267,6 +267,7 @@ export interface Database {
           id: string
           slug: string
           name: string
+          name_search: string
           description: string | null
           product_type: ProductType
           status: ProductStatus
@@ -942,6 +943,7 @@ export interface Database {
           id: string
           slug: string
           name: string
+          name_search: string
           description: string | null
           product_type: ProductType
           images: string[]

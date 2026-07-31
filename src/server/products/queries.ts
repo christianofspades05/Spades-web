@@ -14,6 +14,7 @@ import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type { SortOption } from '#/lib/collections/rules'
+import { normalizeSearchTerm } from '#/lib/utils/search'
 import {
   listStorefrontProductsSchema,
   PRODUCT_TYPES,
@@ -449,7 +450,10 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
 
       if (data.type) query = query.eq('product_type', data.type)
       if (data.q) {
-        query = query.or(`name.ilike.%${data.q}%,tags.cs.{${data.q}}`)
+        const normalized = normalizeSearchTerm(data.q)
+        query = query.or(
+          `name_search.ilike.%${normalized}%,tags.cs.{${data.q}}`,
+        )
       }
       if (data.minPriceCents != null) {
         query = query.gte('min_price_cents', data.minPriceCents)
@@ -516,10 +520,11 @@ export const quickSearchProducts = createServerFn({ method: 'GET' })
         excludedIds = await getOtherBrandProductIds()
       }
 
+      const normalizedQuery = normalizeSearchTerm(data.q)
       let query = supabase
         .from('storefront_product_listing')
         .select('*')
-        .or(`name.ilike.%${data.q}%,tags.cs.{${data.q}}`)
+        .or(`name_search.ilike.%${normalizedQuery}%,tags.cs.{${data.q}}`)
         .order('created_at', { ascending: false })
       if (memberIds) {
         query = query.in('id', Array.from(memberIds))

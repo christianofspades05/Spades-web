@@ -16,6 +16,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
+import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { getCollectionProductIds } from '#/server/products/queries'
@@ -167,7 +168,10 @@ export const listAllProducts = createServerFn({ method: 'GET' })
 
     const search = data.q?.trim()
     if (search) {
-      query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
+      const normalizedSearch = normalizeSearchTerm(search)
+      query = query.or(
+        `name_search.ilike.%${normalizedSearch}%,slug.ilike.%${search}%`,
+      )
     }
 
     const offset = (data.page - 1) * data.pageSize
@@ -230,7 +234,10 @@ export const getProductsCount = createServerFn({ method: 'GET' })
 
     const search = data.q?.trim()
     if (search) {
-      query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
+      const normalizedSearch = normalizeSearchTerm(search)
+      query = query.or(
+        `name_search.ilike.%${normalizedSearch}%,slug.ilike.%${search}%`,
+      )
     }
 
     const { count, error } = await query
@@ -900,7 +907,10 @@ export const searchProductsForPicker = createServerFn({ method: 'GET' })
 
     const search = data.q?.trim()
     if (search) {
-      query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
+      const normalizedSearch = normalizeSearchTerm(search)
+      query = query.or(
+        `name_search.ilike.%${normalizedSearch}%,slug.ilike.%${search}%`,
+      )
     }
 
     const { data: products, error } = await query

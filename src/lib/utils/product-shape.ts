@@ -3,6 +3,7 @@ import type {
   WithSalePrice,
 } from '#/server/products/queries'
 import type { ProductVariant, ProductWithVariants } from '#/types/entities'
+import { normalizeSearchTerm } from '#/lib/utils/search'
 
 type VariantWithStock = ProductVariant & {
   inventory?: { quantity_available: number }[]
@@ -25,6 +26,7 @@ export function toListingProduct(
     id: p.id,
     slug: p.slug,
     name: p.name,
+    name_search: normalizeSearchTerm(p.name),
     description: p.description,
     product_type: p.product_type,
     images: p.images,
