@@ -74,10 +74,8 @@ export const setProductCollectionsSchema = z.object({
   collectionIds: z.array(z.string().uuid()),
 })
 
-export const uploadProductImageSchema = z.object({
+export const productImageUploadUrlSchema = z.object({
   fileName: z.string().trim().min(1).max(200),
-  contentType: z.string().trim().min(1).max(100),
-  base64Data: z.string().min(1),
 })
 
 export const inventoryAdjustmentSchema = z.object({
@@ -99,4 +97,6 @@ export type SetProductCollectionsInput = z.infer<
   typeof setProductCollectionsSchema
 >
 export type InventoryAdjustmentInput = z.infer<typeof inventoryAdjustmentSchema>
-export type UploadProductImageInput = z.infer<typeof uploadProductImageSchema>
+export type ProductImageUploadUrlInput = z.infer<
+  typeof productImageUploadUrlSchema
+>

@@ -9,7 +9,7 @@ import {
   setProductCollectionsSchema,
   updateProductSchema,
   updateVariantSchema,
-  uploadProductImageSchema,
+  productImageUploadUrlSchema,
   variantInputSchema,
 } from '#/lib/validation/admin/products'
 import { requireStaff } from '#/lib/auth/guards'
@@ -637,32 +637,47 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
     return newProduct
   })
 
-export const uploadProductImage = createServerFn({ method: 'POST' })
-  .validator(uploadProductImageSchema)
-  .handler(async ({ data }): Promise<{ url: string }> => {
-    await requireStaff(MANAGE_ROLES)
-    const admin = getSupabaseAdminClient()
+/**
+ * Returns a short-lived signed upload URL so the browser can upload the
+ * file directly to Supabase Storage instead of routing its bytes through
+ * this server function. Base64-encoding a file and sending it as a
+ * createServerFn body (the old approach) inflates its size by ~37% and
+ * runs into Vercel's hard 4.5MB serverless request body cap — a photo
+ * well under the 8MB client-side check would still get rejected as
+ * "Request Entity Too Large" once base64-encoded (same issue fixed for
+ * storefront section media — see server/admin/storefront-sections.ts's
+ * createStorefrontSectionUploadUrl). The signed token is what gates the
+ * upload (only issued after requireStaff passes), not a public
+ * bucket-write policy.
+ */
+export const createProductImageUploadUrl = createServerFn({
+  method: 'POST',
+})
+  .validator(productImageUploadUrlSchema)
+  .handler(
+    async ({
+      data,
+    }): Promise<{ path: string; token: string; publicUrl: string }> => {
+      await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
 
-    const buffer = Buffer.from(data.base64Data, 'base64')
-    if (buffer.byteLength > 8 * 1024 * 1024) {
-      throw new Error('Image must be smaller than 8MB')
-    }
+      const extension = data.fileName.includes('.')
+        ? data.fileName.split('.').pop()
+        : 'jpg'
+      const path = `${randomUUID()}.${extension}`
 
-    const extension = data.fileName.includes('.')
-      ? data.fileName.split('.').pop()
-      : 'jpg'
-    const path = `${randomUUID()}.${extension}`
+      const { data: signed, error } = await admin.storage
+        .from('product-images')
+        .createSignedUploadUrl(path)
+      if (error) throw error
 
-    const { error } = await admin.storage
-      .from('product-images')
-      .upload(path, buffer, { contentType: data.contentType })
-    if (error) throw error
+      const { data: publicUrl } = admin.storage
+        .from('product-images')
+        .getPublicUrl(path)
 
-    const { data: publicUrl } = admin.storage
-      .from('product-images')
-      .getPublicUrl(path)
-    return { url: publicUrl.publicUrl }
-  })
+      return { path, token: signed.token, publicUrl: publicUrl.publicUrl }
+    },
+  )
 
 export const createVariant = createServerFn({ method: 'POST' })
   .validator(variantInputSchema)

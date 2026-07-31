@@ -4,12 +4,13 @@ import { Upload, X } from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
 import {
   createProduct,
+  createProductImageUploadUrl,
   createVariant,
   setProductCollections,
-  uploadProductImage,
 } from '#/server/admin/products'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { slugify } from '#/lib/utils/slug'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { TagsInput } from '#/components/admin/TagsInput'
@@ -19,19 +20,6 @@ import {
   inputClassName,
   labelClassName,
 } from '#/components/admin/ui'
-
-/** Reads a File as a base64 string (no `data:...;base64,` prefix) for the JSON-based upload server fn. */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      resolve(result.split(',')[1] ?? '')
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
 
 const PRODUCT_TYPES = [
   'tee',
@@ -122,15 +110,14 @@ function NewProductPage() {
     setError(null)
     const results = await Promise.allSettled(
       toUpload.map(async (file) => {
-        const base64Data = await fileToBase64(file)
-        const { url } = await uploadProductImage({
-          data: {
-            fileName: file.name,
-            contentType: file.type || 'application/octet-stream',
-            base64Data,
-          },
+        const { path, token, publicUrl } = await createProductImageUploadUrl({
+          data: { fileName: file.name },
         })
-        return url
+        const { error: uploadError } = await getSupabaseBrowserClient()
+          .storage.from('product-images')
+          .uploadToSignedUrl(path, token, file)
+        if (uploadError) throw uploadError
+        return publicUrl
       }),
     )
     const uploaded = results

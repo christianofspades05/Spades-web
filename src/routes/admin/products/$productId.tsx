@@ -8,6 +8,7 @@ import {
 import { Copy, GripVertical, Package, Pencil, Upload, X } from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
 import {
+  createProductImageUploadUrl,
   createVariant,
   duplicateProduct,
   getProductById,
@@ -16,11 +17,10 @@ import {
   setProductCollections,
   updateProduct,
   updateVariant,
-  uploadProductImage,
 } from '#/server/admin/products'
 import { centsToPesos, formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
-import { fileToBase64 } from '#/lib/utils/file'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { useUndoableState } from '#/lib/hooks/useUndoableState'
 import { useUndoRedoShortcuts } from '#/lib/hooks/useUndoRedoShortcuts'
 import { PageHeader } from '#/components/admin/PageHeader'
@@ -171,15 +171,14 @@ function EditProductPage() {
     setError(null)
     const results = await Promise.allSettled(
       toUpload.map(async (file) => {
-        const base64Data = await fileToBase64(file)
-        const { url } = await uploadProductImage({
-          data: {
-            fileName: file.name,
-            contentType: file.type || 'application/octet-stream',
-            base64Data,
-          },
+        const { path, token, publicUrl } = await createProductImageUploadUrl({
+          data: { fileName: file.name },
         })
-        return url
+        const { error: uploadError } = await getSupabaseBrowserClient()
+          .storage.from('product-images')
+          .uploadToSignedUrl(path, token, file)
+        if (uploadError) throw uploadError
+        return publicUrl
       }),
     )
     const uploaded = results
