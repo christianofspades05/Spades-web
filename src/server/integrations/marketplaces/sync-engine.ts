@@ -326,11 +326,22 @@ export async function pushInventoryForProducts(
 ): Promise<{ attempted: number }> {
   if (productIds.length === 0) return { attempted: 0 }
   const admin = getSupabaseAdminClient()
-  const { data: variants, error } = await admin
-    .from('product_variants')
-    .select('id')
-    .in('product_id', productIds)
-  if (error) throw error
+
+  // Chunked rather than one `.in('product_id', productIds)` for the whole
+  // list — see revalidateAllMappedProducts' comment on why a large id list
+  // in a single filter is dangerous (Supabase's edge rejects an
+  // over-length request URL with a plain-text "Bad Request" body). Low
+  // risk at today's catalog size, but cheap to guard against for good.
+  const CHUNK_SIZE = 200
+  const variants: { id: string }[] = []
+  for (let i = 0; i < productIds.length; i += CHUNK_SIZE) {
+    const { data: batch, error } = await admin
+      .from('product_variants')
+      .select('id')
+      .in('product_id', productIds.slice(i, i + CHUNK_SIZE))
+    if (error) throw error
+    variants.push(...batch)
+  }
 
   await mapWithConcurrency(variants, DETAIL_FETCH_CONCURRENCY, (v) =>
     pushInventoryForVariant(v.id, { force: true }),
@@ -1312,15 +1323,24 @@ export async function revalidateAllMappedProducts(
     if (batch.length < PAGE_SIZE) break
   }
 
-  const variantIds = Array.from(new Set(mappings.map((m) => m.variant_id)))
+  // Fetches every variant (not filtered by `.in('id', variantIds)`) — a
+  // large id list serialized into the request URL is exactly what broke
+  // the orders page with a 414 earlier (see migration 0048's has_shipment
+  // column), and the same shape here (hundreds of UUIDs joined into one
+  // filter) gets rejected by Supabase's edge with a plain-text "Bad
+  // Request" body before PostgREST even runs — no error detail, just a
+  // request that never completes. Paginating over the whole table and
+  // matching in memory (via the Map below) avoids ever building that
+  // oversized filter.
   const variants: { id: string; product: { id: string; name: string } }[] = []
-  for (let page = 0; page * PAGE_SIZE < variantIds.length; page++) {
+  for (let page = 0; ; page++) {
     const { data: batch, error } = await admin
       .from('product_variants')
       .select('id, product:products(id, name)')
-      .in('id', variantIds.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE))
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     if (error) throw error
     variants.push(...batch)
+    if (batch.length < PAGE_SIZE) break
   }
   const productByVariantId = new Map(variants.map((v) => [v.id, v.product]))
 
