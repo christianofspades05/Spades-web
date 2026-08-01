@@ -358,6 +358,10 @@ export const placeOrder = createServerFn({ method: 'POST' })
             description: `${scope.name} order ${order.order_number}`,
             successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
             failureRedirectUrl: `${origin}/checkout/payment?order=${order.order_number}&paymentFailed=true`,
+            // Abandoned payments shouldn't leave stock reserved indefinitely —
+            // Xendit pushes an EXPIRED webhook event at this point, which
+            // releases the reservation and cancels the order (xendit.ts).
+            invoiceDuration: 300,
           })
           invoiceUrl = invoice.invoice_url
           await admin

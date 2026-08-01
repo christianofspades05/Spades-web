@@ -166,9 +166,23 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 ),
             )
 
+            // EXPIRED = the customer never completed payment before the
+            // invoice's duration elapsed — an abandoned checkout, not a
+            // failed payment attempt. Matches expire-unpaid-orders.ts's
+            // cron backstop, which cancels the same scenario the same way.
+            // FAILED = a payment WAS attempted and Xendit rejected it — a
+            // different case, kept as 'failed' rather than 'cancelled'.
             await admin
               .from('orders')
-              .update({ status: 'failed' })
+              .update(
+                payload.status === 'EXPIRED'
+                  ? {
+                      status: 'cancelled',
+                      cancelled_at: new Date().toISOString(),
+                      cancellation_reason: 'payment_expired',
+                    }
+                  : { status: 'failed' },
+              )
               .eq('id', order.id)
             if (payment) {
               await admin

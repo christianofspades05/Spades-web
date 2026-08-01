@@ -65,6 +65,10 @@ export interface CreateInvoiceInput {
   description: string
   successRedirectUrl: string
   failureRedirectUrl: string
+  /** Seconds until the invoice auto-expires (Xendit pushes an `EXPIRED`
+   *  webhook event at that point — see xendit.ts). Omit for Xendit's own
+   *  default (commonly 24h). */
+  invoiceDuration?: number
 }
 
 export async function createXenditInvoice(
@@ -88,6 +92,9 @@ export async function createXenditInvoice(
       ...(input.currency !== 'PHP' ? { payment_methods: ['CARDS'] } : {}),
       success_redirect_url: input.successRedirectUrl,
       failure_redirect_url: input.failureRedirectUrl,
+      ...(input.invoiceDuration !== undefined
+        ? { invoice_duration: input.invoiceDuration }
+        : {}),
     }),
   })
 

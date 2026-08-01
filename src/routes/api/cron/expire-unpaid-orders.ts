@@ -1,25 +1,29 @@
 /**
- * Auto-cancels online (Xendit) orders that were placed but never paid —
+ * Backstop for online (Xendit) orders that were placed but never paid —
  * see place-order.ts: an order is created with status='pending_payment'
  * and stock reserved *before* the customer finishes paying, specifically so
  * two shoppers can't both be sold the last unit while one of them is still
- * on Xendit's payment page. If that customer just abandons the page, the
- * order would otherwise sit as 'pending_payment' forever, which is
- * confusing for fulfillment (looks like a real order) and inflates the
- * admin dashboard's Orders count.
+ * on Xendit's payment page. The primary mechanism is Xendit's own invoice
+ * expiry (5 min, place-order.ts) pushing an EXPIRED webhook event
+ * (xendit.ts) that releases the reservation and cancels the order almost
+ * immediately. This cron only matters if that webhook never arrives —
+ * without it, an abandoned order would sit 'pending_payment' forever.
  *
  * Only ever touches is_cod=false orders — COD orders are *supposed* to
  * stay 'pending_payment' until delivery, that's not an abandoned payment.
  *
- * Trigger via an external scheduler (cron-job.org, every 15-30 min)
- * sending `Authorization: Bearer $CRON_SECRET` — NOT added to
- * vercel.json's cron list, which is already at this Vercel plan's
- * 2-daily-cron cap (review-requests, sync-channels-daily), same reasoning
- * as api/cron/abandoned-cart.ts.
+ * Trigger via an external scheduler (cron-job.org, every 15 min) sending
+ * `Authorization: Bearer $CRON_SECRET` — NOT added to vercel.json's cron
+ * list, which is already at this Vercel plan's 2-daily-cron cap
+ * (review-requests, sync-channels-daily), same reasoning as
+ * api/cron/abandoned-cart.ts.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
-const EXPIRE_AFTER_MINUTES = 60
+// Comfortably longer than the 5-minute invoice life + webhook delivery
+// time, so this doesn't race the webhook — but short enough to not leave
+// stock reserved for a full hour if the webhook genuinely never arrives.
+const EXPIRE_AFTER_MINUTES = 15
 
 function isAuthorized(request: Request): boolean {
   const expected = process.env.CRON_SECRET

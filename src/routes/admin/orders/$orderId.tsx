@@ -149,9 +149,11 @@ function OrderDetailPage() {
   // confirmation from a COD order, which is *supposed* to sit at
   // pending_payment until delivery — both share the same status, so
   // without this check fulfillment could mistake an unpaid online order
-  // for one that's just awaiting COD collection. See
-  // api/cron/expire-unpaid-orders.ts, which auto-cancels this after 60
-  // minutes if payment never completes.
+  // for one that's just awaiting COD collection. Xendit's own invoice
+  // expiry (5 min, see place-order.ts) + its EXPIRED webhook (xendit.ts)
+  // is what actually cancels this in the normal case;
+  // api/cron/expire-unpaid-orders.ts is just a 15-minute backstop in case
+  // that webhook never arrives.
   const isUnpaidOnline = order.status === 'pending_payment' && !order.is_cod
 
   const touchStart = useRef({ x: 0, y: 0 })
@@ -254,8 +256,8 @@ function OrderDetailPage() {
       {isUnpaidOnline && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
           Payment not yet confirmed — do not ship. This order will auto-cancel
-          and release its reserved stock if payment isn't completed within an
-          hour of being placed.
+          and release its reserved stock if payment isn't completed within 5
+          minutes of being placed.
         </div>
       )}
 
