@@ -248,7 +248,13 @@ interface TikTokCategoryAttributeValue {
 interface TikTokCategoryAttributeNode {
   id: string
   name: string
-  is_required?: boolean
+  // Real API field is misspelled ("is_requried", not "is_required") —
+  // confirmed live against a real category's attribute list.
+  is_requried?: boolean
+  // "SALES_PROPERTY" (Size/Color — variation axes, driven by this app's own
+  // variant data, never asked about in the push modal) vs "PRODUCT_PROPERTY"
+  // (ordinary listing attributes like Material/Pattern).
+  type?: string
   values?: TikTokCategoryAttributeValue[]
 }
 
@@ -610,14 +616,16 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       accessToken: connection.access_token_encrypted,
       shopCipher: connection.shop_cipher ?? undefined,
     })
-    return attributes.map((a) => ({
-      id: a.id,
-      name: a.name,
-      required: a.is_required ?? false,
-      values: a.values?.length
-        ? a.values.map((v) => ({ id: v.id, name: v.name }))
-        : null,
-    }))
+    return attributes
+      .filter((a) => a.type !== 'SALES_PROPERTY')
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        required: a.is_requried ?? false,
+        values: a.values?.length
+          ? a.values.map((v) => ({ id: v.id, name: v.name }))
+          : null,
+      }))
   },
 
   async createProduct(
@@ -634,6 +642,32 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       input.images.map((url) => uploadProductImage(accessToken, url)),
     )
 
+    // Size/Color/Style are "SALES_PROPERTY" attributes on TikTok's side —
+    // the actual variation axes a sku's sales_attributes must reference by
+    // the category's own attribute id (confirmed live against a real
+    // product: sales_attributes needs {id, name, value_name}, not the
+    // free-text {attribute_name, attribute_value} shape this used to send).
+    // getCategoryAttributes filters these out of the push modal entirely
+    // since they're never something staff should fill in by hand — the
+    // values already live on this app's own variant rows.
+    const { attributes: categoryAttributes } = await callTikTokApi<{
+      attributes: TikTokCategoryAttributeNode[]
+    }>({
+      method: 'GET',
+      path: `/product/202309/categories/${input.categoryId}/attributes`,
+      accessToken,
+      shopCipher,
+    })
+    const salesAttributeIdByName = new Map(
+      categoryAttributes
+        .filter((a) => a.type === 'SALES_PROPERTY')
+        .map((a) => [a.name.toLowerCase(), a.id]),
+    )
+    function salesAttribute(name: string, value: string | null) {
+      const id = value ? salesAttributeIdByName.get(name.toLowerCase()) : null
+      return id ? { id, name, value_name: value as string } : null
+    }
+
     const response = await callTikTokApi<{
       product_id: string
       skus: { id: string; seller_sku: string }[]
@@ -645,14 +679,29 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       body: {
         // Pushed products are meant to be reviewed and finished by hand
         // (size chart, category-specific requirements this adapter can't
-        // fill in automatically) before actually going live — AS_DRAFT
+        // fill in automatically) before actually going live — DRAFT
         // creates the listing without publishing it, same intent as
-        // Shopee's item_status: "UNLIST" above.
-        save_mode: 'AS_DRAFT',
+        // Shopee's item_status: "UNLIST" above. (Confirmed live: the real
+        // enum is "DRAFT", not "AS_DRAFT" — a community SDK's type caught
+        // this before it ever hit a real request.)
+        save_mode: 'DRAFT',
         category_id: input.categoryId,
-        product_name: input.name,
+        // Confirmed live: the real field is "title" — products/create
+        // rejects "product_name" outright ("Title is a required field").
+        title: input.name,
         description: input.description,
         main_images: imageUris.map((uri) => ({ uri })),
+        // Required by products/create ("package_weight" has no ? in a
+        // community SDK's types) — no real per-product weight is tracked
+        // yet, so this is a small placeholder matching the 0.3kg default
+        // already used for Shopee's equivalent field.
+        package_weight: { value: '0.3', unit: 'KILOGRAM' },
+        package_dimensions: {
+          length: '10',
+          width: '10',
+          height: '10',
+          unit: 'CENTIMETER',
+        },
         product_attributes: input.attributeValues.map((a) => ({
           id: a.attributeId,
           values: a.valueId ? [{ id: a.valueId }] : [{ name: a.value ?? '' }],
@@ -660,15 +709,11 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         skus: input.variants.map((v) => ({
           seller_sku: v.sku,
           sales_attributes: [
-            v.size ? { attribute_name: 'Size', attribute_value: v.size } : null,
-            v.color
-              ? { attribute_name: 'Color', attribute_value: v.color }
-              : null,
-            v.style
-              ? { attribute_name: 'Style', attribute_value: v.style }
-              : null,
+            salesAttribute('Size', v.size),
+            salesAttribute('Color', v.color),
+            salesAttribute('Style', v.style),
           ].filter(
-            (a): a is { attribute_name: string; attribute_value: string } =>
+            (a): a is { id: string; name: string; value_name: string } =>
               a !== null,
           ),
           price: { amount: (v.priceCents / 100).toFixed(2), currency: 'PHP' },
