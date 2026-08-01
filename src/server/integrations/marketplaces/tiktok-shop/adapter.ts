@@ -263,7 +263,6 @@ interface TikTokPackage {
 /** Downloads one of our own hosted product images and re-uploads it through TikTok's Image Upload API, returning the `uri` TikTok expects in a product's main_images. */
 async function uploadProductImage(
   accessToken: string,
-  shopCipher: string | undefined,
   imageUrl: string,
 ): Promise<string> {
   const res = await fetch(imageUrl)
@@ -271,11 +270,14 @@ async function uploadProductImage(
     throw new Error(`Failed to download image for TikTok upload: ${imageUrl}`)
   }
   const buffer = Buffer.from(await res.arrayBuffer())
+  // Confirmed live: unlike every other Partner Center call, images/upload
+  // rejects a shop_cipher query param outright ("Unexpected identifier.
+  // The 'shop_cipher' query parameter is not required for this request")
+  // — it's authenticated purely off the access token, no shop context.
   const { uri } = await callTikTokApi<{ uri: string }>({
     method: 'POST',
     path: '/product/202309/images/upload',
     accessToken,
-    shopCipher,
     body: {
       data: buffer.toString('base64'),
       use_case: 'MAIN_IMAGE',
@@ -624,9 +626,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     const shopCipher = connection.shop_cipher ?? undefined
 
     const imageUris = await Promise.all(
-      input.images.map((url) =>
-        uploadProductImage(accessToken, shopCipher, url),
-      ),
+      input.images.map((url) => uploadProductImage(accessToken, url)),
     )
 
     const response = await callTikTokApi<{
