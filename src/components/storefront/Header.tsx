@@ -42,7 +42,7 @@ export function Header({ scope }: HeaderProps) {
       </div>
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}
@@ -59,12 +59,12 @@ export function Header({ scope }: HeaderProps) {
               <img
                 src={scope.logoLight}
                 alt={scope.name}
-                className="h-9 w-auto shrink-0 dark:hidden"
+                className="h-6 w-auto shrink-0 dark:hidden sm:h-7 lg:h-9"
               />
               <img
                 src={scope.logoDark}
                 alt={scope.name}
-                className="hidden h-9 w-auto shrink-0 dark:block"
+                className="hidden h-6 w-auto shrink-0 dark:block sm:h-7 lg:h-9"
               />
             </Link>
           </div>
@@ -91,7 +91,7 @@ export function Header({ scope }: HeaderProps) {
               </a>
             ))}
           </nav>
-          <div className="flex items-center gap-5">
+          <div className="flex shrink-0 items-center gap-3 sm:gap-5">
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
