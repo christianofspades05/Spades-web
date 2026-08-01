@@ -813,6 +813,26 @@ export const shopeeAdapter: MarketplaceAdapter = {
       0,
     )
 
+    // Some categories (fashion in particular) make add_item hard-fail with
+    // "Size Chart is required for selected category" — item_status: UNLIST
+    // does NOT bypass this, it's a business-rule validation Shopee runs
+    // before the draft item can even be created. Confirmed live that this
+    // shop's fashion categories (e.g. 100352/100400/100109) all share the
+    // same single size_chart_id (702661978), so this attaches whatever
+    // template get_size_chart_list returns for the category rather than
+    // asking staff to fill one in per product — it's still just a
+    // placeholder they can replace from Shopee's own dashboard afterward.
+    const sizeChartList = await callShopeeApi<{
+      size_chart_list?: { size_chart_id: number }[]
+    }>({
+      method: 'GET',
+      path: '/api/v2/product/get_size_chart_list',
+      accessToken,
+      shopId,
+      query: { category_id: input.categoryId, page_size: '1' },
+    }).catch(() => ({ size_chart_list: [] }))
+    const sizeChartId = sizeChartList.size_chart_list?.[0]?.size_chart_id
+
     const addItemResponse = await callShopeeApi<{ item_id: number }>({
       method: 'POST',
       path: '/api/v2/product/add_item',
@@ -856,6 +876,9 @@ export const shopeeAdapter: MarketplaceAdapter = {
           package_height: 10,
         },
         logistic_info: logisticInfo,
+        ...(sizeChartId
+          ? { size_chart_info: { size_chart_id: sizeChartId } }
+          : {}),
       },
     })
     const itemId = addItemResponse.item_id
