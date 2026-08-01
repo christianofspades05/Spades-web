@@ -394,21 +394,42 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
 export const revalidateMappings = createServerFn({ method: 'POST' })
   .validator(z.object({ marketplace: marketplaceSchema }))
   .handler(async ({ data }): Promise<RevalidateMappingsResult> => {
-    const staff = await requireStaff(MANAGE_ROLES)
-    const result = await revalidateAllMappedProducts(data.marketplace)
-    await pushInventoryForProducts(result.fixed.map((f) => f.productId))
-    await logStaffActivity(
-      staff,
-      'channel.revalidate_mappings',
-      'marketplace_connections',
-      data.marketplace,
-      {
-        checked: result.checked,
-        fixed: result.fixed.length,
-        failed: result.failed.length,
-      },
-    )
-    return result
+    try {
+      const staff = await requireStaff(MANAGE_ROLES)
+      const result = await revalidateAllMappedProducts(data.marketplace)
+      await pushInventoryForProducts(result.fixed.map((f) => f.productId))
+      await logStaffActivity(
+        staff,
+        'channel.revalidate_mappings',
+        'marketplace_connections',
+        data.marketplace,
+        {
+          checked: result.checked,
+          fixed: result.fixed.length,
+          failed: result.failed.length,
+        },
+      )
+      return result
+    } catch (err) {
+      // Temporary diagnostic: the client only ever showed a generic "Bad
+      // Request" for this action with no server-side log to explain why —
+      // this captures the real error (message + stack) so the next attempt
+      // is actually debuggable, since none of the normal logSync calls
+      // inside this call chain were firing at all.
+      const admin = getSupabaseAdminClient()
+      await admin.from('sync_logs').insert({
+        marketplace: data.marketplace,
+        operation: 'revalidate_mappings_diagnostic',
+        status: 'failed',
+        detail: {
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? (err.stack ?? null) : null,
+          name: err instanceof Error ? err.name : typeof err,
+        },
+        error_message: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
   })
 
 /**
