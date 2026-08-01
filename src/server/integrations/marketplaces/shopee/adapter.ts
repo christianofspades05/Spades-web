@@ -883,11 +883,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
     })
     const itemId = addItemResponse.item_id
 
-    let tierVariationResponse: { model_id_list: number[] }
     try {
-      tierVariationResponse = await callShopeeApi<{
-        model_id_list: number[]
-      }>({
+      await callShopeeApi({
         method: 'POST',
         path: '/api/v2/product/init_tier_variation',
         accessToken,
@@ -933,14 +930,32 @@ export const shopeeAdapter: MarketplaceAdapter = {
       throw err
     }
 
-    // init_tier_variation only returns model_id_list (no sku echoed back),
-    // in the same order the `model` array above was sent — safe to match
-    // by index since it's the same request/response round trip.
+    // init_tier_variation's own response shape for the created model ids
+    // isn't reliably documented (a community SDK assumed a flat
+    // model_id_list, which a live call proved wrong — no such key came
+    // back, crashing on `[0]`). get_model_list's shape *is* already
+    // confirmed live elsewhere in this file (see getProductDetail above),
+    // so this re-fetches the just-created models and matches them back to
+    // variants by model_sku (== v.sku, which this adapter set) instead of
+    // trusting init_tier_variation's response at all.
+    const modelList = await callShopeeApi<{
+      model?: { model_id: number; model_sku?: string }[]
+    }>({
+      method: 'GET',
+      path: '/api/v2/product/get_model_list',
+      accessToken,
+      shopId,
+      query: { item_id: String(itemId) },
+    })
+    const modelIdBySku = new Map(
+      (modelList.model ?? []).map((m) => [m.model_sku, m.model_id]),
+    )
+
     return {
       externalProductId: String(itemId),
-      variants: input.variants.map((v, i) => ({
+      variants: input.variants.map((v) => ({
         variantId: v.variantId,
-        externalVariantId: String(tierVariationResponse.model_id_list[i] ?? ''),
+        externalVariantId: String(modelIdBySku.get(v.sku) ?? ''),
       })),
     }
   },
