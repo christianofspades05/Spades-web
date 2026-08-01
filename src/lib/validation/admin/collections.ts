@@ -21,6 +21,7 @@ export const collectionInputSchema = z.object({
   matchType: z.enum(['all', 'any']).default('all'),
   rules: z.array(collectionRuleSchema).default([]),
   sortBy: z.enum(SORT_OPTIONS).default('title_asc'),
+  maxProducts: z.number().int().min(1).max(500).optional(),
   brand: z.enum(STOREFRONT_BRANDS).default('spades'),
 })
 
@@ -38,6 +39,7 @@ export const previewCollectionRulesSchema = z.object({
   matchType: z.enum(['all', 'any']),
   sortBy: z.enum(SORT_OPTIONS),
   hideOutOfStockProducts: z.boolean().default(false),
+  maxProducts: z.number().int().min(1).max(500).optional(),
 })
 
 export type CollectionInput = z.infer<typeof collectionInputSchema>

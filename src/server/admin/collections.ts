@@ -60,6 +60,7 @@ export const createCollection = createServerFn({ method: 'POST' })
         match_type: data.matchType,
         rules: data.rules,
         sort_by: data.sortBy,
+        max_products: data.maxProducts ?? null,
         brand: data.brand,
       })
       .select('*')
@@ -95,6 +96,7 @@ export const updateCollection = createServerFn({ method: 'POST' })
         match_type: data.matchType,
         rules: data.rules,
         sort_by: data.sortBy,
+        max_products: data.maxProducts ?? null,
         brand: data.brand,
       })
       .eq('id', data.id)
@@ -219,7 +221,12 @@ export const previewCollectionRules = createServerFn({ method: 'POST' })
       }
     })
 
-    return matched.map((p, index) => ({
+    const capped =
+      data.maxProducts !== undefined
+        ? matched.slice(0, data.maxProducts)
+        : matched
+
+    return capped.map((p, index) => ({
       productId: p.product.id,
       name: p.product.name,
       slug: p.product.slug,

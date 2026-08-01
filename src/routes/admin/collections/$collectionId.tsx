@@ -97,6 +97,7 @@ export const Route = createFileRoute('/admin/collections/$collectionId')({
           matchType: collection.match_type,
           sortBy: collection.sort_by as SortOption,
           hideOutOfStockProducts: collection.hide_out_of_stock_products,
+          maxProducts: collection.max_products ?? undefined,
         },
       }),
     ])
@@ -117,6 +118,7 @@ interface CollectionFormState {
   matchType: CollectionMatchType
   rules: CollectionRule[]
   sortBy: SortOption
+  maxProducts: number | ''
   brand: ProductBrand
 }
 
@@ -142,6 +144,7 @@ function EditCollectionPage() {
     matchType: collection.match_type,
     rules: collection.rules as CollectionRule[],
     sortBy: collection.sort_by as SortOption,
+    maxProducts: collection.max_products ?? '',
     brand: collection.brand,
   })
   useUndoRedoShortcuts(undo, redo)
@@ -202,6 +205,7 @@ function EditCollectionPage() {
           matchType: form.matchType,
           sortBy: form.sortBy,
           hideOutOfStockProducts: form.hideOutOfStockProducts,
+          maxProducts: form.maxProducts === '' ? undefined : form.maxProducts,
         },
       })
       setPreview(results)
@@ -232,6 +236,7 @@ function EditCollectionPage() {
           matchType: form.matchType,
           rules: form.rules,
           sortBy: form.sortBy,
+          maxProducts: form.maxProducts === '' ? undefined : form.maxProducts,
           brand: form.brand,
         },
       })
@@ -345,6 +350,27 @@ function EditCollectionPage() {
               }
             />
             Hide out-of-stock products on the storefront
+          </label>
+          <label className={labelClassName}>
+            Limit to first N products (optional)
+            <input
+              type="number"
+              min={1}
+              placeholder="No limit"
+              value={form.maxProducts}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  maxProducts:
+                    e.target.value === '' ? '' : Number(e.target.value),
+                })
+              }
+              className={`${inputClassName} w-32`}
+            />
+            <span className="text-xs font-normal text-neutral-500">
+              Caps the total shown (manually pinned products first, e.g. a "New
+              Arrivals" collection capped at 6).
+            </span>
           </label>
 
           <div className="flex flex-col gap-3 rounded-lg border border-neutral-200 p-4">

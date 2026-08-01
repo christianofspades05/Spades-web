@@ -227,6 +227,7 @@ export interface Database {
           match_type: CollectionMatchType
           rules: unknown
           sort_by: string
+          max_products: number | null
           brand: ProductBrand
           created_at: string
           updated_at: string

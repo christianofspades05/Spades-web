@@ -171,7 +171,9 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
 
       const { data: collection } = await supabase
         .from('collections')
-        .select('id, match_type, rules, sort_by, hide_out_of_stock_products')
+        .select(
+          'id, match_type, rules, sort_by, hide_out_of_stock_products, max_products',
+        )
         .eq('slug', data.collectionSlug)
         .eq('is_active', true)
         .maybeSingle<{
@@ -180,6 +182,7 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
           rules: unknown
           sort_by: string
           hide_out_of_stock_products: boolean
+          max_products: number | null
         }>()
       if (!collection) return []
 
@@ -239,8 +242,14 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       if (collection.hide_out_of_stock_products) {
         matching = matching.filter((p) => inventoryStockOf(p) > 0)
       }
+      // Manual pins always take the first slots; max_products (e.g. a "New
+      // Arrivals" collection capped at 6) trims from the auto-matched tail.
+      const cap =
+        collection.max_products !== null
+          ? Math.min(collection.max_products, data.limit)
+          : data.limit
 
-      return withSalePrices(matching.slice(0, data.limit))
+      return withSalePrices(matching.slice(0, cap))
     },
   )
 
