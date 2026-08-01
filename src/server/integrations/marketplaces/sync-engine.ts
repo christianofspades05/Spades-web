@@ -286,21 +286,56 @@ export async function pushInventoryForAllProducts(
     .eq('marketplace_connection_id', connection.id)
   if (error) throw error
 
-  for (const mapping of mappings) {
-    const { data: inventoryRow } = await admin
-      .from('inventory')
-      .select('quantity_available')
-      .eq('variant_id', mapping.variant_id)
-      .maybeSingle()
-    await pushOneMapping(
-      connection,
-      mapping,
-      inventoryRow?.quantity_available ?? 0,
-      options,
-    )
-  }
+  // Concurrent, not one mapping at a time — sequential pushes over a
+  // catalog this size (hundreds of mappings, each a DB read + a real
+  // marketplace API call + a DB write) run well past a serverless
+  // function's time limit and the whole request gets killed mid-run, the
+  // same class of problem mapWithConcurrency already exists to fix for
+  // autoConnectProductsBySku's remote-detail fetches.
+  await mapWithConcurrency(
+    mappings,
+    DETAIL_FETCH_CONCURRENCY,
+    async (mapping) => {
+      const { data: inventoryRow } = await admin
+        .from('inventory')
+        .select('quantity_available')
+        .eq('variant_id', mapping.variant_id)
+        .maybeSingle()
+      await pushOneMapping(
+        connection,
+        mapping,
+        inventoryRow?.quantity_available ?? 0,
+        options,
+      )
+    },
+  )
 
   return { attempted: mappings.length }
+}
+
+/**
+ * Forced, concurrent push for a specific set of local products — every
+ * marketplace each variant is mapped to, not just one. Used after
+ * revalidateAllMappedProducts to immediately push correct stock for
+ * whatever it just repaired, without re-pushing the *entire* catalog (see
+ * pushInventoryForAllProducts, which already does that and is
+ * unnecessarily slow for this narrower case).
+ */
+export async function pushInventoryForProducts(
+  productIds: string[],
+): Promise<{ attempted: number }> {
+  if (productIds.length === 0) return { attempted: 0 }
+  const admin = getSupabaseAdminClient()
+  const { data: variants, error } = await admin
+    .from('product_variants')
+    .select('id')
+    .in('product_id', productIds)
+  if (error) throw error
+
+  await mapWithConcurrency(variants, DETAIL_FETCH_CONCURRENCY, (v) =>
+    pushInventoryForVariant(v.id, { force: true }),
+  )
+  return { attempted: variants.length }
 }
 
 // ---------------------------------------------------------------------------

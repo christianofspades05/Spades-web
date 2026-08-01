@@ -14,6 +14,7 @@ import {
   pullOrdersForMarketplace,
   pullReturnsForMarketplace,
   pushInventoryForAllProducts,
+  pushInventoryForProducts,
   pushInventoryForVariant,
   pushNewProductToMarketplace,
   revalidateAllMappedProducts,
@@ -384,16 +385,18 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
  * revalidateAllMappedProducts' own comment for why that happens) — unlike
  * autoConnectProducts/autoConnectBySku, this deliberately re-checks
  * products that already have a mapping, not just unlinked ones. Finishes
- * with a forced full inventory push so every repaired (and already-fine)
- * mapping ends up carrying the right stock number immediately, not on
- * whatever the next scheduled sync happens to be.
+ * with a forced push scoped to just the repaired products (not the whole
+ * catalog — pushInventoryForAllProducts on top of a full revalidation pass
+ * in the same request risks running past a serverless function's time
+ * limit), so those specific products carry the right stock number
+ * immediately rather than waiting on the next scheduled sync.
  */
 export const revalidateMappings = createServerFn({ method: 'POST' })
   .validator(z.object({ marketplace: marketplaceSchema }))
   .handler(async ({ data }): Promise<RevalidateMappingsResult> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const result = await revalidateAllMappedProducts(data.marketplace)
-    await pushInventoryForAllProducts(data.marketplace, { force: true })
+    await pushInventoryForProducts(result.fixed.map((f) => f.productId))
     await logStaffActivity(
       staff,
       'channel.revalidate_mappings',
