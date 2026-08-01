@@ -883,37 +883,55 @@ export const shopeeAdapter: MarketplaceAdapter = {
     })
     const itemId = addItemResponse.item_id
 
-    const tierVariationResponse = await callShopeeApi<{
-      model_id_list: number[]
-    }>({
-      method: 'POST',
-      path: '/api/v2/product/init_tier_variation',
-      accessToken,
-      shopId,
-      body: {
-        item_id: itemId,
-        // Shopee requires a `tier_variation`/`model` list for multi-variant
-        // items rather than a flat sku array like TikTok's — this sends a
-        // single "Variant" tier with one option per variant, which covers
-        // the common case (one variation axis: size, or color, etc.).
-        // Products needing two variation axes (e.g. size AND color) will
-        // need this expanded once exercised against a real product.
-        tier_variation: [
-          {
-            name: 'Variant',
-            option_list: input.variants.map((v) => ({
-              option: [v.size, v.color, v.style].filter(Boolean).join(' / '),
-            })),
-          },
-        ],
-        model: input.variants.map((v) => ({
-          tier_index: [input.variants.indexOf(v)],
-          model_sku: v.sku,
-          original_price: v.priceCents / 100,
-          seller_stock: [{ location_id: 'PHZ', stock: v.quantityAvailable }],
-        })),
-      },
-    })
+    let tierVariationResponse: { model_id_list: number[] }
+    try {
+      tierVariationResponse = await callShopeeApi<{
+        model_id_list: number[]
+      }>({
+        method: 'POST',
+        path: '/api/v2/product/init_tier_variation',
+        accessToken,
+        shopId,
+        body: {
+          item_id: itemId,
+          // Shopee requires a `tier_variation`/`model` list for multi-variant
+          // items rather than a flat sku array like TikTok's — this sends a
+          // single "Variant" tier with one option per variant, which covers
+          // the common case (one variation axis: size, or color, etc.).
+          // Products needing two variation axes (e.g. size AND color) will
+          // need this expanded once exercised against a real product.
+          tier_variation: [
+            {
+              name: 'Variant',
+              option_list: input.variants.map((v) => ({
+                option: [v.size, v.color, v.style].filter(Boolean).join(' / '),
+              })),
+            },
+          ],
+          model: input.variants.map((v) => ({
+            tier_index: [input.variants.indexOf(v)],
+            model_sku: v.sku,
+            original_price: v.priceCents / 100,
+            seller_stock: [{ location_id: 'PHZ', stock: v.quantityAvailable }],
+          })),
+        },
+      })
+    } catch (err) {
+      // add_item already created the (draft) item above — if the variant
+      // step fails, leaving it behind produces an orphaned draft that
+      // Shopee's duplicate-detection then flags on the next retry
+      // ("This product duplicates another in your shop"). Delete it so a
+      // failed push doesn't block every future attempt at pushing the same
+      // product.
+      await callShopeeApi({
+        method: 'POST',
+        path: '/api/v2/product/delete_item',
+        accessToken,
+        shopId,
+        body: { item_id: itemId },
+      }).catch(() => {})
+      throw err
+    }
 
     // init_tier_variation only returns model_id_list (no sku echoed back),
     // in the same order the `model` array above was sent — safe to match
