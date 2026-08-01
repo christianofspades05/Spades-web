@@ -724,7 +724,7 @@ export const createVariant = createServerFn({ method: 'POST' })
       })
       .select('*')
       .single()
-    if (error) throw error
+    if (error) throw friendlySkuError(error, data.sku)
 
     const { error: inventoryError } = await admin.from('inventory').insert({
       variant_id: variant.id,
