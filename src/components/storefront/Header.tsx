@@ -55,16 +55,16 @@ export function Header({ scope }: HeaderProps) {
                 <Menu className="h-5 w-5" />
               )}
             </button>
-            <Link to="/" className="flex items-center">
+            <Link to="/" className="flex shrink-0 items-center">
               <img
                 src={scope.logoLight}
                 alt={scope.name}
-                className="h-9 w-auto dark:hidden"
+                className="h-9 w-auto shrink-0 dark:hidden"
               />
               <img
                 src={scope.logoDark}
                 alt={scope.name}
-                className="hidden h-9 w-auto dark:block"
+                className="hidden h-9 w-auto shrink-0 dark:block"
               />
             </Link>
           </div>
