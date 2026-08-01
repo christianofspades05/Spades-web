@@ -590,7 +590,11 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       path: '/product/202309/categories',
       accessToken: connection.access_token_encrypted,
       shopCipher: connection.shop_cipher ?? undefined,
-      query: { keyword: query },
+      // Confirmed live: products/create rejects a v1 category id
+      // ("All region shops must use V2 categories") — v1 and v2 share the
+      // same ids for at least this shop's categories, but requesting v2
+      // here keeps this in step with what create actually requires below.
+      query: { keyword: query, category_version: 'v2' },
     })
     return categories
       .filter((c) => c.is_leaf)
@@ -687,6 +691,9 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         // actually LISTING/AS_DRAFT, i.e. the original guess was right.)
         save_mode: 'AS_DRAFT',
         category_id: input.categoryId,
+        // Confirmed live: rejected outright without this ("All region
+        // shops must use V2 categories").
+        category_version: 'v2',
         // Confirmed live: the real field is "title" — products/create
         // rejects "product_name" outright ("Title is a required field").
         title: input.name,
