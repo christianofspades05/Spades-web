@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
+import { getOrderConfirmationItems } from '#/server/checkout/confirmation'
 
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
@@ -20,6 +21,14 @@ export const Route = createFileRoute('/checkout/confirmation')({
     // regardless of what was selected).
     currency: z.string().default('PHP'),
   }),
+  loaderDeps: ({ search }) => ({ order: search.order }),
+  loader: async ({ deps }) => {
+    if (!deps.order) return { items: [] }
+    const items = await getOrderConfirmationItems({
+      data: { orderNumber: deps.order },
+    })
+    return { items: items ?? [] }
+  },
   component: ConfirmationPage,
 })
 
@@ -27,6 +36,7 @@ const FIRED_PURCHASE_KEY = 'spades_fb_purchase_fired'
 
 function ConfirmationPage() {
   const { order, value, currency } = Route.useSearch()
+  const { items } = Route.useLoaderData()
   const { clear } = useCheckout()
 
   // Reached either directly (COD) or via Xendit's success redirect (online
@@ -62,6 +72,41 @@ function ConfirmationPage() {
         Thanks for your order — we'll text and email you updates as it's packed
         and shipped.
       </p>
+
+      {items.length > 0 && (
+        <div className="mt-8 flex flex-col gap-3 text-left">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"
+            >
+              {item.imageUrl ? (
+                <img
+                  src={item.imageUrl}
+                  alt=""
+                  className="size-14 shrink-0 rounded object-cover"
+                />
+              ) : (
+                <div className="size-14 shrink-0 rounded bg-neutral-200 dark:bg-neutral-800" />
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-medium text-neutral-900 dark:text-white">
+                  {item.productName}
+                </p>
+                {item.variantLabel && (
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                    {item.variantLabel}
+                  </p>
+                )}
+              </div>
+              <p className="ml-auto shrink-0 text-neutral-600 dark:text-neutral-400">
+                ×{item.quantity}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Link
         to="/products"
         search={{ sort: 'stock_desc', page: 1 }}
