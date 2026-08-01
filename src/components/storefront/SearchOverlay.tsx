@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { Search, X } from 'lucide-react'
 import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { quickSearchProducts } from '#/server/products/queries'
@@ -26,6 +26,7 @@ export function SearchOverlay({
   brand: Brand
 }) {
   const { formatPriceWithMarkup: formatPrice } = useCurrency()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebouncedValue(query, 300)
   const [results, setResults] = useState<
@@ -85,6 +86,15 @@ export function SearchOverlay({
 
   const trimmedQuery = query.trim()
 
+  function goToAllResults() {
+    if (!trimmedQuery) return
+    navigate({
+      to: '/products',
+      search: { q: trimmedQuery, sort: 'newest', page: 1 },
+    })
+    onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-50">
       <div
@@ -94,7 +104,13 @@ export function SearchOverlay({
       />
       <div className="relative mx-auto mt-20 w-full max-w-lg px-4">
         <div className="rounded-xl bg-white shadow-xl dark:bg-neutral-950">
-          <div className="flex items-center gap-3 border-b border-neutral-200 p-4 dark:border-neutral-800">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              goToAllResults()
+            }}
+            className="flex items-center gap-3 border-b border-neutral-200 p-4 dark:border-neutral-800"
+          >
             <Search className="h-4 w-4 shrink-0 text-neutral-400" />
             <input
               ref={inputRef}
@@ -112,7 +128,7 @@ export function SearchOverlay({
             >
               <X className="h-5 w-5" />
             </button>
-          </div>
+          </form>
 
           {trimmedQuery && (
             <div className="max-h-[60vh] overflow-y-auto">
