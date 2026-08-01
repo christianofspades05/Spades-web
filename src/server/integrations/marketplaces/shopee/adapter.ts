@@ -47,13 +47,12 @@ import {
 } from './client'
 
 /** `external_shop_id` is nullable at the DB level (not every connection row necessarily has one yet), but every signed Shopee call requires it — this narrows both it and the access token to non-null in one place instead of repeating the check per method. */
-function requireCredentials(
-  connection: MarketplaceConnection,
-): { accessToken: string; shopId: string } {
+function requireCredentials(connection: MarketplaceConnection): {
+  accessToken: string
+  shopId: string
+} {
   if (!connection.access_token_encrypted || !connection.external_shop_id) {
-    throw new Error(
-      'Shopee connection is missing its access token or shop id.',
-    )
+    throw new Error('Shopee connection is missing its access token or shop id.')
   }
   return {
     accessToken: connection.access_token_encrypted,
@@ -229,13 +228,13 @@ interface ShopeeCategoryNode {
 
 interface ShopeeAttributeValue {
   value_id: number
-  original_value_name: string
+  name: string
 }
 
 interface ShopeeAttributeNode {
   attribute_id: number
-  original_attribute_name: string
-  is_mandatory: boolean
+  name: string
+  mandatory: boolean
   attribute_value_list?: ShopeeAttributeValue[]
 }
 
@@ -324,7 +323,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
   async exchangeCodeForTokens(code, shopId) {
     if (!shopId) {
       throw new Error(
-        'Shopee token exchange requires shopId (from the callback redirect\'s shop_id query param).',
+        "Shopee token exchange requires shopId (from the callback redirect's shop_id query param).",
       )
     }
     const token = await exchangeAuthCode(code, shopId)
@@ -383,10 +382,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       windowStart < nowSeconds;
       windowStart += MAX_WINDOW_SECONDS
     ) {
-      const windowEnd = Math.min(
-        windowStart + MAX_WINDOW_SECONDS,
-        nowSeconds,
-      )
+      const windowEnd = Math.min(windowStart + MAX_WINDOW_SECONDS, nowSeconds)
       let cursor = ''
       do {
         const page = await callShopeeApi<{
@@ -472,7 +468,9 @@ export const shopeeAdapter: MarketplaceAdapter = {
           undefined
       }
 
-      orders.push(...((order_list ?? []) as unknown as Record<string, unknown>[]))
+      orders.push(
+        ...((order_list ?? []) as unknown as Record<string, unknown>[]),
+      )
     }
     return orders
   },
@@ -728,23 +726,33 @@ export const shopeeAdapter: MarketplaceAdapter = {
     categoryId: string,
   ): Promise<MarketplaceCategoryAttribute[]> {
     const { accessToken, shopId } = requireCredentials(connection)
-    const { attribute_list } = await callShopeeApi<{
-      attribute_list?: ShopeeAttributeNode[]
+    // Confirmed live against a real shop: /api/v2/product/get_attributes
+    // (the old endpoint this used to call) is retired — Shopee returns
+    // {"error":"api_suspended","message":"...currently offline..."} for
+    // it. get_attribute_tree is the replacement: takes category_id_list
+    // (a plain string, not JSON-array syntax — `[123]` fails with a
+    // strconv parse error) and nests the attribute array under
+    // response.list[0].attribute_tree instead of a top-level
+    // attribute_list, with `name`/`mandatory` instead of
+    // original_attribute_name/is_mandatory.
+    const { list } = await callShopeeApi<{
+      list?: { category_id: number; attribute_tree?: ShopeeAttributeNode[] }[]
     }>({
       method: 'GET',
-      path: '/api/v2/product/get_attributes',
+      path: '/api/v2/product/get_attribute_tree',
       accessToken,
       shopId,
-      query: { category_id: categoryId },
+      query: { category_id_list: categoryId },
     })
-    return (attribute_list ?? []).map((a) => ({
+    const attributeTree = list?.[0]?.attribute_tree ?? []
+    return attributeTree.map((a) => ({
       id: String(a.attribute_id),
-      name: a.original_attribute_name,
-      required: a.is_mandatory,
+      name: a.name,
+      required: a.mandatory,
       values: a.attribute_value_list?.length
         ? a.attribute_value_list.map((v) => ({
             id: String(v.value_id),
-            name: v.original_value_name,
+            name: v.name,
           }))
         : null,
     }))
