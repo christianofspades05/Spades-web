@@ -413,20 +413,43 @@ export const revalidateMappings = createServerFn({ method: 'POST' })
     } catch (err) {
       // Temporary diagnostic: the client only ever showed a generic "Bad
       // Request" for this action with no server-side log to explain why —
-      // this captures the real error (message + stack) so the next attempt
-      // is actually debuggable, since none of the normal logSync calls
-      // inside this call chain were firing at all.
+      // this captures the real thrown value (whatever shape it is — the
+      // first attempt revealed it's a plain object, not an Error instance,
+      // so String(err) collapsed to "[object Object]" and lost everything)
+      // so the next attempt is actually debuggable.
       const admin = getSupabaseAdminClient()
+      let serialized: string
+      try {
+        if (err instanceof Response) {
+          serialized = JSON.stringify({
+            kind: 'Response',
+            status: err.status,
+            statusText: err.statusText,
+            headers: Object.fromEntries(err.headers.entries()),
+            bodyText: await err.clone().text(),
+          })
+        } else if (err instanceof Error) {
+          serialized = JSON.stringify(
+            Object.assign(
+              { name: err.name, message: err.message, stack: err.stack },
+              err,
+            ),
+          )
+        } else {
+          serialized = JSON.stringify(
+            err,
+            Object.getOwnPropertyNames(Object(err)),
+          )
+        }
+      } catch {
+        serialized = String(err)
+      }
       await admin.from('sync_logs').insert({
         marketplace: data.marketplace,
         operation: 'revalidate_mappings_diagnostic',
         status: 'failed',
-        detail: {
-          message: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? (err.stack ?? null) : null,
-          name: err instanceof Error ? err.name : typeof err,
-        },
-        error_message: err instanceof Error ? err.message : String(err),
+        detail: { type: typeof err, serialized, isError: err instanceof Error },
+        error_message: serialized,
       })
       throw err
     }
