@@ -672,7 +672,20 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
               a !== null,
           ),
           price: { amount: (v.priceCents / 100).toFixed(2), currency: 'PHP' },
-          inventory: [{ quantity: v.quantityAvailable }],
+          // Confirmed live: products/create rejects a sku's inventory
+          // without a warehouse_id ("WarehouseId of Inventory[0] is a
+          // required field"). The /logistics/202309/warehouses endpoint
+          // that would normally list them isn't in this app's granted
+          // scopes, but every existing product on this shop's inventory
+          // uses the same single warehouse id — confirmed via
+          // products/search — so that's used directly here rather than a
+          // lookup call this app can't make anyway.
+          inventory: [
+            {
+              warehouse_id: '7468354345315321620',
+              quantity: v.quantityAvailable,
+            },
+          ],
         })),
       },
     })
