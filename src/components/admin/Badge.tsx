@@ -91,6 +91,10 @@ const SHIPMENT_STATUS_LABELS: Record<string, string> = {
   packed: 'Awaiting Collection',
 }
 
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 export function StatusBadge({
   status,
   kind,
@@ -101,9 +105,10 @@ export function StatusBadge({
   const tone = KIND_TONES[kind][status] ?? 'neutral'
   const label =
     kind === 'payment'
-      ? (PAYMENT_STATUS_LABELS[status] ?? status.replace(/_/g, ' '))
+      ? (PAYMENT_STATUS_LABELS[status] ?? capitalize(status.replace(/_/g, ' ')))
       : kind === 'shipment'
-        ? (SHIPMENT_STATUS_LABELS[status] ?? status.replace(/_/g, ' '))
-        : status.replace(/_/g, ' ')
+        ? (SHIPMENT_STATUS_LABELS[status] ??
+          capitalize(status.replace(/_/g, ' ')))
+        : capitalize(status.replace(/_/g, ' '))
   return <Badge tone={tone}>{label}</Badge>
 }
