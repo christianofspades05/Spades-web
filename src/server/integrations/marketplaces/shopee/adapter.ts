@@ -821,9 +821,14 @@ export const shopeeAdapter: MarketplaceAdapter = {
           // Confirmed live: add_item rejects `normal_stock` ("invalid
           // field seller_stock, value must Not Null") — Shopee's current
           // API wants stock under seller_stock instead, same shape
-          // pushInventory already uses successfully against update_stock
-          // (see pushInventory below).
-          seller_stock: [{ stock: v.quantityAvailable }],
+          // pushInventory already uses against update_stock (see
+          // pushInventory below), but add_item additionally needs an
+          // explicit location_id even for a shop not on the multi-
+          // warehouse whitelist (confirmed via get_warehouse_detail
+          // returning "not in multi-warehouse whitelist" for this shop) —
+          // "PHZ" is the location_id already seen on this shop's existing
+          // listings via get_model_list, not a real warehouse feature.
+          seller_stock: [{ location_id: 'PHZ', stock: v.quantityAvailable }],
         })),
       },
     })
