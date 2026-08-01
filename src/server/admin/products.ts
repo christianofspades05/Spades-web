@@ -602,6 +602,7 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
               size: variant.size,
               color: variant.color,
               style: variant.style,
+              sort_order: variant.sort_order,
               price_cents: variant.price_cents,
               compare_at_price_cents: variant.compare_at_price_cents,
               cost_cents: variant.cost_cents,

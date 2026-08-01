@@ -438,7 +438,7 @@ function BulkEditPage() {
                                 })
                               }
                               placeholder="SKU"
-                              className={`${inputClassName} w-28`}
+                              className={`${inputClassName} w-44`}
                             />
                           </td>
                           <td className={tableCellClassName} colSpan={2} />
