@@ -16,10 +16,12 @@ import {
   pushInventoryForAllProducts,
   pushInventoryForVariant,
   pushNewProductToMarketplace,
+  revalidateAllMappedProducts,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
   AutoConnectByTitleResult,
   AutoConnectBySkuResult,
+  RevalidateMappingsResult,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
   MarketplaceCategory,
@@ -372,6 +374,36 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
       'marketplace_connections',
       data.marketplace,
       { connected: result.connected.length, skipped: result.skipped.length },
+    )
+    return result
+  })
+
+/**
+ * Re-checks every already-linked product against the channel's current
+ * listing data and repairs any mapping whose variant id has drifted (see
+ * revalidateAllMappedProducts' own comment for why that happens) — unlike
+ * autoConnectProducts/autoConnectBySku, this deliberately re-checks
+ * products that already have a mapping, not just unlinked ones. Finishes
+ * with a forced full inventory push so every repaired (and already-fine)
+ * mapping ends up carrying the right stock number immediately, not on
+ * whatever the next scheduled sync happens to be.
+ */
+export const revalidateMappings = createServerFn({ method: 'POST' })
+  .validator(z.object({ marketplace: marketplaceSchema }))
+  .handler(async ({ data }): Promise<RevalidateMappingsResult> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const result = await revalidateAllMappedProducts(data.marketplace)
+    await pushInventoryForAllProducts(data.marketplace, { force: true })
+    await logStaffActivity(
+      staff,
+      'channel.revalidate_mappings',
+      'marketplace_connections',
+      data.marketplace,
+      {
+        checked: result.checked,
+        fixed: result.fixed.length,
+        failed: result.failed.length,
+      },
     )
     return result
   })

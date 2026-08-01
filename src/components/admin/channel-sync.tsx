@@ -10,6 +10,7 @@ import {
   listMarketplaceCategories,
   pullOrdersNow,
   pushProductToMarketplace,
+  revalidateMappings,
   setInventorySyncEnabled,
   syncProductNow,
 } from '#/server/admin/channels'
@@ -21,6 +22,7 @@ import type {
 import type {
   AutoConnectByTitleResult,
   AutoConnectBySkuResult,
+  RevalidateMappingsResult,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
   MarketplaceCategory,
@@ -240,11 +242,7 @@ export function ConnectionCard({
 }
 
 export type ProductSort =
-  | 'name_asc'
-  | 'name_desc'
-  | 'created_desc'
-  | 'stock_asc'
-  | 'stock_desc'
+  'name_asc' | 'name_desc' | 'created_desc' | 'stock_asc' | 'stock_desc'
 
 export const SORT_LABELS: Record<ProductSort, string> = {
   name_asc: 'Name (A–Z)',
@@ -329,6 +327,9 @@ export function ProductSyncSection({
     mode: 'title' | 'sku'
     result: AutoConnectByTitleResult | AutoConnectBySkuResult
   } | null>(null)
+  const [revalidating, setRevalidating] = useState(false)
+  const [revalidateResult, setRevalidateResult] =
+    useState<RevalidateMappingsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openProductId, setOpenProductId] = useState<string | null>(null)
   const [connectingProductId, setConnectingProductId] = useState<string | null>(
@@ -434,6 +435,34 @@ export function ProductSyncSection({
     }
   }
 
+  async function handleRevalidate() {
+    if (
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'default'
+    ) {
+      void Notification.requestPermission()
+    }
+
+    setRevalidating(true)
+    setError(null)
+    setRevalidateResult(null)
+    try {
+      const result = await revalidateMappings({ data: { marketplace } })
+      setRevalidateResult(result)
+      onChanged()
+      notifySafely(
+        'Revalidate connections finished',
+        `Checked ${result.checked} product${result.checked === 1 ? '' : 's'}, fixed ${result.fixed.length}.${result.failed.length > 0 ? ` ${result.failed.length} need manual review.` : ''}`,
+      )
+    } catch (err) {
+      const message = getErrorMessage(err)
+      setError(message)
+      notifySafely('Revalidate connections failed', message)
+    } finally {
+      setRevalidating(false)
+    }
+  }
+
   const openProduct = visibleProducts.find((p) => p.productId === openProductId)
   const connectingProduct = visibleProducts.find(
     (p) => p.productId === connectingProductId,
@@ -483,6 +512,15 @@ export function ProductSyncSection({
           </button>
           <button
             type="button"
+            disabled={!connected || revalidating}
+            onClick={handleRevalidate}
+            className={buttonSecondaryClassName}
+            title={`Re-checks every already-linked product against ${marketplaceLabel}'s current listing data and repairs any variant id that's drifted (e.g. a listing was edited/recreated on ${marketplaceLabel}'s side) — this is what silently stops stock from updating even though sync reports success. Pushes fresh stock right after. Allow browser notifications to get pinged when this finishes.`}
+          >
+            {revalidating ? 'Checking…' : 'Revalidate connections'}
+          </button>
+          <button
+            type="button"
             disabled={!connected || bulkSyncing}
             onClick={handleBulkSync}
             className={buttonPrimaryClassName}
@@ -501,8 +539,8 @@ export function ProductSyncSection({
       {pullResult && (
         <p className="mt-2 text-xs text-neutral-500">
           Checked {pullResult.scanned} order
-          {pullResult.scanned === 1 ? '' : 's'}, imported{' '}
-          {pullResult.imported} new
+          {pullResult.scanned === 1 ? '' : 's'}, imported {pullResult.imported}{' '}
+          new
           {pullResult.failed > 0 ? `, ${pullResult.failed} failed` : ''}, and{' '}
           {pullResult.returnsScanned} return
           {pullResult.returnsScanned === 1 ? '' : 's'}
@@ -511,8 +549,8 @@ export function ProductSyncSection({
             : ''}
           . Any orders TikTok/Shopee now reports as cancelled — or returns
           reported as completed — were updated here too, with inventory
-          restocked automatically. Check the Orders page or Activity log
-          below to confirm.
+          restocked automatically. Check the Orders page or Activity log below
+          to confirm.
         </p>
       )}
 
@@ -544,6 +582,41 @@ export function ProductSyncSection({
                     {s.productName}
                   </span>{' '}
                   — {s.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {revalidateResult && (
+        <Card className="mt-4 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-neutral-900">
+              Checked {revalidateResult.checked} product
+              {revalidateResult.checked === 1 ? '' : 's'}, fixed{' '}
+              {revalidateResult.fixed.length}.
+              {revalidateResult.failed.length > 0 &&
+                ` ${revalidateResult.failed.length} need${
+                  revalidateResult.failed.length === 1 ? 's' : ''
+                } manual review.`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setRevalidateResult(null)}
+              className="text-xs font-medium text-neutral-500 underline"
+            >
+              Dismiss
+            </button>
+          </div>
+          {revalidateResult.failed.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-1.5 text-xs text-neutral-600">
+              {revalidateResult.failed.map((f) => (
+                <li key={f.productId}>
+                  <span className="font-medium text-neutral-900">
+                    {f.productName}
+                  </span>{' '}
+                  — {f.reason}
                 </li>
               ))}
             </ul>

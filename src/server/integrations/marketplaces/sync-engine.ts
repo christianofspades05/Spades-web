@@ -1228,6 +1228,131 @@ export async function connectExistingProductToMarketplace(
   }
 }
 
+export interface RevalidateMappingsResult {
+  checked: number
+  fixed: {
+    productId: string
+    productName: string
+    externalProductId: string
+    connectedVariants: number
+  }[]
+  failed: { productId: string; productName: string; reason: string }[]
+}
+
+/**
+ * Re-matches every already-linked product's variant mappings against the
+ * marketplace's CURRENT listing data, overwriting any stale external
+ * variant id. A listing's model/variant ids can change if its variants get
+ * edited or recreated on the marketplace's own side after the original
+ * connection — pushOneMapping's update call still succeeds against a
+ * stale id (the platform just accepts a write to whatever that id now is,
+ * or silently no-ops if it no longer exists), so this kind of drift never
+ * surfaces as a sync error on its own; it just shows up as stock quietly
+ * never updating for that product. Reuses
+ * connectExistingProductToMarketplace's exact-match logic per product
+ * (same external_product_id already on file, no need to re-paste it), so
+ * a product whose title/variants have drifted too far to safely re-match
+ * is reported in `failed` rather than guessed at.
+ */
+export async function revalidateAllMappedProducts(
+  marketplace: MarketplaceName,
+): Promise<RevalidateMappingsResult> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  // Paginated — PostgREST caps an unpaginated response at 1000 rows (see
+  // listProductSyncStatus's identical pagination for the same reason).
+  const PAGE_SIZE = 1000
+  const mappings: { variant_id: string; external_product_id: string | null }[] =
+    []
+  for (let page = 0; ; page++) {
+    const { data: batch, error } = await admin
+      .from('marketplace_product_mappings')
+      .select('variant_id, external_product_id')
+      .eq('marketplace_connection_id', connection.id)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+    if (error) throw error
+    mappings.push(...batch)
+    if (batch.length < PAGE_SIZE) break
+  }
+
+  const variantIds = Array.from(new Set(mappings.map((m) => m.variant_id)))
+  const variants: { id: string; product: { id: string; name: string } }[] = []
+  for (let page = 0; page * PAGE_SIZE < variantIds.length; page++) {
+    const { data: batch, error } = await admin
+      .from('product_variants')
+      .select('id, product:products(id, name)')
+      .in('id', variantIds.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE))
+    if (error) throw error
+    variants.push(...batch)
+  }
+  const productByVariantId = new Map(variants.map((v) => [v.id, v.product]))
+
+  const pairs = new Map<
+    string,
+    { productId: string; productName: string; externalProductId: string }
+  >()
+  for (const m of mappings) {
+    const product = productByVariantId.get(m.variant_id)
+    if (!product || !m.external_product_id) continue
+    pairs.set(`${product.id}:${m.external_product_id}`, {
+      productId: product.id,
+      productName: product.name,
+      externalProductId: m.external_product_id,
+    })
+  }
+
+  const result: RevalidateMappingsResult = {
+    checked: pairs.size,
+    fixed: [],
+    failed: [],
+  }
+
+  const outcomes = await mapWithConcurrency(
+    Array.from(pairs.values()),
+    DETAIL_FETCH_CONCURRENCY,
+    async (pair) => {
+      try {
+        const connectResult = await connectExistingProductToMarketplace(
+          marketplace,
+          pair.productId,
+          pair.externalProductId,
+        )
+        return {
+          fixed: {
+            productId: pair.productId,
+            productName: pair.productName,
+            externalProductId: pair.externalProductId,
+            connectedVariants: connectResult.connectedVariants,
+          },
+        }
+      } catch (err) {
+        return {
+          failed: {
+            productId: pair.productId,
+            productName: pair.productName,
+            reason: getErrorMessage(err),
+          },
+        }
+      }
+    },
+  )
+
+  for (const outcome of outcomes) {
+    if (outcome.fixed) result.fixed.push(outcome.fixed)
+    else if (outcome.failed) result.failed.push(outcome.failed)
+  }
+
+  await logSync(marketplace, 'revalidate_mappings', 'success', {
+    checked: result.checked,
+    fixed: result.fixed.length,
+    failed: result.failed.length,
+  })
+
+  return result
+}
+
 export interface AutoConnectByTitleResult {
   connected: {
     productId: string
