@@ -114,6 +114,12 @@ export const Route = createFileRoute('/api/cron/review-requests')({
           .select('id, order_number, shipping_address')
           .eq('review_request_sent', false)
           .not('status', 'in', '(cancelled,refunded)')
+          // Shopee/TikTok orders carry the marketplace's own anonymized
+          // relay address (e.g. ...@scs2.tiktok.com), never the buyer's real
+          // inbox — a "leave a review on our website" email there is both
+          // undeliverable to an actual person and a wasted Resend send.
+          // Those customers should review on the marketplace itself instead.
+          .not('source', 'in', '(tiktok_shop,shopee,lazada)')
           .lte('placed_at', cutoff)
         if (error) throw error
 
