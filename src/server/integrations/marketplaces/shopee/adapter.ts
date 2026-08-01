@@ -823,6 +823,12 @@ export const shopeeAdapter: MarketplaceAdapter = {
         item_name: input.name,
         description: input.description,
         image: { image_id_list: imageIds },
+        // Pushed products are meant to be reviewed and finished by hand
+        // (size chart, category-specific requirements this adapter can't
+        // fill in automatically) before actually going live — UNLIST
+        // creates the listing without publishing it, same intent as
+        // TikTok's save_mode: "AS_DRAFT" below.
+        item_status: 'UNLIST',
         // Confirmed live: add_item rejects the request outright without a
         // brand ("Brand information required"). brand_id 0/"NoBrand" is
         // Shopee's own reserved "No Brand" entry (present in every

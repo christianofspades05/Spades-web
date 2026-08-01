@@ -638,6 +638,12 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       accessToken,
       shopCipher,
       body: {
+        // Pushed products are meant to be reviewed and finished by hand
+        // (size chart, category-specific requirements this adapter can't
+        // fill in automatically) before actually going live — AS_DRAFT
+        // creates the listing without publishing it, same intent as
+        // Shopee's item_status: "UNLIST" above.
+        save_mode: 'AS_DRAFT',
         category_id: input.categoryId,
         product_name: input.name,
         description: input.description,
