@@ -1181,12 +1181,19 @@ function PushToMarketplaceModal({
           marketplace,
           productId,
           categoryId: category.id,
-          attributeValues: attributes.map((a) => {
-            const answer = attributeAnswers[a.id] ?? ''
-            return a.values
-              ? { attributeId: a.id, valueId: answer }
-              : { attributeId: a.id, value: answer }
-          }),
+          // Only attributes the user actually answered — an unanswered
+          // optional attribute (an empty "Select…") must be left out
+          // entirely, not sent with a blank valueId/value. Shopee rejects
+          // the whole request otherwise ("AttributeValue.ValueId is
+          // required"), even for attributes that aren't required at all.
+          attributeValues: attributes
+            .filter((a) => attributeAnswers[a.id]?.trim())
+            .map((a) => {
+              const answer = attributeAnswers[a.id] ?? ''
+              return a.values
+                ? { attributeId: a.id, valueId: answer }
+                : { attributeId: a.id, value: answer }
+            }),
         },
       })
       onPushed()
