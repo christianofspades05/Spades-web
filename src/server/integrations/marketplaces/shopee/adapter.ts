@@ -42,6 +42,7 @@ import type {
 import {
   buildAuthorizationUrl,
   callShopeeApi,
+  callShopeeApiMultipart,
   exchangeAuthCode,
   refreshAccessToken,
 } from './client'
@@ -249,14 +250,20 @@ async function uploadProductImage(
     throw new Error(`Failed to download image for Shopee upload: ${imageUrl}`)
   }
   const buffer = Buffer.from(await res.arrayBuffer())
-  const { image_info } = await callShopeeApi<{
+  // Confirmed live: this endpoint rejects a JSON body ("form not found in
+  // request : multipart form not found in request") — it needs an actual
+  // multipart/form-data upload, unlike every other Shopee POST endpoint
+  // this adapter calls.
+  const { image_info } = await callShopeeApiMultipart<{
     image_info: { image_id: string }
   }>({
-    method: 'POST',
     path: '/api/v2/media_space/upload_image',
     accessToken,
     shopId,
-    body: { image: buffer.toString('base64') },
+    fieldName: 'image',
+    fileName: 'image.jpg',
+    contentType: res.headers.get('content-type') ?? 'image/jpeg',
+    fileBuffer: buffer,
   })
   return image_info.image_id
 }

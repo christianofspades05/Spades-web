@@ -73,9 +73,7 @@ function getSiteUrl(): string {
 function sign(path: string, timestamp: number, extra = ''): string {
   const partnerId = getPartnerId()
   const baseString = `${partnerId}${path}${timestamp}${extra}`
-  return createHmac('sha256', getPartnerKey())
-    .update(baseString)
-    .digest('hex')
+  return createHmac('sha256', getPartnerKey()).update(baseString).digest('hex')
 }
 
 /**
@@ -125,7 +123,9 @@ async function requestToken(
   })
   const responseBody = (await res.json()) as ShopeeTokenResponse
   if (!res.ok || responseBody.error) {
-    throw new Error(`Shopee token request failed: ${JSON.stringify(responseBody)}`)
+    throw new Error(
+      `Shopee token request failed: ${JSON.stringify(responseBody)}`,
+    )
   }
   return responseBody
 }
@@ -159,28 +159,93 @@ export interface SignedRequestOptions {
   body?: Record<string, unknown>
 }
 
+function buildSignedUrl(
+  path: string,
+  accessToken: string,
+  shopId: string,
+  query?: Record<string, string>,
+): URL {
+  const timestamp = Math.floor(Date.now() / 1000)
+  const extra = `${accessToken}${shopId}`
+
+  const url = new URL(`${getBaseUrl()}${path}`)
+  url.searchParams.set('partner_id', getPartnerId())
+  url.searchParams.set('timestamp', timestamp.toString())
+  url.searchParams.set('sign', sign(path, timestamp, extra))
+  url.searchParams.set('access_token', accessToken)
+  url.searchParams.set('shop_id', shopId)
+  for (const [key, value] of Object.entries(query ?? {})) {
+    url.searchParams.set(key, value)
+  }
+  return url
+}
+
 export async function callShopeeApi<T>(
   options: SignedRequestOptions,
 ): Promise<T> {
   assertServerOnly()
-  const timestamp = Math.floor(Date.now() / 1000)
-  const extra = `${options.accessToken}${options.shopId}`
-
-  const url = new URL(`${getBaseUrl()}${options.path}`)
-  url.searchParams.set('partner_id', getPartnerId())
-  url.searchParams.set('timestamp', timestamp.toString())
-  url.searchParams.set('sign', sign(options.path, timestamp, extra))
-  url.searchParams.set('access_token', options.accessToken)
-  url.searchParams.set('shop_id', options.shopId)
-  for (const [key, value] of Object.entries(options.query ?? {})) {
-    url.searchParams.set(key, value)
-  }
+  const url = buildSignedUrl(
+    options.path,
+    options.accessToken,
+    options.shopId,
+    options.query,
+  )
 
   const res = await fetch(url.toString(), {
     method: options.method,
     headers: { 'content-type': 'application/json' },
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
+
+  const responseBody = await res.json()
+  if (!res.ok || responseBody.error) {
+    throw new Error(
+      `Shopee API call failed (${options.path}): ${JSON.stringify(responseBody)}`,
+    )
+  }
+  return responseBody.response as T
+}
+
+export interface SignedMultipartRequestOptions {
+  path: string
+  accessToken: string
+  shopId: string
+  /** Field name Shopee expects the file under (e.g. "image" for
+   *  media_space/upload_image) — confirmed live, not documented
+   *  consistently across Shopee's own API reference pages. */
+  fieldName: string
+  fileName: string
+  contentType: string
+  fileBuffer: Buffer
+}
+
+/**
+ * Same signing scheme as callShopeeApi (the signature is computed over
+ * query params only, never the body), but for the handful of Shopee
+ * endpoints that require an actual multipart/form-data upload instead of
+ * JSON — confirmed live against media_space/upload_image, which rejects a
+ * JSON body with "form not found in request : multipart form not found in
+ * request" despite looking identical to every other POST endpoint
+ * otherwise. Deliberately doesn't set a content-type header — letting
+ * fetch generate it (including the multipart boundary) is what makes this
+ * work; setting one manually here would just be wrong.
+ */
+export async function callShopeeApiMultipart<T>(
+  options: SignedMultipartRequestOptions,
+): Promise<T> {
+  assertServerOnly()
+  const url = buildSignedUrl(options.path, options.accessToken, options.shopId)
+
+  const form = new FormData()
+  form.append(
+    options.fieldName,
+    new Blob([new Uint8Array(options.fileBuffer)], {
+      type: options.contentType,
+    }),
+    options.fileName,
+  )
+
+  const res = await fetch(url.toString(), { method: 'POST', body: form })
 
   const responseBody = await res.json()
   if (!res.ok || responseBody.error) {
