@@ -14,6 +14,7 @@ import { centsToPesos } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { useUndoableState } from '#/lib/hooks/useUndoableState'
 import { useUndoRedoShortcuts } from '#/lib/hooks/useUndoRedoShortcuts'
+import { useUnsavedChangesGuard } from '#/lib/hooks/useUnsavedChangesGuard'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { TagsInput } from '#/components/admin/TagsInput'
 import { UndoRedoButtons } from '#/components/admin/UndoRedoButtons'
@@ -125,6 +126,8 @@ function BulkEditPage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
+  useUnsavedChangesGuard(isDirty)
 
   useEffect(() => {
     if (!drag) return
@@ -163,6 +166,7 @@ function BulkEditPage() {
       nextVariantEdits[id] = { ...nextVariantEdits[id], [field]: sourceValue }
     }
     setForm({ ...form, variantEdits: nextVariantEdits })
+    setIsDirty(true)
   }
 
   function updateProductEdit(productId: string, patch: Partial<ProductEdit>) {
@@ -173,6 +177,7 @@ function BulkEditPage() {
         [productId]: { ...productEdits[productId], ...patch },
       },
     })
+    setIsDirty(true)
   }
 
   function updateVariantEdit(variantId: string, patch: Partial<VariantEdit>) {
@@ -183,6 +188,7 @@ function BulkEditPage() {
         [variantId]: { ...variantEdits[variantId], ...patch },
       },
     })
+    setIsDirty(true)
   }
 
   async function handleSave() {
@@ -287,6 +293,7 @@ function BulkEditPage() {
         ),
       ])
       setSaved(true)
+      setIsDirty(false)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {

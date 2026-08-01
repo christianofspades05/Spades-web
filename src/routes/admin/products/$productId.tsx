@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createFileRoute,
   notFound,
@@ -23,6 +23,7 @@ import { getErrorMessage } from '#/lib/utils/errors'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { useUndoableState } from '#/lib/hooks/useUndoableState'
 import { useUndoRedoShortcuts } from '#/lib/hooks/useUndoRedoShortcuts'
+import { useUnsavedChangesGuard } from '#/lib/hooks/useUnsavedChangesGuard'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { QuantityEditor } from '#/components/admin/QuantityEditor'
@@ -114,6 +115,11 @@ function EditProductPage() {
     collectionIds: product.collections.map((c) => c.collection_id),
   })
   useUndoRedoShortcuts(undo, redo)
+
+  const savedFormRef = useRef(form)
+  useUnsavedChangesGuard(
+    JSON.stringify(form) !== JSON.stringify(savedFormRef.current),
+  )
 
   const [newImageUrl, setNewImageUrl] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -239,6 +245,7 @@ function EditProductPage() {
         data: { productId: product.id, collectionIds: form.collectionIds },
       })
       setSaved(true)
+      savedFormRef.current = form
       await router.invalidate()
     } catch (err) {
       setError(getErrorMessage(err))
