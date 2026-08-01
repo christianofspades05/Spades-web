@@ -788,6 +788,12 @@ export const shopeeAdapter: MarketplaceAdapter = {
         item_name: input.name,
         description: input.description,
         image: { image_id_list: imageIds },
+        // Confirmed live: add_item rejects the request outright without a
+        // brand ("Brand information required"). brand_id 0/"NoBrand" is
+        // Shopee's own reserved "No Brand" entry (present in every
+        // category's get_brand_list response) — this store doesn't sell
+        // branded third-party goods, so every listing uses it.
+        brand: { brand_id: 0, original_brand_name: 'NoBrand' },
         attribute_list: input.attributeValues.map((a) => ({
           attribute_id: Number(a.attributeId),
           attribute_value_list: a.valueId
