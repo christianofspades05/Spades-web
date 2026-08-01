@@ -62,7 +62,15 @@ export interface StorefrontScope {
 }
 
 const HOSTNAME_TO_BRAND: Record<string, Brand> = {
-  'spades-web-seven.vercel.app': 'spades',
+  // www first: primaryHostnameFor() takes the first match, and the apex
+  // (bare spades-official.com) may still be mid-DNS-cutover and not
+  // reliably resolving to this app yet, unlike www (see DOMAIN_LIVE's doc
+  // comment) — the *.vercel.app preview URL isn't listed here at all since
+  // brandForHostname's `?? 'spades'` fallback already covers it, and
+  // listing it here would make primaryHostnameFor('spades') wrongly prefer
+  // it as the "real" domain for the admin preview link.
+  'www.spades-official.com': 'spades',
+  'spades-official.com': 'spades',
   'ysraelbrand.com': 'ysrael',
   'www.ysraelbrand.com': 'ysrael',
   'aspire365.co': 'aspire365',
@@ -191,7 +199,6 @@ function primaryHostnameFor(brand: Brand): string | null {
  *   relative link, since the debug override doesn't exist there.
  */
 export function getBrandPreviewUrl(brand: Brand, path: string): string {
-  if (brand === 'spades') return path
   if (DOMAIN_LIVE[brand]) {
     const hostname = primaryHostnameFor(brand)
     if (hostname) return `https://${hostname}${path}`
