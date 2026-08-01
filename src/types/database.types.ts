@@ -876,6 +876,30 @@ export interface Database {
         >
         Relationships: []
       }
+      marketplace_category_defaults: {
+        Row: {
+          id: string
+          marketplace: string
+          product_type: ProductType
+          category_id: string
+          category_name: string
+          attribute_defaults: unknown
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['marketplace_category_defaults']['Row']
+        > & {
+          marketplace: string
+          product_type: ProductType
+          category_id: string
+          category_name: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['marketplace_category_defaults']['Row']
+        >
+        Relationships: []
+      }
       webhook_events: {
         Row: {
           id: string

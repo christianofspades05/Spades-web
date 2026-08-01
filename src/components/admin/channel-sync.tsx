@@ -5,16 +5,20 @@ import {
   autoConnectProducts,
   bulkSyncChannel,
   connectExistingProduct,
+  deleteCategoryDefault,
   disconnectChannel,
   getMarketplaceCategoryAttributes,
+  listCategoryDefaults,
   listMarketplaceCategories,
   pullOrdersNow,
   pushProductToMarketplace,
   revalidateMappings,
+  setCategoryDefault,
   setInventorySyncEnabled,
   syncProductNow,
 } from '#/server/admin/channels'
 import type {
+  CategoryDefaultRow,
   ChannelConnectionInfo,
   ProductSyncRow,
   SyncLogRow,
@@ -27,8 +31,14 @@ import type {
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
+  MarketplaceCategoryAttributeAnswer,
   SyncableMarketplace,
 } from '#/server/integrations/marketplaces/types'
+import {
+  PRODUCT_TYPES,
+  PRODUCT_TYPE_LABELS,
+} from '#/lib/validation/product-listing'
+import type { ProductType } from '#/types/database.types'
 import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { Card } from '#/components/admin/Card'
@@ -265,6 +275,7 @@ interface GroupedProduct {
   productName: string
   productImage: string | null
   productCreatedAt: string
+  productType: ProductType
   variants: ProductSyncRow[]
   totalStock: number
 }
@@ -282,6 +293,7 @@ function groupByProduct(rows: ProductSyncRow[]): GroupedProduct[] {
         productName: row.productName,
         productImage: row.productImage,
         productCreatedAt: row.productCreatedAt,
+        productType: row.productType,
         variants: [row],
         totalStock: row.quantityAvailable,
       })
@@ -334,6 +346,23 @@ export function ProductSyncSection({
   const [openProductId, setOpenProductId] = useState<string | null>(null)
   const [connectingProductId, setConnectingProductId] = useState<string | null>(
     null,
+  )
+  const [categoryDefaults, setCategoryDefaults] = useState<
+    CategoryDefaultRow[]
+  >([])
+  const [editingDefaultType, setEditingDefaultType] =
+    useState<ProductType | null>(null)
+  const [showDefaults, setShowDefaults] = useState(false)
+
+  function refreshCategoryDefaults() {
+    listCategoryDefaults({ data: { marketplace } }).then(setCategoryDefaults)
+  }
+  useEffect(() => {
+    refreshCategoryDefaults()
+  }, [marketplace])
+
+  const categoryDefaultByType = new Map(
+    categoryDefaults.map((d) => [d.productType, d]),
   )
 
   const visibleProducts = useMemo(() => {
@@ -529,6 +558,72 @@ export function ProductSyncSection({
           </button>
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowDefaults((v) => !v)}
+        className="mt-2 text-xs font-medium text-neutral-500 underline"
+      >
+        {showDefaults ? 'Hide' : 'Show'} default categories
+      </button>
+      {showDefaults && (
+        <Card className="mt-2 p-4">
+          <p className="text-sm font-semibold text-neutral-900">
+            Default categories
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            Set a default {marketplaceLabel} category (and its required
+            attributes) per product type, so "Push to {marketplaceLabel}" skips
+            the manual search-and-fill step for products of that type — you can
+            still change anything before pushing.
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {PRODUCT_TYPES.map((type) => {
+              const def = categoryDefaultByType.get(type)
+              return (
+                <li
+                  key={type}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-neutral-900">
+                      {PRODUCT_TYPE_LABELS[type]}
+                    </p>
+                    <p className="text-xs text-neutral-500">
+                      {def ? def.categoryName : 'No default set'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={!connected}
+                      onClick={() => setEditingDefaultType(type)}
+                      className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
+                    >
+                      {def ? 'Change' : 'Set default'}
+                    </button>
+                    {def && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await deleteCategoryDefault({
+                            data: { marketplace, productType: type },
+                          })
+                          refreshCategoryDefaults()
+                        }}
+                        className="text-xs font-medium text-neutral-500 underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      )}
+
       {!connected && (
         <p className="mt-2 text-xs text-neutral-500">
           Connect {marketplaceLabel} above before syncing products or pulling
@@ -685,10 +780,27 @@ export function ProductSyncSection({
           marketplaceLabel={marketplaceLabel}
           productId={openProduct.productId}
           productName={openProduct.productName}
+          categoryDefault={
+            categoryDefaultByType.get(openProduct.productType) ?? null
+          }
           onClose={() => setOpenProductId(null)}
           onPushed={() => {
             setOpenProductId(null)
             onChanged()
+          }}
+        />
+      )}
+
+      {editingDefaultType && (
+        <SetCategoryDefaultModal
+          marketplace={marketplace}
+          marketplaceLabel={marketplaceLabel}
+          productType={editingDefaultType}
+          initial={categoryDefaultByType.get(editingDefaultType) ?? null}
+          onClose={() => setEditingDefaultType(null)}
+          onSaved={() => {
+            setEditingDefaultType(null)
+            refreshCategoryDefaults()
           }}
         />
       )}
@@ -956,6 +1068,7 @@ function PushToMarketplaceModal({
   marketplaceLabel,
   productId,
   productName,
+  categoryDefault,
   onClose,
   onPushed,
 }: {
@@ -963,6 +1076,7 @@ function PushToMarketplaceModal({
   marketplaceLabel: string
   productId: string
   productName: string
+  categoryDefault: CategoryDefaultRow | null
   onClose: () => void
   onPushed: () => void
 }) {
@@ -1022,6 +1136,34 @@ function PushToMarketplaceModal({
     }
   }
 
+  // Auto-selects the saved default category (if any) the moment this modal
+  // opens, so "Push to X" usually only needs a glance at pre-filled answers
+  // rather than a manual category search every time.
+  useEffect(() => {
+    if (categoryDefault) {
+      handleSelectCategory({
+        id: categoryDefault.categoryId,
+        name: categoryDefault.categoryName,
+        isLeaf: true,
+      })
+    }
+    // Runs once, when the modal first mounts.
+  }, [])
+
+  useEffect(() => {
+    if (
+      categoryDefault &&
+      category?.id === categoryDefault.categoryId &&
+      attributes.length > 0
+    ) {
+      const preset: Record<string, string> = {}
+      for (const answer of categoryDefault.attributeDefaults) {
+        preset[answer.attributeId] = answer.valueId ?? answer.value ?? ''
+      }
+      setAttributeAnswers(preset)
+    }
+  }, [attributes])
+
   async function handleSubmit() {
     if (!category) return
     const missing = attributes.filter(
@@ -1056,9 +1198,9 @@ function PushToMarketplaceModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <Card className="w-full max-w-lg p-6">
-        <h2 className="text-sm font-semibold text-neutral-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-8">
+      <Card className="flex max-h-full w-full max-w-lg flex-col p-6">
+        <h2 className="shrink-0 text-sm font-semibold text-neutral-900">
           Push "{productName}" to {marketplaceLabel}
         </h2>
 
@@ -1094,8 +1236,8 @@ function PushToMarketplaceModal({
             )}
           </div>
         ) : (
-          <div className="mt-4">
-            <div className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+          <div className="mt-4 flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm">
               <span className="text-neutral-900">{category.name}</span>
               <button
                 type="button"
@@ -1116,7 +1258,7 @@ function PushToMarketplaceModal({
               </p>
             ) : (
               attributes.length > 0 && (
-                <div className="mt-3 flex flex-col gap-3">
+                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
                   {attributes.map((a) => (
                     <div key={a.id}>
                       <label className="text-xs font-medium text-neutral-600">
@@ -1178,6 +1320,275 @@ function PushToMarketplaceModal({
             className={`${buttonPrimaryClassName} disabled:opacity-50`}
           >
             {submitting ? 'Pushing…' : `Push to ${marketplaceLabel}`}
+          </button>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+/** Same category-search-and-attributes flow as PushToMarketplaceModal, but
+ *  saves the answers as a reusable default for a product type instead of
+ *  pushing one specific product — see the "Default categories" section
+ *  above. Doesn't require every attribute to be answered before saving:
+ *  a partial default (e.g. just "Plus Size") is still useful, and
+ *  whatever's left blank still has to be filled in at push time either
+ *  way (PushToMarketplaceModal's own required-field check still applies
+ *  then). */
+function SetCategoryDefaultModal({
+  marketplace,
+  marketplaceLabel,
+  productType,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  marketplace: SyncableMarketplace
+  marketplaceLabel: string
+  productType: ProductType
+  initial: CategoryDefaultRow | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const debouncedQuery = useDebouncedValue(query, 300)
+  const [categories, setCategories] = useState<MarketplaceCategory[]>([])
+  const [searching, setSearching] = useState(false)
+  const [category, setCategory] = useState<MarketplaceCategory | null>(null)
+  const [attributes, setAttributes] = useState<MarketplaceCategoryAttribute[]>(
+    [],
+  )
+  const [attributeAnswers, setAttributeAnswers] = useState<
+    Record<string, string | undefined>
+  >({})
+  const [loadingAttributes, setLoadingAttributes] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (category || !debouncedQuery.trim()) {
+      setCategories([])
+      return
+    }
+    let cancelled = false
+    setSearching(true)
+    listMarketplaceCategories({
+      data: { marketplace, query: debouncedQuery.trim() },
+    })
+      .then((result) => {
+        if (!cancelled) setCategories(result)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [debouncedQuery, category, marketplace])
+
+  async function handleSelectCategory(selected: MarketplaceCategory) {
+    setCategory(selected)
+    setCategories([])
+    setError(null)
+    setLoadingAttributes(true)
+    try {
+      const result = await getMarketplaceCategoryAttributes({
+        data: { marketplace, categoryId: selected.id },
+      })
+      setAttributes(result)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setLoadingAttributes(false)
+    }
+  }
+
+  // Pre-fills the category (and, once its attributes load, the previously
+  // saved answers) when editing an existing default.
+  useEffect(() => {
+    if (initial) {
+      handleSelectCategory({
+        id: initial.categoryId,
+        name: initial.categoryName,
+        isLeaf: true,
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (
+      initial &&
+      category?.id === initial.categoryId &&
+      attributes.length > 0
+    ) {
+      const preset: Record<string, string> = {}
+      for (const answer of initial.attributeDefaults) {
+        preset[answer.attributeId] = answer.valueId ?? answer.value ?? ''
+      }
+      setAttributeAnswers(preset)
+    }
+  }, [attributes])
+
+  async function handleSubmit() {
+    if (!category) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const attributeDefaults: MarketplaceCategoryAttributeAnswer[] = attributes
+        .filter((a) => attributeAnswers[a.id]?.trim())
+        .map((a) => {
+          const answer = attributeAnswers[a.id] ?? ''
+          return a.values
+            ? { attributeId: a.id, valueId: answer }
+            : { attributeId: a.id, value: answer }
+        })
+      await setCategoryDefault({
+        data: {
+          marketplace,
+          productType,
+          categoryId: category.id,
+          categoryName: category.name,
+          attributeDefaults,
+        },
+      })
+      onSaved()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-8">
+      <Card className="flex max-h-full w-full max-w-lg flex-col p-6">
+        <h2 className="shrink-0 text-sm font-semibold text-neutral-900">
+          Default {marketplaceLabel} category for{' '}
+          {PRODUCT_TYPE_LABELS[productType]}
+        </h2>
+
+        {!category ? (
+          <div className="mt-4">
+            <label className="text-xs font-medium text-neutral-600">
+              {marketplaceLabel} category
+            </label>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search categories, e.g. Women's Dresses"
+              className={`${inputClassName} mt-1 w-full`}
+            />
+            {searching && (
+              <p className="mt-2 text-xs text-neutral-500">Searching…</p>
+            )}
+            {categories.length > 0 && (
+              <ul className="mt-2 max-h-48 divide-y divide-neutral-100 overflow-y-auto rounded-lg border border-neutral-200">
+                {categories.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCategory(c)}
+                      className="w-full px-3 py-2 text-left text-sm text-neutral-900 hover:bg-neutral-50"
+                    >
+                      {c.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+              <span className="text-neutral-900">{category.name}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCategory(null)
+                  setAttributes([])
+                  setAttributeAnswers({})
+                }}
+                className="text-xs font-medium text-neutral-600 underline"
+              >
+                Change
+              </button>
+            </div>
+
+            {loadingAttributes ? (
+              <p className="mt-3 text-xs text-neutral-500">
+                Loading required details…
+              </p>
+            ) : (
+              attributes.length > 0 && (
+                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+                  {attributes.map((a) => (
+                    <div key={a.id}>
+                      <label className="text-xs font-medium text-neutral-600">
+                        {a.name}
+                        {a.required && <span className="text-red-600"> *</span>}
+                      </label>
+                      {a.values ? (
+                        <select
+                          value={attributeAnswers[a.id] ?? ''}
+                          onChange={(e) =>
+                            setAttributeAnswers((prev) => ({
+                              ...prev,
+                              [a.id]: e.target.value,
+                            }))
+                          }
+                          className={`${inputClassName} mt-1 w-full`}
+                        >
+                          <option value="">
+                            Leave for you to fill in later
+                          </option>
+                          {a.values.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={attributeAnswers[a.id] ?? ''}
+                          onChange={(e) =>
+                            setAttributeAnswers((prev) => ({
+                              ...prev,
+                              [a.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Leave blank to fill in later"
+                          className={`${inputClassName} mt-1 w-full`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        )}
+
+        {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+
+        <div className="mt-6 flex shrink-0 justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={buttonSecondaryClassName}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!category || submitting || loadingAttributes}
+            onClick={handleSubmit}
+            className={`${buttonPrimaryClassName} disabled:opacity-50`}
+          >
+            {submitting ? 'Saving…' : 'Save default'}
           </button>
         </div>
       </Card>

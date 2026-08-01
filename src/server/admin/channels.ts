@@ -1,6 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
+import {
+  setCategoryDefaultSchema,
+  deleteCategoryDefaultSchema,
+} from '#/lib/validation/admin/marketplace-category-defaults'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
@@ -27,12 +31,14 @@ import type {
 import type {
   MarketplaceCategory,
   MarketplaceCategoryAttribute,
+  MarketplaceCategoryAttributeAnswer,
 } from '#/server/integrations/marketplaces/types'
 import type {
   MarketplaceConnection,
   MarketplaceName,
   StaffRole,
 } from '#/types/entities'
+import type { ProductType } from '#/types/database.types'
 
 const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin']
 
@@ -128,6 +134,7 @@ export interface ProductSyncRow {
   productName: string
   productImage: string | null
   productCreatedAt: string
+  productType: ProductType
   sku: string
   size: string | null
   color: string | null
@@ -244,6 +251,7 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
         name: string
         images: string[]
         created_at: string
+        product_type: ProductType
       }
       inventory: { quantity_available: number }[]
     }[] = []
@@ -251,7 +259,7 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
       const { data: batch, error } = await admin
         .from('product_variants')
         .select(
-          'id, sku, size, color, style, product:products(id, name, images, created_at), inventory(quantity_available)',
+          'id, sku, size, color, style, product:products(id, name, images, created_at, product_type), inventory(quantity_available)',
         )
         .eq('is_active', true)
         .order('sku', { ascending: true })
@@ -287,6 +295,7 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
           productName: v.product.name,
           productImage: v.product.images[0] ?? null,
           productCreatedAt: v.product.created_at,
+          productType: v.product.product_type,
           sku: v.sku,
           size: v.size,
           color: v.color,
@@ -590,4 +599,94 @@ export const listRecentSyncLogs = createServerFn({ method: 'GET' })
       errorMessage: l.error_message,
       createdAt: l.created_at,
     }))
+  })
+
+export interface CategoryDefaultRow {
+  productType: ProductType
+  categoryId: string
+  categoryName: string
+  attributeDefaults: MarketplaceCategoryAttributeAnswer[]
+}
+
+/**
+ * One row per product type that has a saved default — types with no
+ * default simply have no entry, so the admin UI/push modal both treat a
+ * missing lookup as "no default set yet" rather than needing a placeholder
+ * row for every one of PRODUCT_TYPES.
+ */
+export const listCategoryDefaults = createServerFn({ method: 'GET' })
+  .validator(z.object({ marketplace: marketplaceSchema }))
+  .handler(async ({ data }): Promise<CategoryDefaultRow[]> => {
+    await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: rows, error } = await admin
+      .from('marketplace_category_defaults')
+      .select('*')
+      .eq('marketplace', data.marketplace)
+    if (error) throw error
+
+    return rows.map((r) => ({
+      productType: r.product_type,
+      categoryId: r.category_id,
+      categoryName: r.category_name,
+      attributeDefaults:
+        r.attribute_defaults as MarketplaceCategoryAttributeAnswer[],
+    }))
+  })
+
+export const setCategoryDefault = createServerFn({ method: 'POST' })
+  .validator(setCategoryDefaultSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin.from('marketplace_category_defaults').upsert(
+      {
+        marketplace: data.marketplace,
+        product_type: data.productType,
+        category_id: data.categoryId,
+        category_name: data.categoryName,
+        attribute_defaults: data.attributeDefaults,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'marketplace,product_type' },
+    )
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'channel.set_category_default',
+      'marketplace_category_defaults',
+      null,
+      {
+        marketplace: data.marketplace,
+        productType: data.productType,
+        categoryId: data.categoryId,
+      },
+    )
+    return { ok: true }
+  })
+
+export const deleteCategoryDefault = createServerFn({ method: 'POST' })
+  .validator(deleteCategoryDefaultSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('marketplace_category_defaults')
+      .delete()
+      .eq('marketplace', data.marketplace)
+      .eq('product_type', data.productType)
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'channel.delete_category_default',
+      'marketplace_category_defaults',
+      null,
+      { marketplace: data.marketplace, productType: data.productType },
+    )
+    return { ok: true }
   })
