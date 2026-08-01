@@ -518,6 +518,16 @@ async function uniqueSlug(
   }
 }
 
+/** Postgres reports SKU collisions as a raw "duplicate key value violates
+ *  unique constraint" error with no mention of which SKU — rephrase it into
+ *  something a staff member can act on. Other errors pass through as-is. */
+function friendlySkuError(error: { code?: string; message: string }, sku: string) {
+  if (error.code === '23505' && error.message.includes('product_variants_sku_key')) {
+    return new Error(`SKU "${sku}" is already used by another variant.`)
+  }
+  return error
+}
+
 async function uniqueSku(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   base: string,
@@ -792,7 +802,7 @@ export const updateVariant = createServerFn({ method: 'POST' })
       .eq('id', data.id)
       .select('*')
       .single()
-    if (error) throw error
+    if (error) throw friendlySkuError(error, data.sku)
 
     await logStaffActivity(
       staff,
@@ -823,7 +833,7 @@ export const updateVariantQuickEdit = createServerFn({ method: 'POST' })
       .eq('id', data.id)
       .select('*')
       .single()
-    if (error) throw error
+    if (error) throw friendlySkuError(error, data.sku)
 
     await logStaffActivity(
       staff,

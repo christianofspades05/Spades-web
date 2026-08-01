@@ -186,9 +186,25 @@ function BulkEditPage() {
   }
 
   async function handleSave() {
-    setSubmitting(true)
     setError(null)
     setSaved(false)
+
+    const skuCounts = new Map<string, number>()
+    for (const vEdit of Object.values(variantEdits)) {
+      if (!vEdit.sku) continue
+      skuCounts.set(vEdit.sku, (skuCounts.get(vEdit.sku) ?? 0) + 1)
+    }
+    const duplicateSkus = [...skuCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([sku]) => sku)
+    if (duplicateSkus.length > 0) {
+      setError(
+        `Fix duplicate SKUs before saving: ${duplicateSkus.join(', ')}`,
+      )
+      return
+    }
+
+    setSubmitting(true)
     try {
       await Promise.all([
         ...products.map(async (original) => {
