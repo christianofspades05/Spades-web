@@ -230,8 +230,12 @@ function centsFromAmountString(amount: string | undefined): number {
 
 interface TikTokCategoryNode {
   id: string
-  local_display_name?: string
-  name?: string
+  // Confirmed live against a real shop's /product/202309/categories
+  // response — TikTok returns the display name as `local_name`, not
+  // `local_display_name`/`name` (neither of those fields exist in the
+  // real response at all), which meant every category silently fell
+  // back to showing its raw numeric id instead.
+  local_name?: string
   is_leaf?: boolean
 }
 
@@ -477,9 +481,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       isPaid: PAID_STATUSES.has(order.status ?? ''),
       isCancelled: order.status === 'CANCELLED',
       cancellationDetail:
-        order.status === 'CANCELLED'
-          ? (order.cancel_reason ?? null)
-          : null,
+        order.status === 'CANCELLED' ? (order.cancel_reason ?? null) : null,
       fulfillmentInfo: fulfillmentStatus
         ? {
             status: fulfillmentStatus,
@@ -520,10 +522,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         body: { update_time_ge: sinceSeconds },
       })
       returns.push(
-        ...((page.return_orders ?? []) as unknown as Record<
-          string,
-          unknown
-        >[]),
+        ...((page.return_orders ?? []) as unknown as Record<string, unknown>[]),
       )
       pageToken = page.next_page_token
     } while (pageToken)
@@ -533,13 +532,15 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
 
   mapReturnToInternalFormat(platformReturnData): NormalizedReturn[] {
     const ret = platformReturnData as unknown as TikTokReturn
-    const status = TIKTOK_RETURN_STATUS_MAP.get(ret.return_status ?? '') ?? 'requested'
+    const status =
+      TIKTOK_RETURN_STATUS_MAP.get(ret.return_status ?? '') ?? 'requested'
     const requestedAt = new Date(ret.create_time * 1000).toISOString()
     const refundTotal = ret.refund_amount?.refund_total
     const refundAmountCents = refundTotal
       ? Math.round(Number.parseFloat(refundTotal) * 100)
       : null
-    const reason = ret.return_reason_text ?? ret.return_reason ?? 'Not specified'
+    const reason =
+      ret.return_reason_text ?? ret.return_reason ?? 'Not specified'
 
     // TikTok already returns one return_line_items entry per unit in every
     // live example seen — group by sku_id defensively in case a single
@@ -582,7 +583,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       .filter((c) => c.is_leaf)
       .map((c) => ({
         id: c.id,
-        name: c.local_display_name ?? c.name ?? c.id,
+        name: c.local_name ?? c.id,
         isLeaf: true,
       }))
   },
