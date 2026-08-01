@@ -679,12 +679,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       body: {
         // Pushed products are meant to be reviewed and finished by hand
         // (size chart, category-specific requirements this adapter can't
-        // fill in automatically) before actually going live — DRAFT
+        // fill in automatically) before actually going live — AS_DRAFT
         // creates the listing without publishing it, same intent as
-        // Shopee's item_status: "UNLIST" above. (Confirmed live: the real
-        // enum is "DRAFT", not "AS_DRAFT" — a community SDK's type caught
-        // this before it ever hit a real request.)
-        save_mode: 'DRAFT',
+        // Shopee's item_status: "UNLIST" above. (A community SDK's types
+        // claimed the real enum was "DRAFT" — that turned out to be wrong;
+        // TikTok's own validation error confirmed the allowed values are
+        // actually LISTING/AS_DRAFT, i.e. the original guess was right.)
+        save_mode: 'AS_DRAFT',
         category_id: input.categoryId,
         // Confirmed live: the real field is "title" — products/create
         // rejects "product_name" outright ("Title is a required field").
