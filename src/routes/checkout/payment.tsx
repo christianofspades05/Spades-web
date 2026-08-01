@@ -68,7 +68,7 @@ function PaymentPage() {
         <h1 className="text-2xl font-bold">Your cart is empty</h1>
         <Link
           to="/products"
-          search={{ sort: 'newest', page: 1 }}
+          search={{ sort: 'stock_desc', page: 1 }}
           className={`${buttonPrimaryClassName} mx-auto mt-6 w-fit`}
         >
           Continue shopping

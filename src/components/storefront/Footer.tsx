@@ -91,7 +91,7 @@ export function Footer({ scope }: FooterProps) {
               ) : (
                 <Link
                   to="/products"
-                  search={{ sort: 'newest', page: 1 }}
+                  search={{ sort: 'stock_desc', page: 1 }}
                   className="hover:text-white"
                 >
                   All Products

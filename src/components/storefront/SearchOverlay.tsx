@@ -90,7 +90,7 @@ export function SearchOverlay({
     if (!trimmedQuery) return
     navigate({
       to: '/products',
-      search: { q: trimmedQuery, sort: 'newest', page: 1 },
+      search: { q: trimmedQuery, sort: 'stock_desc', page: 1 },
     })
     onClose()
   }
@@ -191,7 +191,7 @@ export function SearchOverlay({
           {trimmedQuery && (
             <Link
               to="/products"
-              search={{ q: trimmedQuery, sort: 'newest', page: 1 }}
+              search={{ q: trimmedQuery, sort: 'stock_desc', page: 1 }}
               onClick={onClose}
               className="block border-t border-neutral-200 p-3 text-center text-sm font-medium text-neutral-600 hover:text-neutral-950 dark:border-neutral-800 dark:text-neutral-400 dark:hover:text-white"
             >

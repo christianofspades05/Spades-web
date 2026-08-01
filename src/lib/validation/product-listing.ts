@@ -26,10 +26,16 @@ export const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
 
 export const PRODUCT_LISTING_PAGE_SIZE = 24
 
-export const SORT_OPTIONS = ['newest', 'price_asc', 'price_desc'] as const
+export const SORT_OPTIONS = [
+  'stock_desc',
+  'newest',
+  'price_asc',
+  'price_desc',
+] as const
 export type ProductListingSort = (typeof SORT_OPTIONS)[number]
 
 export const SORT_LABELS: Record<ProductListingSort, string> = {
+  stock_desc: 'Inventory: High to Low',
   newest: 'Newest',
   price_asc: 'Price: Low to High',
   price_desc: 'Price: High to Low',
@@ -41,7 +47,7 @@ export const productListingSearchSchema = z.object({
   minPrice: z.coerce.number().min(0).optional(),
   maxPrice: z.coerce.number().min(0).optional(),
   inStock: z.coerce.boolean().optional(),
-  sort: z.enum(SORT_OPTIONS).catch('newest'),
+  sort: z.enum(SORT_OPTIONS).catch('stock_desc'),
   page: z.coerce.number().int().min(1).catch(1),
 })
 
@@ -53,7 +59,7 @@ export const listStorefrontProductsSchema = z.object({
   minPriceCents: z.number().int().min(0).optional(),
   maxPriceCents: z.number().int().min(0).optional(),
   inStock: z.boolean().optional(),
-  sort: z.enum(SORT_OPTIONS).default('newest'),
+  sort: z.enum(SORT_OPTIONS).default('stock_desc'),
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(100).default(PRODUCT_LISTING_PAGE_SIZE),
   // The current domain's brand (see server/storefront/domain.ts) — the

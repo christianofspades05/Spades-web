@@ -64,7 +64,7 @@ function ConfirmationPage() {
       </p>
       <Link
         to="/products"
-        search={{ sort: 'newest', page: 1 }}
+        search={{ sort: 'stock_desc', page: 1 }}
         className={`${buttonPrimaryClassName} mx-auto mt-8 w-fit`}
       >
         Continue shopping

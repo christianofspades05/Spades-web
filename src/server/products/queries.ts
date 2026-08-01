@@ -378,8 +378,11 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
           query = query.order('min_price_cents', { ascending: false })
           break
         case 'newest':
-        default:
           query = query.order('created_at', { ascending: false })
+          break
+        case 'stock_desc':
+        default:
+          query = query.order('total_stock', { ascending: false })
           break
       }
 
