@@ -264,6 +264,22 @@ export interface Database {
         >
         Relationships: []
       }
+      storefront_maintenance_mode: {
+        Row: {
+          brand: ProductBrand
+          is_active: boolean
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['storefront_maintenance_mode']['Row']
+        > & {
+          brand: ProductBrand
+        }
+        Update: Partial<
+          Database['public']['Tables']['storefront_maintenance_mode']['Row']
+        >
+        Relationships: []
+      }
       products: {
         Row: {
           id: string

@@ -7,6 +7,7 @@ import {
 
 import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
+import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
 import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
 import { buildPixelBootstrapScript } from '#/lib/analytics/facebook-pixel'
@@ -15,6 +16,7 @@ import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
 import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
 import { getStorefrontScope } from '#/server/storefront/domain'
+import { getMaintenanceMode } from '#/server/storefront/maintenance'
 import appCss from '../styles.css?url'
 
 /**
@@ -36,10 +38,19 @@ function buildNoFlashThemeScript(defaultTheme: 'light' | 'dark'): string {
 
 export const Route = createRootRoute({
   beforeLoad: async () => {
-    const [geoDefaultCurrency, geoCountry, storefrontScope] = await Promise.all(
-      [getGeoDefaultCurrency(), getGeoCountry(), getStorefrontScope()],
+    // storefrontScope resolves synchronously from the request's Host
+    // header (no I/O — see server/storefront/domain.ts), so it's awaited
+    // first to know which brand's maintenance flag to check, then the rest
+    // run in parallel as before.
+    const storefrontScope = await getStorefrontScope()
+    const [geoDefaultCurrency, geoCountry, maintenanceMode] = await Promise.all(
+      [
+        getGeoDefaultCurrency(),
+        getGeoCountry(),
+        getMaintenanceMode({ data: { brand: storefrontScope.brand } }),
+      ],
     )
-    return { geoDefaultCurrency, geoCountry, storefrontScope }
+    return { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode }
   },
   head: ({ match }) => ({
     meta: [
@@ -94,8 +105,9 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const isAdminRoute = pathname.startsWith('/admin')
-  const { geoDefaultCurrency, geoCountry, storefrontScope } =
+  const { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode } =
     Route.useRouteContext()
+  const showMaintenance = !isAdminRoute && maintenanceMode
   const pixelBootstrapScript = buildPixelBootstrapScript(
     storefrontScope.fbPixelId,
   )
@@ -144,9 +156,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             geoCountry={geoCountry}
           >
             <CartProvider>
-              {!isAdminRoute && <Header scope={storefrontScope} />}
-              {children}
-              {!isAdminRoute && <Footer scope={storefrontScope} />}
+              {showMaintenance ? (
+                <MaintenancePage scope={storefrontScope} />
+              ) : (
+                <>
+                  {!isAdminRoute && <Header scope={storefrontScope} />}
+                  {children}
+                  {!isAdminRoute && <Footer scope={storefrontScope} />}
+                </>
+              )}
             </CartProvider>
           </CurrencyProvider>
         </ThemeProvider>

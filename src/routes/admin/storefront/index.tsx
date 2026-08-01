@@ -13,6 +13,11 @@ import {
 } from '#/server/admin/storefront-sections'
 import type { StorefrontSectionWithCollection } from '#/server/admin/storefront-sections'
 import { listAllCollections } from '#/server/admin/collections'
+import {
+  listMaintenanceMode,
+  setMaintenanceMode,
+} from '#/server/admin/maintenance'
+import type { MaintenanceModeRow } from '#/server/admin/maintenance'
 import { getBrandPreviewUrl } from '#/server/storefront/domain'
 import {
   STOREFRONT_BRANDS,
@@ -47,19 +52,20 @@ export const Route = createFileRoute('/admin/storefront/')({
   }),
   loaderDeps: ({ search }) => ({ page: search.page, brand: search.brand }),
   loader: async ({ deps }) => {
-    const [sections, collections] = await Promise.all([
+    const [sections, collections, maintenanceMode] = await Promise.all([
       listAllStorefrontSections({
         data: { page: deps.page, brand: deps.brand },
       }),
       listAllCollections(),
+      listMaintenanceMode(),
     ])
-    return { sections, collections }
+    return { sections, collections, maintenanceMode }
   },
   component: StorefrontSectionsPage,
 })
 
 function StorefrontSectionsPage() {
-  const { sections, collections } = Route.useLoaderData()
+  const { sections, collections, maintenanceMode } = Route.useLoaderData()
   const { page, brand } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -68,6 +74,29 @@ function StorefrontSectionsPage() {
   useEffect(() => {
     setOrder(sections.map((s) => s.id))
   }, [sections])
+
+  const [maintenance, setMaintenance] =
+    useState<MaintenanceModeRow[]>(maintenanceMode)
+  const [togglingBrand, setTogglingBrand] = useState<
+    (typeof STOREFRONT_BRANDS)[number] | null
+  >(null)
+
+  async function toggleMaintenance(row: MaintenanceModeRow) {
+    setTogglingBrand(row.brand)
+    const nextIsActive = !row.is_active
+    try {
+      await setMaintenanceMode({
+        data: { brand: row.brand, isActive: nextIsActive },
+      })
+      setMaintenance((prev) =>
+        prev.map((r) =>
+          r.brand === row.brand ? { ...r, is_active: nextIsActive } : r,
+        ),
+      )
+    } finally {
+      setTogglingBrand(null)
+    }
+  }
 
   const [addingType, setAddingType] = useState<StorefrontSectionType | null>(
     null,
@@ -145,6 +174,45 @@ function StorefrontSectionsPage() {
           title="Storefront"
           subtitle="Edit your pages — drag to reorder, click a section to edit it."
         />
+
+        <Card className="mb-6 p-5">
+          <p className="mb-1 text-sm font-semibold text-neutral-900">
+            Maintenance mode
+          </p>
+          <p className="mb-3 text-xs text-neutral-500">
+            When on, that brand's storefront shows a "we'll be back soon" page
+            instead of the normal site. The admin panel stays usable regardless.
+          </p>
+          <div className="flex flex-col gap-2">
+            {maintenance.map((row) => (
+              <div
+                key={row.brand}
+                className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-neutral-900">
+                    {STOREFRONT_BRAND_LABELS[row.brand]}
+                  </span>
+                  <Badge tone={row.is_active ? 'warning' : 'success'}>
+                    {row.is_active ? 'Under maintenance' : 'Live'}
+                  </Badge>
+                </div>
+                <button
+                  type="button"
+                  disabled={togglingBrand === row.brand}
+                  onClick={() => toggleMaintenance(row)}
+                  className={buttonSecondaryClassName}
+                >
+                  {togglingBrand === row.brand
+                    ? 'Saving…'
+                    : row.is_active
+                      ? 'Turn off maintenance'
+                      : 'Turn on maintenance'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
 
         <label className="mb-4 block max-w-xs text-sm font-medium text-neutral-700">
           Brand
