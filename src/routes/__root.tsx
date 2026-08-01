@@ -9,6 +9,7 @@ import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
 import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
+import { LiveViewerHeartbeat } from '#/components/storefront/LiveViewerHeartbeat'
 import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
 import { buildPixelBootstrapScript } from '#/lib/analytics/facebook-pixel'
 import { CartProvider } from '#/lib/cart/CartContext'
@@ -149,6 +150,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           </noscript>
         )}
         <VisitTracker brand={storefrontScope.brand} />
+        <LiveViewerHeartbeat brand={storefrontScope.brand} />
         <FacebookPixelPageView />
         <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
           <CurrencyProvider

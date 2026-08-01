@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { getDashboardAnalytics } from '#/server/admin/dashboard'
+import { getDashboardAnalytics, getLiveViewerCount } from '#/server/admin/dashboard'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
@@ -31,6 +32,30 @@ const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   label: STOREFRONT_BRAND_LABELS[brand],
 }))
 
+const LIVE_POLL_MS = 15_000
+
+/** Polls getLiveViewerCount on an interval — no React Query in this repo, so this is a plain hook. */
+function useLiveViewerCount(brand: string | undefined) {
+  const [count, setCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = () =>
+      getLiveViewerCount({ data: { brand } }).then((r) => {
+        if (!cancelled) setCount(r.count)
+      })
+
+    poll()
+    const id = setInterval(poll, LIVE_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [brand])
+
+  return count
+}
+
 export const Route = createFileRoute('/admin/')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
@@ -58,6 +83,7 @@ function AdminPage() {
   const analytics = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const liveCount = useLiveViewerCount(search.brand)
 
   function handleRangeChange(
     preset: DateRangePreset,
@@ -122,6 +148,7 @@ function AdminPage() {
         subtitle="A quick look at your store."
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <LiveViewersBadge count={liveCount} />
             <FilterDropdown
               label="Brand"
               value={search.brand}
@@ -245,6 +272,19 @@ function AdminPage() {
         previous period for comparison.
       </p>
     </div>
+  )
+}
+
+function LiveViewersBadge({ count }: { count: number | null }) {
+  if (count === null) return null
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+      </span>
+      {count} live now
+    </span>
   )
 }
 

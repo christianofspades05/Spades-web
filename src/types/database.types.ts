@@ -924,6 +924,23 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['webhook_events']['Row']>
         Relationships: []
       }
+      storefront_presence: {
+        Row: {
+          visitor_id: string
+          brand: string
+          path: string | null
+          last_seen_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['storefront_presence']['Row']
+        > & {
+          visitor_id: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['storefront_presence']['Row']
+        >
+        Relationships: []
+      }
       storefront_visits: {
         Row: {
           id: string

@@ -16,3 +16,11 @@ export const recordVisitSchema = z.object({
 })
 
 export type RecordVisitInput = z.infer<typeof recordVisitSchema>
+
+export const recordPresenceSchema = z.object({
+  visitorId: z.string().uuid(),
+  path: z.string().trim().min(1).max(500),
+  brand: z.string().default('spades'),
+})
+
+export type RecordPresenceInput = z.infer<typeof recordPresenceSchema>

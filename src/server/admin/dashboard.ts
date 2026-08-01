@@ -288,3 +288,30 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       daily,
     }
   })
+
+const LIVE_WINDOW_MS = 90_000
+
+/**
+ * Count of storefront_presence rows heartbeat-updated within the last
+ * ~90s (3x the client's ~20s heartbeat interval, tolerating a couple of
+ * missed pings) — a live "who's on the site right now" count, separate
+ * from getDashboardAnalytics's historical range-scoped visitors count.
+ * Own server fn, not merged into that one: different cadence (polled
+ * frequently, no date range) and different query (current state, not an
+ * aggregation over storefront_visits).
+ */
+export const getLiveViewerCount = createServerFn({ method: 'GET' })
+  .validator(z.object({ brand: z.string().optional() }))
+  .handler(async ({ data }): Promise<{ count: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const since = new Date(Date.now() - LIVE_WINDOW_MS).toISOString()
+    let query = admin
+      .from('storefront_presence')
+      .select('visitor_id', { count: 'exact', head: true })
+      .gte('last_seen_at', since)
+    if (data.brand) query = query.eq('brand', data.brand)
+    const { count, error } = await query
+    if (error) throw error
+    return { count: count ?? 0 }
+  })
