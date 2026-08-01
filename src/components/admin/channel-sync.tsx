@@ -621,6 +621,28 @@ export function ProductSyncSection({
               ))}
             </ul>
           )}
+          {revalidateResult.fixed.some(
+            (f) => f.unmatchedVariants.length > 0,
+          ) && (
+            <>
+              <p className="mt-3 text-xs font-medium text-neutral-500">
+                Fixed, but some variants have no counterpart on the listing
+                (missing there, not a mismatch):
+              </p>
+              <ul className="mt-1.5 flex flex-col gap-1.5 text-xs text-neutral-600">
+                {revalidateResult.fixed
+                  .filter((f) => f.unmatchedVariants.length > 0)
+                  .map((f) => (
+                    <li key={f.productId}>
+                      <span className="font-medium text-neutral-900">
+                        {f.productName}
+                      </span>{' '}
+                      — {f.unmatchedVariants.join('; ')}
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
         </Card>
       )}
 

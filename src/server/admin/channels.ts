@@ -320,22 +320,26 @@ export const connectExistingProduct = createServerFn({ method: 'POST' })
       externalProductId: z.string().trim().min(1),
     }),
   )
-  .handler(async ({ data }): Promise<{ connectedVariants: number }> => {
-    const staff = await requireStaff(MANAGE_ROLES)
-    const result = await connectExistingProductToMarketplace(
-      data.marketplace,
-      data.productId,
-      data.externalProductId,
-    )
-    await logStaffActivity(
-      staff,
-      'channel.connect_existing_product',
-      'products',
-      data.productId,
-      { marketplace: data.marketplace, ...result },
-    )
-    return result
-  })
+  .handler(
+    async ({
+      data,
+    }): Promise<{ connectedVariants: number; unmatchedVariants: string[] }> => {
+      const staff = await requireStaff(MANAGE_ROLES)
+      const result = await connectExistingProductToMarketplace(
+        data.marketplace,
+        data.productId,
+        data.externalProductId,
+      )
+      await logStaffActivity(
+        staff,
+        'channel.connect_existing_product',
+        'products',
+        data.productId,
+        { marketplace: data.marketplace, ...result },
+      )
+      return result
+    },
+  )
 
 /**
  * Auto-connects every currently-unlinked product to a same-titled TikTok

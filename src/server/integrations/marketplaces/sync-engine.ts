@@ -1170,7 +1170,7 @@ export async function connectExistingProductToMarketplace(
   marketplace: MarketplaceName,
   productId: string,
   externalProductId: string,
-): Promise<{ connectedVariants: number }> {
+): Promise<{ connectedVariants: number; unmatchedVariants: string[] }> {
   const admin = getSupabaseAdminClient()
   const connection = await getActiveConnection(marketplace)
   if (!connection) throw new MarketplaceNotConnectedError(marketplace)
@@ -1246,7 +1246,14 @@ export async function connectExistingProductToMarketplace(
       })
     }
 
-    if (unmatched.length > 0) {
+    // A variant with no counterpart on the listing (e.g. a size never
+    // added there) no longer blocks the *other* variants that do match —
+    // only refuse outright if nothing matched at all, since there'd be
+    // nothing useful to connect. Whatever's unmatched is still reported so
+    // staff can see it needs manual attention (add the missing size on
+    // the marketplace's own dashboard, or confirm it's not meant to be
+    // sold there).
+    if (matches.length === 0) {
       throw new Error(`Variant mismatch: ${unmatched.join('; ')}`)
     }
 
@@ -1260,8 +1267,9 @@ export async function connectExistingProductToMarketplace(
       productId,
       externalProductId,
       connectedVariants: matches.length,
+      unmatchedVariants: unmatched,
     })
-    return { connectedVariants: matches.length }
+    return { connectedVariants: matches.length, unmatchedVariants: unmatched }
   } catch (err) {
     await logSync(
       marketplace,
@@ -1281,6 +1289,7 @@ export interface RevalidateMappingsResult {
     productName: string
     externalProductId: string
     connectedVariants: number
+    unmatchedVariants: string[]
   }[]
   failed: { productId: string; productName: string; reason: string }[]
 }
@@ -1380,6 +1389,7 @@ export async function revalidateAllMappedProducts(
             productName: pair.productName,
             externalProductId: pair.externalProductId,
             connectedVariants: connectResult.connectedVariants,
+            unmatchedVariants: connectResult.unmatchedVariants,
           },
         }
       } catch (err) {
