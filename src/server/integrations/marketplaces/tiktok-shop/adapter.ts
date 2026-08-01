@@ -43,6 +43,7 @@ import type {
 import {
   buildAuthorizationUrl,
   callTikTokApi,
+  callTikTokApiMultipart,
   exchangeAuthCode,
   refreshAccessToken,
 } from './client'
@@ -270,18 +271,22 @@ async function uploadProductImage(
     throw new Error(`Failed to download image for TikTok upload: ${imageUrl}`)
   }
   const buffer = Buffer.from(await res.arrayBuffer())
-  // Confirmed live: unlike every other Partner Center call, images/upload
-  // rejects a shop_cipher query param outright ("Unexpected identifier.
-  // The 'shop_cipher' query parameter is not required for this request")
-  // — it's authenticated purely off the access token, no shop context.
-  const { uri } = await callTikTokApi<{ uri: string }>({
-    method: 'POST',
+  // Confirmed live against a real community SDK (hsib19/tiktok-shop-sdk)
+  // after a JSON body kept getting rejected ("request body format must be
+  // 'application/json' ... or 'multipart/form-data'", despite the request
+  // actually being JSON): this endpoint only accepts multipart/form-data,
+  // with the raw file under "data" and use_case as a plain form field —
+  // not base64-in-JSON like every other TikTok endpoint this adapter
+  // calls. Also confirmed live (separately): unlike every other Partner
+  // Center call, it rejects a shop_cipher query param outright too.
+  const { uri } = await callTikTokApiMultipart<{ uri: string }>({
     path: '/product/202309/images/upload',
     accessToken,
-    body: {
-      data: buffer.toString('base64'),
-      use_case: 'MAIN_IMAGE',
-    },
+    fieldName: 'data',
+    fileName: 'image.jpg',
+    contentType: res.headers.get('content-type') ?? 'image/jpeg',
+    fileBuffer: buffer,
+    extraFields: { use_case: 'MAIN_IMAGE' },
   })
   return uri
 }

@@ -171,3 +171,67 @@ export async function callTikTokApi<T>(
   }
   return responseBody.data as T
 }
+
+export interface MultipartRequestOptions {
+  path: string
+  accessToken: string
+  /** Field name the file goes under (e.g. "data" for images/upload). */
+  fieldName: string
+  fileName: string
+  contentType: string
+  fileBuffer: Buffer
+  /** Other plain-string form fields alongside the file (e.g. use_case). */
+  extraFields?: Record<string, string>
+}
+
+/**
+ * Same signing scheme as callTikTokApi, but for the handful of TikTok
+ * endpoints (images/upload) that need actual multipart/form-data instead of
+ * a JSON body — confirmed live that a JSON body gets rejected ("request
+ * body format must be 'application/json' for structured data or
+ * 'multipart/form-data' for binary files", even though the request *was*
+ * JSON — TikTok apparently only accepts the multipart form for this
+ * endpoint despite the error text implying either is fine). The signature
+ * is computed over the query only (no body, same as callTikTokApi's empty
+ * bodyString for GETs) — confirmed against a community SDK
+ * (hsib19/tiktok-shop-sdk) that signs multipart uploads the same way.
+ */
+export async function callTikTokApiMultipart<T>(
+  options: MultipartRequestOptions,
+): Promise<T> {
+  assertServerOnly()
+  const timestamp = Math.floor(Date.now() / 1000).toString()
+  const query: Record<string, string> = { app_key: getAppKey(), timestamp }
+  query.sign = sign(options.path, query, '')
+
+  const url = new URL(`${API_BASE}${options.path}`)
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value)
+  }
+
+  const form = new FormData()
+  form.append(
+    options.fieldName,
+    new Blob([new Uint8Array(options.fileBuffer)], {
+      type: options.contentType,
+    }),
+    options.fileName,
+  )
+  for (const [key, value] of Object.entries(options.extraFields ?? {})) {
+    form.append(key, value)
+  }
+
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { 'x-tts-access-token': options.accessToken },
+    body: form,
+  })
+
+  const responseBody = await res.json()
+  if (!res.ok || responseBody.code !== 0) {
+    throw new Error(
+      `TikTok API call failed (${options.path}): ${JSON.stringify(responseBody)}`,
+    )
+  }
+  return responseBody.data as T
+}
