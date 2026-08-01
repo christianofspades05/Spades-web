@@ -160,8 +160,9 @@ export const previewCollectionRules = createServerFn({ method: 'POST' })
     const { data: products, error } = await admin
       .from('products')
       .select(
-        'id, name, slug, images, product_type, status, tags, created_at, variants:product_variants(price_cents, inventory(quantity_available))',
+        'id, name, slug, images, product_type, status, tags, brand, created_at, variants:product_variants(price_cents, inventory(quantity_available))',
       )
+      .eq('brand', data.brand)
     if (error) throw error
 
     const matched = products

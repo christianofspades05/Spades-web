@@ -98,6 +98,7 @@ export const Route = createFileRoute('/admin/collections/$collectionId')({
           sortBy: collection.sort_by as SortOption,
           hideOutOfStockProducts: collection.hide_out_of_stock_products,
           maxProducts: collection.max_products ?? undefined,
+          brand: collection.brand,
         },
       }),
     ])
@@ -206,6 +207,7 @@ function EditCollectionPage() {
           sortBy: form.sortBy,
           hideOutOfStockProducts: form.hideOutOfStockProducts,
           maxProducts: form.maxProducts === '' ? undefined : form.maxProducts,
+          brand: form.brand,
         },
       })
       setPreview(results)

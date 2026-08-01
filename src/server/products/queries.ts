@@ -172,12 +172,13 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       const { data: collection } = await supabase
         .from('collections')
         .select(
-          'id, match_type, rules, sort_by, hide_out_of_stock_products, max_products',
+          'id, brand, match_type, rules, sort_by, hide_out_of_stock_products, max_products',
         )
         .eq('slug', data.collectionSlug)
         .eq('is_active', true)
         .maybeSingle<{
           id: string
+          brand: string
           match_type: 'all' | 'any'
           rules: unknown
           sort_by: string
@@ -222,6 +223,15 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
         products.filter(
           (p) =>
             !orderById.has(p.id) &&
+            // Unlike manual pins (never excluded — a deliberate override),
+            // auto-matched products are scoped to the collection's own
+            // brand. products.brand and collections.brand share the same
+            // three values (spades/ysrael/aspire365) but there's no
+            // relational tie between them — without this, a Spades-side
+            // collection with e.g. a bare "status = active" rule would pull
+            // in Ysrael/Aspire 365 products too, since they all live in one
+            // shared products table.
+            p.brand === collection.brand &&
             matchesRules(
               {
                 name: p.name,

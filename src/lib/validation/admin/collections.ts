@@ -40,6 +40,7 @@ export const previewCollectionRulesSchema = z.object({
   sortBy: z.enum(SORT_OPTIONS),
   hideOutOfStockProducts: z.boolean().default(false),
   maxProducts: z.number().int().min(1).max(500).optional(),
+  brand: z.enum(STOREFRONT_BRANDS),
 })
 
 export type CollectionInput = z.infer<typeof collectionInputSchema>
