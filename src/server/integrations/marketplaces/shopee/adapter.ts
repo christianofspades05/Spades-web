@@ -775,10 +775,45 @@ export const shopeeAdapter: MarketplaceAdapter = {
       input.images.map((url) => uploadProductImage(accessToken, shopId, url)),
     )
 
-    const response = await callShopeeApi<{
-      item_id: number
-      model?: { model_id: number; model_sku: string }[]
+    // Confirmed live against a real community SDK's type definitions
+    // (congminh1254/shopee-sdk) after add_item kept rejecting seller_stock
+    // no matter how it was reshaped: add_item's real schema has no
+    // tier_variation/model field at all for a multi-variant item. Shopee
+    // splits this into two calls — add_item creates the bare item (needs
+    // its own placeholder original_price/weight/dimension/logistic_info,
+    // even though a multi-variant item's real prices/stock live on its
+    // models instead), then init_tier_variation creates the actual
+    // variants with their real price/sku/stock.
+    const logisticChannels = await callShopeeApi<{
+      logistics_channel_list?: {
+        logistics_channel_id: number
+        logistics_channel_name: string
+        enabled: boolean
+      }[]
     }>({
+      method: 'GET',
+      path: '/api/v2/logistics/get_channel_list',
+      accessToken,
+      shopId,
+    })
+    const logisticInfo = (logisticChannels.logistics_channel_list ?? [])
+      .filter((c) => c.enabled)
+      .map((c) => ({
+        logistic_id: c.logistics_channel_id,
+        logistic_name: c.logistics_channel_name,
+        enabled: true,
+        is_free: false,
+      }))
+
+    const lowestPriceCents = Math.min(
+      ...input.variants.map((v) => v.priceCents),
+    )
+    const totalStock = input.variants.reduce(
+      (sum, v) => sum + v.quantityAvailable,
+      0,
+    )
+
+    const addItemResponse = await callShopeeApi<{ item_id: number }>({
       method: 'POST',
       path: '/api/v2/product/add_item',
       accessToken,
@@ -800,6 +835,34 @@ export const shopeeAdapter: MarketplaceAdapter = {
             ? [{ value_id: Number(a.valueId) }]
             : [{ original_value_name: a.value ?? '' }],
         })),
+        // Placeholder — overwritten per-variant by init_tier_variation's
+        // own model[].original_price/seller_stock right after this call.
+        original_price: lowestPriceCents / 100,
+        seller_stock: [{ location_id: 'PHZ', stock: totalStock }],
+        // No real product weight/dimensions are tracked yet — these are
+        // small placeholders (Shopee requires *something*), matching the
+        // 10x10x10cm default already used for the Shopify-side package
+        // dimensions setting this app is replacing.
+        weight: 0.3,
+        dimension: {
+          package_length: 10,
+          package_width: 10,
+          package_height: 10,
+        },
+        logistic_info: logisticInfo,
+      },
+    })
+    const itemId = addItemResponse.item_id
+
+    const tierVariationResponse = await callShopeeApi<{
+      model_id_list: number[]
+    }>({
+      method: 'POST',
+      path: '/api/v2/product/init_tier_variation',
+      accessToken,
+      shopId,
+      body: {
+        item_id: itemId,
         // Shopee requires a `tier_variation`/`model` list for multi-variant
         // items rather than a flat sku array like TikTok's — this sends a
         // single "Variant" tier with one option per variant, which covers
@@ -818,31 +881,19 @@ export const shopeeAdapter: MarketplaceAdapter = {
           tier_index: [input.variants.indexOf(v)],
           model_sku: v.sku,
           original_price: v.priceCents / 100,
-          // Confirmed live: add_item rejects `normal_stock` ("invalid
-          // field seller_stock, value must Not Null") — Shopee's current
-          // API wants stock under seller_stock instead, same shape
-          // pushInventory already uses against update_stock (see
-          // pushInventory below), but add_item additionally needs an
-          // explicit location_id even for a shop not on the multi-
-          // warehouse whitelist (confirmed via get_warehouse_detail
-          // returning "not in multi-warehouse whitelist" for this shop) —
-          // "PHZ" is the location_id already seen on this shop's existing
-          // listings via get_model_list, not a real warehouse feature.
           seller_stock: [{ location_id: 'PHZ', stock: v.quantityAvailable }],
         })),
       },
     })
 
-    const externalVariantByIndex = new Map(
-      (response.model ?? []).map((m, i) => [i, m]),
-    )
+    // init_tier_variation only returns model_id_list (no sku echoed back),
+    // in the same order the `model` array above was sent — safe to match
+    // by index since it's the same request/response round trip.
     return {
-      externalProductId: String(response.item_id),
+      externalProductId: String(itemId),
       variants: input.variants.map((v, i) => ({
         variantId: v.variantId,
-        externalVariantId: String(
-          externalVariantByIndex.get(i)?.model_id ?? '',
-        ),
+        externalVariantId: String(tierVariationResponse.model_id_list[i] ?? ''),
       })),
     }
   },
