@@ -818,7 +818,12 @@ export const shopeeAdapter: MarketplaceAdapter = {
           tier_index: [input.variants.indexOf(v)],
           model_sku: v.sku,
           original_price: v.priceCents / 100,
-          normal_stock: v.quantityAvailable,
+          // Confirmed live: add_item rejects `normal_stock` ("invalid
+          // field seller_stock, value must Not Null") — Shopee's current
+          // API wants stock under seller_stock instead, same shape
+          // pushInventory already uses successfully against update_stock
+          // (see pushInventory below).
+          seller_stock: [{ stock: v.quantityAvailable }],
         })),
       },
     })
