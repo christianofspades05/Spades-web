@@ -1,27 +1,34 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { getErrorMessage } from '#/lib/utils/errors'
-import type { MarketPricingInput } from '#/lib/validation/admin/market-pricing'
-import { COUNTRIES } from '#/lib/utils/countries'
+import type { MarketInput } from '#/lib/validation/admin/market-pricing'
+import { COUNTRIES, formatCountryName } from '#/lib/utils/countries'
 import { Card } from '#/components/admin/Card'
 import {
   buttonPrimaryClassName,
   inputClassName,
   labelClassName,
 } from '#/components/admin/ui'
-import type { MarketPricing } from '#/types/entities'
+import type { MarketWithCountries } from '#/types/entities'
 
 export function MarketPricingForm({
   market,
+  takenCountryCodes,
   onSubmit,
   submitLabel,
 }: {
-  market?: MarketPricing
-  onSubmit: (data: MarketPricingInput) => Promise<void>
+  market?: MarketWithCountries
+  /** Country codes already assigned to a *different* market — offered but
+   *  disabled, so staff sees why a country can't be picked here instead of
+   *  it just silently not showing up. */
+  takenCountryCodes: string[]
+  onSubmit: (data: MarketInput) => Promise<void>
   submitLabel: string
 }) {
-  const [countryCode, setCountryCode] = useState(
-    market?.country_code ?? COUNTRIES[0].code,
+  const [countryCodes, setCountryCodes] = useState<string[]>(
+    market?.countryCodes ?? [],
   )
+  const [query, setQuery] = useState('')
   const [markupPercent, setMarkupPercent] = useState(
     market ? String(market.markup_percent) : '',
   )
@@ -29,13 +36,30 @@ export function MarketPricingForm({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const takenSet = useMemo(
+    () => new Set(takenCountryCodes),
+    [takenCountryCodes],
+  )
+
+  const filtered = useMemo(() => {
+    const trimmed = query.trim().toLowerCase()
+    if (!trimmed) return COUNTRIES
+    return COUNTRIES.filter((c) => c.name.toLowerCase().includes(trimmed))
+  }, [query])
+
+  function toggleCountry(code: string) {
+    setCountryCodes((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    )
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
     try {
       await onSubmit({
-        countryCode,
+        countryCodes,
         markupPercent: Number(markupPercent),
         isActive,
       })
@@ -48,28 +72,69 @@ export function MarketPricingForm({
   return (
     <Card className="p-6">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className={labelClassName}>
-          Country
-          <select
-            required
-            disabled={Boolean(market)}
-            value={countryCode}
-            onChange={(e) => setCountryCode(e.target.value)}
-            className={inputClassName}
-          >
-            {COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          {market && (
-            <span className="text-xs font-normal text-neutral-500">
-              Country can't be changed after creation — create a new entry
-              instead.
-            </span>
+        <div>
+          <label className={labelClassName}>Countries</label>
+
+          {countryCodes.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {countryCodes.map((code) => (
+                <span
+                  key={code}
+                  className="inline-flex items-center gap-1 rounded-full bg-neutral-100 py-0.5 pr-1 pl-2.5 text-xs font-medium text-neutral-700"
+                >
+                  {formatCountryName(code)}
+                  <button
+                    type="button"
+                    onClick={() => toggleCountry(code)}
+                    aria-label={`Remove ${formatCountryName(code)}`}
+                    className="rounded-full p-0.5 hover:bg-neutral-200"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
-        </label>
+
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search countries to add…"
+            className={`${inputClassName} w-full`}
+          />
+          <div className="mt-2 max-h-56 overflow-y-auto rounded-md border border-neutral-200">
+            {filtered.length === 0 && (
+              <p className="p-3 text-sm text-neutral-400">No countries found</p>
+            )}
+            {filtered.map((c) => {
+              const selected = countryCodes.includes(c.code)
+              const taken = takenSet.has(c.code) && !selected
+              return (
+                <label
+                  key={c.code}
+                  className={`flex items-center gap-2 border-b border-neutral-100 px-3 py-1.5 text-sm last:border-b-0 ${
+                    taken
+                      ? 'cursor-not-allowed text-neutral-400'
+                      : 'cursor-pointer text-neutral-700 hover:bg-neutral-50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={taken}
+                    onChange={() => toggleCountry(c.code)}
+                  />
+                  {c.name}
+                  {taken && (
+                    <span className="ml-auto text-xs">
+                      already in another market
+                    </span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        </div>
 
         <label className={labelClassName}>
           Markup (%)
@@ -87,7 +152,7 @@ export function MarketPricingForm({
           <span className="text-xs font-normal text-neutral-500">
             Applied to the product subtotal only — never to shipping. A ₱747
             cart at 15% becomes ₱859.05 for the products; shipping is added on
-            top unchanged.
+            top unchanged. Every selected country shares this same rate.
           </span>
         </label>
 
@@ -103,7 +168,7 @@ export function MarketPricingForm({
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || countryCodes.length === 0}
           className={buttonPrimaryClassName}
         >
           {submitting ? 'Saving…' : submitLabel}

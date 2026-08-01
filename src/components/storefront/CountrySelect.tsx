@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
-import { COUNTRIES } from '#/lib/utils/countries'
+import { formatCountryName } from '#/lib/utils/countries'
 import { inputClassName } from '#/components/storefront/ui'
-
-const ALL_COUNTRIES = [{ code: 'PH', name: 'Philippines' }, ...COUNTRIES]
 
 /** Searchable country picker for checkout — a plain <select> with ~200
  *  options meant scrolling through the whole alphabet to find one country,
  *  so this swaps in a filterable list instead (same open/close-on-outside-
- *  click pattern as admin's FilterDropdown). */
+ *  click pattern as admin's FilterDropdown). `countryCodes` is PH plus
+ *  whatever countries have an active market (see admin/markets) — orders
+ *  only ship where the owner has actually configured pricing/shipping for,
+ *  so the full ~200-country list was never a real option to begin with. */
 export function CountrySelect({
   value,
   onChange,
+  countryCodes,
 }: {
   value: string
   onChange: (code: string) => void
+  countryCodes: string[]
 }) {
+  const allCountries = useMemo(
+    () => countryCodes.map((code) => ({ code, name: formatCountryName(code) })),
+    [countryCodes],
+  )
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -44,12 +51,12 @@ export function CountrySelect({
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toLowerCase()
-    if (!trimmed) return ALL_COUNTRIES
-    return ALL_COUNTRIES.filter((c) => c.name.toLowerCase().includes(trimmed))
-  }, [query])
+    if (!trimmed) return allCountries
+    return allCountries.filter((c) => c.name.toLowerCase().includes(trimmed))
+  }, [query, allCountries])
 
   const selectedName =
-    ALL_COUNTRIES.find((c) => c.code === value)?.name ?? 'Select country'
+    allCountries.find((c) => c.code === value)?.name ?? 'Select country'
 
   return (
     <div ref={containerRef} className="relative">

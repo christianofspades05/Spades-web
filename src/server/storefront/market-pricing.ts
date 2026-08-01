@@ -16,9 +16,15 @@ export const getActiveMarketMarkups = createServerFn({
 }).handler(async (): Promise<MarketMarkups> => {
   const supabase = getSupabaseServerClient()
   const { data, error } = await supabase
-    .from('market_pricing')
-    .select('country_code, markup_percent')
+    .from('markets')
+    .select('markup_percent, market_countries(country_code)')
     .eq('is_active', true)
   if (error) throw error
-  return Object.fromEntries(data.map((m) => [m.country_code, m.markup_percent]))
+  const markups: MarketMarkups = {}
+  for (const market of data) {
+    for (const { country_code } of market.market_countries) {
+      markups[country_code] = market.markup_percent
+    }
+  }
+  return markups
 })

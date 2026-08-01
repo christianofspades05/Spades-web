@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { listMarketPricing } from '#/server/admin/market-pricing'
+import { listMarkets } from '#/server/admin/market-pricing'
 import { formatCountryName } from '#/lib/utils/countries'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
@@ -12,7 +12,7 @@ import {
 } from '#/components/admin/ui'
 
 export const Route = createFileRoute('/admin/markets/')({
-  loader: () => listMarketPricing(),
+  loader: () => listMarkets(),
   component: MarketsPage,
 })
 
@@ -42,7 +42,7 @@ function MarketsPage() {
             <table className="w-full">
               <thead>
                 <tr>
-                  <th className={tableHeadClassName}>Country</th>
+                  <th className={tableHeadClassName}>Countries</th>
                   <th className={tableHeadClassName}>Status</th>
                   <th className={`${tableHeadClassName} text-right`}>Markup</th>
                 </tr>
@@ -56,7 +56,9 @@ function MarketsPage() {
                         params={{ marketId: market.id }}
                         className="font-medium text-neutral-900 hover:underline"
                       >
-                        {formatCountryName(market.country_code)}
+                        {market.countryCodes
+                          .map((code) => formatCountryName(code))
+                          .join(', ')}
                       </Link>
                     </td>
                     <td className={tableCellClassName}>

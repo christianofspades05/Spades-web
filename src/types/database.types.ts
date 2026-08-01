@@ -730,23 +730,36 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['cod_restrictions']['Row']>
         Relationships: []
       }
-      market_pricing: {
+      markets: {
         Row: {
           id: string
-          country_code: string
           markup_percent: number
           is_active: boolean
           created_at: string
           updated_at: string
         }
-        Insert: Partial<
-          Database['public']['Tables']['market_pricing']['Row']
-        > & {
-          country_code: string
+        Insert: Partial<Database['public']['Tables']['markets']['Row']> & {
           markup_percent: number
         }
-        Update: Partial<Database['public']['Tables']['market_pricing']['Row']>
+        Update: Partial<Database['public']['Tables']['markets']['Row']>
         Relationships: []
+      }
+      market_countries: {
+        Row: {
+          market_id: string
+          country_code: string
+        }
+        Insert: Database['public']['Tables']['market_countries']['Row']
+        Update: Partial<Database['public']['Tables']['market_countries']['Row']>
+        Relationships: [
+          {
+            foreignKeyName: 'market_countries_market_id_fkey'
+            columns: ['market_id']
+            isOneToOne: false
+            referencedRelation: 'markets'
+            referencedColumns: ['id']
+          },
+        ]
       }
       reviews: {
         Row: {

@@ -62,8 +62,13 @@ export type StorefrontSection =
   Database['public']['Tables']['storefront_sections']['Row']
 export type CodRestriction =
   Database['public']['Tables']['cod_restrictions']['Row']
-export type MarketPricing =
-  Database['public']['Tables']['market_pricing']['Row']
+export type Market = Database['public']['Tables']['markets']['Row']
+export type MarketCountry =
+  Database['public']['Tables']['market_countries']['Row']
+/** A market plus the countries it covers — the shape the admin CRUD/UI
+ *  actually works with, since a market is meaningless without at least one
+ *  country attached. */
+export type MarketWithCountries = Market & { countryCodes: string[] }
 export type Review = Database['public']['Tables']['reviews']['Row']
 export type EmailAutomation =
   Database['public']['Tables']['email_automations']['Row']

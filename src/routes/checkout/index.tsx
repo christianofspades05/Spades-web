@@ -172,6 +172,7 @@ function CheckoutPage() {
                 <CountrySelect
                   value={info.country}
                   onChange={handleCountryChange}
+                  countryCodes={['PH', ...Object.keys(marketMarkups)]}
                 />
               </div>
 

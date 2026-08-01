@@ -134,10 +134,10 @@ export const placeOrder = createServerFn({ method: 'POST' })
       let marketMarkupPercent: number | undefined
       if (data.contact.country !== 'PH') {
         const { data: marketRow } = await admin
-          .from('market_pricing')
-          .select('markup_percent')
-          .eq('country_code', data.contact.country)
+          .from('markets')
+          .select('markup_percent, market_countries!inner(country_code)')
           .eq('is_active', true)
+          .eq('market_countries.country_code', data.contact.country)
           .maybeSingle()
         marketMarkupPercent = marketRow?.markup_percent
       }
@@ -269,7 +269,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           brand: scope.brand,
           // Set only when a per-country markup actually applied (see
           // lib/checkout/market-pricing.ts) — null for PH and for any
-          // country with no active market_pricing row.
+          // country with no active market covering it.
           market_markup_percent: marketMarkupPercent ?? null,
         })
         .select('id, order_number')
