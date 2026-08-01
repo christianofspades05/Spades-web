@@ -25,6 +25,17 @@ import type {
 
 const MAX_ATTEMPTS = 3
 const BASE_RETRY_DELAY_MS = 500
+
+// The owner wants a standing reserve of stock that only ever sells on the
+// website — Shopee/TikTok should never see the last few units of anything,
+// so a sellout on a marketplace can't outrun what's actually left to fulfil.
+// Applied once here (both on first push and every resync) rather than at
+// each call site, so nothing can push a raw, un-buffered count by accident.
+const MARKETPLACE_STOCK_BUFFER = 3
+
+function applyStockBuffer(quantity: number): number {
+  return Math.max(0, quantity - MARKETPLACE_STOCK_BUFFER)
+}
 const STATUSES_BEFORE_SHIPPED = new Set([
   'pending_payment',
   'paid',
@@ -140,7 +151,7 @@ interface MappingRow {
 async function pushOneMapping(
   connection: MarketplaceConnection,
   mapping: MappingRow,
-  quantity: number,
+  rawQuantity: number,
   options?: { force?: boolean },
 ): Promise<void> {
   // Inventory sync is an explicit per-channel opt-in (off by default) — a
@@ -150,6 +161,8 @@ async function pushOneMapping(
   // A `force`d call is different: staff explicitly clicked "Sync now" on
   // one specific product, so there's no "uninvited" push to worry about.
   if (!connection.inventory_sync_enabled && !options?.force) return
+
+  const quantity = applyStockBuffer(rawQuantity)
 
   const admin = getSupabaseAdminClient()
 
@@ -948,7 +961,9 @@ export async function pushNewProductToMarketplace(
         color: v.color,
         style: v.style,
         priceCents: v.price_cents,
-        quantityAvailable: v.inventory[0]?.quantity_available ?? 0,
+        quantityAvailable: applyStockBuffer(
+          v.inventory[0]?.quantity_available ?? 0,
+        ),
       })),
     })
 
