@@ -18,6 +18,11 @@ import {
   setMaintenanceMode,
 } from '#/server/admin/maintenance'
 import type { MaintenanceModeRow } from '#/server/admin/maintenance'
+import {
+  listStorefrontBanners,
+  setStorefrontBanner,
+} from '#/server/admin/storefront-banner'
+import type { StorefrontBannerRow } from '#/server/admin/storefront-banner'
 import { getBrandPreviewUrl } from '#/server/storefront/domain'
 import {
   STOREFRONT_BRANDS,
@@ -52,20 +57,23 @@ export const Route = createFileRoute('/admin/storefront/')({
   }),
   loaderDeps: ({ search }) => ({ page: search.page, brand: search.brand }),
   loader: async ({ deps }) => {
-    const [sections, collections, maintenanceMode] = await Promise.all([
-      listAllStorefrontSections({
-        data: { page: deps.page, brand: deps.brand },
-      }),
-      listAllCollections(),
-      listMaintenanceMode(),
-    ])
-    return { sections, collections, maintenanceMode }
+    const [sections, collections, maintenanceMode, banners] =
+      await Promise.all([
+        listAllStorefrontSections({
+          data: { page: deps.page, brand: deps.brand },
+        }),
+        listAllCollections(),
+        listMaintenanceMode(),
+        listStorefrontBanners(),
+      ])
+    return { sections, collections, maintenanceMode, banners }
   },
   component: StorefrontSectionsPage,
 })
 
 function StorefrontSectionsPage() {
-  const { sections, collections, maintenanceMode } = Route.useLoaderData()
+  const { sections, collections, maintenanceMode, banners } =
+    Route.useLoaderData()
   const { page, brand } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -95,6 +103,31 @@ function StorefrontSectionsPage() {
       )
     } finally {
       setTogglingBrand(null)
+    }
+  }
+
+  const [bannerRows, setBannerRows] = useState<StorefrontBannerRow[]>(banners)
+  const [savingBannerBrand, setSavingBannerBrand] = useState<
+    (typeof STOREFRONT_BRANDS)[number] | null
+  >(null)
+
+  function updateBannerField(
+    forBrand: (typeof STOREFRONT_BRANDS)[number],
+    patch: Partial<StorefrontBannerRow>,
+  ) {
+    setBannerRows((prev) =>
+      prev.map((r) => (r.brand === forBrand ? { ...r, ...patch } : r)),
+    )
+  }
+
+  async function saveBanner(row: StorefrontBannerRow) {
+    setSavingBannerBrand(row.brand)
+    try {
+      await setStorefrontBanner({
+        data: { brand: row.brand, text: row.text, isActive: row.is_active },
+      })
+    } finally {
+      setSavingBannerBrand(null)
     }
   }
 
@@ -209,6 +242,58 @@ function StorefrontSectionsPage() {
                       ? 'Turn off maintenance'
                       : 'Turn on maintenance'}
                 </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="mb-6 p-5">
+          <p className="mb-1 text-sm font-semibold text-neutral-900">
+            Top banner
+          </p>
+          <p className="mb-3 text-xs text-neutral-500">
+            The bar at the very top of the storefront, above the header.
+            Leave text empty or turn it off to hide it entirely.
+          </p>
+          <div className="flex flex-col gap-2">
+            {bannerRows.map((row) => (
+              <div
+                key={row.brand}
+                className="flex flex-col gap-2 rounded-lg border border-neutral-200 p-3 sm:flex-row sm:items-center"
+              >
+                <span className="w-20 shrink-0 text-sm font-medium text-neutral-900">
+                  {STOREFRONT_BRAND_LABELS[row.brand]}
+                </span>
+                <input
+                  value={row.text}
+                  onChange={(e) =>
+                    updateBannerField(row.brand, { text: e.target.value })
+                  }
+                  placeholder="Banner text…"
+                  className={`${inputClassName} flex-1`}
+                />
+                <div className="flex shrink-0 items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-700">
+                    <input
+                      type="checkbox"
+                      checked={row.is_active}
+                      onChange={(e) =>
+                        updateBannerField(row.brand, {
+                          is_active: e.target.checked,
+                        })
+                      }
+                    />
+                    Visible
+                  </label>
+                  <button
+                    type="button"
+                    disabled={savingBannerBrand === row.brand}
+                    onClick={() => saveBanner(row)}
+                    className={buttonSecondaryClassName}
+                  >
+                    {savingBannerBrand === row.brand ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

@@ -7,9 +7,11 @@ import { CurrencySelector } from '#/components/storefront/CurrencySelector'
 import { SearchOverlay } from '#/components/storefront/SearchOverlay'
 import { getCrossBrandLinks } from '#/server/storefront/domain'
 import type { StorefrontScope } from '#/server/storefront/domain'
+import type { StorefrontBanner } from '#/server/storefront/banner'
 
 interface HeaderProps {
   scope: StorefrontScope
+  banner: StorefrontBanner
 }
 
 // Spades is the flagship brand with its own content pages; Ysrael/Aspire
@@ -25,7 +27,7 @@ const FULL_NAV_LINKS = [
 
 const MINIMAL_NAV_LINKS = [{ to: '/', label: 'Home Store' }] as const
 
-export function Header({ scope }: HeaderProps) {
+export function Header({ scope, banner }: HeaderProps) {
   const { itemCount } = useCart()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -35,11 +37,13 @@ export function Header({ scope }: HeaderProps) {
 
   return (
     <header>
-      <div
-        className={`bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider sm:text-xs ${scope.promoBannerTextClassName}`}
-      >
-        {scope.promoBannerText}
-      </div>
+      {banner.isActive && banner.text && (
+        <div
+          className={`bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider sm:text-xs ${scope.promoBannerTextClassName}`}
+        >
+          {banner.text}
+        </div>
+      )}
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex shrink-0 items-center gap-3">

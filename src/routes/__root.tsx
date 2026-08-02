@@ -18,6 +18,7 @@ import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
 import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { getMaintenanceMode } from '#/server/storefront/maintenance'
+import { getStorefrontBanner } from '#/server/storefront/banner'
 import appCss from '../styles.css?url'
 
 /**
@@ -44,14 +45,20 @@ export const Route = createRootRoute({
     // first to know which brand's maintenance flag to check, then the rest
     // run in parallel as before.
     const storefrontScope = await getStorefrontScope()
-    const [geoDefaultCurrency, geoCountry, maintenanceMode] = await Promise.all(
-      [
+    const [geoDefaultCurrency, geoCountry, maintenanceMode, banner] =
+      await Promise.all([
         getGeoDefaultCurrency(),
         getGeoCountry(),
         getMaintenanceMode({ data: { brand: storefrontScope.brand } }),
-      ],
-    )
-    return { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode }
+        getStorefrontBanner({ data: { brand: storefrontScope.brand } }),
+      ])
+    return {
+      geoDefaultCurrency,
+      geoCountry,
+      storefrontScope,
+      maintenanceMode,
+      banner,
+    }
   },
   head: ({ match }) => ({
     meta: [
@@ -106,7 +113,7 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const isAdminRoute = pathname.startsWith('/admin')
-  const { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode } =
+  const { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode, banner } =
     Route.useRouteContext()
   const showMaintenance = !isAdminRoute && maintenanceMode
   const pixelBootstrapScript = buildPixelBootstrapScript(
@@ -162,7 +169,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 <MaintenancePage scope={storefrontScope} />
               ) : (
                 <>
-                  {!isAdminRoute && <Header scope={storefrontScope} />}
+                  {!isAdminRoute && (
+                    <Header scope={storefrontScope} banner={banner} />
+                  )}
                   {children}
                   {!isAdminRoute && <Footer scope={storefrontScope} />}
                 </>

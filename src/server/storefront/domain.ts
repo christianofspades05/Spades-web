@@ -56,7 +56,6 @@ export interface StorefrontScope {
   /** Theme a first-time visitor sees before ever toggling it themselves —
    *  an explicit stored preference (light or dark) always wins over this. */
   defaultTheme: 'light' | 'dark'
-  promoBannerText: string
   social: { facebook: string; instagram: string; tiktok: string }
   fbPixelId: string | undefined
 }
@@ -109,8 +108,6 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     priceTextHex: null,
     priceTextDarkHex: null,
     defaultTheme: 'light',
-    promoBannerText:
-      'Free shipping minimum of ₱2,000 purchase. Extra 10% off minimum of 5 items',
     social: {
       facebook: 'https://www.facebook.com/spadesofficialph/',
       instagram: 'https://www.instagram.com/spades_officialph/',
@@ -136,7 +133,6 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     priceTextHex: '#d4c400',
     priceTextDarkHex: '#f5e401',
     defaultTheme: 'dark',
-    promoBannerText: 'Free shipping minimum of ₱2,500 worth of items',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_YSRAEL as string | undefined,
   },
@@ -161,7 +157,6 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     priceTextHex: null,
     priceTextDarkHex: null,
     defaultTheme: 'dark',
-    promoBannerText: '',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_ASPIRE365 as string | undefined,
   },

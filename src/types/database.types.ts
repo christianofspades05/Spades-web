@@ -281,6 +281,23 @@ export interface Database {
         >
         Relationships: []
       }
+      storefront_banner: {
+        Row: {
+          brand: ProductBrand
+          text: string
+          is_active: boolean
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['storefront_banner']['Row']
+        > & {
+          brand: ProductBrand
+        }
+        Update: Partial<
+          Database['public']['Tables']['storefront_banner']['Row']
+        >
+        Relationships: []
+      }
       products: {
         Row: {
           id: string
