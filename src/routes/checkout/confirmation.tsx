@@ -5,6 +5,7 @@ import { useCheckout } from '#/lib/checkout/CheckoutContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import { getOrderConfirmationItems } from '#/server/checkout/confirmation'
+import { formatCents, pesosToCents } from '#/lib/utils/money'
 
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
@@ -104,6 +105,12 @@ function ConfirmationPage() {
               </p>
             </div>
           ))}
+          {value !== undefined && (
+            <div className="flex items-center justify-between border-t border-neutral-200 pt-3 text-sm font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
+              <span>Total</span>
+              <span>{formatCents(pesosToCents(value), currency)}</span>
+            </div>
+          )}
         </div>
       )}
 
