@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { z } from 'zod'
 import {
   createFileRoute,
@@ -212,23 +212,13 @@ function OrdersPage() {
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
     navigate({
-      search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
+      search: (prev) => ({
+        ...prev,
+        q: searchInput.trim() || undefined,
+        page: 1,
+      }),
     })
   }
-
-  // Debounced live search — navigates 300ms after the user stops typing
-  // instead of firing a query on every keystroke. The explicit submit above
-  // still works for an immediate Enter press.
-  useEffect(() => {
-    const trimmed = searchInput.trim()
-    if (trimmed === (search.q ?? '')) return
-    const handle = setTimeout(() => {
-      navigate({
-        search: (prev) => ({ ...prev, q: trimmed || undefined, page: 1 }),
-      })
-    }, 300)
-    return () => clearTimeout(handle)
-  }, [searchInput])
 
   function toggleAll() {
     setSelected((prev) =>
