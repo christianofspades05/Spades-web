@@ -26,17 +26,19 @@ function requireEnv(name: string): string {
  * `from` field ("Name <email>") — inboxes show the name instead of the
  * bare address. Passes an unset env var straight through as `undefined` so
  * sendEmail()'s own RESEND_FROM_EMAIL fallback (and its "Missing X" error)
- * still kick in normally. If the env var is already in "Name <email>" form
- * (some of these were configured that way directly in Vercel before this
- * helper existed), it's left untouched rather than double-wrapped — Resend
- * rejects a nested `<...>` with a 422.
+ * still kick in normally. Some of these env vars are already configured in
+ * Vercel as "Some Name <email>" rather than a bare address — the bare email
+ * is extracted first so `name` always wins rather than either double-
+ * wrapping into an invalid nested `<...>` (a 422 from Resend) or silently
+ * keeping whatever generic name was already there.
  */
 export function withDisplayName(
   name: string,
   email: string | undefined,
 ): string | undefined {
-  if (!email || email.includes('<')) return email
-  return `${name} <${email}>`
+  if (!email) return email
+  const bareEmail = /<([^>]+)>/.exec(email)?.[1] ?? email
+  return `${name} <${bareEmail}>`
 }
 
 export interface SendEmailInput {
