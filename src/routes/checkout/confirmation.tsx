@@ -4,8 +4,8 @@ import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
-import { getOrderConfirmationItems } from '#/server/checkout/confirmation'
-import { formatCents, pesosToCents } from '#/lib/utils/money'
+import { getOrderConfirmation } from '#/server/checkout/confirmation'
+import { formatCentsAsPHP } from '#/lib/utils/money'
 
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
@@ -24,11 +24,11 @@ export const Route = createFileRoute('/checkout/confirmation')({
   }),
   loaderDeps: ({ search }) => ({ order: search.order }),
   loader: async ({ deps }) => {
-    if (!deps.order) return { items: [] }
-    const items = await getOrderConfirmationItems({
+    if (!deps.order) return { confirmation: null }
+    const confirmation = await getOrderConfirmation({
       data: { orderNumber: deps.order },
     })
-    return { items: items ?? [] }
+    return { confirmation }
   },
   component: ConfirmationPage,
 })
@@ -37,7 +37,8 @@ const FIRED_PURCHASE_KEY = 'spades_fb_purchase_fired'
 
 function ConfirmationPage() {
   const { order, value, currency } = Route.useSearch()
-  const { items } = Route.useLoaderData()
+  const { confirmation } = Route.useLoaderData()
+  const items = confirmation?.items ?? []
   const { clear } = useCheckout()
 
   // Reached either directly (COD) or via Xendit's success redirect (online
@@ -105,10 +106,30 @@ function ConfirmationPage() {
               </p>
             </div>
           ))}
-          {value !== undefined && (
-            <div className="flex items-center justify-between border-t border-neutral-200 pt-3 text-sm font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
-              <span>Total</span>
-              <span>{formatCents(pesosToCents(value), currency)}</span>
+          {confirmation && (
+            <div className="flex flex-col gap-1.5 border-t border-neutral-200 pt-3 text-sm dark:border-neutral-800">
+              <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
+                <span>Subtotal</span>
+                <span>{formatCentsAsPHP(confirmation.subtotalCents)}</span>
+              </div>
+              {confirmation.discountCents > 0 && (
+                <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
+                  <span>Discount</span>
+                  <span>−{formatCentsAsPHP(confirmation.discountCents)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
+                <span>Shipping</span>
+                <span>
+                  {confirmation.shippingCents === 0
+                    ? 'Free'
+                    : formatCentsAsPHP(confirmation.shippingCents)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between border-t border-neutral-200 pt-1.5 font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
+                <span>Total</span>
+                <span>{formatCentsAsPHP(confirmation.totalCents)}</span>
+              </div>
             </div>
           )}
         </div>

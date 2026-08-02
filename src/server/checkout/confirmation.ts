@@ -5,8 +5,8 @@
  * (the same value Xendit's success redirect and the COD path already pass)
  * is the only "credential" this page has, same as most storefronts' own
  * thank-you pages — so this intentionally returns only what's already safe
- * to show there: item names/quantities/images. No customer, address, or
- * payment info.
+ * to show there: item names/quantities/images and the order's cents
+ * breakdown. No customer, address, or payment info.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
@@ -40,14 +40,22 @@ export interface ConfirmationOrderItem {
   imageUrl: string | null
 }
 
-export const getOrderConfirmationItems = createServerFn({ method: 'GET' })
+export interface OrderConfirmation {
+  items: ConfirmationOrderItem[]
+  subtotalCents: number
+  discountCents: number
+  shippingCents: number
+  totalCents: number
+}
+
+export const getOrderConfirmation = createServerFn({ method: 'GET' })
   .validator(z.object({ orderNumber: z.string().min(1) }))
-  .handler(async ({ data }): Promise<ConfirmationOrderItem[] | null> => {
+  .handler(async ({ data }): Promise<OrderConfirmation | null> => {
     const admin = getSupabaseAdminClient()
     const { data: order, error } = await admin
       .from('orders')
       .select(
-        'id, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
+        'id, subtotal_cents, discount_cents, shipping_cents, total_cents, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
       )
       .eq('order_number', data.orderNumber)
       .maybeSingle()
@@ -63,11 +71,19 @@ export const getOrderConfirmationItems = createServerFn({ method: 'GET' })
     )
     const imageMap = await getProductImagesByVariantId(admin, variantIds)
 
-    return order.order_items.map((item) => ({
-      id: item.id,
-      productName: item.product_name_snapshot,
-      variantLabel: item.variant_label_snapshot,
-      quantity: item.quantity,
-      imageUrl: item.variant_id ? (imageMap.get(item.variant_id) ?? null) : null,
-    }))
+    return {
+      items: order.order_items.map((item) => ({
+        id: item.id,
+        productName: item.product_name_snapshot,
+        variantLabel: item.variant_label_snapshot,
+        quantity: item.quantity,
+        imageUrl: item.variant_id
+          ? (imageMap.get(item.variant_id) ?? null)
+          : null,
+      })),
+      subtotalCents: order.subtotal_cents,
+      discountCents: order.discount_cents,
+      shippingCents: order.shipping_cents,
+      totalCents: order.total_cents,
+    }
   })
