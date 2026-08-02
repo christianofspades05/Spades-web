@@ -40,6 +40,7 @@ export const SUPPORTED_CURRENCIES = [
   'VND',
   'JPY',
   'MOP',
+  'KRW',
 ] as const
 export type Currency = (typeof SUPPORTED_CURRENCIES)[number]
 
@@ -54,14 +55,15 @@ const CURRENCY_LOCALE: Record<string, string> = {
   VND: 'vi-VN',
   JPY: 'ja-JP',
   MOP: 'zh-MO',
+  KRW: 'ko-KR',
 }
 
 // Most of our supported currencies use 2 decimal places (100 minor units
-// per major unit) — VND and JPY are exceptions: neither has a subdivision
-// in everyday use, and Intl.NumberFormat formats both with 0 fraction
-// digits by default (confirmed: formatting 423233.955 as VND prints
-// "423,234 ₫", not "4,232.34 ₫"; same for JPY). "Cents" below always means
-// "minor units," which is 1 for these two, not 100.
+// per major unit) — VND, JPY, and KRW are exceptions: none has a
+// subdivision in everyday use, and Intl.NumberFormat formats all three with
+// 0 fraction digits by default (confirmed: formatting 423233.955 as VND
+// prints "423,234 ₫", not "4,232.34 ₫"; same for JPY/KRW). "Cents" below
+// always means "minor units," which is 1 for these three, not 100.
 const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   PHP: 100,
   USD: 100,
@@ -73,6 +75,7 @@ const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   VND: 1,
   JPY: 1,
   MOP: 100,
+  KRW: 1,
 }
 
 export function minorUnitsPerMajor(currency: string): number {
