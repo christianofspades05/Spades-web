@@ -33,6 +33,31 @@ export function MarketPricingForm({
     market ? String(market.markup_percent) : '',
   )
   const [isActive, setIsActive] = useState(market?.is_active ?? true)
+  const [shippingName, setShippingName] = useState(market?.shipping_name ?? '')
+  const [shippingPrice, setShippingPrice] = useState(
+    market?.shipping_price_cents != null
+      ? String(market.shipping_price_cents / 100)
+      : '',
+  )
+  const [freeShippingMode, setFreeShippingMode] = useState<
+    'none' | 'amount' | 'items'
+  >(
+    market?.free_shipping_min_subtotal_cents != null
+      ? 'amount'
+      : market?.free_shipping_min_items != null
+        ? 'items'
+        : 'none',
+  )
+  const [freeShippingAmount, setFreeShippingAmount] = useState(
+    market?.free_shipping_min_subtotal_cents != null
+      ? String(market.free_shipping_min_subtotal_cents / 100)
+      : '',
+  )
+  const [freeShippingItems, setFreeShippingItems] = useState(
+    market?.free_shipping_min_items != null
+      ? String(market.free_shipping_min_items)
+      : '',
+  )
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -62,6 +87,18 @@ export function MarketPricingForm({
         countryCodes,
         markupPercent: Number(markupPercent),
         isActive,
+        shippingName: shippingName.trim() || undefined,
+        shippingPriceCents: shippingPrice.trim()
+          ? Math.round(Number(shippingPrice) * 100)
+          : undefined,
+        freeShippingMinSubtotalCents:
+          freeShippingMode === 'amount' && freeShippingAmount.trim()
+            ? Math.round(Number(freeShippingAmount) * 100)
+            : undefined,
+        freeShippingMinItems:
+          freeShippingMode === 'items' && freeShippingItems.trim()
+            ? Number(freeShippingItems)
+            : undefined,
       })
     } catch (err) {
       setError(getErrorMessage(err))
@@ -155,6 +192,93 @@ export function MarketPricingForm({
             top unchanged. Every selected country shares this same rate.
           </span>
         </label>
+
+        <div className="rounded-lg border border-neutral-200 p-4">
+          <p className="text-sm font-medium text-neutral-900">Shipping</p>
+          <p className="mt-1 text-xs text-neutral-500">
+            Leave blank to keep charging this market the default flat
+            international rate instead of a custom one.
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className={labelClassName}>
+              Shipping name
+              <input
+                value={shippingName}
+                onChange={(e) => setShippingName(e.target.value)}
+                placeholder="e.g. International Shipping"
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Shipping price (₱)
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={shippingPrice}
+                onChange={(e) => setShippingPrice(e.target.value)}
+                placeholder="e.g. 350"
+                className={inputClassName}
+              />
+            </label>
+          </div>
+
+          <p className="mt-4 text-sm font-medium text-neutral-900">
+            Free shipping
+          </p>
+          <div className="mt-2 flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="radio"
+                name="freeShippingMode"
+                checked={freeShippingMode === 'none'}
+                onChange={() => setFreeShippingMode('none')}
+              />
+              None
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="radio"
+                name="freeShippingMode"
+                checked={freeShippingMode === 'amount'}
+                onChange={() => setFreeShippingMode('amount')}
+              />
+              Minimum order amount
+            </label>
+            {freeShippingMode === 'amount' && (
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={freeShippingAmount}
+                onChange={(e) => setFreeShippingAmount(e.target.value)}
+                placeholder="e.g. 3000 (₱3,000)"
+                className={`${inputClassName} ml-6 w-auto`}
+              />
+            )}
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="radio"
+                name="freeShippingMode"
+                checked={freeShippingMode === 'items'}
+                onChange={() => setFreeShippingMode('items')}
+              />
+              Minimum item count
+            </label>
+            {freeShippingMode === 'items' && (
+              <input
+                type="number"
+                min={1}
+                step="1"
+                value={freeShippingItems}
+                onChange={(e) => setFreeShippingItems(e.target.value)}
+                placeholder="e.g. 3"
+                className={`${inputClassName} ml-6 w-auto`}
+              />
+            )}
+          </div>
+        </div>
 
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-700">
           <input
