@@ -328,7 +328,11 @@ function OrdersPage() {
         overview.delivered.previousCount,
       ),
     },
-    { label: 'Avg. time to fulfillment', value: avgFulfillment },
+    // Meaningless for a cancelled order (it was never fulfilled) — hide it
+    // rather than show a permanent '—' when filtered to that status.
+    ...(search.status === 'cancelled'
+      ? []
+      : [{ label: 'Avg. time to fulfillment', value: avgFulfillment }]),
   ]
 
   return (
