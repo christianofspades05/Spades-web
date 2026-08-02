@@ -87,3 +87,41 @@ export const getOrderConfirmation = createServerFn({ method: 'GET' })
       totalCents: order.total_cents,
     }
   })
+
+export type ReservationConfirmationResult =
+  | { status: 'paid'; orderNumber: string; confirmation: OrderConfirmation }
+  | { status: 'pending' }
+
+/**
+ * Polled by the confirmation page for an online-payment checkout, whose
+ * Xendit success redirect only ever carries a `checkout_reservations` id
+ * (no order exists yet at that point — see place-order.ts). The webhook
+ * that mints the real order (xendit.ts) runs async, server-to-server, and
+ * isn't guaranteed to land before the customer's browser gets redirected
+ * back here — so this can legitimately report 'pending' for a second or
+ * two after a successful payment. Once the order is minted, its
+ * `external_order_id` is set to the reservation id, which is how this
+ * finds it.
+ */
+export const getOrderConfirmationByReservation = createServerFn({
+  method: 'GET',
+})
+  .validator(z.object({ reservationId: z.string().min(1) }))
+  .handler(async ({ data }): Promise<ReservationConfirmationResult> => {
+    const admin = getSupabaseAdminClient()
+    const { data: order, error } = await admin
+      .from('orders')
+      .select('order_number')
+      .eq('source', 'storefront')
+      .eq('external_order_id', data.reservationId)
+      .maybeSingle()
+    if (error) throw error
+    if (!order) return { status: 'pending' }
+
+    const confirmation = await getOrderConfirmation({
+      data: { orderNumber: order.order_number },
+    })
+    if (!confirmation) return { status: 'pending' }
+
+    return { status: 'paid', orderNumber: order.order_number, confirmation }
+  })

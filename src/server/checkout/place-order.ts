@@ -5,13 +5,18 @@
  * rows.
  *
  * Two payment paths:
- *   - 'cod': the order is placed immediately, payment is collected on
+ *   - 'cod': a real order is placed immediately, payment is collected on
  *     delivery. Stock stays reserved (not committed) until fulfillment.
- *   - 'online': the order is placed the same way (stock reserved the same
- *     way), but instead of finishing here, a Xendit invoice is created and
- *     its URL returned so the caller can redirect the customer to pay.
- *     src/routes/api/webhooks/xendit.ts commits stock and marks the order
- *     paid once Xendit confirms payment.
+ *   - 'online': NO order is created here. Stock is reserved the same way,
+ *     but the checkout snapshot (customer, pricing, address, item lines) is
+ *     held in a `checkout_reservations` row instead of `orders` — no order
+ *     number, no order row, no "new order" email — while a Xendit invoice
+ *     is created and its URL returned so the caller can redirect the
+ *     customer to pay. Only once Xendit confirms PAID does
+ *     src/routes/api/webhooks/xendit.ts mint the real order (order number
+ *     included), commit stock, and send both emails. If the customer
+ *     abandons or fails payment, the reservation row is just deleted and
+ *     stock released — nothing about the attempt ever touches `orders`.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestUrl } from '@tanstack/react-start/server'
@@ -27,6 +32,7 @@ import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
+import type { CheckoutReservationItem } from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { sendEmail } from '#/lib/email/resend'
@@ -45,8 +51,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
     async ({
       data,
     }): Promise<{
-      orderId: string
-      orderNumber: string
+      orderId: string | null
+      orderNumber: string | null
+      reservationId: string | null
       invoiceUrl: string | null
     }> => {
       const admin = getSupabaseAdminClient()
@@ -268,41 +275,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         landmark: data.contact.landmark ?? null,
       }
 
-      const { data: order, error: orderError } = await admin
-        .from('orders')
-        .insert({
-          customer_id: customerId,
-          status: 'pending_payment',
-          source: 'storefront',
-          subtotal_cents: subtotalCents,
-          discount_cents: discountCents,
-          shipping_cents: shippingCents,
-          total_cents: totalCents,
-          discount_id: cart.discount?.id ?? null,
-          shipping_address: shippingAddress,
-          is_cod: data.paymentProvider === 'cod',
-          // Display currency only (what the customer was browsing in) —
-          // COD/GCash/Maya/bank transfer always actually charge PHP
-          // regardless of this value; see the online-payment branch below
-          // for the one path (card) that can honor it.
-          currency: data.currency,
-          // Which of the three storefronts (Spades/Ysrael/Aspire 365) the
-          // order was placed on — see server/storefront/domain.ts.
-          brand: scope.brand,
-          // Set only when a per-country markup actually applied (see
-          // lib/checkout/market-pricing.ts) — null for PH and for any
-          // country with no active market covering it.
-          market_markup_percent: marketMarkupPercent ?? null,
-        })
-        .select('id, order_number')
-        .single()
-
-      if (orderError) {
-        await releaseAllReserved()
-        throw orderError
-      }
-
-      const orderItemsPayload = cart.items.map((item) => {
+      const itemsPayload: CheckoutReservationItem[] = cart.items.map((item) => {
         const lineSubtotalCents = item.quantity * item.price_cents_snapshot
         const variantLabel = [
           item.variant.size,
@@ -313,111 +286,18 @@ export const placeOrder = createServerFn({ method: 'POST' })
           .join(' / ')
 
         return {
-          order_id: order.id,
-          variant_id: item.variant_id,
-          product_name_snapshot: item.variant.product.name,
-          variant_label_snapshot: variantLabel || null,
-          sku_snapshot: item.variant.sku,
-          unit_price_cents: item.price_cents_snapshot,
+          variantId: item.variant_id,
+          productNameSnapshot: item.variant.product.name,
+          variantLabelSnapshot: variantLabel || null,
+          skuSnapshot: item.variant.sku,
+          unitPriceCents: item.price_cents_snapshot,
           quantity: item.quantity,
-          line_subtotal_cents: lineSubtotalCents,
-          line_discount_cents: 0,
-          line_total_cents: lineSubtotalCents,
+          lineSubtotalCents,
+          lineDiscountCents: 0,
+          lineTotalCents: lineSubtotalCents,
         }
       })
-      const { error: itemsError } = await admin
-        .from('order_items')
-        .insert(orderItemsPayload)
-      if (itemsError) {
-        await releaseAllReserved()
-        throw itemsError
-      }
 
-      let invoiceUrl: string | null = null
-
-      if (data.paymentProvider === 'cod') {
-        const { error: paymentError } = await admin.from('payments').insert({
-          order_id: order.id,
-          provider: 'cod',
-          status: 'pending',
-          amount_cents: totalCents,
-          idempotency_key: crypto.randomUUID(),
-        })
-        if (paymentError) throw paymentError
-      } else {
-        // Xendit's legacy Invoice API (used here) rejects any currency the
-        // merchant hasn't had explicitly enabled on their account — live-
-        // tested and confirmed for this account (only PHP is enabled;
-        // trying SGD returned "currency SGD is not configured in your
-        // settings yet"). So online payment always actually charges PHP
-        // regardless of the customer's selected display currency —
-        // browsing/checkout/payment-summary still show their chosen
-        // currency (see CurrencyContext.tsx), this is only about what
-        // Xendit itself is told to charge. If more currencies get enabled
-        // on the Xendit side later, this is the one place to start passing
-        // data.currency through again (see git history for the previous
-        // per-currency attempt).
-        const { data: payment, error: paymentError } = await admin
-          .from('payments')
-          .insert({
-            order_id: order.id,
-            provider: 'other',
-            status: 'pending',
-            amount_cents: totalCents,
-            idempotency_key: crypto.randomUUID(),
-          })
-          .select('id')
-          .single()
-        if (paymentError) throw paymentError
-
-        const origin = getRequestUrl().origin
-        try {
-          const invoice = await createXenditInvoice({
-            externalId: order.order_number,
-            amount: totalCents / 100,
-            currency: 'PHP',
-            payerEmail: email,
-            description: `${scope.name} order ${order.order_number}`,
-            successRedirectUrl: `${origin}/checkout/confirmation?order=${order.order_number}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
-            failureRedirectUrl: `${origin}/checkout/payment?order=${order.order_number}&paymentFailed=true`,
-            // Abandoned payments shouldn't leave stock reserved indefinitely —
-            // Xendit pushes an EXPIRED webhook event at this point, which
-            // releases the reservation and cancels the order (xendit.ts).
-            invoiceDuration: 300,
-          })
-          invoiceUrl = invoice.invoice_url
-          await admin
-            .from('payments')
-            .update({ provider_reference: invoice.id })
-            .eq('id', payment.id)
-        } catch (err) {
-          await releaseAllReserved()
-          await admin
-            .from('payments')
-            .update({ status: 'failed' })
-            .eq('id', payment.id)
-          await admin
-            .from('orders')
-            .update({ status: 'failed' })
-            .eq('id', order.id)
-          throw err
-        }
-      }
-
-      if (discountRow) {
-        await admin
-          .from('discounts')
-          .update({ times_used: discountRow.times_used + 1 })
-          .eq('id', discountRow.id)
-      }
-
-      await admin
-        .from('carts')
-        .update({ status: 'converted' })
-        .eq('id', cart.id)
-
-      // Best-effort and explicitly NOT awaited for both emails below — a
-      // Resend outage should never block the customer's checkout response.
       const origin = getRequestUrl().origin
       const emailItems = cart.items.map((item) => ({
         name: item.variant.product.name,
@@ -430,42 +310,95 @@ export const placeOrder = createServerFn({ method: 'POST' })
         lineTotalCents: item.quantity * item.price_cents_snapshot,
       }))
 
-      // Notification for staff — silently skipped entirely if no owner
-      // address is set.
-      const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
-      if (storeOwnerEmail) {
-        void sendEmail({
-          to: storeOwnerEmail,
-          subject: newOrderEmailSubject(order.order_number),
-          from: process.env.RESEND_FROM_EMAIL_ORDERS,
-          html: newOrderEmailHtml({
-            orderNumber: order.order_number,
-            customerName: data.contact.recipientName,
-            customerEmail: email,
-            totalCents,
-            isCod: data.paymentProvider === 'cod',
-            items: emailItems,
-            orderUrl: `${origin}/admin/orders/${order.id}`,
-          }),
-        }).catch((err: unknown) => {
-          console.error('Failed to send new-order notification email:', err)
-        })
-      }
-
-      // Confirmation for the customer — "View order" sends them to their
-      // account's order history (see routes/account/index.tsx), which
-      // requires signing in/up first for a guest checkout, same as the
-      // owner intentionally wants (see conversation: "needed to create
-      // account").
-      //
-      // COD only here — an online-payment (Xendit) order isn't actually
-      // confirmed yet at this point, just created as pending_payment while
-      // the customer is redirected to Xendit's hosted checkout. Sending
-      // "order confirmed" now would be wrong for anyone who abandons that
-      // page. The equivalent send for a paid online order lives in the
-      // Xendit webhook (routes/api/webhooks/xendit.ts), firing only once
-      // Xendit actually reports the payment as PAID.
+      // ---- COD: a real, confirmed order the moment it's placed ----
       if (data.paymentProvider === 'cod') {
+        const { data: order, error: orderError } = await admin
+          .from('orders')
+          .insert({
+            customer_id: customerId,
+            status: 'pending_payment',
+            source: 'storefront',
+            subtotal_cents: subtotalCents,
+            discount_cents: discountCents,
+            shipping_cents: shippingCents,
+            total_cents: totalCents,
+            discount_id: cart.discount?.id ?? null,
+            shipping_address: shippingAddress,
+            is_cod: true,
+            currency: data.currency,
+            brand: scope.brand,
+            market_markup_percent: marketMarkupPercent ?? null,
+          })
+          .select('id, order_number')
+          .single()
+        if (orderError) {
+          await releaseAllReserved()
+          throw orderError
+        }
+
+        const orderItemsPayload = itemsPayload.map((item) => ({
+          order_id: order.id,
+          variant_id: item.variantId,
+          product_name_snapshot: item.productNameSnapshot,
+          variant_label_snapshot: item.variantLabelSnapshot,
+          sku_snapshot: item.skuSnapshot,
+          unit_price_cents: item.unitPriceCents,
+          quantity: item.quantity,
+          line_subtotal_cents: item.lineSubtotalCents,
+          line_discount_cents: item.lineDiscountCents,
+          line_total_cents: item.lineTotalCents,
+        }))
+        const { error: itemsError } = await admin
+          .from('order_items')
+          .insert(orderItemsPayload)
+        if (itemsError) {
+          await releaseAllReserved()
+          throw itemsError
+        }
+
+        const { error: paymentError } = await admin.from('payments').insert({
+          order_id: order.id,
+          provider: 'cod',
+          status: 'pending',
+          amount_cents: totalCents,
+          idempotency_key: crypto.randomUUID(),
+        })
+        if (paymentError) throw paymentError
+
+        if (discountRow) {
+          await admin
+            .from('discounts')
+            .update({ times_used: discountRow.times_used + 1 })
+            .eq('id', discountRow.id)
+        }
+
+        await admin
+          .from('carts')
+          .update({ status: 'converted' })
+          .eq('id', cart.id)
+
+        // Best-effort and explicitly NOT awaited for both emails below — a
+        // Resend outage should never block the customer's checkout response.
+        const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
+        if (storeOwnerEmail) {
+          void sendEmail({
+            to: storeOwnerEmail,
+            subject: newOrderEmailSubject(order.order_number),
+            from: process.env.RESEND_FROM_EMAIL_ORDERS,
+            html: newOrderEmailHtml({
+              orderNumber: order.order_number,
+              customerName: data.contact.recipientName,
+              customerEmail: email,
+              totalCents,
+              isCod: true,
+              items: emailItems,
+              orderUrl: `${origin}/admin/orders/${order.id}`,
+            }),
+          }).catch((err: unknown) => {
+            console.error('Failed to send new-order notification email:', err)
+          })
+        }
+
         void sendEmail({
           to: email,
           subject: orderConfirmationEmailSubject(order.order_number),
@@ -482,8 +415,96 @@ export const placeOrder = createServerFn({ method: 'POST' })
         }).catch((err: unknown) => {
           console.error('Failed to send order confirmation email:', err)
         })
+
+        return {
+          orderId: order.id,
+          orderNumber: order.order_number,
+          reservationId: null,
+          invoiceUrl: null,
+        }
       }
 
-      return { orderId: order.id, orderNumber: order.order_number, invoiceUrl }
+      // ---- Online payment: nothing enters `orders` until Xendit confirms
+      // PAID (see api/webhooks/xendit.ts). Until then this is just a
+      // reservation holding the stock + snapshot needed to mint the real
+      // order later. ----
+      const { data: reservation, error: reservationError } = await admin
+        .from('checkout_reservations')
+        .insert({
+          customer_id: customerId,
+          cart_id: cart.id,
+          brand: scope.brand,
+          currency: data.currency,
+          subtotal_cents: subtotalCents,
+          discount_cents: discountCents,
+          shipping_cents: shippingCents,
+          total_cents: totalCents,
+          discount_id: cart.discount?.id ?? null,
+          market_markup_percent: marketMarkupPercent ?? null,
+          shipping_address: shippingAddress,
+          items: itemsPayload,
+        })
+        .select('id')
+        .single()
+      if (reservationError) {
+        await releaseAllReserved()
+        throw reservationError
+      }
+
+      let invoiceUrl: string
+      try {
+        // Xendit's legacy Invoice API (used here) rejects any currency the
+        // merchant hasn't had explicitly enabled on their account — live-
+        // tested and confirmed for this account (only PHP is enabled;
+        // trying SGD returned "currency SGD is not configured in your
+        // settings yet"). So online payment always actually charges PHP
+        // regardless of the customer's selected display currency —
+        // browsing/checkout/payment-summary still show their chosen
+        // currency (see CurrencyContext.tsx), this is only about what
+        // Xendit itself is told to charge. If more currencies get enabled
+        // on the Xendit side later, this is the one place to start passing
+        // data.currency through again (see git history for the previous
+        // per-currency attempt).
+        const invoice = await createXenditInvoice({
+          externalId: reservation.id,
+          amount: totalCents / 100,
+          currency: 'PHP',
+          payerEmail: email,
+          description: `${scope.name} order`,
+          successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
+          failureRedirectUrl: `${origin}/checkout/payment?paymentFailed=true`,
+          // Abandoned payments shouldn't leave stock reserved indefinitely —
+          // Xendit pushes an EXPIRED webhook event at this point, which
+          // releases the reservation (xendit.ts).
+          invoiceDuration: 300,
+        })
+        invoiceUrl = invoice.invoice_url
+        await admin
+          .from('checkout_reservations')
+          .update({ xendit_invoice_id: invoice.id })
+          .eq('id', reservation.id)
+      } catch (err) {
+        await releaseAllReserved()
+        await admin
+          .from('checkout_reservations')
+          .delete()
+          .eq('id', reservation.id)
+        throw err
+      }
+
+      // The cart is spent the moment checkout is attempted, whether or not
+      // payment ultimately succeeds — same as the COD path above. If the
+      // customer abandons payment and comes back, a fresh cart starts.
+      await admin
+        .from('carts')
+        .update({ status: 'converted' })
+        .eq('id', cart.id)
+
+      return {
+        orderId: null,
+        orderNumber: null,
+        reservationId: reservation.id,
+        invoiceUrl,
+      }
     },
   )

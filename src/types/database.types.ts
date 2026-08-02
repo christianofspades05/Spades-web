@@ -44,6 +44,20 @@ export type OrderCancellationReason =
 export type OrderSource =
   'storefront' | 'admin' | 'tiktok_shop' | 'shopee' | 'lazada'
 
+/** order_items-shaped snapshot held on a checkout_reservations row until
+ *  the Xendit webhook mints real order_items rows from it. */
+export interface CheckoutReservationItem {
+  variantId: string | null
+  productNameSnapshot: string
+  variantLabelSnapshot: string | null
+  skuSnapshot: string
+  unitPriceCents: number
+  quantity: number
+  lineSubtotalCents: number
+  lineDiscountCents: number
+  lineTotalCents: number
+}
+
 export type SyncLogStatus = 'success' | 'failed'
 
 export type PaymentProvider =
@@ -570,6 +584,43 @@ export interface Database {
           line_total_cents: number
         }
         Update: Partial<Database['public']['Tables']['order_items']['Row']>
+        Relationships: []
+      }
+      checkout_reservations: {
+        Row: {
+          id: string
+          customer_id: string
+          cart_id: string
+          brand: string
+          currency: string
+          subtotal_cents: number
+          discount_cents: number
+          shipping_cents: number
+          total_cents: number
+          discount_id: string | null
+          market_markup_percent: number | null
+          shipping_address: Record<string, unknown>
+          items: CheckoutReservationItem[]
+          xendit_invoice_id: string | null
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['checkout_reservations']['Row']
+        > & {
+          customer_id: string
+          cart_id: string
+          brand: string
+          currency: string
+          subtotal_cents: number
+          discount_cents: number
+          shipping_cents: number
+          total_cents: number
+          shipping_address: Record<string, unknown>
+          items: CheckoutReservationItem[]
+        }
+        Update: Partial<
+          Database['public']['Tables']['checkout_reservations']['Row']
+        >
         Relationships: []
       }
       payments: {

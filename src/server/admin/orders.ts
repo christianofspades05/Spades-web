@@ -242,7 +242,15 @@ export const listOrders = createServerFn({ method: 'GET' })
       )
       .order('placed_at', { ascending: false })
 
-    if (data.status) query = query.eq('status', data.status)
+    if (data.status) {
+      query = query.eq('status', data.status)
+    } else {
+      // Cancelled/failed orders are real, permanent records (a customer
+      // request, a failed delivery, a marketplace cancellation) and stay
+      // fully visible via the Payment filter — they're just excluded from
+      // the unfiltered default view so it isn't dominated by void orders.
+      query = query.not('status', 'in', '(cancelled,failed)')
+    }
     if (data.source) query = query.eq('source', data.source)
     if (data.brand) query = query.eq('brand', data.brand)
 
@@ -308,7 +316,11 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       .from('orders')
       .select('id', { count: 'exact', head: true })
 
-    if (data.status) query = query.eq('status', data.status)
+    if (data.status) {
+      query = query.eq('status', data.status)
+    } else {
+      query = query.not('status', 'in', '(cancelled,failed)')
+    }
     if (data.source) query = query.eq('source', data.source)
     if (data.brand) query = query.eq('brand', data.brand)
 

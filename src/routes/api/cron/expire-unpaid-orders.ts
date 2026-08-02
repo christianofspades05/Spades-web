@@ -1,22 +1,27 @@
 /**
- * Backstop for online (Xendit) orders that were placed but never paid —
- * see place-order.ts: an order is created with status='pending_payment'
- * and stock reserved *before* the customer finishes paying, specifically so
- * two shoppers can't both be sold the last unit while one of them is still
- * on Xendit's payment page. The primary mechanism is Xendit's own invoice
- * expiry (5 min, place-order.ts) pushing an EXPIRED webhook event
- * (xendit.ts) that releases the reservation and cancels the order almost
- * immediately. This cron only matters if that webhook never arrives —
- * without it, an abandoned order would sit 'pending_payment' forever.
+ * Backstop for online (Xendit) checkouts that were started but never paid —
+ * see place-order.ts: a `checkout_reservations` row is created and stock
+ * reserved *before* the customer finishes paying, specifically so two
+ * shoppers can't both be sold the last unit while one of them is still on
+ * Xendit's payment page. No `orders` row exists for these until PAID, so
+ * there's nothing to cancel here — just release the stock and delete the
+ * stale reservation. The primary mechanism is Xendit's own invoice expiry
+ * (5 min, place-order.ts) pushing an EXPIRED webhook event (xendit.ts) that
+ * does the same thing almost immediately. This cron only matters if that
+ * webhook never arrives — without it, an abandoned reservation would hold
+ * its stock forever.
  *
- * Only ever touches is_cod=false orders — COD orders are *supposed* to
- * stay 'pending_payment' until delivery, that's not an abandoned payment.
+ * COD orders never go through `checkout_reservations` at all — they're a
+ * real, confirmed order the moment they're placed — so this cron has
+ * nothing to do with them.
  *
  * Trigger via an external scheduler (cron-job.org, every 15 min) sending
  * `Authorization: Bearer $CRON_SECRET` — NOT added to vercel.json's cron
  * list, which is already at this Vercel plan's 2-daily-cron cap
  * (review-requests, sync-channels-daily), same reasoning as
- * api/cron/abandoned-cart.ts.
+ * api/cron/abandoned-cart.ts. Kept at this same route path (rather than
+ * renamed to match what it now sweeps) so that external schedule doesn't
+ * need reconfiguring.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -49,62 +54,46 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
           Date.now() - EXPIRE_AFTER_MINUTES * 60_000,
         ).toISOString()
 
-        const { data: staleOrders, error: staleError } = await admin
-          .from('orders')
-          .select('id, order_number')
-          .eq('status', 'pending_payment')
-          .eq('is_cod', false)
-          .lt('placed_at', cutoff)
+        const { data: staleReservations, error: staleError } = await admin
+          .from('checkout_reservations')
+          .select('id, items')
+          .lt('created_at', cutoff)
         if (staleError) throw staleError
 
-        const cancelled: string[] = []
-        const failures: { orderId: string; error: string }[] = []
+        const expired: string[] = []
+        const failures: { reservationId: string; error: string }[] = []
 
-        for (const order of staleOrders) {
+        for (const reservation of staleReservations) {
           try {
-            const { data: items, error: itemsError } = await admin
-              .from('order_items')
-              .select('variant_id, quantity')
-              .eq('order_id', order.id)
-            if (itemsError) throw itemsError
+            const items = reservation.items
 
             for (const item of items) {
-              if (!item.variant_id) continue
+              if (!item.variantId) continue
               const { error: releaseError } = await admin.rpc(
                 'release_variant_stock',
-                { p_variant_id: item.variant_id, p_quantity: item.quantity },
+                { p_variant_id: item.variantId, p_quantity: item.quantity },
               )
               if (releaseError) throw releaseError
             }
 
-            const { error: orderUpdateError } = await admin
-              .from('orders')
-              .update({
-                status: 'cancelled',
-                cancelled_at: new Date().toISOString(),
-                cancellation_reason: 'payment_expired',
-              })
-              .eq('id', order.id)
-            if (orderUpdateError) throw orderUpdateError
+            const { error: deleteError } = await admin
+              .from('checkout_reservations')
+              .delete()
+              .eq('id', reservation.id)
+            if (deleteError) throw deleteError
 
-            await admin
-              .from('payments')
-              .update({ status: 'failed' })
-              .eq('order_id', order.id)
-              .eq('status', 'pending')
-
-            cancelled.push(order.order_number)
+            expired.push(reservation.id)
           } catch (err) {
             failures.push({
-              orderId: order.id,
+              reservationId: reservation.id,
               error: err instanceof Error ? err.message : String(err),
             })
           }
         }
 
         return Response.json({
-          scanned: staleOrders.length,
-          cancelled,
+          scanned: staleReservations.length,
+          expired,
           failures,
         })
       },

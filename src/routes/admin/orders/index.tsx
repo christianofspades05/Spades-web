@@ -72,6 +72,7 @@ const PAYMENT_STATUS_OPTIONS = [
   { value: 'paid', label: 'Paid' },
   { value: 'refunded', label: 'Refunded' },
   { value: 'cancelled', label: 'Cancelled' },
+  { value: 'failed', label: 'Failed' },
 ] as const
 
 const FULFILLMENT_STATUS_OPTIONS = [
