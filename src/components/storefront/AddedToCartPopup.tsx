@@ -1,5 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Check, X } from 'lucide-react'
+import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
+import type { FreeShippingProgress } from '#/lib/checkout/shipping'
 
 export interface AddedToCartItem {
   image: string | null
@@ -10,10 +12,12 @@ export interface AddedToCartItem {
 export function AddedToCartPopup({
   item,
   itemCount,
+  freeShippingProgress,
   onClose,
 }: {
   item: AddedToCartItem
   itemCount: number
+  freeShippingProgress: FreeShippingProgress | null
   onClose: () => void
 }) {
   return (
@@ -51,7 +55,12 @@ export function AddedToCartPopup({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-2">
+      <FreeShippingNudge
+        progress={freeShippingProgress}
+        className="mt-4 text-center text-xs font-medium text-neutral-300"
+      />
+
+      <div className="mt-3 flex flex-col gap-2">
         <Link
           to="/cart"
           className="rounded-full border border-white px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-white hover:text-neutral-950"

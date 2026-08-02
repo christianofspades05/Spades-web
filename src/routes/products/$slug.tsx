@@ -75,8 +75,13 @@ function ProductPage() {
   const { product, related, reviews } = Route.useLoaderData()
   const { storefrontScope } = Route.useRouteContext()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { addItem, itemCount } = useCart()
-  const { currency, rates, formatPriceWithMarkup: formatPrice } = useCurrency()
+  const { addItem, itemCount, subtotalCents, discountCents } = useCart()
+  const {
+    currency,
+    rates,
+    formatPriceWithMarkup: formatPrice,
+    freeShippingProgressForBrowsing,
+  } = useCurrency()
 
   const [selectedVariant, setSelectedVariant] = useState<
     VariantWithStock | undefined
@@ -206,6 +211,10 @@ function ProductPage() {
         <AddedToCartPopup
           item={addedItem}
           itemCount={itemCount}
+          freeShippingProgress={freeShippingProgressForBrowsing(
+            subtotalCents - discountCents,
+            itemCount,
+          )}
           onClose={() => setAddedItem(null)}
         />
       )}

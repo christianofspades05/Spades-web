@@ -126,3 +126,40 @@ export function shippingCostCents(
   const zone = shippingZoneForRegion(region)
   return SHIPPING_ZONE_RATE_CENTS[zone]
 }
+
+export interface FreeShippingProgress {
+  type: 'amount' | 'items'
+  /** Cents (if type is 'amount', always PHP) or a plain item count (if
+   *  type is 'items') still needed to reach free shipping. Always > 0 —
+   *  null is returned instead once the threshold is already met. */
+  remaining: number
+}
+
+/** How far a cart still is from free shipping — used for the "add X more
+ *  to unlock free shipping" nudge (cart popup, cart page, checkout form).
+ *  Returns null once free shipping already applies, or when the
+ *  destination has no free-shipping mechanism at all (an international
+ *  country with no active market, or one whose market never set a
+ *  free-shipping trigger). PH always uses the site-wide domestic
+ *  threshold; every other country uses its own market's trigger, if any. */
+export function freeShippingProgress(
+  country: string,
+  subtotalCents: number,
+  itemCount: number,
+  marketShipping?: MarketShippingConfig,
+): FreeShippingProgress | null {
+  if (country === 'PH') {
+    const remaining = FREE_SHIPPING_THRESHOLD_CENTS - subtotalCents
+    return remaining > 0 ? { type: 'amount', remaining } : null
+  }
+  if (marketShipping?.freeShippingMinSubtotalCents != null) {
+    const remaining =
+      marketShipping.freeShippingMinSubtotalCents - subtotalCents
+    return remaining > 0 ? { type: 'amount', remaining } : null
+  }
+  if (marketShipping?.freeShippingMinItems != null) {
+    const remaining = marketShipping.freeShippingMinItems - itemCount
+    return remaining > 0 ? { type: 'items', remaining } : null
+  }
+  return null
+}

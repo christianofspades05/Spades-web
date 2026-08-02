@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -14,12 +15,16 @@ export const Route = createFileRoute('/cart/')({
 })
 
 function CartPage() {
-  const { formatPriceWithMarkup: formatPrice } = useCurrency()
+  const {
+    formatPriceWithMarkup: formatPrice,
+    freeShippingProgressForBrowsing,
+  } = useCurrency()
   const {
     cart,
     subtotalCents,
     discountCents,
     totalCents,
+    itemCount,
     isLoading,
     updateQuantity,
     removeItem,
@@ -257,6 +262,14 @@ function CartPage() {
           <span>{formatPrice(totalCents)}</span>
         </div>
       </div>
+
+      <FreeShippingNudge
+        progress={freeShippingProgressForBrowsing(
+          subtotalCents - discountCents,
+          itemCount,
+        )}
+        className="mt-6 mb-2 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
+      />
 
       <Link
         to="/checkout"

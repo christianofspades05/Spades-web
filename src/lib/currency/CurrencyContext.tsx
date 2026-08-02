@@ -1,8 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { getExchangeRates } from '#/server/currency/rates'
-import { getActiveMarketMarkups } from '#/server/storefront/market-pricing'
-import type { MarketMarkups } from '#/server/storefront/market-pricing'
+import {
+  getActiveMarketMarkups,
+  getActiveMarketShipping,
+} from '#/server/storefront/market-pricing'
+import type {
+  MarketMarkups,
+  MarketShippingByCountry,
+} from '#/server/storefront/market-pricing'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import { freeShippingProgress } from '#/lib/checkout/shipping'
+import type { FreeShippingProgress } from '#/lib/checkout/shipping'
 import {
   convertCents,
   effectiveCurrency,
@@ -28,6 +36,15 @@ interface CurrencyContextValue {
    *  country instead of a geo guess, and not for historical order display,
    *  which must never change after the fact. */
   formatPriceWithMarkup: (cents: number) => string
+  /** How far a cart is from free shipping for the geo-guessed visitor
+   *  country — same "browsing surfaces only" caveat as formatPriceWithMarkup
+   *  above (the add-to-cart popup and cart page, before checkout has an
+   *  actual chosen country to go on). `rawSubtotalCents` is the un-marked-up
+   *  PHP subtotal, same input formatPriceWithMarkup expects. */
+  freeShippingProgressForBrowsing: (
+    rawSubtotalCents: number,
+    itemCount: number,
+  ) => FreeShippingProgress | null
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | null>(null)
@@ -63,6 +80,9 @@ export function CurrencyProvider({
   const [currency, setCurrencyState] = useState<Currency>('PHP')
   const [rates, setRates] = useState<ExchangeRates>({})
   const [marketMarkups, setMarketMarkups] = useState<MarketMarkups>({})
+  const [marketShipping, setMarketShipping] = useState<MarketShippingByCountry>(
+    {},
+  )
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -79,6 +99,10 @@ export function CurrencyProvider({
 
   useEffect(() => {
     getActiveMarketMarkups().then(setMarketMarkups)
+  }, [])
+
+  useEffect(() => {
+    getActiveMarketShipping().then(setMarketShipping)
   }, [])
 
   function setCurrency(next: Currency) {
@@ -101,6 +125,23 @@ export function CurrencyProvider({
     [formatPrice, geoMarkupPercent],
   )
 
+  const freeShippingProgressForBrowsing = useMemo(
+    () => (rawSubtotalCents: number, itemCount: number) => {
+      const country = geoCountry ?? 'PH'
+      const markedUpSubtotal = applyMarketMarkup(
+        rawSubtotalCents,
+        geoMarkupPercent,
+      )
+      return freeShippingProgress(
+        country,
+        markedUpSubtotal,
+        itemCount,
+        marketShipping[country],
+      )
+    },
+    [geoCountry, geoMarkupPercent, marketShipping],
+  )
+
   return (
     <CurrencyContext.Provider
       value={{
@@ -109,6 +150,7 @@ export function CurrencyProvider({
         rates,
         formatPrice,
         formatPriceWithMarkup,
+        freeShippingProgressForBrowsing,
       }}
     >
       {children}

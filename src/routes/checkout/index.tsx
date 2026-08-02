@@ -10,7 +10,10 @@ import {
   checkoutContactSchema,
 } from '#/lib/validation/checkout'
 import { saveCartEmail } from '#/server/cart/mutations'
-import { shippingCostCents } from '#/lib/checkout/shipping'
+import {
+  freeShippingProgress,
+  shippingCostCents,
+} from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import {
   getActiveMarketMarkups,
@@ -25,6 +28,7 @@ import {
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import { CountrySelect } from '#/components/storefront/CountrySelect'
+import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -316,6 +320,15 @@ function CheckoutPage() {
                 </span>
               </div>
             )}
+            <FreeShippingNudge
+              progress={freeShippingProgress(
+                info.country,
+                subtotalCents - discountCents,
+                cart.items.reduce((sum, item) => sum + item.quantity, 0),
+                marketShipping[info.country],
+              )}
+              className="mt-3 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
+            />
           </section>
 
           {error && (
