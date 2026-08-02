@@ -26,13 +26,17 @@ function requireEnv(name: string): string {
  * `from` field ("Name <email>") — inboxes show the name instead of the
  * bare address. Passes an unset env var straight through as `undefined` so
  * sendEmail()'s own RESEND_FROM_EMAIL fallback (and its "Missing X" error)
- * still kick in normally.
+ * still kick in normally. If the env var is already in "Name <email>" form
+ * (some of these were configured that way directly in Vercel before this
+ * helper existed), it's left untouched rather than double-wrapped — Resend
+ * rejects a nested `<...>` with a 422.
  */
 export function withDisplayName(
   name: string,
   email: string | undefined,
 ): string | undefined {
-  return email ? `${name} <${email}>` : email
+  if (!email || email.includes('<')) return email
+  return `${name} <${email}>`
 }
 
 export interface SendEmailInput {
