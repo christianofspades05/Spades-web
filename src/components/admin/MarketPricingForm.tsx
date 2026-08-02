@@ -3,6 +3,8 @@ import { X } from 'lucide-react'
 import { getErrorMessage } from '#/lib/utils/errors'
 import type { MarketInput } from '#/lib/validation/admin/market-pricing'
 import { COUNTRIES, formatCountryName } from '#/lib/utils/countries'
+import { SUPPORTED_CURRENCIES } from '#/lib/utils/money'
+import type { Currency } from '#/lib/utils/money'
 import { Card } from '#/components/admin/Card'
 import {
   buttonPrimaryClassName,
@@ -10,6 +12,37 @@ import {
   labelClassName,
 } from '#/components/admin/ui'
 import type { MarketWithCountries } from '#/types/entities'
+
+/** Only the countries with an obvious, unambiguous match among
+ *  SUPPORTED_CURRENCIES — used to default the shipping-currency picker for
+ *  a single-country market. Anything else (most of COUNTRIES, or a market
+ *  spanning multiple countries with different currencies) defaults to PHP
+ *  and staff pick the right one manually. */
+const COUNTRY_CURRENCY: Partial<Record<string, Currency>> = {
+  US: 'USD',
+  SG: 'SGD',
+  HK: 'HKD',
+  MY: 'MYR',
+  TH: 'THB',
+  VN: 'VND',
+  JP: 'JPY',
+  MO: 'MOP',
+  AT: 'EUR',
+  CY: 'EUR',
+  EE: 'EUR',
+  FI: 'EUR',
+  DE: 'EUR',
+  GR: 'EUR',
+  IE: 'EUR',
+  IT: 'EUR',
+  LU: 'EUR',
+  MT: 'EUR',
+  SI: 'EUR',
+  SK: 'EUR',
+  ES: 'EUR',
+  PT: 'EUR',
+  FR: 'EUR',
+}
 
 export function MarketPricingForm({
   market,
@@ -38,6 +71,12 @@ export function MarketPricingForm({
     market?.shipping_price_cents != null
       ? String(market.shipping_price_cents / 100)
       : '',
+  )
+  const [shippingCurrency, setShippingCurrency] = useState<Currency>(
+    (market?.shipping_currency as Currency | undefined) ??
+      (market?.countryCodes.length === 1
+        ? (COUNTRY_CURRENCY[market.countryCodes[0]] ?? 'PHP')
+        : 'PHP'),
   )
   const [freeShippingMode, setFreeShippingMode] = useState<
     'none' | 'amount' | 'items'
@@ -91,6 +130,7 @@ export function MarketPricingForm({
         shippingPriceCents: shippingPrice.trim()
           ? Math.round(Number(shippingPrice) * 100)
           : undefined,
+        shippingCurrency,
         freeShippingMinSubtotalCents:
           freeShippingMode === 'amount' && freeShippingAmount.trim()
             ? Math.round(Number(freeShippingAmount) * 100)
@@ -211,16 +251,36 @@ export function MarketPricingForm({
               />
             </label>
             <label className={labelClassName}>
-              Shipping price (₱)
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={shippingPrice}
-                onChange={(e) => setShippingPrice(e.target.value)}
-                placeholder="e.g. 350"
-                className={inputClassName}
-              />
+              Shipping price
+              <div className="flex gap-2">
+                <select
+                  value={shippingCurrency}
+                  onChange={(e) =>
+                    setShippingCurrency(e.target.value as Currency)
+                  }
+                  className={`${inputClassName} w-24 shrink-0`}
+                >
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={shippingPrice}
+                  onChange={(e) => setShippingPrice(e.target.value)}
+                  placeholder="e.g. 350"
+                  className={inputClassName}
+                />
+              </div>
+              <span className="text-xs font-normal text-neutral-500">
+                Converted to PHP at checkout using the live exchange rate —
+                match this to the market's own currency (e.g. SGD for
+                Singapore).
+              </span>
             </label>
           </div>
 

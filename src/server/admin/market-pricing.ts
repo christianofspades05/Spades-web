@@ -32,6 +32,7 @@ function toMarketRow(data: MarketInput) {
     is_active: data.isActive,
     shipping_name: data.shippingName ?? null,
     shipping_price_cents: data.shippingPriceCents ?? null,
+    shipping_currency: data.shippingCurrency,
     free_shipping_min_subtotal_cents: data.freeShippingMinSubtotalCents ?? null,
     free_shipping_min_items: data.freeShippingMinItems ?? null,
   }
@@ -52,6 +53,7 @@ export const listMarkets = createServerFn({ method: 'GET' }).handler(
       is_active: m.is_active,
       shipping_name: m.shipping_name,
       shipping_price_cents: m.shipping_price_cents,
+      shipping_currency: m.shipping_currency,
       free_shipping_min_subtotal_cents: m.free_shipping_min_subtotal_cents,
       free_shipping_min_items: m.free_shipping_min_items,
       created_at: m.created_at,
@@ -81,6 +83,7 @@ export const getMarketById = createServerFn({ method: 'GET' })
       is_active: market.is_active,
       shipping_name: market.shipping_name,
       shipping_price_cents: market.shipping_price_cents,
+      shipping_currency: market.shipping_currency,
       free_shipping_min_subtotal_cents: market.free_shipping_min_subtotal_cents,
       free_shipping_min_items: market.free_shipping_min_items,
       created_at: market.created_at,

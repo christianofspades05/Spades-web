@@ -25,6 +25,8 @@ import {
 import { assertDiscountIsRedeemable } from '#/server/cart/discount'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import type { ExchangeRates } from '#/lib/utils/money'
+import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { sendEmail } from '#/lib/email/resend'
@@ -112,18 +114,19 @@ export const placeOrder = createServerFn({ method: 'POST' })
       )
       const discountCents = cart.discount?.amountCents ?? 0
 
-      // Needed for international orders' flat USD shipping fee (converted
-      // to PHP cents) regardless of payment method — re-fetched server-side
-      // rather than trusting anything the client computed, same principle
-      // as the currency-charging rate lookup further below.
-      let usdToPhpRate: number | null = null
+      // Needed both for the flat USD international shipping fallback and
+      // for converting a market's own shipping_currency (e.g. SGD) to PHP
+      // cents below — re-fetched server-side rather than trusting anything
+      // the client computed, same principle as the currency-charging rate
+      // lookup further below.
+      let exchangeRates: ExchangeRates = {}
       if (data.contact.country !== 'PH') {
-        const { data: usdRateRow } = await admin
+        const { data: rateRows } = await admin
           .from('exchange_rates')
-          .select('rate_to_php')
-          .eq('currency', 'USD')
-          .maybeSingle()
-        usdToPhpRate = usdRateRow?.rate_to_php ?? null
+          .select('currency, rate_to_php')
+        exchangeRates = Object.fromEntries(
+          (rateRows ?? []).map((r) => [r.currency, r.rate_to_php]),
+        )
       }
 
       // Per-country product markup (see lib/checkout/market-pricing.ts) —
@@ -136,18 +139,12 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // what reconciles orders.subtotal_cents against the item lines for a
       // marked-up international order.
       let marketMarkupPercent: number | undefined
-      let marketShipping:
-        | {
-            shippingPriceCents: number | null
-            freeShippingMinSubtotalCents: number | null
-            freeShippingMinItems: number | null
-          }
-        | undefined
+      let marketShipping: MarketShippingConfig | undefined
       if (data.contact.country !== 'PH') {
         const { data: marketRow } = await admin
           .from('markets')
           .select(
-            'markup_percent, shipping_price_cents, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries!inner(country_code)',
+            'markup_percent, shipping_price_cents, shipping_currency, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries!inner(country_code)',
           )
           .eq('is_active', true)
           .eq('market_countries.country_code', data.contact.country)
@@ -156,6 +153,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         if (marketRow) {
           marketShipping = {
             shippingPriceCents: marketRow.shipping_price_cents,
+            shippingCurrency: marketRow.shipping_currency,
             freeShippingMinSubtotalCents:
               marketRow.free_shipping_min_subtotal_cents,
             freeShippingMinItems: marketRow.free_shipping_min_items,
@@ -173,7 +171,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         data.contact.region ?? '',
         subtotalCents - discountCents,
         itemCount,
-        usdToPhpRate,
+        exchangeRates,
         marketShipping,
       )
       const totalCents = Math.max(

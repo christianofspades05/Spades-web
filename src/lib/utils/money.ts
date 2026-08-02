@@ -75,7 +75,7 @@ const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   MOP: 100,
 }
 
-function minorUnitsPerMajor(currency: string): number {
+export function minorUnitsPerMajor(currency: string): number {
   return MINOR_UNITS_PER_MAJOR[currency] ?? 100
 }
 
@@ -116,6 +116,24 @@ export function convertCents(
   const phpMajor = phpCents / 100
   const targetMajor = phpMajor * rate
   return Math.round(targetMajor * minorUnitsPerMajor(currency))
+}
+
+/** Inverse of convertCents — an amount already in `currency`'s own minor
+ *  units (e.g. a market's shipping_price_cents, denominated in
+ *  shipping_currency) -> the equivalent PHP cents, using the same PHP-
+ *  per-1-unit rate table. Returns the input unchanged for 'PHP' or when no
+ *  rate is loaded yet, same never-throws contract as convertCents. */
+export function convertCentsToPhp(
+  amountCents: number,
+  currency: string,
+  rates: ExchangeRates,
+): number {
+  if (currency === 'PHP') return amountCents
+  const rate = rates[currency]
+  if (!rate) return amountCents
+  const currencyMajor = amountCents / minorUnitsPerMajor(currency)
+  const phpMajor = currencyMajor / rate
+  return Math.round(phpMajor * 100)
 }
 
 /** `cents` (in `currency`'s own minor units, e.g. already converted via

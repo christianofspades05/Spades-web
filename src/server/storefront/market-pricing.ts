@@ -35,6 +35,10 @@ export const getActiveMarketMarkups = createServerFn({
  *  set at a time, but shippingCostCents treats both as an OR just in case. */
 export interface MarketShippingConfig {
   shippingPriceCents: number | null
+  /** Currency shippingPriceCents is denominated in (e.g. 'SGD') — always
+   *  converted to PHP live at checkout via the same exchange_rates table
+   *  the storefront currency selector uses, never assumed to be PHP. */
+  shippingCurrency: string
   freeShippingMinSubtotalCents: number | null
   freeShippingMinItems: number | null
 }
@@ -47,7 +51,7 @@ export const getActiveMarketShipping = createServerFn({
   const { data, error } = await supabase
     .from('markets')
     .select(
-      'shipping_price_cents, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries(country_code)',
+      'shipping_price_cents, shipping_currency, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries(country_code)',
     )
     .eq('is_active', true)
   if (error) throw error
@@ -56,6 +60,7 @@ export const getActiveMarketShipping = createServerFn({
     for (const { country_code } of market.market_countries) {
       shipping[country_code] = {
         shippingPriceCents: market.shipping_price_cents,
+        shippingCurrency: market.shipping_currency,
         freeShippingMinSubtotalCents: market.free_shipping_min_subtotal_cents,
         freeShippingMinItems: market.free_shipping_min_items,
       }

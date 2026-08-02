@@ -3,6 +3,8 @@
  * matches the site-wide banner ("Free shipping minimum of ₱2,000 purchase") —
  * that promo is PH-domestic only and does not apply to international orders.
  */
+import { convertCentsToPhp } from '#/lib/utils/money'
+import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 
 export const FREE_SHIPPING_THRESHOLD_CENTS = 200_000
@@ -83,18 +85,19 @@ export function shippingZoneForRegion(region: string): ShippingZone {
 /** Single entry point for shipping cost, dispatching by destination
  *  country. PH orders use the existing region-based zone rates (with the
  *  free-shipping threshold). Every other country uses its market's own
- *  shipping override (see admin/markets) when one is set — a market-level
+ *  shipping override (see admin/markets) when one is set — entered in
+ *  whatever currency that market's shipping is denominated in (e.g. SGD),
+ *  converted to PHP cents here via `rates` (exchange_rates.rate_to_php for
+ *  every currency — pass {} if not loaded yet). A market-level
  *  free-shipping trigger (min subtotal or min item count) waives it
- *  entirely — falling back to the flat INTERNATIONAL_SHIPPING_USD,
- *  converted to PHP cents via `usdToPhpRate` (exchange_rates.rate_to_php
- *  for 'USD' — pass null if not loaded yet), when no market override
- *  applies. */
+ *  entirely — falling back to the flat INTERNATIONAL_SHIPPING_USD when no
+ *  market override applies. */
 export function shippingCostCents(
   country: string,
   region: string,
   subtotalCents: number,
   itemCount: number,
-  usdToPhpRate: number | null,
+  rates: ExchangeRates,
   marketShipping?: MarketShippingConfig,
 ): number {
   if (country !== 'PH') {
@@ -111,9 +114,13 @@ export function shippingCostCents(
       return 0
     }
     if (marketShipping?.shippingPriceCents != null) {
-      return marketShipping.shippingPriceCents
+      return convertCentsToPhp(
+        marketShipping.shippingPriceCents,
+        marketShipping.shippingCurrency,
+        rates,
+      )
     }
-    return internationalShippingCostCents(usdToPhpRate)
+    return internationalShippingCostCents(rates.USD ?? null)
   }
   if (subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) return 0
   const zone = shippingZoneForRegion(region)
