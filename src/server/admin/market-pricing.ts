@@ -4,6 +4,7 @@ import {
   marketInputSchema,
   updateMarketSchema,
 } from '#/lib/validation/admin/market-pricing'
+import type { MarketInput } from '#/lib/validation/admin/market-pricing'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
@@ -24,6 +25,18 @@ function isUniqueViolation(err: unknown): boolean {
   )
 }
 
+/** Shared insert/update row shape for markets' non-country columns. */
+function toMarketRow(data: MarketInput) {
+  return {
+    markup_percent: data.markupPercent,
+    is_active: data.isActive,
+    shipping_name: data.shippingName ?? null,
+    shipping_price_cents: data.shippingPriceCents ?? null,
+    free_shipping_min_subtotal_cents: data.freeShippingMinSubtotalCents ?? null,
+    free_shipping_min_items: data.freeShippingMinItems ?? null,
+  }
+}
+
 export const listMarkets = createServerFn({ method: 'GET' }).handler(
   async (): Promise<MarketWithCountries[]> => {
     await requireStaff()
@@ -37,6 +50,10 @@ export const listMarkets = createServerFn({ method: 'GET' }).handler(
       id: m.id,
       markup_percent: m.markup_percent,
       is_active: m.is_active,
+      shipping_name: m.shipping_name,
+      shipping_price_cents: m.shipping_price_cents,
+      free_shipping_min_subtotal_cents: m.free_shipping_min_subtotal_cents,
+      free_shipping_min_items: m.free_shipping_min_items,
       created_at: m.created_at,
       updated_at: m.updated_at,
       countryCodes: m.market_countries
@@ -62,6 +79,10 @@ export const getMarketById = createServerFn({ method: 'GET' })
       id: market.id,
       markup_percent: market.markup_percent,
       is_active: market.is_active,
+      shipping_name: market.shipping_name,
+      shipping_price_cents: market.shipping_price_cents,
+      free_shipping_min_subtotal_cents: market.free_shipping_min_subtotal_cents,
+      free_shipping_min_items: market.free_shipping_min_items,
       created_at: market.created_at,
       updated_at: market.updated_at,
       countryCodes: market.market_countries
@@ -78,10 +99,7 @@ export const createMarket = createServerFn({ method: 'POST' })
 
     const { data: market, error: marketError } = await admin
       .from('markets')
-      .insert({
-        markup_percent: data.markupPercent,
-        is_active: data.isActive,
-      })
+      .insert(toMarketRow(data))
       .select('*')
       .single()
     if (marketError) throw marketError
@@ -121,11 +139,7 @@ export const updateMarket = createServerFn({ method: 'POST' })
 
     const { data: market, error: marketError } = await admin
       .from('markets')
-      .update({
-        markup_percent: data.markupPercent,
-        is_active: data.isActive,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ ...toMarketRow(data), updated_at: new Date().toISOString() })
       .eq('id', data.id)
       .select('*')
       .single()

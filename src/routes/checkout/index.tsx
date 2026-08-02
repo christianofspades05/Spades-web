@@ -12,7 +12,10 @@ import {
 import { saveCartEmail } from '#/server/cart/mutations'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
-import { getActiveMarketMarkups } from '#/server/storefront/market-pricing'
+import {
+  getActiveMarketMarkups,
+  getActiveMarketShipping,
+} from '#/server/storefront/market-pricing'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import {
   centsToMajorUnits,
@@ -29,12 +32,15 @@ import {
 } from '#/components/storefront/ui'
 
 export const Route = createFileRoute('/checkout/')({
-  loader: () => getActiveMarketMarkups(),
+  loader: async () => ({
+    marketMarkups: await getActiveMarketMarkups(),
+    marketShipping: await getActiveMarketShipping(),
+  }),
   component: CheckoutPage,
 })
 
 function CheckoutPage() {
-  const marketMarkups = Route.useLoaderData()
+  const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
   const {
     cart,
@@ -102,7 +108,9 @@ function CheckoutPage() {
           info.country,
           info.region,
           subtotalCents - discountCents,
+          cart.items.reduce((sum, item) => sum + item.quantity, 0),
           rates.USD ?? null,
+          marketShipping[info.country],
         )
       : null
   const totalCents = subtotalCents - discountCents + (shippingCents ?? 0)

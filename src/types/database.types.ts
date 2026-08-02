@@ -735,6 +735,10 @@ export interface Database {
           id: string
           markup_percent: number
           is_active: boolean
+          shipping_name: string | null
+          shipping_price_cents: number | null
+          free_shipping_min_subtotal_cents: number | null
+          free_shipping_min_items: number | null
           created_at: string
           updated_at: string
         }

@@ -3,6 +3,7 @@
  * matches the site-wide banner ("Free shipping minimum of ₱2,000 purchase") —
  * that promo is PH-domestic only and does not apply to international orders.
  */
+import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 
 export const FREE_SHIPPING_THRESHOLD_CENTS = 200_000
 
@@ -81,16 +82,37 @@ export function shippingZoneForRegion(region: string): ShippingZone {
 
 /** Single entry point for shipping cost, dispatching by destination
  *  country. PH orders use the existing region-based zone rates (with the
- *  free-shipping threshold); every other country is a flat
- *  INTERNATIONAL_SHIPPING_USD, converted to PHP cents via `usdToPhpRate`
- *  (exchange_rates.rate_to_php for 'USD' — pass null if not loaded yet). */
+ *  free-shipping threshold). Every other country uses its market's own
+ *  shipping override (see admin/markets) when one is set — a market-level
+ *  free-shipping trigger (min subtotal or min item count) waives it
+ *  entirely — falling back to the flat INTERNATIONAL_SHIPPING_USD,
+ *  converted to PHP cents via `usdToPhpRate` (exchange_rates.rate_to_php
+ *  for 'USD' — pass null if not loaded yet), when no market override
+ *  applies. */
 export function shippingCostCents(
   country: string,
   region: string,
   subtotalCents: number,
+  itemCount: number,
   usdToPhpRate: number | null,
+  marketShipping?: MarketShippingConfig,
 ): number {
   if (country !== 'PH') {
+    if (
+      marketShipping?.freeShippingMinSubtotalCents != null &&
+      subtotalCents >= marketShipping.freeShippingMinSubtotalCents
+    ) {
+      return 0
+    }
+    if (
+      marketShipping?.freeShippingMinItems != null &&
+      itemCount >= marketShipping.freeShippingMinItems
+    ) {
+      return 0
+    }
+    if (marketShipping?.shippingPriceCents != null) {
+      return marketShipping.shippingPriceCents
+    }
     return internationalShippingCostCents(usdToPhpRate)
   }
   if (subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) return 0

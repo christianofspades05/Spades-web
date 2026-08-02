@@ -9,7 +9,10 @@ import {
 } from '#/lib/checkout/CheckoutContext'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
-import { getActiveMarketMarkups } from '#/server/storefront/market-pricing'
+import {
+  getActiveMarketMarkups,
+  getActiveMarketShipping,
+} from '#/server/storefront/market-pricing'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
 import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
@@ -23,14 +26,17 @@ export const Route = createFileRoute('/checkout/payment')({
     order: z.string().optional(),
     paymentFailed: z.boolean().optional(),
   }),
-  loader: () => getActiveMarketMarkups(),
+  loader: async () => ({
+    marketMarkups: await getActiveMarketMarkups(),
+    marketShipping: await getActiveMarketShipping(),
+  }),
   component: PaymentPage,
 })
 
 type PaymentMethod = 'cod' | 'online'
 
 function PaymentPage() {
-  const marketMarkups = Route.useLoaderData()
+  const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
   const {
     cart,
@@ -107,7 +113,9 @@ function PaymentPage() {
     info.country,
     info.region,
     subtotalCents - discountCents,
+    cart.items.reduce((sum, item) => sum + item.quantity, 0),
     rates.USD ?? null,
+    marketShipping[info.country],
   )
   const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
   const addressLines =

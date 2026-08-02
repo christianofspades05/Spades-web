@@ -136,25 +136,45 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // what reconciles orders.subtotal_cents against the item lines for a
       // marked-up international order.
       let marketMarkupPercent: number | undefined
+      let marketShipping:
+        | {
+            shippingPriceCents: number | null
+            freeShippingMinSubtotalCents: number | null
+            freeShippingMinItems: number | null
+          }
+        | undefined
       if (data.contact.country !== 'PH') {
         const { data: marketRow } = await admin
           .from('markets')
-          .select('markup_percent, market_countries!inner(country_code)')
+          .select(
+            'markup_percent, shipping_price_cents, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries!inner(country_code)',
+          )
           .eq('is_active', true)
           .eq('market_countries.country_code', data.contact.country)
           .maybeSingle()
         marketMarkupPercent = marketRow?.markup_percent
+        if (marketRow) {
+          marketShipping = {
+            shippingPriceCents: marketRow.shipping_price_cents,
+            freeShippingMinSubtotalCents:
+              marketRow.free_shipping_min_subtotal_cents,
+            freeShippingMinItems: marketRow.free_shipping_min_items,
+          }
+        }
       }
       const subtotalCents = applyMarketMarkup(
         rawSubtotalCents,
         marketMarkupPercent,
       )
 
+      const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0)
       const shippingCents = shippingCostCents(
         data.contact.country,
         data.contact.region ?? '',
         subtotalCents - discountCents,
+        itemCount,
         usdToPhpRate,
+        marketShipping,
       )
       const totalCents = Math.max(
         0,
