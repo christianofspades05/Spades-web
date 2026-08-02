@@ -408,6 +408,8 @@ export const placeOrder = createServerFn({ method: 'POST' })
             .filter(Boolean)
             .join(' / ') || null,
         quantity: item.quantity,
+        imageUrl: item.variant.product.images[0] ?? null,
+        lineTotalCents: item.quantity * item.price_cents_snapshot,
       }))
 
       // Notification for staff — silently skipped entirely if no owner
@@ -437,19 +439,32 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // requires signing in/up first for a guest checkout, same as the
       // owner intentionally wants (see conversation: "needed to create
       // account").
-      void sendEmail({
-        to: email,
-        subject: orderConfirmationEmailSubject(order.order_number),
-        from: process.env.RESEND_FROM_EMAIL_ORDERS,
-        html: orderConfirmationEmailHtml({
-          orderNumber: order.order_number,
-          items: emailItems,
-          totalCents,
-          accountUrl: `${origin}/account`,
-        }),
-      }).catch((err: unknown) => {
-        console.error('Failed to send order confirmation email:', err)
-      })
+      //
+      // COD only here — an online-payment (Xendit) order isn't actually
+      // confirmed yet at this point, just created as pending_payment while
+      // the customer is redirected to Xendit's hosted checkout. Sending
+      // "order confirmed" now would be wrong for anyone who abandons that
+      // page. The equivalent send for a paid online order lives in the
+      // Xendit webhook (routes/api/webhooks/xendit.ts), firing only once
+      // Xendit actually reports the payment as PAID.
+      if (data.paymentProvider === 'cod') {
+        void sendEmail({
+          to: email,
+          subject: orderConfirmationEmailSubject(order.order_number),
+          from: process.env.RESEND_FROM_EMAIL_ORDERS,
+          html: orderConfirmationEmailHtml({
+            orderNumber: order.order_number,
+            items: emailItems,
+            subtotalCents,
+            shippingCents,
+            discountCents,
+            totalCents,
+            accountUrl: `${origin}/account`,
+          }),
+        }).catch((err: unknown) => {
+          console.error('Failed to send order confirmation email:', err)
+        })
+      }
 
       return { orderId: order.id, orderNumber: order.order_number, invoiceUrl }
     },

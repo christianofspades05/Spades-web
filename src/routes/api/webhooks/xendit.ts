@@ -76,7 +76,9 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
         try {
           const { data: order, error: orderError } = await admin
             .from('orders')
-            .select('id, status')
+            .select(
+              'id, status, order_number, shipping_address, subtotal_cents, discount_cents, shipping_cents, total_cents',
+            )
             .eq('order_number', payload.external_id)
             .maybeSingle()
           if (orderError) throw orderError
@@ -95,7 +97,9 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
 
           const { data: orderItems, error: itemsError } = await admin
             .from('order_items')
-            .select('variant_id, quantity')
+            .select(
+              'variant_id, quantity, product_name_snapshot, variant_label_snapshot, line_total_cents',
+            )
             .eq('order_id', order.id)
           if (itemsError) throw itemsError
 
@@ -147,6 +151,74 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                   ...chargedFields,
                 })
                 .eq('id', payment.id)
+            }
+
+            // Order-confirmation email for an online-payment order — the
+            // equivalent COD send happens immediately in place-order.ts,
+            // but an online order isn't actually confirmed until Xendit
+            // reports it PAID (see that file's comment on why sending any
+            // earlier would be wrong for anyone who abandons checkout).
+            // Best-effort: never let an email failure fail this webhook,
+            // since Xendit retries on any non-2xx response.
+            try {
+              const variantIds = Array.from(
+                new Set(
+                  orderItems
+                    .map((item) => item.variant_id)
+                    .filter((id): id is string => id !== null),
+                ),
+              )
+              const { data: variants } =
+                variantIds.length > 0
+                  ? await admin
+                      .from('product_variants')
+                      .select('id, product:products(images)')
+                      .in('id', variantIds)
+                  : { data: [] }
+              const imageByVariantId = new Map(
+                (variants ?? []).map((v) => [
+                  v.id,
+                  v.product.images[0] ?? null,
+                ]),
+              )
+
+              const { sendEmail } = await import('#/lib/email/resend')
+              const {
+                orderConfirmationEmailHtml,
+                orderConfirmationEmailSubject,
+              } = await import('#/lib/email/templates/order-confirmation')
+              const address = order.shipping_address as unknown as {
+                email: string
+              }
+              const siteUrl = process.env.SITE_URL ?? ''
+
+              await sendEmail({
+                to: address.email,
+                subject: orderConfirmationEmailSubject(order.order_number),
+                from: process.env.RESEND_FROM_EMAIL_ORDERS,
+                html: orderConfirmationEmailHtml({
+                  orderNumber: order.order_number,
+                  items: orderItems.map((item) => ({
+                    name: item.product_name_snapshot,
+                    variantLabel: item.variant_label_snapshot,
+                    quantity: item.quantity,
+                    imageUrl: item.variant_id
+                      ? (imageByVariantId.get(item.variant_id) ?? null)
+                      : null,
+                    lineTotalCents: item.line_total_cents,
+                  })),
+                  subtotalCents: order.subtotal_cents,
+                  shippingCents: order.shipping_cents,
+                  discountCents: order.discount_cents,
+                  totalCents: order.total_cents,
+                  accountUrl: `${siteUrl}/account`,
+                }),
+              })
+            } catch (err) {
+              console.error(
+                'Failed to send order confirmation email (Xendit webhook):',
+                err,
+              )
             }
           } else if (
             (payload.status === 'EXPIRED' || payload.status === 'FAILED') &&
