@@ -42,7 +42,8 @@ export const Route = createFileRoute('/api/cron/birthday')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { sendEmail } = await import('#/lib/email/resend')
+        const { sendEmail, withDisplayName } =
+          await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
 
         const { data: automation, error: automationError } = await admin
@@ -101,7 +102,10 @@ export const Route = createFileRoute('/api/cron/birthday')({
             await sendEmail({
               to: customer.email,
               subject: automation.subject,
-              from: process.env.RESEND_FROM_EMAIL_BIRTHDAY,
+              from: withDisplayName(
+                'Spades Official Happy Birthday',
+                process.env.RESEND_FROM_EMAIL_BIRTHDAY,
+              ),
               html: renderEmailBlocks(automation.blocks, {
                 placeholders: {
                   customerFirstName:

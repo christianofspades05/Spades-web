@@ -106,7 +106,8 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { sendEmail } = await import('#/lib/email/resend')
+        const { sendEmail, withDisplayName } =
+          await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
 
         const [
@@ -306,7 +307,10 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
               await sendEmail({
                 to: cart.email,
                 subject: automation.subject,
-                from: process.env.RESEND_FROM_EMAIL_ABANDONED_CART,
+                from: withDisplayName(
+                  'Spades Official Abandoned Cart',
+                  process.env.RESEND_FROM_EMAIL_ABANDONED_CART,
+                ),
                 html: renderEmailBlocks(automation.blocks, {
                   itemsHtml: renderItemsTable(lineItems),
                   placeholders: {

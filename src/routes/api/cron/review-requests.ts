@@ -92,7 +92,8 @@ export const Route = createFileRoute('/api/cron/review-requests')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { sendEmail } = await import('#/lib/email/resend')
+        const { sendEmail, withDisplayName } =
+          await import('#/lib/email/resend')
         const admin = getSupabaseAdminClient()
 
         const { data: automation, error: automationError } = await admin
@@ -188,7 +189,10 @@ export const Route = createFileRoute('/api/cron/review-requests')({
             await sendEmail({
               to: address.email,
               subject: automation.subject,
-              from: process.env.RESEND_FROM_EMAIL_REVIEWS,
+              from: withDisplayName(
+                'Spades Official Reviews',
+                process.env.RESEND_FROM_EMAIL_REVIEWS,
+              ),
               html: renderEmailBlocks(automation.blocks, {
                 itemsHtml: renderItemsTable(Array.from(productsById.values())),
                 placeholders: {

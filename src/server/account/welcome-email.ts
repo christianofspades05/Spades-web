@@ -10,7 +10,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { requireCustomer } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { sendEmail } from '#/lib/email/resend'
+import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import { renderEmailBlocks } from '#/lib/email/blocks'
 import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
 import { logEmailSend } from '#/lib/email/log-send'
@@ -42,7 +42,10 @@ export const sendWelcomeEmailIfDue = createServerFn({ method: 'POST' }).handler(
     await sendEmail({
       to: customer.email,
       subject: automation.subject,
-      from: process.env.RESEND_FROM_EMAIL_WELCOME,
+      from: withDisplayName(
+        'Spades Official Welcome',
+        process.env.RESEND_FROM_EMAIL_WELCOME,
+      ),
       html: renderEmailBlocks(automation.blocks, {
         placeholders: {
           customerFirstName:

@@ -21,6 +21,20 @@ function requireEnv(name: string): string {
   return value
 }
 
+/**
+ * Wraps a from-address env var with a friendly display name for Resend's
+ * `from` field ("Name <email>") — inboxes show the name instead of the
+ * bare address. Passes an unset env var straight through as `undefined` so
+ * sendEmail()'s own RESEND_FROM_EMAIL fallback (and its "Missing X" error)
+ * still kick in normally.
+ */
+export function withDisplayName(
+  name: string,
+  email: string | undefined,
+): string | undefined {
+  return email ? `${name} <${email}>` : email
+}
+
 export interface SendEmailInput {
   to: string
   subject: string

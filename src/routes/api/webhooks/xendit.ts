@@ -266,7 +266,8 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 const address =
                   reservation.shipping_address as unknown as ReservationShippingAddress
                 const siteUrl = process.env.SITE_URL ?? ''
-                const { sendEmail } = await import('#/lib/email/resend')
+                const { sendEmail, withDisplayName } =
+                  await import('#/lib/email/resend')
 
                 const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
                 if (storeOwnerEmail) {
@@ -275,7 +276,10 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                   await sendEmail({
                     to: storeOwnerEmail,
                     subject: newOrderEmailSubject(order.order_number),
-                    from: process.env.RESEND_FROM_EMAIL_ORDERS,
+                    from: withDisplayName(
+                      'Spades Official Orders',
+                      process.env.RESEND_FROM_EMAIL_ORDERS,
+                    ),
                     html: newOrderEmailHtml({
                       orderNumber: order.order_number,
                       customerName: address.recipientName,
@@ -295,7 +299,10 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 await sendEmail({
                   to: address.email,
                   subject: orderConfirmationEmailSubject(order.order_number),
-                  from: process.env.RESEND_FROM_EMAIL_ORDERS,
+                  from: withDisplayName(
+                    'Spades Official Orders',
+                    process.env.RESEND_FROM_EMAIL_ORDERS,
+                  ),
                   html: orderConfirmationEmailHtml({
                     orderNumber: order.order_number,
                     items: emailItems,

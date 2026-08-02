@@ -15,7 +15,7 @@ import {
 } from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
 import { fetchAllRows } from '#/lib/utils/paginate'
-import { sendEmail } from '#/lib/email/resend'
+import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import {
   shipmentTrackingEmailHtml,
   shipmentTrackingEmailSubject,
@@ -773,7 +773,10 @@ export const upsertShipment = createServerFn({ method: 'POST' })
         void sendEmail({
           to: address.email,
           subject: shipmentTrackingEmailSubject(order.order_number),
-          from: process.env.RESEND_FROM_EMAIL_ORDERS,
+          from: withDisplayName(
+            'Spades Official Orders',
+            process.env.RESEND_FROM_EMAIL_ORDERS,
+          ),
           html: shipmentTrackingEmailHtml({
             orderNumber: order.order_number,
             carrier: data.carrier ?? null,

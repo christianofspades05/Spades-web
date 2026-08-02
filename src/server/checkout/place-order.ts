@@ -35,7 +35,7 @@ import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import type { CheckoutReservationItem } from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
-import { sendEmail } from '#/lib/email/resend'
+import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import {
   newOrderEmailHtml,
   newOrderEmailSubject,
@@ -384,7 +384,10 @@ export const placeOrder = createServerFn({ method: 'POST' })
           void sendEmail({
             to: storeOwnerEmail,
             subject: newOrderEmailSubject(order.order_number),
-            from: process.env.RESEND_FROM_EMAIL_ORDERS,
+            from: withDisplayName(
+              'Spades Official Orders',
+              process.env.RESEND_FROM_EMAIL_ORDERS,
+            ),
             html: newOrderEmailHtml({
               orderNumber: order.order_number,
               customerName: data.contact.recipientName,
@@ -402,7 +405,10 @@ export const placeOrder = createServerFn({ method: 'POST' })
         void sendEmail({
           to: email,
           subject: orderConfirmationEmailSubject(order.order_number),
-          from: process.env.RESEND_FROM_EMAIL_ORDERS,
+          from: withDisplayName(
+            'Spades Official Orders',
+            process.env.RESEND_FROM_EMAIL_ORDERS,
+          ),
           html: orderConfirmationEmailHtml({
             orderNumber: order.order_number,
             items: emailItems,
