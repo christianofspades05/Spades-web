@@ -37,6 +37,11 @@ function bucketPeriod(
     source: string
   }[],
   visits: { visitor_id: string; created_at: string }[],
+  // Narrows orders/salesCents to one channel (see getDashboardAnalytics's
+  // `channel` param) — storefrontOrders stays unfiltered by this: it's
+  // already its own deliberately storefront-only figure for conversion
+  // rate, unrelated to which channel the merchant is browsing sales for.
+  channel?: string,
 ): BucketPoint[] {
   const bucketKeyOf = (iso: string) =>
     isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
@@ -81,8 +86,10 @@ function bucketPeriod(
     const point = points[idx]
     const isVoid = VOID_STATUSES.has(order.status)
     if (!isVoid) {
-      point.orders += 1
-      point.salesCents += order.total_cents
+      if (!channel || order.source === channel) {
+        point.orders += 1
+        point.salesCents += order.total_cents
+      }
       if (order.source === 'storefront') point.storefrontOrders += 1
     }
   }
@@ -126,6 +133,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       from: z.string(),
       to: z.string(),
       brand: z.string().optional(),
+      channel: z.string().optional(),
     }),
   )
   .handler(async ({ data }): Promise<DashboardAnalytics> => {
@@ -199,6 +207,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       isSingleDay,
       currentOrders,
       currentVisits,
+      data.channel,
     )
     const previousBuckets = bucketPeriod(
       prev.from,
@@ -206,6 +215,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       isSingleDay,
       previousOrders,
       previousVisits,
+      data.channel,
     )
 
     const daily: DailyPoint[] = currentBuckets.map((point, i) => {
@@ -229,13 +239,18 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       }
     })
 
+    const matchesChannel = (source: string) =>
+      !data.channel || source === data.channel
+
     let salesCents = 0
     for (const order of currentOrders) {
-      if (!VOID_STATUSES.has(order.status)) salesCents += order.total_cents
+      if (!VOID_STATUSES.has(order.status) && matchesChannel(order.source)) {
+        salesCents += order.total_cents
+      }
     }
 
     const previousSalesCents = previousOrders
-      .filter((o) => !VOID_STATUSES.has(o.status))
+      .filter((o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source))
       .reduce((sum, o) => sum + o.total_cents, 0)
 
     const uniqueVisitors = new Set(currentVisits.map((v) => v.visitor_id))
@@ -248,10 +263,10 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     // shouldn't count as a real order any more than it should count as a
     // sale.
     const ordersCount = currentOrders.filter(
-      (o) => !VOID_STATUSES.has(o.status),
+      (o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source),
     ).length
     const previousOrdersCount = previousOrders.filter(
-      (o) => !VOID_STATUSES.has(o.status),
+      (o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source),
     ).length
 
     // Conversion rate is an online-store-only metric: storefront visits

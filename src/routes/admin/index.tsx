@@ -13,6 +13,7 @@ import {
   STOREFRONT_BRAND_LABELS,
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
+import type { OrderSource } from '#/types/entities'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
@@ -31,6 +32,21 @@ const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
   label: STOREFRONT_BRAND_LABELS[brand],
 }))
+
+// Matches CHANNEL_OPTIONS in routes/admin/orders/index.tsx — orders.source
+// values, not stored/shared centrally there either.
+const CHANNEL_VALUES = [
+  'storefront',
+  'tiktok_shop',
+  'shopee',
+  'lazada',
+] as const satisfies readonly OrderSource[]
+const CHANNEL_OPTIONS = [
+  { value: 'storefront', label: 'Online Store' },
+  { value: 'tiktok_shop', label: 'TikTok Shop' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+] as const
 
 const LIVE_POLL_MS = 15_000
 
@@ -62,19 +78,23 @@ export const Route = createFileRoute('/admin/')({
     from: z.string().optional(),
     to: z.string().optional(),
     brand: z.enum(STOREFRONT_BRANDS).optional(),
+    channel: z.enum(CHANNEL_VALUES).optional(),
   }),
   loaderDeps: ({ search }) => ({
     range: search.range,
     from: search.from,
     to: search.to,
     brand: search.brand,
+    channel: search.channel,
   }),
   loader: ({ deps }) => {
     const resolved = resolveDateRange(deps.range, {
       from: deps.from,
       to: deps.to,
     })
-    return getDashboardAnalytics({ data: { ...resolved, brand: deps.brand } })
+    return getDashboardAnalytics({
+      data: { ...resolved, brand: deps.brand, channel: deps.channel },
+    })
   },
   component: AdminPage,
 })
@@ -155,6 +175,14 @@ function AdminPage() {
               options={BRAND_OPTIONS}
               onChange={(brand) =>
                 navigate({ search: (prev) => ({ ...prev, brand }) })
+              }
+            />
+            <FilterDropdown
+              label="Channel"
+              value={search.channel}
+              options={CHANNEL_OPTIONS}
+              onChange={(channel) =>
+                navigate({ search: (prev) => ({ ...prev, channel }) })
               }
             />
             <DateRangePicker
