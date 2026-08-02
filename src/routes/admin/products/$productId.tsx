@@ -83,6 +83,8 @@ interface ProductFormState {
   name: string
   slug: string
   description: string
+  descriptionJa: string
+  descriptionKo: string
   productType: ProductType
   status: ProductStatus
   brand: ProductBrand
@@ -107,6 +109,8 @@ function EditProductPage() {
     name: product.name,
     slug: product.slug,
     description: product.description ?? '',
+    descriptionJa: product.description_ja ?? '',
+    descriptionKo: product.description_ko ?? '',
     productType: product.product_type,
     status: product.status,
     brand: product.brand,
@@ -234,6 +238,8 @@ function EditProductPage() {
           name: form.name,
           slug: form.slug,
           description: form.description || undefined,
+          descriptionJa: form.descriptionJa || undefined,
+          descriptionKo: form.descriptionKo || undefined,
           productType: form.productType,
           status: form.status,
           brand: form.brand,
@@ -334,6 +340,28 @@ function EditProductPage() {
                       setForm({ ...form, description: e.target.value })
                     }
                     rows={16}
+                    className={inputClassName}
+                  />
+                </label>
+                <label className={labelClassName}>
+                  Description (Japanese)
+                  <textarea
+                    value={form.descriptionJa}
+                    onChange={(e) =>
+                      setForm({ ...form, descriptionJa: e.target.value })
+                    }
+                    rows={8}
+                    className={inputClassName}
+                  />
+                </label>
+                <label className={labelClassName}>
+                  Description (Korean)
+                  <textarea
+                    value={form.descriptionKo}
+                    onChange={(e) =>
+                      setForm({ ...form, descriptionKo: e.target.value })
+                    }
+                    rows={8}
                     className={inputClassName}
                   />
                 </label>

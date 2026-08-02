@@ -20,6 +20,7 @@ import {
   getActiveMarketShipping,
 } from '#/server/storefront/market-pricing'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import {
   centsToMajorUnits,
   convertCents,
@@ -46,6 +47,7 @@ export const Route = createFileRoute('/checkout/')({
 function CheckoutPage() {
   const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
+  const { t } = useLanguage()
   const {
     cart,
     subtotalCents: rawSubtotalCents,
@@ -77,7 +79,7 @@ function CheckoutPage() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-16 text-neutral-500 dark:text-neutral-400">
-        Loading...
+        {t.cart.loading}
       </div>
     )
   }
@@ -85,13 +87,13 @@ function CheckoutPage() {
   if (!cart || cart.items.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Your cart is empty</h1>
+        <h1 className="text-2xl font-bold">{t.cart.empty}</h1>
         <Link
           to="/products"
           search={{ sort: 'stock_desc', page: 1 }}
           className={`${buttonPrimaryClassName} mx-auto mt-6 w-fit`}
         >
-          Continue shopping
+          {t.cart.continueShopping}
         </Link>
       </div>
     )
@@ -145,7 +147,7 @@ function CheckoutPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
-      <h1 className="text-2xl font-bold tracking-tight">Checkout</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{t.checkout.title}</h1>
 
       <form
         onSubmit={handleSubmit}
@@ -153,9 +155,9 @@ function CheckoutPage() {
       >
         <div className="space-y-8">
           <section>
-            <h2 className="mb-4 text-lg font-semibold">Contact</h2>
+            <h2 className="mb-4 text-lg font-semibold">{t.checkout.contact}</h2>
             <label className={labelClassName}>
-              Email
+              {t.checkout.email}
               <input
                 type="email"
                 required
@@ -177,10 +179,10 @@ function CheckoutPage() {
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold">Delivery</h2>
+            <h2 className="mb-4 text-lg font-semibold">{t.checkout.delivery}</h2>
             <div className="space-y-4">
               <div className={labelClassName}>
-                Country
+                {t.checkout.country}
                 <CountrySelect
                   value={info.country}
                   onChange={handleCountryChange}
@@ -190,7 +192,7 @@ function CheckoutPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
-                  Recipient name
+                  {t.checkout.recipientName}
                   <input
                     required
                     value={info.recipientName}
@@ -201,7 +203,7 @@ function CheckoutPage() {
                   />
                 </label>
                 <label className={labelClassName}>
-                  Phone
+                  {t.checkout.phone}
                   <input
                     required
                     placeholder={
@@ -229,7 +231,7 @@ function CheckoutPage() {
               ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <label className={labelClassName}>
-                    City
+                    {t.checkout.city}
                     <input
                       required
                       value={info.city}
@@ -240,7 +242,7 @@ function CheckoutPage() {
                     />
                   </label>
                   <label className={labelClassName}>
-                    State / Province
+                    {t.checkout.stateProvince}
                     <input
                       required
                       value={info.province}
@@ -255,10 +257,10 @@ function CheckoutPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
-                  Address line 1
+                  {t.checkout.addressLine1}
                   <input
                     required
-                    placeholder="House/unit no., street"
+                    placeholder={t.checkout.addressLine1Placeholder}
                     value={info.addressLine1}
                     onChange={(e) =>
                       setInfo({ ...info, addressLine1: e.target.value })
@@ -267,7 +269,7 @@ function CheckoutPage() {
                   />
                 </label>
                 <label className={labelClassName}>
-                  Address line 2 (optional)
+                  {t.checkout.addressLine2Optional}
                   <input
                     value={info.addressLine2}
                     onChange={(e) =>
@@ -280,7 +282,7 @@ function CheckoutPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className={labelClassName}>
-                  Landmark (optional)
+                  {t.checkout.landmarkOptional}
                   <input
                     value={info.landmark}
                     onChange={(e) =>
@@ -290,7 +292,7 @@ function CheckoutPage() {
                   />
                 </label>
                 <label className={labelClassName}>
-                  Postal code
+                  {t.checkout.postalCode}
                   <input
                     required
                     value={info.postalCode}
@@ -305,18 +307,20 @@ function CheckoutPage() {
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold">Shipping method</h2>
+            <h2 className="mb-4 text-lg font-semibold">
+              {t.checkout.shippingMethod}
+            </h2>
             {shippingCents == null ? (
               <p className="rounded-md bg-neutral-50 px-4 py-3 text-sm text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
-                Select a region above to see shipping options.
+                {t.checkout.selectRegionPrompt}
               </p>
             ) : (
               <div className="flex items-center justify-between rounded-md border border-neutral-900 bg-neutral-50 px-4 py-3 text-sm dark:border-white dark:bg-neutral-900">
                 <span className="font-medium text-neutral-900 dark:text-white">
-                  Standard shipping
+                  {t.checkout.standardShipping}
                 </span>
                 <span className="font-medium text-neutral-900 dark:text-white">
-                  {shippingCents === 0 ? 'Free' : formatPrice(shippingCents)}
+                  {shippingCents === 0 ? t.checkout.free : formatPrice(shippingCents)}
                 </span>
               </div>
             )}
@@ -341,7 +345,7 @@ function CheckoutPage() {
             type="submit"
             className={`${buttonPrimaryClassName} w-full justify-center`}
           >
-            Continue to payment
+            {t.checkout.continueToPayment}
           </button>
         </div>
 
@@ -393,30 +397,30 @@ function CheckoutPage() {
           <div className="mt-6 space-y-2 border-t border-neutral-200 pt-4 text-sm dark:border-neutral-800">
             <div className="flex items-center justify-between">
               <span className="text-neutral-600 dark:text-neutral-400">
-                Subtotal
+                {t.payment.subtotal}
               </span>
               <span className="font-medium">{formatPrice(subtotalCents)}</span>
             </div>
             {discountCents > 0 && (
               <div className="flex items-center justify-between text-green-700 dark:text-green-400">
-                <span>Discount</span>
+                <span>{t.payment.discount}</span>
                 <span>-{formatPrice(discountCents)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
               <span className="text-neutral-600 dark:text-neutral-400">
-                Shipping
+                {t.payment.shipping}
               </span>
               <span className="font-medium">
                 {shippingCents == null
-                  ? 'Enter delivery region'
+                  ? t.checkout.enterDeliveryRegion
                   : shippingCents === 0
-                    ? 'Free'
+                    ? t.checkout.free
                     : formatPrice(shippingCents)}
               </span>
             </div>
             <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">
-              <span>Total</span>
+              <span>{t.payment.total}</span>
               <span>{formatPrice(Math.max(0, totalCents))}</span>
             </div>
           </div>

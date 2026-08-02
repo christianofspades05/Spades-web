@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { cn } from '#/lib/utils/cn'
 import { compareSizes, formatSizeLabel } from '#/lib/utils/size-order'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import type { ProductVariant } from '#/types/entities'
 
 export type VariantWithStock = ProductVariant & {
@@ -24,6 +25,7 @@ export function VariantSelector({
   variants,
   onVariantChange,
 }: VariantSelectorProps) {
+  const { t } = useLanguage()
   const activeVariants = useMemo(
     () => variants.filter((v) => v.is_active),
     [variants],
@@ -88,7 +90,7 @@ export function VariantSelector({
       {dimensions.map((dim) => (
         <div key={dim}>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            {dim}
+            {t.product[dim]}
           </p>
           <div className="flex flex-wrap gap-2">
             {optionsByDimension[dim]!.map((value) => {

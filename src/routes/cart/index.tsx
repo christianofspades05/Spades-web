@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import {
@@ -19,6 +20,7 @@ function CartPage() {
     formatPriceWithMarkup: formatPrice,
     freeShippingProgressForBrowsing,
   } = useCurrency()
+  const { t } = useLanguage()
   const {
     cart,
     subtotalCents,
@@ -39,7 +41,7 @@ function CartPage() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16 text-neutral-500 dark:text-neutral-400">
-        Loading cart...
+        {t.cart.loading}
       </div>
     )
   }
@@ -47,13 +49,13 @@ function CartPage() {
   if (!cart || cart.items.length === 0) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Your cart is empty</h1>
+        <h1 className="text-2xl font-bold">{t.cart.empty}</h1>
         <Link
           to="/products"
           search={{ sort: 'stock_desc', page: 1 }}
           className={`${buttonPrimaryClassName} mx-auto mt-6 w-fit`}
         >
-          Continue shopping
+          {t.cart.continueShopping}
         </Link>
       </div>
     )
@@ -111,12 +113,12 @@ function CartPage() {
       ? `${discount.value}% off`
       : discount.type === 'fixed_amount'
         ? `${formatPrice(discount.value)} off`
-        : 'Free shipping'
+        : t.cart.freeShippingLabel
     : null
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
-      <h1 className="text-3xl font-bold tracking-tight">Your Cart</h1>
+      <h1 className="text-3xl font-bold tracking-tight">{t.cart.title}</h1>
 
       {error && (
         <p className="mt-4 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
@@ -188,7 +190,7 @@ function CartPage() {
                     onClick={() => handleRemove(item.id)}
                     className="text-sm text-neutral-400 hover:text-neutral-900 dark:text-neutral-500 dark:hover:text-white"
                   >
-                    Remove
+                    {t.cart.remove}
                   </button>
                 </div>
               </div>
@@ -206,7 +208,7 @@ function CartPage() {
           <div className="mb-5 flex items-center justify-between rounded-md bg-green-50 px-4 py-3 dark:bg-green-950/30">
             <div>
               <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                {discount.code ?? discount.title} applied
+                {t.cart.applied(discount.code ?? discount.title)}
               </p>
               <p className="text-xs text-green-700 dark:text-green-400">
                 {discountLabel}
@@ -217,7 +219,7 @@ function CartPage() {
               onClick={handleRemoveDiscount}
               className="text-sm text-green-700 underline hover:text-green-900 dark:text-green-400 dark:hover:text-green-200"
             >
-              Remove
+              {t.cart.remove}
             </button>
           </div>
         ) : (
@@ -225,7 +227,7 @@ function CartPage() {
             <input
               value={discountInput}
               onChange={(e) => setDiscountInput(e.target.value)}
-              placeholder="Discount code"
+              placeholder={t.cart.discountCodePlaceholder}
               className={`${inputClassName} flex-1`}
             />
             <button
@@ -233,7 +235,7 @@ function CartPage() {
               disabled={applyingDiscount}
               className={buttonSecondaryClassName}
             >
-              {applyingDiscount ? 'Applying...' : 'Apply'}
+              {applyingDiscount ? t.cart.applying : t.cart.apply}
             </button>
           </form>
         )}
@@ -245,7 +247,7 @@ function CartPage() {
 
         <div className="flex items-center justify-between">
           <span className="text-neutral-600 dark:text-neutral-400">
-            Subtotal
+            {t.cart.subtotal}
           </span>
           <span className="font-medium text-neutral-900 dark:text-white">
             {formatPrice(subtotalCents)}
@@ -253,12 +255,12 @@ function CartPage() {
         </div>
         {discountCents > 0 && (
           <div className="mt-2 flex items-center justify-between text-green-700 dark:text-green-400">
-            <span>Discount</span>
+            <span>{t.cart.discount}</span>
             <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
         <div className="mt-3 flex items-center justify-between border-t border-neutral-200 pt-3 text-lg font-semibold dark:border-neutral-800">
-          <span>Total</span>
+          <span>{t.cart.total}</span>
           <span>{formatPrice(totalCents)}</span>
         </div>
       </div>
@@ -275,7 +277,7 @@ function CartPage() {
         to="/checkout"
         className={`${buttonPrimaryClassName} mt-6 w-full justify-center`}
       >
-        Checkout
+        {t.cart.checkout}
       </Link>
     </div>
   )

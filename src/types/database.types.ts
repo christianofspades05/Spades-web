@@ -305,6 +305,8 @@ export interface Database {
           name: string
           name_search: string
           description: string | null
+          description_ja: string | null
+          description_ko: string | null
           product_type: ProductType
           status: ProductStatus
           brand: ProductBrand

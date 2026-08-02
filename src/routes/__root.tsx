@@ -8,6 +8,7 @@ import {
 import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
 import { MaintenancePage } from '#/components/storefront/MaintenancePage'
+import { LanguagePopup } from '#/components/storefront/LanguagePopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
 import { LiveViewerHeartbeat } from '#/components/storefront/LiveViewerHeartbeat'
 import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
@@ -15,6 +16,7 @@ import { buildPixelBootstrapScript } from '#/lib/analytics/facebook-pixel'
 import { CartProvider } from '#/lib/cart/CartContext'
 import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
+import { LanguageProvider } from '#/lib/i18n/LanguageContext'
 import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { getMaintenanceMode } from '#/server/storefront/maintenance'
@@ -160,24 +162,27 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <LiveViewerHeartbeat brand={storefrontScope.brand} />
         <FacebookPixelPageView />
         <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
-          <CurrencyProvider
-            geoDefaultCurrency={geoDefaultCurrency}
-            geoCountry={geoCountry}
-          >
-            <CartProvider>
-              {showMaintenance ? (
-                <MaintenancePage scope={storefrontScope} />
-              ) : (
-                <>
-                  {!isAdminRoute && (
-                    <Header scope={storefrontScope} banner={banner} />
-                  )}
-                  {children}
-                  {!isAdminRoute && <Footer scope={storefrontScope} />}
-                </>
-              )}
-            </CartProvider>
-          </CurrencyProvider>
+          <LanguageProvider geoCountry={geoCountry}>
+            <CurrencyProvider
+              geoDefaultCurrency={geoDefaultCurrency}
+              geoCountry={geoCountry}
+            >
+              <CartProvider>
+                {showMaintenance ? (
+                  <MaintenancePage scope={storefrontScope} />
+                ) : (
+                  <>
+                    {!isAdminRoute && (
+                      <Header scope={storefrontScope} banner={banner} />
+                    )}
+                    {children}
+                    {!isAdminRoute && <Footer scope={storefrontScope} />}
+                    {!isAdminRoute && <LanguagePopup />}
+                  </>
+                )}
+              </CartProvider>
+            </CurrencyProvider>
+          </LanguageProvider>
         </ThemeProvider>
         <Scripts />
       </body>

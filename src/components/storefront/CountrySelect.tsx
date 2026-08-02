@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { formatCountryName } from '#/lib/utils/countries'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { inputClassName } from '#/components/storefront/ui'
 
 /** Searchable country picker for checkout — a plain <select> with ~200
@@ -19,6 +20,7 @@ export function CountrySelect({
   onChange: (code: string) => void
   countryCodes: string[]
 }) {
+  const { t } = useLanguage()
   const allCountries = useMemo(
     () => countryCodes.map((code) => ({ code, name: formatCountryName(code) })),
     [countryCodes],
@@ -56,7 +58,8 @@ export function CountrySelect({
   }, [query, allCountries])
 
   const selectedName =
-    allCountries.find((c) => c.code === value)?.name ?? 'Select country'
+    allCountries.find((c) => c.code === value)?.name ??
+    t.countrySelect.selectCountry
 
   return (
     <div ref={containerRef} className="relative">
@@ -80,14 +83,14 @@ export function CountrySelect({
               ref={searchInputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search country"
+              placeholder={t.countrySelect.searchCountry}
               className={`${inputClassName} w-full pl-8`}
             />
           </div>
           <ul className="max-h-56 overflow-y-auto py-1">
             {filtered.length === 0 && (
               <li className="px-3 py-2 text-sm text-neutral-400">
-                No countries found
+                {t.countrySelect.noCountriesFound}
               </li>
             )}
             {filtered.map((c) => (

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import { getOrderConfirmation } from '#/server/checkout/confirmation'
@@ -40,6 +41,7 @@ function ConfirmationPage() {
   const { confirmation } = Route.useLoaderData()
   const items = confirmation?.items ?? []
   const { clear } = useCheckout()
+  const { t } = useLanguage()
 
   // Reached either directly (COD) or via Xendit's success redirect (online
   // payment) — either way the checkout is done, so reset it for next time.
@@ -64,15 +66,17 @@ function ConfirmationPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-20 text-center">
-      <h1 className="text-3xl font-black tracking-tight">Order placed!</h1>
+      <h1 className="text-3xl font-black tracking-tight">
+        {t.confirmation.orderPlaced}
+      </h1>
       {order && (
         <p className="mt-3 text-lg text-neutral-700 dark:text-neutral-300">
-          Order <span className="font-semibold">{order}</span>
+          {t.confirmation.order}{' '}
+          <span className="font-semibold">{order}</span>
         </p>
       )}
       <p className="mt-4 text-neutral-600 dark:text-neutral-400">
-        Thanks for your order — we'll text and email you updates as it's packed
-        and shipped.
+        {t.confirmation.thanksMessage}
       </p>
 
       {items.length > 0 && (
@@ -109,25 +113,25 @@ function ConfirmationPage() {
           {confirmation && (
             <div className="flex flex-col gap-1.5 border-t border-neutral-200 pt-3 text-sm dark:border-neutral-800">
               <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
-                <span>Subtotal</span>
+                <span>{t.payment.subtotal}</span>
                 <span>{formatCentsAsPHP(confirmation.subtotalCents)}</span>
               </div>
               {confirmation.discountCents > 0 && (
                 <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
-                  <span>Discount</span>
+                  <span>{t.payment.discount}</span>
                   <span>−{formatCentsAsPHP(confirmation.discountCents)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
-                <span>Shipping</span>
+                <span>{t.payment.shipping}</span>
                 <span>
                   {confirmation.shippingCents === 0
-                    ? 'Free'
+                    ? t.checkout.free
                     : formatCentsAsPHP(confirmation.shippingCents)}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between border-t border-neutral-200 pt-1.5 font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
-                <span>Total</span>
+                <span>{t.payment.total}</span>
                 <span>{formatCentsAsPHP(confirmation.totalCents)}</span>
               </div>
             </div>
@@ -140,7 +144,7 @@ function ConfirmationPage() {
         search={{ sort: 'stock_desc', page: 1 }}
         className={`${buttonPrimaryClassName} mx-auto mt-8 w-fit`}
       >
-        Continue shopping
+        {t.confirmation.continueShopping}
       </Link>
     </div>
   )

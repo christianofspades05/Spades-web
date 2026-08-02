@@ -1,4 +1,5 @@
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import type { FreeShippingProgress } from '#/lib/checkout/shipping'
 
 /** "Add X more to unlock free shipping" — shown wherever a customer hasn't
@@ -13,12 +14,13 @@ export function FreeShippingNudge({
   className?: string
 }) {
   const { formatPrice } = useCurrency()
+  const { t } = useLanguage()
   if (!progress) return null
   return (
     <p className={className}>
       {progress.type === 'amount'
-        ? `Add ${formatPrice(progress.remaining)} more to unlock free shipping`
-        : `Add ${progress.remaining} more item${progress.remaining === 1 ? '' : 's'} to unlock free shipping`}
+        ? t.freeShipping.addMoreAmount(formatPrice(progress.remaining))
+        : t.freeShipping.addMoreItems(progress.remaining)}
     </p>
   )
 }

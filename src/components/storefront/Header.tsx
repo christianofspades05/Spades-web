@@ -2,8 +2,11 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Menu, Search, ShoppingBag, User, X } from 'lucide-react'
 import { useCart } from '#/lib/cart/CartContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
+import type { Translations } from '#/lib/i18n/translations'
 import { ThemeToggle } from '#/components/storefront/ThemeToggle'
 import { CurrencySelector } from '#/components/storefront/CurrencySelector'
+import { LanguageSelector } from '#/components/storefront/LanguageSelector'
 import { SearchOverlay } from '#/components/storefront/SearchOverlay'
 import { getCrossBrandLinks } from '#/server/storefront/domain'
 import type { StorefrontScope } from '#/server/storefront/domain'
@@ -19,16 +22,19 @@ interface HeaderProps {
 // of their own yet, so their header only needs a way home plus the
 // cross-brand "Shop X" links appended below.
 const FULL_NAV_LINKS = [
-  { to: '/', label: 'Home Store' },
-  { to: '/about', label: 'About Us' },
-  { to: '/reviews', label: 'Reviews' },
-  { to: '/contact', label: 'Contact Us' },
-] as const
+  { to: '/', labelKey: 'homeStore' },
+  { to: '/about', labelKey: 'aboutUs' },
+  { to: '/reviews', labelKey: 'reviews' },
+  { to: '/contact', labelKey: 'contactUs' },
+] as const satisfies { to: string; labelKey: keyof Translations['nav'] }[]
 
-const MINIMAL_NAV_LINKS = [{ to: '/', label: 'Home Store' }] as const
+const MINIMAL_NAV_LINKS = [
+  { to: '/', labelKey: 'homeStore' },
+] as const satisfies { to: string; labelKey: keyof Translations['nav'] }[]
 
 export function Header({ scope, banner }: HeaderProps) {
   const { itemCount } = useCart()
+  const { t } = useLanguage()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const navLinks =
@@ -50,7 +56,9 @@ export function Header({ scope, banner }: HeaderProps) {
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-label={
+                mobileMenuOpen ? t.header.closeMenu : t.header.openMenu
+              }
               className="text-neutral-600 hover:text-neutral-950 lg:hidden dark:text-neutral-400 dark:hover:text-white"
             >
               {mobileMenuOpen ? (
@@ -82,7 +90,7 @@ export function Header({ scope, banner }: HeaderProps) {
                   className: 'text-neutral-950 dark:text-white',
                 }}
               >
-                {link.label}
+                {t.nav[link.labelKey]}
               </Link>
             ))}
             {crossBrandLinks.map((link) => (
@@ -100,21 +108,21 @@ export function Header({ scope, banner }: HeaderProps) {
               type="button"
               onClick={() => setSearchOpen(true)}
               className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-              aria-label="Search products"
+              aria-label={t.header.searchAriaLabel}
             >
               <Search className="h-5 w-5" />
             </button>
             <Link
               to="/account"
               className="text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-              aria-label="Account"
+              aria-label={t.header.accountAriaLabel}
             >
               <User className="h-5 w-5" />
             </Link>
             <Link
               to="/cart"
               className="relative text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-              aria-label="Cart"
+              aria-label={t.header.cartAriaLabel}
             >
               <ShoppingBag className="h-5 w-5" />
               {itemCount > 0 && (
@@ -123,6 +131,7 @@ export function Header({ scope, banner }: HeaderProps) {
                 </span>
               )}
             </Link>
+            <LanguageSelector />
             <CurrencySelector />
             <ThemeToggle />
           </div>
@@ -140,7 +149,7 @@ export function Header({ scope, banner }: HeaderProps) {
                   className: 'text-neutral-950 dark:text-white',
                 }}
               >
-                {link.label}
+                {t.nav[link.labelKey]}
               </Link>
             ))}
             {crossBrandLinks.map((link) => (

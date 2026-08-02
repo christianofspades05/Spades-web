@@ -14,6 +14,8 @@ import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
+import type { Translations } from '#/lib/i18n/translations'
 import {
   centsToMajorUnits,
   convertCents,
@@ -35,11 +37,21 @@ import type { AddedToCartItem } from '#/components/storefront/AddedToCartPopup'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
-function formatVariantLabel(variant: VariantWithStock): string {
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function formatVariantLabel(
+  t: Translations,
+  variant: VariantWithStock,
+): string {
   const parts: string[] = []
-  if (variant.size) parts.push(`Size: ${formatSizeLabel(variant.size)}`)
-  if (variant.color) parts.push(`Color: ${variant.color}`)
-  if (variant.style) parts.push(`Style: ${variant.style}`)
+  if (variant.size)
+    parts.push(`${capitalize(t.product.size)}: ${formatSizeLabel(variant.size)}`)
+  if (variant.color)
+    parts.push(`${capitalize(t.product.color)}: ${variant.color}`)
+  if (variant.style)
+    parts.push(`${capitalize(t.product.style)}: ${variant.style}`)
   return parts.join(', ')
 }
 
@@ -82,6 +94,7 @@ function ProductPage() {
     formatPriceWithMarkup: formatPrice,
     freeShippingProgressForBrowsing,
   } = useCurrency()
+  const { t, language } = useLanguage()
 
   const [selectedVariant, setSelectedVariant] = useState<
     VariantWithStock | undefined
@@ -145,6 +158,17 @@ function ProductPage() {
     return () => window.removeEventListener('resize', measure)
   }, [])
 
+  // Hand-translated per product (products.description_ja/description_ko —
+  // see admin/products/$productId.tsx) — falls back to the English
+  // description whenever a product hasn't had its translation filled in
+  // yet, rather than showing nothing.
+  const localizedDescription =
+    (language === 'ja'
+      ? product.description_ja
+      : language === 'ko'
+        ? product.description_ko
+        : null) || product.description
+
   // Shown next to the title so a price is always visible, even before the
   // shopper has picked a variant — falls back to the cheapest active
   // variant, then reflects whichever one they actually select.
@@ -175,7 +199,7 @@ function ProductPage() {
       setAddedItem({
         image: product.images[0] ?? null,
         productName: product.name,
-        variantLabel: formatVariantLabel(selectedVariant),
+        variantLabel: formatVariantLabel(t, selectedVariant),
       })
       const target = effectiveCurrency(currency, rates)
       trackPixelEvent('AddToCart', {
@@ -267,7 +291,7 @@ function ProductPage() {
                 </p>
               ))}
           </div>
-          {product.description && (
+          {localizedDescription && (
             <div
               dir="rtl"
               className="mt-6 hidden md:block md:overflow-y-auto md:pl-3"
@@ -277,7 +301,7 @@ function ProductPage() {
                 dir="ltr"
                 className="whitespace-pre-line text-neutral-600 dark:text-neutral-400"
               >
-                {product.description}
+                {localizedDescription}
               </p>
             </div>
           )}
@@ -326,12 +350,12 @@ function ProductPage() {
                 className={`${buttonPrimaryClassName} flex-1 justify-center`}
               >
                 {outOfStock
-                  ? 'Out of stock'
+                  ? t.product.outOfStock
                   : !selectedVariant
-                    ? 'Select options'
+                    ? t.product.selectOptions
                     : isAdding
-                      ? 'Adding...'
-                      : 'Add to Cart'}
+                      ? t.product.adding
+                      : t.product.addToCart}
               </button>
             </div>
 

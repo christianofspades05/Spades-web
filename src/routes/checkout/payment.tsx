@@ -17,6 +17,7 @@ import { formatRegionLabel } from '#/lib/utils/ph-region'
 import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
@@ -38,6 +39,7 @@ type PaymentMethod = 'cod' | 'online'
 function PaymentPage() {
   const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
+  const { t } = useLanguage()
   const {
     cart,
     subtotalCents: rawSubtotalCents,
@@ -51,9 +53,7 @@ function PaymentPage() {
   const [method, setMethod] = useState<PaymentMethod>('cod')
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string | null>(
-    paymentFailed
-      ? 'Your online payment didn’t go through. You can try again or choose Cash on Delivery instead.'
-      : null,
+    paymentFailed ? t.payment.paymentFailedError : null,
   )
 
   useEffect(() => {
@@ -63,7 +63,7 @@ function PaymentPage() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16 text-neutral-500 dark:text-neutral-400">
-        Loading...
+        {t.cart.loading}
       </div>
     )
   }
@@ -71,13 +71,13 @@ function PaymentPage() {
   if (!cart || cart.items.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Your cart is empty</h1>
+        <h1 className="text-2xl font-bold">{t.cart.empty}</h1>
         <Link
           to="/products"
           search={{ sort: 'stock_desc', page: 1 }}
           className={`${buttonPrimaryClassName} mx-auto mt-6 w-fit`}
         >
-          Continue shopping
+          {t.cart.continueShopping}
         </Link>
       </div>
     )
@@ -86,15 +86,15 @@ function PaymentPage() {
   if (!isCheckoutInfoComplete(info)) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Missing delivery details</h1>
+        <h1 className="text-2xl font-bold">{t.payment.missingDeliveryTitle}</h1>
         <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          Please fill in your contact and delivery information first.
+          {t.payment.missingDeliveryBody}
         </p>
         <Link
           to="/checkout"
           className={`${buttonPrimaryClassName} mx-auto mt-6 w-fit`}
         >
-          Back to checkout
+          {t.payment.backToCheckout}
         </Link>
       </div>
     )
@@ -171,18 +171,18 @@ function PaymentPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
-      <h1 className="text-2xl font-bold tracking-tight">Payment</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{t.payment.title}</h1>
 
       <section className="mt-8 rounded-lg border border-neutral-200 p-5 dark:border-neutral-800">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            Deliver to
+            {t.payment.deliverTo}
           </h2>
           <Link
             to="/checkout"
             className="text-sm text-neutral-600 underline hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
           >
-            Edit
+            {t.payment.edit}
           </Link>
         </div>
         <p className="mt-2 text-sm text-neutral-900 dark:text-white">
@@ -197,7 +197,7 @@ function PaymentPage() {
       </section>
 
       <section className="mt-8">
-        <h2 className="mb-4 text-lg font-semibold">Payment method</h2>
+        <h2 className="mb-4 text-lg font-semibold">{t.payment.paymentMethod}</h2>
         <div className="space-y-2">
           {codAvailable && (
             <label
@@ -214,7 +214,7 @@ function PaymentPage() {
                 onChange={() => setMethod('cod')}
               />
               <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
-                Cash on Delivery (COD)
+                {t.payment.cod}
               </span>
             </label>
           )}
@@ -233,11 +233,11 @@ function PaymentPage() {
               onChange={() => setMethod('online')}
             />
             <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
-              Pay Online — GCash, Maya, Cards, Bank Transfer
+              {t.payment.payOnline}
               {currency !== 'PHP' && (
                 <span className="mt-0.5 block text-xs font-normal text-neutral-500 dark:text-neutral-400">
-                  Prices are shown in {currency} for reference — you'll be
-                  charged the PHP equivalent, {formatCentsAsPHP(totalCents)}.
+                  {t.payment.pricesShownIn(currency)},{' '}
+                  {formatCentsAsPHP(totalCents)}.
                 </span>
               )}
             </span>
@@ -248,26 +248,26 @@ function PaymentPage() {
       <section className="mt-8 space-y-2 rounded-lg bg-neutral-50 p-5 text-sm dark:bg-neutral-900">
         <div className="flex items-center justify-between">
           <span className="text-neutral-600 dark:text-neutral-400">
-            Subtotal
+            {t.payment.subtotal}
           </span>
           <span className="font-medium">{formatPrice(subtotalCents)}</span>
         </div>
         {discountCents > 0 && (
           <div className="flex items-center justify-between text-green-700 dark:text-green-400">
-            <span>Discount</span>
+            <span>{t.payment.discount}</span>
             <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
         <div className="flex items-center justify-between">
           <span className="text-neutral-600 dark:text-neutral-400">
-            Shipping
+            {t.payment.shipping}
           </span>
           <span className="font-medium">
-            {shippingCents === 0 ? 'Free' : formatPrice(shippingCents)}
+            {shippingCents === 0 ? t.checkout.free : formatPrice(shippingCents)}
           </span>
         </div>
         <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">
-          <span>Total</span>
+          <span>{t.payment.total}</span>
           <span>{formatPrice(totalCents)}</span>
         </div>
       </section>
@@ -286,11 +286,11 @@ function PaymentPage() {
       >
         {placing
           ? method === 'online'
-            ? 'Redirecting to payment...'
-            : 'Placing order...'
+            ? t.payment.redirecting
+            : t.payment.placingOrder
           : method === 'online'
-            ? `Continue to pay — ${formatPrice(totalCents)}`
-            : `Place order — ${formatPrice(totalCents)}`}
+            ? t.payment.continueToPay(formatPrice(totalCents))
+            : t.payment.placeOrder(formatPrice(totalCents))}
       </button>
     </div>
   )

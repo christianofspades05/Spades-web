@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Check, X } from 'lucide-react'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import type { FreeShippingProgress } from '#/lib/checkout/shipping'
 
 export interface AddedToCartItem {
@@ -20,12 +21,13 @@ export function AddedToCartPopup({
   freeShippingProgress: FreeShippingProgress | null
   onClose: () => void
 }) {
+  const { t } = useLanguage()
   return (
     <div className="fixed inset-x-4 top-20 z-50 mx-auto max-w-sm rounded-lg bg-neutral-950 p-5 text-white shadow-xl sm:inset-x-auto sm:right-6 sm:left-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Check className="h-4 w-4" />
-          Item added to your cart
+          {t.addedToCart.itemAdded}
         </div>
         <button
           type="button"
@@ -65,20 +67,20 @@ export function AddedToCartPopup({
           to="/cart"
           className="rounded-full border border-white px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-white hover:text-neutral-950"
         >
-          View my cart ({itemCount})
+          {t.addedToCart.viewMyCart(itemCount)}
         </Link>
         <Link
           to="/checkout"
           className="rounded-full bg-white px-4 py-2.5 text-center text-sm font-semibold text-neutral-950 transition hover:bg-neutral-200"
         >
-          Check out
+          {t.addedToCart.checkOut}
         </Link>
         <button
           type="button"
           onClick={onClose}
           className="text-center text-sm text-neutral-300 underline hover:text-white"
         >
-          Continue shopping
+          {t.addedToCart.continueShopping}
         </button>
       </div>
     </div>
