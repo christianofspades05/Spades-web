@@ -135,7 +135,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     promoBannerTextClassName: 'text-neutral-900',
     priceTextHex: '#d4c400',
     priceTextDarkHex: '#f5e401',
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
     promoBannerText: 'Free shipping minimum of ₱2,500 worth of items',
     social: { facebook: '', instagram: '', tiktok: '' },
     fbPixelId: import.meta.env.VITE_FB_PIXEL_ID_YSRAEL as string | undefined,
