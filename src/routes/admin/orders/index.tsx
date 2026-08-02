@@ -279,13 +279,6 @@ function OrdersPage() {
   const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
 
-  const avgFulfillment =
-    overview.avgFulfillmentHours === null
-      ? '—'
-      : overview.avgFulfillmentHours < 24
-        ? `${overview.avgFulfillmentHours.toFixed(1)} hrs`
-        : `${(overview.avgFulfillmentHours / 24).toFixed(1)} days`
-
   const statCards = [
     {
       label: 'Orders',
@@ -328,12 +321,14 @@ function OrdersPage() {
         overview.delivered.previousCount,
       ),
     },
-    // Meaningless for a cancelled or failed order (neither was ever
-    // fulfilled) — hide it rather than show a permanent '—' when filtered
-    // to either status.
-    ...(search.status === 'cancelled' || search.status === 'failed'
-      ? []
-      : [{ label: 'Avg. time to fulfillment', value: avgFulfillment }]),
+    {
+      label: 'Failed/Cancelled',
+      value: overview.failedOrCancelled.count,
+      trend: percentChange(
+        overview.failedOrCancelled.count,
+        overview.failedOrCancelled.previousCount,
+      ),
+    },
   ]
 
   return (

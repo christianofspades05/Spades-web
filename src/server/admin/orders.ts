@@ -343,7 +343,7 @@ export interface OrdersOverview {
   returns: { count: number; previousCount: number }
   fulfilled: { count: number; previousCount: number }
   delivered: { count: number; previousCount: number }
-  avgFulfillmentHours: number | null
+  failedOrCancelled: { count: number; previousCount: number }
 }
 
 // Brief in-process cache so repeated loads of the same date range (e.g. every
@@ -384,7 +384,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
           admin
             .from('orders')
             .select(
-              'id, placed_at, order_items(quantity), shipments(status, shipped_at)',
+              'id, status, placed_at, order_items(quantity), shipments(status, shipped_at)',
             )
             .gte('placed_at', rangeStart)
             .lte('placed_at', rangeEnd)
@@ -393,7 +393,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
         fetchAllRows((offset) =>
           admin
             .from('orders')
-            .select('id, order_items(quantity), shipments(status)')
+            .select('id, status, order_items(quantity), shipments(status)')
             .gte('placed_at', prevStart)
             .lte('placed_at', prevEnd)
             .range(offset, offset + 999),
@@ -425,7 +425,7 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
     let itemsOrdered = 0
     let fulfilled = 0
     let delivered = 0
-    const fulfillmentHours: number[] = []
+    let failedOrCancelled = 0
 
     for (const order of currentOrders) {
       const day = storeLocalDateKey(order.placed_at)
@@ -438,17 +438,14 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
         fulfilled += 1
       }
       if (shipment?.status === 'delivered') delivered += 1
-      if (shipment?.shipped_at) {
-        const hours =
-          (new Date(shipment.shipped_at).getTime() -
-            new Date(order.placed_at).getTime()) /
-          3_600_000
-        fulfillmentHours.push(hours)
+      if (order.status === 'cancelled' || order.status === 'failed') {
+        failedOrCancelled += 1
       }
     }
 
     let previousItemsOrdered = 0
     let previousFulfilled = 0
+    let previousFailedOrCancelled = 0
     for (const order of previousOrders) {
       previousItemsOrdered += order.order_items.reduce(
         (sum, i) => sum + i.quantity,
@@ -457,6 +454,9 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
       const shipment = order.shipments.at(0)
       if (shipment && FULFILLED_SHIPMENT_STATUSES.has(shipment.status)) {
         previousFulfilled += 1
+      }
+      if (order.status === 'cancelled' || order.status === 'failed') {
+        previousFailedOrCancelled += 1
       }
     }
     const previousDelivered = previousOrders.filter(
@@ -480,11 +480,10 @@ export const getOrdersOverview = createServerFn({ method: 'GET' })
       },
       fulfilled: { count: fulfilled, previousCount: previousFulfilled },
       delivered: { count: delivered, previousCount: previousDelivered },
-      avgFulfillmentHours:
-        fulfillmentHours.length > 0
-          ? fulfillmentHours.reduce((sum, h) => sum + h, 0) /
-            fulfillmentHours.length
-          : null,
+      failedOrCancelled: {
+        count: failedOrCancelled,
+        previousCount: previousFailedOrCancelled,
+      },
     }
     overviewCache.set(cacheKey, {
       data: result,
