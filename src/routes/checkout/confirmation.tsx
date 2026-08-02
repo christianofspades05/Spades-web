@@ -1,16 +1,25 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
-import { getOrderConfirmation } from '#/server/checkout/confirmation'
+import {
+  getOrderConfirmation,
+  getOrderConfirmationByReservation,
+} from '#/server/checkout/confirmation'
+import type { OrderConfirmation } from '#/server/checkout/confirmation'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
     order: z.string().optional(),
+    // Set instead of `order` for an online payment redirected here by
+    // Xendit — at that point no order exists yet (see place-order.ts), only
+    // the checkout_reservations row that becomes one once the webhook
+    // reports PAID. See the polling effect below.
+    reservation: z.string().optional(),
     // Order total in major units of `currency` (not minor units/cents) —
     // threaded through the redirect URL from place-order.ts (Xendit's
     // successRedirectUrl) and payment.tsx (the direct COD path) since this
@@ -23,25 +32,70 @@ export const Route = createFileRoute('/checkout/confirmation')({
     // regardless of what was selected).
     currency: z.string().default('PHP'),
   }),
-  loaderDeps: ({ search }) => ({ order: search.order }),
+  loaderDeps: ({ search }) => ({
+    order: search.order,
+    reservation: search.reservation,
+  }),
   loader: async ({ deps }) => {
-    if (!deps.order) return { confirmation: null }
-    const confirmation = await getOrderConfirmation({
-      data: { orderNumber: deps.order },
-    })
-    return { confirmation }
+    if (deps.order) {
+      const confirmation = await getOrderConfirmation({
+        data: { orderNumber: deps.order },
+      })
+      return {
+        kind: 'order' as const,
+        orderNumber: deps.order,
+        confirmation,
+      }
+    }
+    if (deps.reservation) {
+      const result = await getOrderConfirmationByReservation({
+        data: { reservationId: deps.reservation },
+      })
+      return {
+        kind: 'reservation' as const,
+        reservationId: deps.reservation,
+        result,
+      }
+    }
+    return { kind: 'none' as const }
   },
   component: ConfirmationPage,
 })
 
 const FIRED_PURCHASE_KEY = 'spades_fb_purchase_fired'
+const POLL_INTERVAL_MS = 1500
+const MAX_POLL_ATTEMPTS = 20
+
+interface Resolved {
+  orderNumber: string
+  confirmation: OrderConfirmation | null
+}
 
 function ConfirmationPage() {
-  const { order, value, currency } = Route.useSearch()
-  const { confirmation } = Route.useLoaderData()
-  const items = confirmation?.items ?? []
+  const { value, currency } = Route.useSearch()
+  const loaderData = Route.useLoaderData()
   const { clear } = useCheckout()
   const { t } = useLanguage()
+
+  const [resolved, setResolved] = useState<Resolved | null>(() => {
+    if (loaderData.kind === 'order') {
+      return {
+        orderNumber: loaderData.orderNumber,
+        confirmation: loaderData.confirmation,
+      }
+    }
+    if (
+      loaderData.kind === 'reservation' &&
+      loaderData.result.status === 'paid'
+    ) {
+      return {
+        orderNumber: loaderData.result.orderNumber,
+        confirmation: loaderData.result.confirmation,
+      }
+    }
+    return null
+  })
+  const [pollTimedOut, setPollTimedOut] = useState(false)
 
   // Reached either directly (COD) or via Xendit's success redirect (online
   // payment) — either way the checkout is done, so reset it for next time.
@@ -49,31 +103,75 @@ function ConfirmationPage() {
     clear()
   }, [])
 
+  // Xendit's webhook (which mints the real order) runs async and isn't
+  // guaranteed to land before this redirect does — poll briefly until it
+  // has. Normally resolves within a second or two.
+  useEffect(() => {
+    if (resolved || loaderData.kind !== 'reservation') return
+    let cancelled = false
+    let attempts = 0
+    const id = setInterval(() => {
+      attempts += 1
+      getOrderConfirmationByReservation({
+        data: { reservationId: loaderData.reservationId },
+      }).then((result) => {
+        if (cancelled) return
+        if (result.status === 'paid') {
+          setResolved({
+            orderNumber: result.orderNumber,
+            confirmation: result.confirmation,
+          })
+          clearInterval(id)
+        } else if (attempts >= MAX_POLL_ATTEMPTS) {
+          setPollTimedOut(true)
+          clearInterval(id)
+        }
+      })
+    }, POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [loaderData, resolved])
+
   // Guards against double-counting the same order as a second Purchase if
   // the customer refreshes or revisits this confirmation URL.
   useEffect(() => {
-    if (!order || value === undefined) return
+    if (!resolved || value === undefined) return
+    const orderNumber = resolved.orderNumber
     const fired = new Set(
       JSON.parse(
         sessionStorage.getItem(FIRED_PURCHASE_KEY) ?? '[]',
       ) as string[],
     )
-    if (fired.has(order)) return
-    fired.add(order)
+    if (fired.has(orderNumber)) return
+    fired.add(orderNumber)
     sessionStorage.setItem(FIRED_PURCHASE_KEY, JSON.stringify([...fired]))
     trackPixelEvent('Purchase', { value, currency })
-  }, [order, value, currency])
+  }, [resolved, value, currency])
+
+  const items = resolved?.confirmation?.items ?? []
+  const confirmation = resolved?.confirmation ?? null
+  const stillConfirming = loaderData.kind === 'reservation' && !resolved
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-20 text-center">
       <h1 className="text-3xl font-black tracking-tight">
         {t.confirmation.orderPlaced}
       </h1>
-      {order && (
+      {stillConfirming ? (
         <p className="mt-3 text-lg text-neutral-700 dark:text-neutral-300">
-          {t.confirmation.order}{' '}
-          <span className="font-semibold">{order}</span>
+          {pollTimedOut
+            ? t.confirmation.stillConfirmingPayment
+            : t.confirmation.confirmingPayment}
         </p>
+      ) : (
+        resolved && (
+          <p className="mt-3 text-lg text-neutral-700 dark:text-neutral-300">
+            {t.confirmation.order}{' '}
+            <span className="font-semibold">{resolved.orderNumber}</span>
+          </p>
+        )
       )}
       <p className="mt-4 text-neutral-600 dark:text-neutral-400">
         {t.confirmation.thanksMessage}

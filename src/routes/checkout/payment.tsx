@@ -157,7 +157,9 @@ function PaymentPage() {
       void navigate({
         to: '/checkout/confirmation',
         search: {
-          order: result.orderNumber,
+          // Always set here — this branch only runs for COD, which always
+          // returns a real order number (see place-order.ts).
+          order: result.orderNumber ?? undefined,
           value: (totalCents / 100).toFixed(2),
           currency: 'PHP',
         },
@@ -197,7 +199,9 @@ function PaymentPage() {
       </section>
 
       <section className="mt-8">
-        <h2 className="mb-4 text-lg font-semibold">{t.payment.paymentMethod}</h2>
+        <h2 className="mb-4 text-lg font-semibold">
+          {t.payment.paymentMethod}
+        </h2>
         <div className="space-y-2">
           {codAvailable && (
             <label
