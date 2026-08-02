@@ -32,6 +32,10 @@ import {
   newOrderEmailHtml,
   newOrderEmailSubject,
 } from '#/lib/email/templates/new-order'
+import {
+  orderConfirmationEmailHtml,
+  orderConfirmationEmailSubject,
+} from '#/lib/email/templates/order-confirmation'
 
 export const placeOrder = createServerFn({ method: 'POST' })
   .validator(placeOrderSchema)
@@ -394,12 +398,22 @@ export const placeOrder = createServerFn({ method: 'POST' })
         .update({ status: 'converted' })
         .eq('id', cart.id)
 
-      // Best-effort and explicitly NOT awaited — this is a notification
-      // for staff, not something the customer's response should ever wait
-      // on. Silently skipped entirely if no owner address is set.
+      // Best-effort and explicitly NOT awaited for both emails below — a
+      // Resend outage should never block the customer's checkout response.
+      const origin = getRequestUrl().origin
+      const emailItems = cart.items.map((item) => ({
+        name: item.variant.product.name,
+        variantLabel:
+          [item.variant.size, item.variant.color, item.variant.style]
+            .filter(Boolean)
+            .join(' / ') || null,
+        quantity: item.quantity,
+      }))
+
+      // Notification for staff — silently skipped entirely if no owner
+      // address is set.
       const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
       if (storeOwnerEmail) {
-        const origin = getRequestUrl().origin
         void sendEmail({
           to: storeOwnerEmail,
           subject: newOrderEmailSubject(order.order_number),
@@ -410,20 +424,32 @@ export const placeOrder = createServerFn({ method: 'POST' })
             customerEmail: email,
             totalCents,
             isCod: data.paymentProvider === 'cod',
-            items: cart.items.map((item) => ({
-              name: item.variant.product.name,
-              variantLabel:
-                [item.variant.size, item.variant.color, item.variant.style]
-                  .filter(Boolean)
-                  .join(' / ') || null,
-              quantity: item.quantity,
-            })),
+            items: emailItems,
             orderUrl: `${origin}/admin/orders/${order.id}`,
           }),
         }).catch((err: unknown) => {
           console.error('Failed to send new-order notification email:', err)
         })
       }
+
+      // Confirmation for the customer — "View order" sends them to their
+      // account's order history (see routes/account/index.tsx), which
+      // requires signing in/up first for a guest checkout, same as the
+      // owner intentionally wants (see conversation: "needed to create
+      // account").
+      void sendEmail({
+        to: email,
+        subject: orderConfirmationEmailSubject(order.order_number),
+        from: process.env.RESEND_FROM_EMAIL_ORDERS,
+        html: orderConfirmationEmailHtml({
+          orderNumber: order.order_number,
+          items: emailItems,
+          totalCents,
+          accountUrl: `${origin}/account`,
+        }),
+      }).catch((err: unknown) => {
+        console.error('Failed to send order confirmation email:', err)
+      })
 
       return { orderId: order.id, orderNumber: order.order_number, invoiceUrl }
     },

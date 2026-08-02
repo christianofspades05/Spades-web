@@ -15,6 +15,12 @@ import {
 } from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
 import { fetchAllRows } from '#/lib/utils/paginate'
+import { sendEmail } from '#/lib/email/resend'
+import {
+  shipmentTrackingEmailHtml,
+  shipmentTrackingEmailSubject,
+} from '#/lib/email/templates/shipment-tracking'
+import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { logStaffActivity } from './activity-log'
 import type {
   Customer,
@@ -685,9 +691,9 @@ export const upsertShipment = createServerFn({ method: 'POST' })
 
     const { data: existing, error: readError } = await admin
       .from('shipments')
-      .select('id')
+      .select('id, tracking_number')
       .eq('order_id', data.orderId)
-      .maybeSingle<{ id: string }>()
+      .maybeSingle<{ id: string; tracking_number: string | null }>()
     if (readError) throw readError
 
     const now = new Date().toISOString()
@@ -727,6 +733,47 @@ export const upsertShipment = createServerFn({ method: 'POST' })
     // API rejecting the call) shouldn't block staff from recording the
     // shipment on our own side, so it's swallowed rather than thrown.
     await pushFulfillmentUpdate(data.orderId).catch(() => {})
+
+    // Only email when a tracking number actually just appeared/changed —
+    // not on every status edit (e.g. in_transit -> delivered) for the same
+    // number, which would otherwise re-notify the customer for no reason.
+    const trackingChanged =
+      Boolean(data.trackingNumber) &&
+      data.trackingNumber !== existing?.tracking_number
+    if (trackingChanged) {
+      const { data: order } = await admin
+        .from('orders')
+        .select('order_number, shipping_address, source')
+        .eq('id', data.orderId)
+        .maybeSingle()
+      // Shopee/TikTok orders carry the marketplace's own anonymized relay
+      // address (e.g. ...@scs2.tiktok.com), never the buyer's real inbox —
+      // same reasoning as the review-request cron skipping these sources
+      // (see routes/api/cron/review-requests.ts). Those customers already
+      // get tracking updates through the marketplace app itself.
+      if (
+        order &&
+        order.source !== 'tiktok_shop' &&
+        order.source !== 'shopee' &&
+        order.source !== 'lazada'
+      ) {
+        const address =
+          order.shipping_address as unknown as OrderShippingAddress
+        void sendEmail({
+          to: address.email,
+          subject: shipmentTrackingEmailSubject(order.order_number),
+          from: process.env.RESEND_FROM_EMAIL_ORDERS,
+          html: shipmentTrackingEmailHtml({
+            orderNumber: order.order_number,
+            carrier: data.carrier ?? null,
+            trackingNumber: data.trackingNumber as string,
+            trackingUrl: data.trackingUrl ?? null,
+          }),
+        }).catch((err: unknown) => {
+          console.error('Failed to send shipment tracking email:', err)
+        })
+      }
+    }
 
     return shipment
   })
