@@ -522,7 +522,7 @@ export const translations: Record<Language, Translations> = {
       showPassword: 'Show password',
     },
     emailCapture: {
-      title: 'Unlock a discount code',
+      title: '10% off for 1st time customer',
       body: 'Enter your email and we’ll send you a one-time code — valid for 24 hours.',
       emailPlaceholder: 'Email address',
       getCode: 'Get code',
@@ -778,7 +778,7 @@ export const translations: Record<Language, Translations> = {
       showPassword: 'パスワードを表示',
     },
     emailCapture: {
-      title: '割引コードをゲット',
+      title: '初回限定10%OFF',
       body: 'メールアドレスを入力すると、24時間限定の割引コードをお送りします。',
       emailPlaceholder: 'メールアドレス',
       getCode: 'コードを受け取る',
@@ -1031,7 +1031,7 @@ export const translations: Record<Language, Translations> = {
       showPassword: '비밀번호 표시',
     },
     emailCapture: {
-      title: '할인 코드 받기',
+      title: '첫 구매 10% 할인',
       body: '이메일을 입력하시면 24시간 동안 유효한 일회용 코드를 보내드립니다.',
       emailPlaceholder: '이메일 주소',
       getCode: '코드 받기',
