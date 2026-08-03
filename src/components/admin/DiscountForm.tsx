@@ -52,6 +52,12 @@ export function DiscountForm({
   const [oneUsePerCustomer, setOneUsePerCustomer] = useState(
     discount?.max_uses_per_customer === 1,
   )
+  const [maxDiscountedItems, setMaxDiscountedItems] = useState<number | ''>(
+    discount?.max_discounted_items ?? '',
+  )
+  const [excludesFreeShipping, setExcludesFreeShipping] = useState(
+    discount?.excludes_free_shipping ?? false,
+  )
   const [isActive, setIsActive] = useState(discount?.is_active ?? true)
   const [excludedCollectionIds, setExcludedCollectionIds] = useState<string[]>(
     discount?.excluded_collection_ids ?? [],
@@ -92,6 +98,9 @@ export function DiscountForm({
         endsAt: endsAt || undefined,
         maxUses: maxUses === '' ? undefined : maxUses,
         oneUsePerCustomer,
+        maxDiscountedItems:
+          maxDiscountedItems === '' ? undefined : maxDiscountedItems,
+        excludesFreeShipping,
         isActive,
         excludedCollectionIds:
           method === 'store_sale' ? excludedCollectionIds : [],
@@ -283,6 +292,33 @@ export function DiscountForm({
                 onChange={(e) => setOneUsePerCustomer(e.target.checked)}
               />
               Limit to one use per customer
+            </label>
+            <label className={labelClassName}>
+              Limit discount to this many items (optional)
+              <input
+                type="number"
+                min="1"
+                value={maxDiscountedItems}
+                onChange={(e) =>
+                  setMaxDiscountedItems(
+                    e.target.value === '' ? '' : Number(e.target.value),
+                  )
+                }
+                placeholder="No limit"
+                className={`${inputClassName} w-32`}
+              />
+              <span className="text-xs font-normal text-neutral-500">
+                Only the customer's highest-priced items up to this count get
+                the discount — the rest stay full price.
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={excludesFreeShipping}
+                onChange={(e) => setExcludesFreeShipping(e.target.checked)}
+              />
+              Don't also give free shipping when this code is used
             </label>
           </div>
         )}

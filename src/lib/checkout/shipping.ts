@@ -91,7 +91,10 @@ export function shippingZoneForRegion(region: string): ShippingZone {
  *  every currency — pass {} if not loaded yet). A market-level
  *  free-shipping trigger (min subtotal or min item count) waives it
  *  entirely — falling back to the flat INTERNATIONAL_SHIPPING_USD when no
- *  market override applies. */
+ *  market override applies. `excludeFreeShipping` (see
+ *  discounts.excludes_free_shipping) skips every free-shipping check above
+ *  regardless of subtotal/item count — for a gift-style code that
+ *  shouldn't also waive shipping. */
 export function shippingCostCents(
   country: string,
   region: string,
@@ -99,15 +102,18 @@ export function shippingCostCents(
   itemCount: number,
   rates: ExchangeRates,
   marketShipping?: MarketShippingConfig,
+  excludeFreeShipping?: boolean,
 ): number {
   if (country !== 'PH') {
     if (
+      !excludeFreeShipping &&
       marketShipping?.freeShippingMinSubtotalCents != null &&
       subtotalCents >= marketShipping.freeShippingMinSubtotalCents
     ) {
       return 0
     }
     if (
+      !excludeFreeShipping &&
       marketShipping?.freeShippingMinItems != null &&
       itemCount >= marketShipping.freeShippingMinItems
     ) {
@@ -122,7 +128,9 @@ export function shippingCostCents(
     }
     return internationalShippingCostCents(rates.USD ?? null)
   }
-  if (subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) return 0
+  if (!excludeFreeShipping && subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) {
+    return 0
+  }
   const zone = shippingZoneForRegion(region)
   return SHIPPING_ZONE_RATE_CENTS[zone]
 }
@@ -137,17 +145,22 @@ export interface FreeShippingProgress {
 
 /** How far a cart still is from free shipping — used for the "add X more
  *  to unlock free shipping" nudge (cart popup, cart page, checkout form).
- *  Returns null once free shipping already applies, or when the
- *  destination has no free-shipping mechanism at all (an international
- *  country with no active market, or one whose market never set a
- *  free-shipping trigger). PH always uses the site-wide domestic
- *  threshold; every other country uses its own market's trigger, if any. */
+ *  Returns null once free shipping already applies, when the destination
+ *  has no free-shipping mechanism at all (an international country with
+ *  no active market, or one whose market never set a free-shipping
+ *  trigger), or when `excludeFreeShipping` is set (see
+ *  discounts.excludes_free_shipping) — no point nudging toward a threshold
+ *  the applied code won't actually let them cross. PH always uses the
+ *  site-wide domestic threshold; every other country uses its own
+ *  market's trigger, if any. */
 export function freeShippingProgress(
   country: string,
   subtotalCents: number,
   itemCount: number,
   marketShipping?: MarketShippingConfig,
+  excludeFreeShipping?: boolean,
 ): FreeShippingProgress | null {
+  if (excludeFreeShipping) return null
   if (country === 'PH') {
     const remaining = FREE_SHIPPING_THRESHOLD_CENTS - subtotalCents
     return remaining > 0 ? { type: 'amount', remaining } : null

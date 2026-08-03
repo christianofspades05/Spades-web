@@ -17,6 +17,16 @@ export const discountInputSchema = z
     endsAt: z.string().optional(),
     maxUses: z.number().int().min(1).optional(),
     oneUsePerCustomer: z.boolean().default(false),
+    // Caps the discount to only the N highest-priced units in an eligible
+    // cart — e.g. a 50%-off code with maxDiscountedItems: 3 only discounts
+    // the customer's 3 priciest qualifying units, full price on the rest.
+    // Unset (the default) discounts every eligible unit, as today.
+    maxDiscountedItems: z.number().int().min(1).optional(),
+    // When true, applying this code always charges the normal shipping fee
+    // — the site-wide/market free-shipping threshold never waives it,
+    // regardless of the post-discount subtotal. Meant for gift-style codes
+    // (e.g. a birthday discount) that shouldn't stack with free shipping.
+    excludesFreeShipping: z.boolean().default(false),
     isActive: z.boolean().default(true),
     excludedCollectionIds: z.array(z.string().uuid()).default([]),
     includedCollectionIds: z.array(z.string().uuid()).default([]),

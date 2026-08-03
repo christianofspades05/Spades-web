@@ -116,6 +116,7 @@ function PaymentPage() {
     cart.items.reduce((sum, item) => sum + item.quantity, 0),
     rates,
     marketShipping[info.country],
+    cart.discount?.excludesFreeShipping ?? false,
   )
   const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
   const addressLines =

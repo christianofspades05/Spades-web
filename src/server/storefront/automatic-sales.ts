@@ -25,6 +25,8 @@ export type AutomaticDiscount = Pick<
   | 'scope'
   | 'scope_ids'
   | 'excluded_collection_ids'
+  | 'max_discounted_items'
+  | 'excludes_free_shipping'
 >
 
 /** Every currently-active automatic discount (Store sale or Collection sale) — active meaning is_active, and within its starts_at/ends_at window if either is set. Cheap: the discounts table only ever has a handful of automatic rows at once, so no pagination/caching here. */
@@ -34,7 +36,7 @@ export async function getActiveAutomaticDiscounts(
   const { data, error } = await admin
     .from('discounts')
     .select(
-      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, starts_at, ends_at',
+      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, starts_at, ends_at',
     )
     .eq('kind', 'automatic')
     .eq('is_active', true)

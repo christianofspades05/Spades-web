@@ -117,6 +117,7 @@ function CheckoutPage() {
           cart.items.reduce((sum, item) => sum + item.quantity, 0),
           rates,
           marketShipping[info.country],
+          cart.discount?.excludesFreeShipping ?? false,
         )
       : null
   const totalCents = subtotalCents - discountCents + (shippingCents ?? 0)
@@ -330,6 +331,7 @@ function CheckoutPage() {
                 subtotalCents - discountCents,
                 cart.items.reduce((sum, item) => sum + item.quantity, 0),
                 marketShipping[info.country],
+                cart.discount?.excludesFreeShipping ?? false,
               )}
               className="mt-3 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
             />

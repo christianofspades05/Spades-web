@@ -180,6 +180,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         itemCount,
         exchangeRates,
         marketShipping,
+        cart.discount?.excludesFreeShipping ?? false,
       )
       const totalCents = Math.max(
         0,

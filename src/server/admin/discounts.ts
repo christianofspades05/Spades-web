@@ -35,6 +35,8 @@ function toRow(data: DiscountInput) {
         : [],
     max_uses: data.maxUses ?? null,
     max_uses_per_customer: data.oneUsePerCustomer ? 1 : null,
+    max_discounted_items: data.maxDiscountedItems ?? null,
+    excludes_free_shipping: data.excludesFreeShipping,
     starts_at: data.startsAt ? new Date(data.startsAt).toISOString() : null,
     ends_at: data.endsAt ? new Date(data.endsAt).toISOString() : null,
     is_active: data.isActive,

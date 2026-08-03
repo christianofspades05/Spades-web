@@ -20,10 +20,37 @@ export interface AppliedCartDiscount {
   type: Discount['type']
   value: number
   amountCents: number
+  /** True if this discount should always charge normal shipping — see
+   *  discounts.excludes_free_shipping. Checked by shippingCostCents'
+   *  callers, never by this module itself. */
+  excludesFreeShipping: boolean
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
   return item.quantity * item.price_cents_snapshot
+}
+
+/** The subtotal a percentage/fixed_amount discount actually applies to —
+ *  every eligible unit, unless maxDiscountedItems caps it to only the N
+ *  highest-priced units (the owner's choice: a capped code discounts the
+ *  customer's priciest picks first, full price on the rest). */
+function discountableSubtotalCents(
+  eligible: CartItemWithVariant[],
+  maxDiscountedItems: number | null,
+): number {
+  if (maxDiscountedItems == null) {
+    return eligible.reduce((sum, item) => sum + itemLineTotalCents(item), 0)
+  }
+  const unitPrices: number[] = []
+  for (const item of eligible) {
+    for (let i = 0; i < item.quantity; i++) {
+      unitPrices.push(item.price_cents_snapshot)
+    }
+  }
+  unitPrices.sort((a, b) => b - a)
+  return unitPrices
+    .slice(0, maxDiscountedItems)
+    .reduce((sum, price) => sum + price, 0)
 }
 
 async function eligibleItemsForDiscount(
@@ -63,15 +90,23 @@ async function appliedDiscountFor(
   admin: Admin,
   discount: Pick<
     Discount,
-    'id' | 'code' | 'title' | 'type' | 'value' | 'scope' | 'scope_ids'
+    | 'id'
+    | 'code'
+    | 'title'
+    | 'type'
+    | 'value'
+    | 'scope'
+    | 'scope_ids'
+    | 'max_discounted_items'
+    | 'excludes_free_shipping'
   >,
   items: CartItemWithVariant[],
 ): Promise<AppliedCartDiscount | null> {
   const eligible = await eligibleItemsForDiscount(admin, discount, items)
   if (eligible.length === 0) return null
-  const eligibleSubtotalCents = eligible.reduce(
-    (sum, item) => sum + itemLineTotalCents(item),
-    0,
+  const eligibleSubtotalCents = discountableSubtotalCents(
+    eligible,
+    discount.max_discounted_items,
   )
 
   let amountCents = 0
@@ -89,6 +124,7 @@ async function appliedDiscountFor(
     type: discount.type,
     value: discount.value,
     amountCents,
+    excludesFreeShipping: discount.excludes_free_shipping,
   }
 }
 

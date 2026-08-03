@@ -109,6 +109,9 @@ function EmailAutomationEditorPage() {
     SUGGESTED_DISCOUNT_CODE[automation.event_type],
   )
   const [newDiscountPercent, setNewDiscountPercent] = useState(10)
+  const [newDiscountMaxItems, setNewDiscountMaxItems] = useState('')
+  const [newDiscountExcludesFreeShipping, setNewDiscountExcludesFreeShipping] =
+    useState(false)
   const [savingNewDiscount, setSavingNewDiscount] = useState(false)
   const [newDiscountError, setNewDiscountError] = useState<string | null>(null)
 
@@ -127,12 +130,13 @@ function EmailAutomationEditorPage() {
               code: `${selectedDiscount.code ?? 'CODE'}-A1B2C3`,
               type: selectedDiscount.type,
               value: selectedDiscount.value,
-              // Only abandoned-cart codes ever actually expire (see
-              // mint-discount.ts's expiresInDays) — sample a 3-day-out
-              // date here so the preview matches a real send, but only
-              // for the one event type that's ever true for.
+              // abandoned_cart and birthday codes both expire 3 days after
+              // mint (see mint-discount.ts's expiresInDays, passed at each
+              // cron's own call site) — sample a 3-day-out date here so the
+              // preview matches a real send for those two event types.
               endsAt:
-                automation.event_type === 'abandoned_cart'
+                automation.event_type === 'abandoned_cart' ||
+                automation.event_type === 'birthday'
                   ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
                   : null,
             }
@@ -159,6 +163,10 @@ function EmailAutomationEditorPage() {
           isActive: true,
           excludedCollectionIds: [],
           includedCollectionIds: [],
+          maxDiscountedItems: newDiscountMaxItems
+            ? Number(newDiscountMaxItems)
+            : undefined,
+          excludesFreeShipping: newDiscountExcludesFreeShipping,
         },
       })
       setLocalDiscounts((prev) => [discount, ...prev])
@@ -330,6 +338,31 @@ function EmailAutomationEditorPage() {
                     />
                   </label>
                 </div>
+                <label className={labelClassName}>
+                  Limit discount to this many items (optional)
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="No limit"
+                    value={newDiscountMaxItems}
+                    onChange={(e) => setNewDiscountMaxItems(e.target.value)}
+                    className={`${inputClassName} w-32`}
+                  />
+                  <span className="text-xs font-normal text-neutral-400">
+                    Only the customer's highest-priced items up to this count
+                    get the discount — the rest stay full price.
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-neutral-700">
+                  <input
+                    type="checkbox"
+                    checked={newDiscountExcludesFreeShipping}
+                    onChange={(e) =>
+                      setNewDiscountExcludesFreeShipping(e.target.checked)
+                    }
+                  />
+                  Don't also give free shipping when this code is used
+                </label>
                 {newDiscountError && (
                   <p className="text-sm text-red-600">{newDiscountError}</p>
                 )}

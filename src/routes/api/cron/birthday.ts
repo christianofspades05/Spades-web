@@ -90,12 +90,15 @@ export const Route = createFileRoute('/api/cron/birthday')({
 
           try {
             // Freshly minted per recipient, never the template's own code —
-            // see mint-discount.ts's doc comment for why.
+            // see mint-discount.ts's doc comment for why. 3-day expiry
+            // (same as abandoned-cart's) since a birthday gift code isn't
+            // meant to sit unused indefinitely.
             const discount = automation.discount_id
               ? await mintPerRecipientDiscount(
                   admin,
                   automation.discount_id,
                   automation.id,
+                  { expiresInDays: 3 },
                 )
               : null
 

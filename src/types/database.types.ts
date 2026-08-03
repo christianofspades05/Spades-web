@@ -721,6 +721,8 @@ export interface Database {
           title: string
           excluded_collection_ids: string[]
           email_automation_id: string | null
+          max_discounted_items: number | null
+          excludes_free_shipping: boolean
           created_at: string
           updated_at: string
         }
