@@ -9,6 +9,7 @@ import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
 import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { LanguagePopup } from '#/components/storefront/LanguagePopup'
+import { EmailCapturePopup } from '#/components/storefront/EmailCapturePopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
 import { LiveViewerHeartbeat } from '#/components/storefront/LiveViewerHeartbeat'
 import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
@@ -21,6 +22,7 @@ import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { getMaintenanceMode } from '#/server/storefront/maintenance'
 import { getStorefrontBanner } from '#/server/storefront/banner'
+import { getEmailCapturePopupEnabled } from '#/server/storefront/email-capture'
 import appCss from '../styles.css?url'
 
 /**
@@ -53,29 +55,39 @@ export const Route = createRootRoute({
     // throw beforeLoad itself and take down every route on this app for
     // every visitor over what's just a cosmetic feature. A transient
     // Supabase blip should degrade these two, not the entire site.
-    const [geoDefaultCurrency, geoCountry, maintenanceMode, banner] =
-      await Promise.all([
-        getGeoDefaultCurrency(),
-        getGeoCountry(),
-        getMaintenanceMode({ data: { brand: storefrontScope.brand } }).catch(
-          (err: unknown) => {
-            console.error('getMaintenanceMode failed:', err)
-            return false
-          },
-        ),
-        getStorefrontBanner({ data: { brand: storefrontScope.brand } }).catch(
-          (err: unknown) => {
-            console.error('getStorefrontBanner failed:', err)
-            return { text: '', textJa: null, textKo: null, isActive: false }
-          },
-        ),
-      ])
+    const [
+      geoDefaultCurrency,
+      geoCountry,
+      maintenanceMode,
+      banner,
+      emailCapturePopupEnabled,
+    ] = await Promise.all([
+      getGeoDefaultCurrency(),
+      getGeoCountry(),
+      getMaintenanceMode({ data: { brand: storefrontScope.brand } }).catch(
+        (err: unknown) => {
+          console.error('getMaintenanceMode failed:', err)
+          return false
+        },
+      ),
+      getStorefrontBanner({ data: { brand: storefrontScope.brand } }).catch(
+        (err: unknown) => {
+          console.error('getStorefrontBanner failed:', err)
+          return { text: '', textJa: null, textKo: null, isActive: false }
+        },
+      ),
+      getEmailCapturePopupEnabled().catch((err: unknown) => {
+        console.error('getEmailCapturePopupEnabled failed:', err)
+        return false
+      }),
+    ])
     return {
       geoDefaultCurrency,
       geoCountry,
       storefrontScope,
       maintenanceMode,
       banner,
+      emailCapturePopupEnabled,
     }
   },
   head: ({ match }) => ({
@@ -137,6 +149,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     storefrontScope,
     maintenanceMode,
     banner,
+    emailCapturePopupEnabled,
   } = Route.useRouteContext()
   const showMaintenance = !isAdminRoute && maintenanceMode
   const pixelBootstrapScript = buildPixelBootstrapScript(
@@ -199,6 +212,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                     {children}
                     {!isAdminRoute && <Footer scope={storefrontScope} />}
                     {!isAdminRoute && <LanguagePopup />}
+                    {!isAdminRoute && (
+                      <EmailCapturePopup enabled={emailCapturePopupEnabled} />
+                    )}
                   </>
                 )}
               </CartProvider>

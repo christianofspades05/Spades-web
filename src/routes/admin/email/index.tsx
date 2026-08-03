@@ -22,7 +22,8 @@ import type { EmailAutomation } from '#/types/entities'
 const CONTACTS_PAGE_SIZE = 100
 
 const EVENT_TYPE_DESCRIPTIONS: Record<EmailAutomation['event_type'], string> = {
-  welcome: 'Sent immediately when a customer creates an account.',
+  welcome:
+    'Sent immediately when a customer creates an account, or submits their email through the homepage popup (needs a discount attached below for the popup to show at all — its code expires in 24 hours instead of never).',
   abandoned_cart: 'Sent once a cart has been inactive for a while.',
   post_purchase_review: 'Sent some time after an order is delivered.',
   birthday: "Sent once a year, on the customer's birthday.",

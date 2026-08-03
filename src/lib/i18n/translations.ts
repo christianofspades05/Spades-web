@@ -262,6 +262,17 @@ export interface Translations {
     hidePassword: string
     showPassword: string
   }
+  emailCapture: {
+    title: string
+    body: string
+    emailPlaceholder: string
+    getCode: string
+    sending: string
+    alreadyCustomer: string
+    successMessage: string
+    alreadyCustomerMessage: string
+    closeAriaLabel: string
+  }
 }
 
 export const translations: Record<Language, Translations> = {
@@ -510,6 +521,18 @@ export const translations: Record<Language, Translations> = {
       hidePassword: 'Hide password',
       showPassword: 'Show password',
     },
+    emailCapture: {
+      title: 'Unlock a discount code',
+      body: 'Enter your email and we’ll send you a one-time code — valid for 24 hours.',
+      emailPlaceholder: 'Email address',
+      getCode: 'Get code',
+      sending: 'Sending…',
+      alreadyCustomer: 'Already a customer',
+      successMessage: 'Check your inbox — your code is on its way!',
+      alreadyCustomerMessage:
+        'Looks like you’re already one of us! No new code this time, but thanks for stopping by.',
+      closeAriaLabel: 'Close',
+    },
   },
   ja: {
     nav: {
@@ -754,6 +777,18 @@ export const translations: Record<Language, Translations> = {
       hidePassword: 'パスワードを隠す',
       showPassword: 'パスワードを表示',
     },
+    emailCapture: {
+      title: '割引コードをゲット',
+      body: 'メールアドレスを入力すると、24時間限定の割引コードをお送りします。',
+      emailPlaceholder: 'メールアドレス',
+      getCode: 'コードを受け取る',
+      sending: '送信中…',
+      alreadyCustomer: 'すでに会員です',
+      successMessage: 'メールをご確認ください — コードをお送りしました！',
+      alreadyCustomerMessage:
+        'すでにご登録済みのようです。今回は新しいコードはございませんが、お立ち寄りいただきありがとうございます。',
+      closeAriaLabel: '閉じる',
+    },
   },
   ko: {
     nav: {
@@ -994,6 +1029,18 @@ export const translations: Record<Language, Translations> = {
       saving: '저장 중…',
       hidePassword: '비밀번호 숨기기',
       showPassword: '비밀번호 표시',
+    },
+    emailCapture: {
+      title: '할인 코드 받기',
+      body: '이메일을 입력하시면 24시간 동안 유효한 일회용 코드를 보내드립니다.',
+      emailPlaceholder: '이메일 주소',
+      getCode: '코드 받기',
+      sending: '전송 중…',
+      alreadyCustomer: '이미 회원입니다',
+      successMessage: '이메일을 확인해 주세요 — 코드가 곧 도착합니다!',
+      alreadyCustomerMessage:
+        '이미 저희 고객이신 것 같아요! 이번엔 새 코드는 없지만, 방문해 주셔서 감사합니다.',
+      closeAriaLabel: '닫기',
     },
   },
 }
