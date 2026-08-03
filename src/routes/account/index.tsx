@@ -14,7 +14,11 @@ import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { AddAddressForm } from '#/components/storefront/AddAddressForm'
-import { buttonSecondaryClassName } from '#/components/storefront/ui'
+import {
+  buttonPrimaryClassName,
+  buttonSecondaryClassName,
+  inputClassName,
+} from '#/components/storefront/ui'
 
 export const Route = createFileRoute('/account/')({
   beforeLoad: async () => {
@@ -259,14 +263,25 @@ function CancelOrderButton({
   onCancelled: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  function handleClose() {
+    setOpen(false)
+    setReason('')
+    setError(null)
+  }
+
   async function handleConfirm() {
+    if (!reason.trim()) {
+      setError('Please tell us why you want to cancel this order.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
-      await cancelMyOrder({ data: { orderId } })
+      await cancelMyOrder({ data: { orderId, reason: reason.trim() } })
       onCancelled()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -274,8 +289,8 @@ function CancelOrderButton({
     }
   }
 
-  if (!open) {
-    return (
+  return (
+    <>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -283,31 +298,53 @@ function CancelOrderButton({
       >
         Cancel order
       </button>
-    )
-  }
 
-  return (
-    <div className="mt-1 flex flex-col items-end gap-1">
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={handleConfirm}
-          className="text-xs font-medium text-red-600 underline disabled:opacity-50 dark:text-red-400"
-        >
-          {submitting ? 'Cancelling…' : 'Confirm cancel'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="text-xs text-neutral-500 underline dark:text-neutral-400"
-        >
-          Never mind
-        </button>
-      </div>
-      {error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+      {open && (
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-6 text-left shadow-xl dark:bg-neutral-900">
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">
+              Cancel this order?
+            </h2>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              Let us know why — this helps us follow up if needed.
+            </p>
+
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Ordered by mistake, found it cheaper elsewhere…"
+              rows={3}
+              autoFocus
+              className={`${inputClassName} mt-4 w-full resize-none`}
+            />
+
+            {error && (
+              <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={submitting}
+                className={buttonSecondaryClassName}
+              >
+                Never mind
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleConfirm}
+                className={buttonPrimaryClassName}
+              >
+                {submitting ? 'Cancelling…' : 'Confirm cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </>
   )
 }

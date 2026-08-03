@@ -29,7 +29,16 @@ const TERMINAL_ORDER_STATUSES = new Set([
  * that was already committed.
  */
 export const cancelMyOrder = createServerFn({ method: 'POST' })
-  .validator(z.object({ orderId: z.string().uuid() }))
+  .validator(
+    z.object({
+      orderId: z.string().uuid(),
+      reason: z
+        .string()
+        .trim()
+        .min(1, 'Please tell us why you want to cancel this order.')
+        .max(500),
+    }),
+  )
   .handler(async ({ data }): Promise<void> => {
     const customer = await requireCustomer()
     const admin = getSupabaseAdminClient()
@@ -91,7 +100,12 @@ export const cancelMyOrder = createServerFn({ method: 'POST' })
 
     const { error: updateError } = await admin
       .from('orders')
-      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: 'customer_request',
+        cancellation_detail: data.reason,
+      })
       .eq('id', order.id)
     if (updateError) throw updateError
   })
