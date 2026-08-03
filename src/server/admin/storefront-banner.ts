@@ -12,6 +12,8 @@ const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin', 'manager']
 export interface StorefrontBannerRow {
   brand: ProductBrand
   text: string
+  text_ja: string | null
+  text_ko: string | null
   is_active: boolean
 }
 
@@ -21,7 +23,7 @@ export const listStorefrontBanners = createServerFn({ method: 'GET' }).handler(
     const admin = getSupabaseAdminClient()
     const { data, error } = await admin
       .from('storefront_banner')
-      .select('brand, text, is_active')
+      .select('brand, text, text_ja, text_ko, is_active')
       .order('brand', { ascending: true })
     if (error) throw error
     return data
@@ -38,6 +40,8 @@ export const setStorefrontBanner = createServerFn({ method: 'POST' })
       .from('storefront_banner')
       .update({
         text: data.text,
+        text_ja: data.textJa ?? null,
+        text_ko: data.textKo ?? null,
         is_active: data.isActive,
         updated_at: new Date().toISOString(),
       })

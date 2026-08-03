@@ -34,20 +34,26 @@ const MINIMAL_NAV_LINKS = [
 
 export function Header({ scope, banner }: HeaderProps) {
   const { itemCount } = useCart()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const navLinks =
     scope.collectionSlug === null ? FULL_NAV_LINKS : MINIMAL_NAV_LINKS
   const crossBrandLinks = getCrossBrandLinks(scope.brand)
+  const bannerText =
+    (language === 'ja'
+      ? banner.textJa
+      : language === 'ko'
+        ? banner.textKo
+        : null) || banner.text
 
   return (
     <header>
-      {banner.isActive && banner.text && (
+      {banner.isActive && bannerText && (
         <div
           className={`bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider sm:text-xs ${scope.promoBannerTextClassName}`}
         >
-          {banner.text}
+          {bannerText}
         </div>
       )}
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">

@@ -5,6 +5,8 @@ import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 
 export interface StorefrontBanner {
   text: string
+  textJa: string | null
+  textKo: string | null
   isActive: boolean
 }
 
@@ -19,9 +21,14 @@ export const getStorefrontBanner = createServerFn({ method: 'GET' })
     const supabase = getSupabaseServerClient()
     const { data: row, error } = await supabase
       .from('storefront_banner')
-      .select('text, is_active')
+      .select('text, text_ja, text_ko, is_active')
       .eq('brand', data.brand)
       .maybeSingle()
     if (error) throw error
-    return { text: row?.text ?? '', isActive: row?.is_active ?? false }
+    return {
+      text: row?.text ?? '',
+      textJa: row?.text_ja ?? null,
+      textKo: row?.text_ko ?? null,
+      isActive: row?.is_active ?? false,
+    }
   })

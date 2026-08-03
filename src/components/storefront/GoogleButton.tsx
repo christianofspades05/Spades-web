@@ -2,11 +2,7 @@ import { useState } from 'react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { buttonSecondaryClassName } from '#/components/storefront/ui'
 
-export function GoogleButton({
-  label = 'Continue with Google',
-}: {
-  label?: string
-}) {
+export function GoogleButton({ label }: { label: string }) {
   const [error, setError] = useState<string | null>(null)
 
   async function handleClick() {

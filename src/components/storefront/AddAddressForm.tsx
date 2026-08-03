@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { addCustomerAddress } from '#/server/account/addresses'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import {
   buttonPrimaryClassName,
@@ -48,6 +49,7 @@ export function AddAddressForm({
   onAdded: () => void
   onCancel: () => void
 }) {
+  const { t } = useLanguage()
   const [form, setForm] = useState<AddressFormState>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -89,16 +91,16 @@ export function AddAddressForm({
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className={labelClassName}>
-          Label (optional)
+          {t.account.labelOptional}
           <input
             value={form.label}
             onChange={(e) => setForm({ ...form, label: e.target.value })}
-            placeholder="Home, Office…"
+            placeholder={t.account.labelPlaceholder}
             className={inputClassName}
           />
         </label>
         <label className={labelClassName}>
-          Recipient name
+          {t.checkout.recipientName}
           <input
             required
             value={form.recipientName}
@@ -111,7 +113,7 @@ export function AddAddressForm({
       </div>
 
       <label className={labelClassName}>
-        Phone
+        {t.checkout.phone}
         <input
           required
           placeholder="09171234567"
@@ -133,17 +135,17 @@ export function AddAddressForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className={labelClassName}>
-          Address line 1
+          {t.checkout.addressLine1}
           <input
             required
-            placeholder="House/unit no., street"
+            placeholder={t.checkout.addressLine1Placeholder}
             value={form.addressLine1}
             onChange={(e) => setForm({ ...form, addressLine1: e.target.value })}
             className={inputClassName}
           />
         </label>
         <label className={labelClassName}>
-          Address line 2 (optional)
+          {t.checkout.addressLine2Optional}
           <input
             value={form.addressLine2}
             onChange={(e) => setForm({ ...form, addressLine2: e.target.value })}
@@ -154,7 +156,7 @@ export function AddAddressForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className={labelClassName}>
-          Landmark (optional)
+          {t.checkout.landmarkOptional}
           <input
             value={form.landmark}
             onChange={(e) => setForm({ ...form, landmark: e.target.value })}
@@ -162,7 +164,7 @@ export function AddAddressForm({
           />
         </label>
         <label className={labelClassName}>
-          Postal code (optional)
+          {t.account.postalCodeOptional}
           <input
             value={form.postalCode}
             onChange={(e) => setForm({ ...form, postalCode: e.target.value })}
@@ -180,7 +182,7 @@ export function AddAddressForm({
               setForm({ ...form, isDefaultShipping: e.target.checked })
             }
           />
-          Default shipping address
+          {t.account.defaultShipping}
         </label>
         <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
           <input
@@ -190,7 +192,7 @@ export function AddAddressForm({
               setForm({ ...form, isDefaultBilling: e.target.checked })
             }
           />
-          Default billing address
+          {t.account.defaultBilling}
         </label>
       </div>
 
@@ -204,14 +206,14 @@ export function AddAddressForm({
           disabled={submitting}
           className={buttonPrimaryClassName}
         >
-          {submitting ? 'Saving…' : 'Save address'}
+          {submitting ? t.account.saving : t.account.saveAddress}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className={buttonSecondaryClassName}
         >
-          Cancel
+          {t.account.cancel}
         </button>
       </div>
     </form>

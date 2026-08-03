@@ -11,6 +11,7 @@ import { getAccountOverview } from '#/server/account/queries'
 import { cancelMyOrder } from '#/server/account/orders'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { AddAddressForm } from '#/components/storefront/AddAddressForm'
@@ -40,6 +41,7 @@ export const Route = createFileRoute('/account/')({
 
 function AccountPage() {
   const { formatPrice } = useCurrency()
+  const { t } = useLanguage()
   const { customer, orders, addresses } = Route.useLoaderData()
   const navigate = useNavigate()
   const router = useRouter()
@@ -55,7 +57,7 @@ function AccountPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            {customer.full_name ?? 'Your account'}
+            {customer.full_name ?? t.account.yourAccount}
           </h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             {customer.email}
@@ -66,26 +68,30 @@ function AccountPage() {
           onClick={handleLogout}
           className={buttonSecondaryClassName}
         >
-          Log out
+          {t.account.logOut}
         </button>
       </div>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold">Order history</h2>
+        <h2 className="text-lg font-semibold">{t.account.orderHistory}</h2>
         {orders.length === 0 ? (
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-            You haven't placed any orders yet.
+            {t.account.noOrdersYet}
           </p>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-xs font-medium tracking-wide text-neutral-500 uppercase dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Items</th>
-                  <th className="px-4 py-3">Tracking number</th>
-                  <th className="px-4 py-3">Tracking</th>
-                  <th className="px-4 py-3 text-right">Payment</th>
+                  <th className="px-4 py-3">{t.account.orderColumn}</th>
+                  <th className="px-4 py-3">{t.account.itemsColumn}</th>
+                  <th className="px-4 py-3">
+                    {t.account.trackingNumberColumn}
+                  </th>
+                  <th className="px-4 py-3">{t.account.trackingColumn}</th>
+                  <th className="px-4 py-3 text-right">
+                    {t.account.paymentColumn}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -134,7 +140,7 @@ function AccountPage() {
                     <td className="px-4 py-3 whitespace-nowrap text-neutral-700 dark:text-neutral-300">
                       {order.isFulfilled
                         ? (order.trackingNumber ?? '—')
-                        : 'Unfulfilled'}
+                        : t.account.unfulfilled}
                     </td>
 
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -145,11 +151,11 @@ function AccountPage() {
                           rel="noreferrer"
                           className="font-medium text-neutral-900 underline dark:text-white"
                         >
-                          Track package
+                          {t.account.trackPackage}
                         </a>
                       ) : (
                         <span className="text-neutral-700 dark:text-neutral-300">
-                          {order.isFulfilled ? '—' : 'No tracking'}
+                          {order.isFulfilled ? '—' : t.account.noTracking}
                         </span>
                       )}
                     </td>
@@ -173,7 +179,7 @@ function AccountPage() {
                           params={{ orderId: order.id }}
                           className="mt-1 block text-xs font-medium text-neutral-900 underline dark:text-white"
                         >
-                          Write a review
+                          {t.account.writeReview}
                         </Link>
                       )}
                     </td>
@@ -187,21 +193,23 @@ function AccountPage() {
 
       <section className="mt-10">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Saved addresses</h2>
+          <h2 className="text-lg font-semibold">
+            {t.account.savedAddresses}
+          </h2>
           {!showAddressForm && (
             <button
               type="button"
               onClick={() => setShowAddressForm(true)}
               className={buttonSecondaryClassName}
             >
-              + Add address
+              {t.account.addAddress}
             </button>
           )}
         </div>
 
         {addresses.length === 0 && !showAddressForm && (
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-            No saved addresses yet.
+            {t.account.noSavedAddresses}
           </p>
         )}
 
@@ -262,6 +270,7 @@ function CancelOrderButton({
   orderId: string
   onCancelled: () => void
 }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -275,7 +284,7 @@ function CancelOrderButton({
 
   async function handleConfirm() {
     if (!reason.trim()) {
-      setError('Please tell us why you want to cancel this order.')
+      setError(t.account.cancelReasonRequired)
       return
     }
     setSubmitting(true)
@@ -296,23 +305,23 @@ function CancelOrderButton({
         onClick={() => setOpen(true)}
         className="mt-1 text-xs text-red-600 underline dark:text-red-400"
       >
-        Cancel order
+        {t.account.cancelOrder}
       </button>
 
       {open && (
         <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-sm rounded-lg bg-white p-6 text-left shadow-xl dark:bg-neutral-900">
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">
-              Cancel this order?
+              {t.account.cancelOrderTitle}
             </h2>
             <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-              Let us know why — this helps us follow up if needed.
+              {t.account.cancelOrderBody}
             </p>
 
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Ordered by mistake, found it cheaper elsewhere…"
+              placeholder={t.account.cancelReasonPlaceholder}
               rows={3}
               autoFocus
               className={`${inputClassName} mt-4 w-full resize-none`}
@@ -331,7 +340,7 @@ function CancelOrderButton({
                 disabled={submitting}
                 className={buttonSecondaryClassName}
               >
-                Never mind
+                {t.account.neverMind}
               </button>
               <button
                 type="button"
@@ -339,7 +348,9 @@ function CancelOrderButton({
                 onClick={handleConfirm}
                 className={buttonPrimaryClassName}
               >
-                {submitting ? 'Cancelling…' : 'Confirm cancellation'}
+                {submitting
+                  ? t.account.cancelling
+                  : t.account.confirmCancellation}
               </button>
             </div>
           </div>

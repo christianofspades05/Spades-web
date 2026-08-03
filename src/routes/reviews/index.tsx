@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { listStorefrontReviews } from '#/server/reviews/queries'
 import { submitStoreFeedback } from '#/server/feedback/submit'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { Stars } from '#/components/storefront/Stars'
 import {
   buttonPrimaryClassName,
@@ -35,6 +36,7 @@ function ReviewsPage() {
 }
 
 function FeedbackForm() {
+  const { t } = useLanguage()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -71,18 +73,18 @@ function FeedbackForm() {
   return (
     <section>
       <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-        Have any recommendations? Help us improve with your insights
+        {t.reviews.feedbackHeading}
       </h1>
 
       {submitted ? (
         <p className="mt-6 text-sm text-neutral-600 dark:text-neutral-400">
-          Thanks — we appreciate the feedback!
+          {t.reviews.feedbackThanks}
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className={labelClassName}>
-              Name
+              {t.reviews.name}
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -90,7 +92,7 @@ function FeedbackForm() {
               />
             </label>
             <label className={labelClassName}>
-              Email *
+              {t.reviews.email}
               <input
                 type="email"
                 required
@@ -101,7 +103,7 @@ function FeedbackForm() {
             </label>
           </div>
           <label className={labelClassName}>
-            Phone number
+            {t.reviews.phoneNumber}
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -109,7 +111,7 @@ function FeedbackForm() {
             />
           </label>
           <label className={labelClassName}>
-            Comment
+            {t.reviews.comment}
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
@@ -125,7 +127,7 @@ function FeedbackForm() {
             disabled={submitting}
             className={buttonPrimaryClassName}
           >
-            {submitting ? 'Sending…' : 'Send'}
+            {submitting ? t.reviews.sending : t.reviews.send}
           </button>
         </form>
       )}
@@ -142,6 +144,7 @@ function ReviewsCarousel({
   averageRating: number
   reviewCount: number
 }) {
+  const { t } = useLanguage()
   const pages: StorefrontReview[][] = []
   for (let i = 0; i < reviews.length; i += REVIEWS_PER_PAGE) {
     pages.push(reviews.slice(i, i + REVIEWS_PER_PAGE))
@@ -160,7 +163,7 @@ function ReviewsCarousel({
   return (
     <section className="mt-20 text-center">
       <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-        Let customers speak for us
+        {t.reviews.customersHeading}
       </h2>
       {reviewCount > 0 && (
         <>
@@ -168,14 +171,14 @@ function ReviewsCarousel({
             <Stars rating={averageRating} size={22} />
           </div>
           <p className="mt-1 text-sm text-neutral-500 underline dark:text-neutral-400">
-            from {reviewCount} review{reviewCount === 1 ? '' : 's'}
+            {t.reviews.fromReviews(reviewCount)}
           </p>
         </>
       )}
 
       {pages.length === 0 ? (
         <p className="mt-10 text-sm text-neutral-500 dark:text-neutral-400">
-          No reviews yet — be the first to leave one after your order arrives.
+          {t.reviews.noReviewsYet}
         </p>
       ) : (
         <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-5">
@@ -193,7 +196,7 @@ function ReviewsCarousel({
                 {review.product.name}
               </p>
               <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
-                {review.customerName ?? 'Verified buyer'}
+                {review.customerName ?? t.reviews.verifiedBuyer}
               </p>
               {review.product.image && (
                 <img
@@ -213,7 +216,7 @@ function ReviewsCarousel({
             <button
               key={i}
               type="button"
-              aria-label={`Go to review page ${i + 1}`}
+              aria-label={t.reviews.goToReviewPage(i + 1)}
               onClick={() => setPageIndex(i)}
               className={`size-1.5 rounded-full transition ${
                 i === pageIndex

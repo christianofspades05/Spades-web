@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { sendWelcomeEmailIfDue } from '#/server/account/welcome-email'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -18,6 +19,7 @@ export const Route = createFileRoute('/account/verify')({
 })
 
 function VerifyPage() {
+  const { t } = useLanguage()
   const { email } = Route.useSearch()
   const navigate = useNavigate()
   const [code, setCode] = useState('')
@@ -78,21 +80,23 @@ function VerifyPage() {
       return
     }
 
-    setResendMessage('A new code has been sent.')
+    setResendMessage(t.account.codeResent)
     setResendCooldown(RESEND_COOLDOWN_SECONDS)
   }
 
   return (
     <div className="mx-auto max-w-sm px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-tight">Check your email</h1>
+      <h1 className="text-2xl font-bold tracking-tight">
+        {t.account.checkYourEmail}
+      </h1>
       <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-        We sent a 6-digit code to <strong>{email}</strong>. Enter it below to
-        verify your account.
+        {t.account.codeSentPrefix} <strong>{email}</strong>.{' '}
+        {t.account.codeSentSuffix}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
         <label className={labelClassName}>
-          Verification code
+          {t.account.verificationCode}
           <input
             required
             inputMode="numeric"
@@ -117,7 +121,7 @@ function VerifyPage() {
           disabled={submitting || code.length !== 6}
           className={`${buttonPrimaryClassName} w-full justify-center`}
         >
-          {submitting ? 'Verifying…' : 'Verify'}
+          {submitting ? t.account.verifying : t.account.verify}
         </button>
         <button
           type="button"
@@ -126,8 +130,8 @@ function VerifyPage() {
           className={`${buttonSecondaryClassName} w-full justify-center`}
         >
           {resendCooldown > 0
-            ? `Resend code (${resendCooldown}s)`
-            : 'Resend code'}
+            ? t.account.resendCodeWithTimer(resendCooldown)
+            : t.account.resendCode}
         </button>
       </form>
     </div>

@@ -9,6 +9,7 @@ import {
 } from '#/server/account/reviews'
 import { fileToBase64 } from '#/lib/utils/file'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { StarRatingInput } from '#/components/storefront/Stars'
 import {
   buttonPrimaryClassName,
@@ -44,6 +45,7 @@ function initialDrafts(
 }
 
 function AccountOrderReviewPage() {
+  const { t } = useLanguage()
   const data = Route.useLoaderData()
   const { orderId } = Route.useParams()
   const [submitted, setSubmitted] = useState(false)
@@ -56,16 +58,15 @@ function AccountOrderReviewPage() {
   if (submitted) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <h1 className="text-2xl font-bold">Thanks for your review!</h1>
+        <h1 className="text-2xl font-bold">{t.account.thanksForReview}</h1>
         <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          We appreciate you taking the time — it'll appear on the product page
-          once it's been checked.
+          {t.account.reviewAppreciation}
         </p>
         <Link
           to="/account"
           className="mt-6 inline-block text-sm font-medium underline"
         >
-          Back to your account
+          {t.account.backToAccount}
         </Link>
       </div>
     )
@@ -74,16 +75,15 @@ function AccountOrderReviewPage() {
   if (data.products.length === 0) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <h1 className="text-2xl font-bold">All done!</h1>
+        <h1 className="text-2xl font-bold">{t.account.allDone}</h1>
         <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          You've already reviewed everything from order {data.orderNumber}.
-          Thank you!
+          {t.account.alreadyReviewed(data.orderNumber)}
         </p>
         <Link
           to="/account"
           className="mt-6 inline-block text-sm font-medium underline"
         >
-          Back to your account
+          {t.account.backToAccount}
         </Link>
       </div>
     )
@@ -106,7 +106,7 @@ function AccountOrderReviewPage() {
     event.target.value = ''
     if (!file) return
     if (file.size > 8 * 1024 * 1024) {
-      setError('Photo must be smaller than 8MB.')
+      setError(t.account.photoTooLarge)
       return
     }
 
@@ -160,7 +160,7 @@ function AccountOrderReviewPage() {
       }))
 
     if (reviews.length === 0) {
-      setError('Please rate at least one product before submitting.')
+      setError(t.account.ratingRequired)
       return
     }
 
@@ -177,10 +177,11 @@ function AccountOrderReviewPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-tight">How was it?</h1>
+      <h1 className="text-2xl font-bold tracking-tight">
+        {t.account.howWasIt}
+      </h1>
       <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-        Rate and review the items from order {data.orderNumber}. Only products
-        you rate will be submitted.
+        {t.account.rateReviewBody(data.orderNumber)}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-8">
@@ -218,7 +219,7 @@ function AccountOrderReviewPage() {
                 onChange={(e) =>
                   updateDraft(product.id, { reviewText: e.target.value })
                 }
-                placeholder="Tell us what you think (optional)"
+                placeholder={t.account.reviewPlaceholder}
                 rows={3}
                 maxLength={5000}
                 className={`${inputClassName} mt-3 w-full`}
@@ -267,7 +268,7 @@ function AccountOrderReviewPage() {
           disabled={submitting}
           className={`${buttonPrimaryClassName} justify-center`}
         >
-          {submitting ? 'Submitting…' : 'Submit review'}
+          {submitting ? t.account.submitting : t.account.submitReview}
         </button>
       </form>
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { sendWelcomeEmailIfDue } from '#/server/account/welcome-email'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
 import { PasswordInput } from '#/components/storefront/PasswordInput'
 import {
@@ -16,6 +17,7 @@ export const Route = createFileRoute('/account/login')({
 })
 
 function LoginPage() {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,41 +64,42 @@ function LoginPage() {
       {/* Sign up */}
       <div className="flex flex-col items-center justify-center bg-neutral-950 px-8 py-20 text-center text-white md:min-h-[70vh]">
         <h2 className="text-2xl font-bold tracking-tight">
-          Don't have an account?
+          {t.account.noAccountHeading}
         </h2>
         <p className="mt-3 max-w-xs text-sm text-neutral-300">
-          Create one to track your orders, save your addresses, and check out
-          faster next time.
+          {t.account.noAccountBody}
         </p>
         <Link
           to="/account/signup"
           className={`${buttonSecondaryClassName} mt-6`}
         >
-          Create an account
+          {t.account.createAccount}
         </Link>
       </div>
 
       {/* Sign in */}
       <div className="flex flex-col justify-center px-8 py-16 md:min-h-[70vh]">
         <div className="mx-auto w-full max-w-sm">
-          <h1 className="text-2xl font-bold tracking-tight">Sign in</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {t.account.signIn}
+          </h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-            Already have an account? Sign in below.
+            {t.account.alreadyHaveAccount}
           </p>
 
           <div className="mt-6">
-            <GoogleButton />
+            <GoogleButton label={t.account.continueWithGoogle} />
           </div>
 
           <div className="my-6 flex items-center gap-3 text-xs text-neutral-400">
             <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
-            OR
+            {t.account.or}
             <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className={labelClassName}>
-              Email
+              {t.checkout.email}
               <input
                 type="email"
                 required
@@ -106,7 +109,7 @@ function LoginPage() {
               />
             </label>
             <label className={labelClassName}>
-              Password
+              {t.account.password}
               <PasswordInput
                 value={password}
                 onChange={setPassword}
@@ -121,7 +124,7 @@ function LoginPage() {
               disabled={submitting}
               className={`${buttonPrimaryClassName} w-full justify-center`}
             >
-              {submitting ? 'Signing in…' : 'Sign in'}
+              {submitting ? t.account.signingIn : t.account.signIn}
             </button>
           </form>
         </div>

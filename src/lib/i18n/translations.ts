@@ -173,6 +173,95 @@ export interface Translations {
     essentials: string
     blanks: string
   }
+  reviews: {
+    feedbackHeading: string
+    feedbackThanks: string
+    name: string
+    email: string
+    phoneNumber: string
+    comment: string
+    sending: string
+    send: string
+    customersHeading: string
+    fromReviews: (count: number) => string
+    noReviewsYet: string
+    verifiedBuyer: string
+    goToReviewPage: (page: number) => string
+  }
+  contact: {
+    body: string
+  }
+  account: {
+    yourAccount: string
+    logOut: string
+    orderHistory: string
+    noOrdersYet: string
+    orderColumn: string
+    itemsColumn: string
+    trackingNumberColumn: string
+    trackingColumn: string
+    paymentColumn: string
+    unfulfilled: string
+    trackPackage: string
+    noTracking: string
+    savedAddresses: string
+    addAddress: string
+    noSavedAddresses: string
+    cancelOrder: string
+    writeReview: string
+    cancelOrderTitle: string
+    cancelOrderBody: string
+    cancelReasonPlaceholder: string
+    cancelReasonRequired: string
+    neverMind: string
+    confirmCancellation: string
+    cancelling: string
+    noAccountHeading: string
+    noAccountBody: string
+    createAccount: string
+    signIn: string
+    alreadyHaveAccount: string
+    or: string
+    password: string
+    signingIn: string
+    continueWithGoogle: string
+    alreadyHaveOne: string
+    dateOfBirth: string
+    dobImmutable: string
+    creatingAccount: string
+    signUpWithGoogle: string
+    checkYourEmail: string
+    codeSentPrefix: string
+    codeSentSuffix: string
+    verificationCode: string
+    verifying: string
+    verify: string
+    resendCode: string
+    resendCodeWithTimer: (seconds: number) => string
+    codeResent: string
+    thanksForReview: string
+    reviewAppreciation: string
+    backToAccount: string
+    allDone: string
+    alreadyReviewed: (orderNumber: string) => string
+    howWasIt: string
+    rateReviewBody: (orderNumber: string) => string
+    reviewPlaceholder: string
+    photoTooLarge: string
+    ratingRequired: string
+    submitting: string
+    submitReview: string
+    labelOptional: string
+    labelPlaceholder: string
+    postalCodeOptional: string
+    defaultShipping: string
+    defaultBilling: string
+    saveAddress: string
+    cancel: string
+    saving: string
+    hidePassword: string
+    showPassword: string
+  }
 }
 
 export const translations: Record<Language, Translations> = {
@@ -323,6 +412,104 @@ export const translations: Record<Language, Translations> = {
       essentials: 'Essentials',
       blanks: 'Blanks',
     },
+    reviews: {
+      feedbackHeading:
+        'Have any recommendations? Help us improve with your insights',
+      feedbackThanks: 'Thanks — we appreciate the feedback!',
+      name: 'Name',
+      email: 'Email *',
+      phoneNumber: 'Phone number',
+      comment: 'Comment',
+      sending: 'Sending…',
+      send: 'Send',
+      customersHeading: 'Let customers speak for us',
+      fromReviews: (count) =>
+        `from ${count} review${count === 1 ? '' : 's'}`,
+      noReviewsYet:
+        'No reviews yet — be the first to leave one after your order arrives.',
+      verifiedBuyer: 'Verified buyer',
+      goToReviewPage: (page) => `Go to review page ${page}`,
+    },
+    contact: {
+      body: 'Find us and reach out on our social channels.',
+    },
+    account: {
+      yourAccount: 'Your account',
+      logOut: 'Log out',
+      orderHistory: 'Order history',
+      noOrdersYet: "You haven't placed any orders yet.",
+      orderColumn: 'Order',
+      itemsColumn: 'Items',
+      trackingNumberColumn: 'Tracking number',
+      trackingColumn: 'Tracking',
+      paymentColumn: 'Payment',
+      unfulfilled: 'Unfulfilled',
+      trackPackage: 'Track package',
+      noTracking: 'No tracking',
+      savedAddresses: 'Saved addresses',
+      addAddress: '+ Add address',
+      noSavedAddresses: 'No saved addresses yet.',
+      cancelOrder: 'Cancel order',
+      writeReview: 'Write a review',
+      cancelOrderTitle: 'Cancel this order?',
+      cancelOrderBody: 'Let us know why — this helps us follow up if needed.',
+      cancelReasonPlaceholder:
+        'e.g. Ordered by mistake, found it cheaper elsewhere…',
+      cancelReasonRequired:
+        'Please tell us why you want to cancel this order.',
+      neverMind: 'Never mind',
+      confirmCancellation: 'Confirm cancellation',
+      cancelling: 'Cancelling…',
+      noAccountHeading: "Don't have an account?",
+      noAccountBody:
+        'Create one to track your orders, save your addresses, and check out faster next time.',
+      createAccount: 'Create an account',
+      signIn: 'Sign in',
+      alreadyHaveAccount: 'Already have an account? Sign in below.',
+      or: 'OR',
+      password: 'Password',
+      signingIn: 'Signing in…',
+      continueWithGoogle: 'Continue with Google',
+      alreadyHaveOne: 'Already have one?',
+      dateOfBirth: 'Date of birth',
+      dobImmutable: "Can't be changed once your account is created.",
+      creatingAccount: 'Creating account…',
+      signUpWithGoogle: 'Sign up with Google',
+      checkYourEmail: 'Check your email',
+      codeSentPrefix: 'We sent a 6-digit code to',
+      codeSentSuffix: 'Enter it below to verify your account.',
+      verificationCode: 'Verification code',
+      verifying: 'Verifying…',
+      verify: 'Verify',
+      resendCode: 'Resend code',
+      resendCodeWithTimer: (seconds) => `Resend code (${seconds}s)`,
+      codeResent: 'A new code has been sent.',
+      thanksForReview: 'Thanks for your review!',
+      reviewAppreciation:
+        "We appreciate you taking the time — it'll appear on the product page once it's been checked.",
+      backToAccount: 'Back to your account',
+      allDone: 'All done!',
+      alreadyReviewed: (orderNumber) =>
+        `You've already reviewed everything from order ${orderNumber}. Thank you!`,
+      howWasIt: 'How was it?',
+      rateReviewBody: (orderNumber) =>
+        `Rate and review the items from order ${orderNumber}. Only products you rate will be submitted.`,
+      reviewPlaceholder: 'Tell us what you think (optional)',
+      photoTooLarge: 'Photo must be smaller than 8MB.',
+      ratingRequired: 'Please rate at least one product before submitting.',
+      submitting: 'Submitting…',
+      submitReview: 'Submit review',
+      labelOptional: 'Label (optional)',
+      labelPlaceholder: 'Home, Office…',
+      postalCodeOptional: 'Postal code (optional)',
+      defaultShipping: 'Default shipping address',
+      defaultBilling: 'Default billing address',
+      saveAddress: 'Save address',
+      cancel: 'Cancel',
+      saving: 'Saving…',
+      hidePassword: 'Hide password',
+      showPassword: 'Show password',
+    },
   },
   ja: {
     nav: {
@@ -470,6 +657,103 @@ export const translations: Record<Language, Translations> = {
       essentials: 'エッセンシャルズ',
       blanks: '無地アイテム',
     },
+    reviews: {
+      feedbackHeading:
+        'ご意見・ご要望はありますか？あなたの声で私たちをより良くしてください',
+      feedbackThanks: 'ありがとうございます — ご意見をお寄せいただき感謝いたします！',
+      name: 'お名前',
+      email: 'メールアドレス *',
+      phoneNumber: '電話番号',
+      comment: 'コメント',
+      sending: '送信中…',
+      send: '送信',
+      customersHeading: 'お客様の声',
+      fromReviews: (count) => `${count}件のレビューより`,
+      noReviewsYet:
+        'まだレビューはありません — ご注文到着後、最初のレビューを投稿してみませんか。',
+      verifiedBuyer: '購入確認済み',
+      goToReviewPage: (page) => `レビューページ${page}へ移動`,
+    },
+    contact: {
+      body: 'SNSで私たちを見つけて、お気軽にご連絡ください。',
+    },
+    account: {
+      yourAccount: 'マイアカウント',
+      logOut: 'ログアウト',
+      orderHistory: '注文履歴',
+      noOrdersYet: 'まだご注文がありません。',
+      orderColumn: '注文',
+      itemsColumn: '商品',
+      trackingNumberColumn: '追跡番号',
+      trackingColumn: '追跡',
+      paymentColumn: 'お支払い',
+      unfulfilled: '未発送',
+      trackPackage: '荷物を追跡',
+      noTracking: '追跡情報なし',
+      savedAddresses: '保存済みの住所',
+      addAddress: '+ 住所を追加',
+      noSavedAddresses: '保存された住所はまだありません。',
+      cancelOrder: '注文をキャンセル',
+      writeReview: 'レビューを書く',
+      cancelOrderTitle: 'この注文をキャンセルしますか？',
+      cancelOrderBody:
+        '理由を教えてください — 必要に応じてフォローアップに役立ちます。',
+      cancelReasonPlaceholder: '例：誤って注文した、他でもっと安く見つけた…',
+      cancelReasonRequired: 'この注文をキャンセルする理由を教えてください。',
+      neverMind: 'やめておく',
+      confirmCancellation: 'キャンセルを確定',
+      cancelling: 'キャンセル中…',
+      noAccountHeading: 'アカウントをお持ちでないですか？',
+      noAccountBody:
+        'アカウントを作成すると、注文の追跡、住所の保存、次回からのスムーズなチェックアウトができます。',
+      createAccount: 'アカウントを作成',
+      signIn: 'ログイン',
+      alreadyHaveAccount:
+        'すでにアカウントをお持ちですか？以下からログインしてください。',
+      or: 'または',
+      password: 'パスワード',
+      signingIn: 'ログイン中…',
+      continueWithGoogle: 'Googleで続ける',
+      alreadyHaveOne: 'すでにお持ちですか？',
+      dateOfBirth: '生年月日',
+      dobImmutable: 'アカウント作成後は変更できません。',
+      creatingAccount: 'アカウント作成中…',
+      signUpWithGoogle: 'Googleで登録',
+      checkYourEmail: 'メールをご確認ください',
+      codeSentPrefix: '6桁のコードを送信しました：',
+      codeSentSuffix: '下に入力してアカウントを認証してください。',
+      verificationCode: '認証コード',
+      verifying: '認証中…',
+      verify: '認証する',
+      resendCode: 'コードを再送信',
+      resendCodeWithTimer: (seconds) => `コードを再送信（${seconds}秒）`,
+      codeResent: '新しいコードを送信しました。',
+      thanksForReview: 'レビューありがとうございます！',
+      reviewAppreciation:
+        'お時間をいただきありがとうございます — 確認後、商品ページに表示されます。',
+      backToAccount: 'アカウントに戻る',
+      allDone: '完了しました！',
+      alreadyReviewed: (orderNumber) =>
+        `注文${orderNumber}の商品はすべてレビュー済みです。ありがとうございました！`,
+      howWasIt: 'いかがでしたか？',
+      rateReviewBody: (orderNumber) =>
+        `注文${orderNumber}の商品を評価・レビューしてください。評価した商品のみ送信されます。`,
+      reviewPlaceholder: 'ご感想をお聞かせください（任意）',
+      photoTooLarge: '写真は8MB以下にしてください。',
+      ratingRequired: '送信する前に、少なくとも1つの商品を評価してください。',
+      submitting: '送信中…',
+      submitReview: 'レビューを送信',
+      labelOptional: 'ラベル（任意）',
+      labelPlaceholder: '自宅、オフィスなど…',
+      postalCodeOptional: '郵便番号（任意）',
+      defaultShipping: 'デフォルトの配送先住所',
+      defaultBilling: 'デフォルトの請求先住所',
+      saveAddress: '住所を保存',
+      cancel: 'キャンセル',
+      saving: '保存中…',
+      hidePassword: 'パスワードを隠す',
+      showPassword: 'パスワードを表示',
+    },
   },
   ko: {
     nav: {
@@ -616,6 +900,100 @@ export const translations: Record<Language, Translations> = {
       jerseyTee: '저지 티셔츠',
       essentials: '에센셜',
       blanks: '무지 아이템',
+    },
+    reviews: {
+      feedbackHeading: '추천하고 싶은 점이 있으신가요? 소중한 의견으로 저희를 발전시켜 주세요',
+      feedbackThanks: '감사합니다 — 소중한 의견 감사드립니다!',
+      name: '이름',
+      email: '이메일 *',
+      phoneNumber: '전화번호',
+      comment: '의견',
+      sending: '전송 중…',
+      send: '보내기',
+      customersHeading: '고객들의 후기',
+      fromReviews: (count) => `리뷰 ${count}개 기준`,
+      noReviewsYet: '아직 리뷰가 없습니다 — 주문하신 상품이 도착하면 첫 번째 리뷰를 남겨보세요.',
+      verifiedBuyer: '구매 확인됨',
+      goToReviewPage: (page) => `리뷰 페이지 ${page}로 이동`,
+    },
+    contact: {
+      body: 'SNS에서 저희를 찾아보시고 편하게 연락해 주세요.',
+    },
+    account: {
+      yourAccount: '내 계정',
+      logOut: '로그아웃',
+      orderHistory: '주문 내역',
+      noOrdersYet: '아직 주문한 내역이 없습니다.',
+      orderColumn: '주문',
+      itemsColumn: '상품',
+      trackingNumberColumn: '운송장 번호',
+      trackingColumn: '배송 조회',
+      paymentColumn: '결제',
+      unfulfilled: '미발송',
+      trackPackage: '배송 조회',
+      noTracking: '배송 조회 정보 없음',
+      savedAddresses: '저장된 주소',
+      addAddress: '+ 주소 추가',
+      noSavedAddresses: '저장된 주소가 아직 없습니다.',
+      cancelOrder: '주문 취소',
+      writeReview: '리뷰 작성',
+      cancelOrderTitle: '이 주문을 취소하시겠어요?',
+      cancelOrderBody:
+        '이유를 알려주세요 — 필요할 경우 후속 조치에 도움이 됩니다.',
+      cancelReasonPlaceholder: '예: 실수로 주문함, 다른 곳에서 더 저렴하게 발견함…',
+      cancelReasonRequired: '이 주문을 취소하려는 이유를 알려주세요.',
+      neverMind: '취소하지 않기',
+      confirmCancellation: '취소 확정',
+      cancelling: '취소하는 중…',
+      noAccountHeading: '계정이 없으신가요?',
+      noAccountBody:
+        '계정을 만들면 주문을 추적하고, 주소를 저장하고, 다음번에 더 빠르게 결제할 수 있습니다.',
+      createAccount: '계정 만들기',
+      signIn: '로그인',
+      alreadyHaveAccount: '이미 계정이 있으신가요? 아래에서 로그인하세요.',
+      or: '또는',
+      password: '비밀번호',
+      signingIn: '로그인 중…',
+      continueWithGoogle: 'Google로 계속하기',
+      alreadyHaveOne: '이미 계정이 있으신가요?',
+      dateOfBirth: '생년월일',
+      dobImmutable: '계정 생성 후에는 변경할 수 없습니다.',
+      creatingAccount: '계정 생성 중…',
+      signUpWithGoogle: 'Google로 가입하기',
+      checkYourEmail: '이메일을 확인해 주세요',
+      codeSentPrefix: '6자리 코드를 다음 주소로 보내드렸습니다:',
+      codeSentSuffix: '아래에 입력하여 계정을 인증해 주세요.',
+      verificationCode: '인증 코드',
+      verifying: '인증 중…',
+      verify: '인증하기',
+      resendCode: '코드 재전송',
+      resendCodeWithTimer: (seconds) => `코드 재전송 (${seconds}초)`,
+      codeResent: '새 코드가 전송되었습니다.',
+      thanksForReview: '리뷰를 남겨주셔서 감사합니다!',
+      reviewAppreciation:
+        '소중한 시간 내어주셔서 감사합니다 — 확인 후 상품 페이지에 표시됩니다.',
+      backToAccount: '계정으로 돌아가기',
+      allDone: '모두 완료되었습니다!',
+      alreadyReviewed: (orderNumber) =>
+        `주문 ${orderNumber}의 상품을 모두 리뷰하셨습니다. 감사합니다!`,
+      howWasIt: '어떠셨나요?',
+      rateReviewBody: (orderNumber) =>
+        `주문 ${orderNumber}의 상품을 평가하고 리뷰해 주세요. 평가한 상품만 제출됩니다.`,
+      reviewPlaceholder: '의견을 남겨주세요 (선택 사항)',
+      photoTooLarge: '사진 용량은 8MB 이하여야 합니다.',
+      ratingRequired: '제출하기 전에 최소 하나의 상품을 평가해 주세요.',
+      submitting: '제출하는 중…',
+      submitReview: '리뷰 제출',
+      labelOptional: '라벨 (선택 사항)',
+      labelPlaceholder: '집, 사무실 등…',
+      postalCodeOptional: '우편번호 (선택 사항)',
+      defaultShipping: '기본 배송지 주소',
+      defaultBilling: '기본 청구지 주소',
+      saveAddress: '주소 저장',
+      cancel: '취소',
+      saving: '저장 중…',
+      hidePassword: '비밀번호 숨기기',
+      showPassword: '비밀번호 표시',
     },
   },
 }

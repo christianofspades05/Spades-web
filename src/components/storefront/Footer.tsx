@@ -34,15 +34,21 @@ function CollectionOrCatalogLink({
 }
 
 export function Footer({ scope }: FooterProps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const tagline =
+    (language === 'ja'
+      ? scope.taglineJa
+      : language === 'ko'
+        ? scope.taglineKo
+        : null) || scope.tagline
   return (
     <footer className="bg-neutral-950 text-neutral-300">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-10 px-6 py-14 sm:grid-cols-4">
         <div className="col-span-2 sm:col-span-1">
           <img src={scope.logoDark} alt={scope.name} className="h-6 w-auto" />
-          {scope.tagline && (
+          {tagline && (
             <p className="mt-4 max-w-xs text-sm text-neutral-400">
-              {scope.tagline}
+              {tagline}
             </p>
           )}
           <div className="mt-5 flex items-center gap-4">

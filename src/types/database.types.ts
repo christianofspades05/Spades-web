@@ -303,6 +303,8 @@ export interface Database {
         Row: {
           brand: ProductBrand
           text: string
+          text_ja: string | null
+          text_ko: string | null
           is_active: boolean
           updated_at: string
         }

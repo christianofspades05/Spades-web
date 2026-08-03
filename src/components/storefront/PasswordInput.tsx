@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { inputClassName } from '#/components/storefront/ui'
 
 export function PasswordInput({
@@ -13,6 +14,7 @@ export function PasswordInput({
   minLength?: number
   autoComplete?: string
 }) {
+  const { t } = useLanguage()
   const [visible, setVisible] = useState(false)
 
   return (
@@ -29,7 +31,7 @@ export function PasswordInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-label={visible ? t.account.hidePassword : t.account.showPassword}
         className="absolute top-1/2 right-2.5 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
       >
         {visible ? <EyeOff size={16} /> : <Eye size={16} />}

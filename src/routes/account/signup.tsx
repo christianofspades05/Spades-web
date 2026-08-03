@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { GoogleButton } from '#/components/storefront/GoogleButton'
 import { PasswordInput } from '#/components/storefront/PasswordInput'
 import {
@@ -14,6 +15,7 @@ export const Route = createFileRoute('/account/signup')({
 })
 
 function SignupPage() {
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -45,27 +47,29 @@ function SignupPage() {
 
   return (
     <div className="mx-auto max-w-sm px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-tight">Create an account</h1>
+      <h1 className="text-2xl font-bold tracking-tight">
+        {t.account.createAccount}
+      </h1>
       <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-        Already have one?{' '}
+        {t.account.alreadyHaveOne}{' '}
         <Link to="/account/login" className="underline">
-          Sign in
+          {t.account.signIn}
         </Link>
       </p>
 
       <div className="mt-6">
-        <GoogleButton label="Sign up with Google" />
+        <GoogleButton label={t.account.signUpWithGoogle} />
       </div>
 
       <div className="my-6 flex items-center gap-3 text-xs text-neutral-400">
         <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
-        OR
+        {t.account.or}
         <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className={labelClassName}>
-          Email
+          {t.checkout.email}
           <input
             type="email"
             required
@@ -75,7 +79,7 @@ function SignupPage() {
           />
         </label>
         <label className={labelClassName}>
-          Password
+          {t.account.password}
           <PasswordInput
             value={password}
             onChange={setPassword}
@@ -84,7 +88,7 @@ function SignupPage() {
           />
         </label>
         <label className={labelClassName}>
-          Date of birth
+          {t.account.dateOfBirth}
           <input
             type="date"
             required
@@ -94,7 +98,7 @@ function SignupPage() {
             className={inputClassName}
           />
           <span className="text-xs font-normal text-neutral-400">
-            Can't be changed once your account is created.
+            {t.account.dobImmutable}
           </span>
         </label>
         {error && (
@@ -105,7 +109,7 @@ function SignupPage() {
           disabled={submitting}
           className={`${buttonPrimaryClassName} w-full justify-center`}
         >
-          {submitting ? 'Creating account…' : 'Create account'}
+          {submitting ? t.account.creatingAccount : t.account.createAccount}
         </button>
       </form>
     </div>

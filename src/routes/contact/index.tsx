@@ -1,11 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Facebook, Instagram } from 'lucide-react'
 import { TikTokIcon } from '#/components/storefront/TikTokIcon'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 
 export const Route = createFileRoute('/contact/')({ component: ContactPage })
 
 function ContactPage() {
   const { storefrontScope } = Route.useRouteContext()
+  const { t } = useLanguage()
   const socialLinks = [
     {
       label: 'Facebook',
@@ -22,9 +24,9 @@ function ContactPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-      <h1 className="text-3xl font-bold">Contact Us</h1>
+      <h1 className="text-3xl font-bold">{t.nav.contactUs}</h1>
       <p className="mt-4 text-neutral-600 dark:text-neutral-400">
-        Find us and reach out on our social channels.
+        {t.contact.body}
       </p>
 
       <div className="mt-10 flex justify-center gap-8">

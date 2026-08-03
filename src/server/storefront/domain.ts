@@ -32,6 +32,8 @@ export interface StorefrontScope {
   shopLabel: string
   title: string
   tagline: string
+  taglineJa: string
+  taglineKo: string
   logoLight: string
   logoDark: string
   /** Browser-tab icon and iOS home-screen icon — falls back to the brand's
@@ -98,7 +100,9 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     name: 'Spades',
     shopLabel: 'Spades',
     title: 'Spades — Philippine Streetwear',
-    tagline: 'Philippine streetwear for those who bet on themselves.',
+    tagline: 'Streetwear for those who bet on themselves.',
+    taglineJa: '自分自身に賭ける者たちのためのストリートウェア。',
+    taglineKo: '스스로에게 베팅하는 이들을 위한 스트리트웨어.',
     logoLight: '/logo-black.png',
     logoDark: '/logo-white.png',
     faviconUrl: '/favicon-32.png',
@@ -124,6 +128,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     shopLabel: 'Ysrael',
     title: 'Ysrael',
     tagline: '',
+    taglineJa: '',
+    taglineKo: '',
     logoLight: '/ysrael-logo-black.png',
     logoDark: '/ysrael-logo-white.png',
     faviconUrl: '/ysrael-logo-black.png',
@@ -148,6 +154,8 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     shopLabel: 'Aspire',
     title: 'Aspire 365',
     tagline: '',
+    taglineJa: '',
+    taglineKo: '',
     logoLight: '/aspire365-logo-black.png',
     logoDark: '/aspire365-logo-white.png',
     faviconUrl: '/aspire365-logo-black.png',
