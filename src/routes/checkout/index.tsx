@@ -362,6 +362,10 @@ function CheckoutPage() {
                 .filter(Boolean)
                 .join(' / ')
               const imageUrl = item.variant.product.images[0]
+              const discountedUnits =
+                cart.discount?.itemBreakdown.find(
+                  (b) => b.cartItemId === item.id,
+                )?.discountedUnits ?? 0
               return (
                 <li key={item.id} className="flex gap-3">
                   <div className="relative h-16 w-14 shrink-0 overflow-hidden rounded-md bg-neutral-200 dark:bg-neutral-800">
@@ -384,6 +388,14 @@ function CheckoutPage() {
                       {variantLabel && (
                         <p className="text-xs text-neutral-500 dark:text-neutral-400">
                           {variantLabel}
+                        </p>
+                      )}
+                      {discountedUnits > 0 && (
+                        <p className="text-xs font-medium text-green-700 dark:text-green-400">
+                          {t.cart.discountAppliesTo(
+                            discountedUnits,
+                            item.quantity,
+                          )}
                         </p>
                       )}
                     </div>

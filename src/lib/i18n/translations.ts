@@ -88,6 +88,10 @@ export interface Translations {
     freeShippingLabel: string
     subtotal: string
     discount: string
+    /** Shown per cart line when a discount only covers some of that line's
+     *  units (see discounts.max_discounted_items) — e.g. "Discount applies
+     *  to 2 of 4". */
+    discountAppliesTo: (discounted: number, total: number) => string
     total: string
     checkout: string
   }
@@ -334,6 +338,8 @@ export const translations: Record<Language, Translations> = {
       freeShippingLabel: 'Free shipping',
       subtotal: 'Subtotal',
       discount: 'Discount',
+      discountAppliesTo: (discounted, total) =>
+        `Discount applies to ${discounted} of ${total}`,
       total: 'Total',
       checkout: 'Checkout',
     },
@@ -591,6 +597,8 @@ export const translations: Record<Language, Translations> = {
       freeShippingLabel: '送料無料',
       subtotal: '小計',
       discount: '割引',
+      discountAppliesTo: (discounted, total) =>
+        `割引は${total}点中${discounted}点に適用されます`,
       total: '合計',
       checkout: 'レジに進む',
     },
@@ -847,6 +855,8 @@ export const translations: Record<Language, Translations> = {
       freeShippingLabel: '무료 배송',
       subtotal: '소계',
       discount: '할인',
+      discountAppliesTo: (discounted, total) =>
+        `할인은 ${total}개 중 ${discounted}개에 적용됩니다`,
       total: '합계',
       checkout: '결제하기',
     },

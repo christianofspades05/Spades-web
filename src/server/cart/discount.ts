@@ -24,33 +24,60 @@ export interface AppliedCartDiscount {
    *  discounts.excludes_free_shipping. Checked by shippingCostCents'
    *  callers, never by this module itself. */
   excludesFreeShipping: boolean
+  /** How many units of each cart item actually got the discount — only
+   *  present for items with at least one discounted unit (a cart item
+   *  entirely outside the discount's scope, or fully excluded by
+   *  max_discounted_items, just doesn't appear here). Lets the cart/
+   *  checkout UI show e.g. "discount applies to 2 of 4" per line instead of
+   *  only a single lump-sum total. */
+  itemBreakdown: { cartItemId: string; discountedUnits: number }[]
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
   return item.quantity * item.price_cents_snapshot
 }
 
-/** The subtotal a percentage/fixed_amount discount actually applies to —
- *  every eligible unit, unless maxDiscountedItems caps it to only the N
- *  highest-priced units (the owner's choice: a capped code discounts the
- *  customer's priciest picks first, full price on the rest). */
-function discountableSubtotalCents(
+/** The subtotal a percentage/fixed_amount discount actually applies to, and
+ *  which cart items it came from — every eligible unit, unless
+ *  maxDiscountedItems caps it to only the N highest-priced units (the
+ *  owner's choice: a capped code discounts the customer's priciest picks
+ *  first, full price on the rest). Ties (equal-priced units from different
+ *  items) are broken by `eligible`'s own order, via a stable sort. */
+function discountableBreakdown(
   eligible: CartItemWithVariant[],
   maxDiscountedItems: number | null,
-): number {
+): { subtotalCents: number; perItemDiscountedUnits: Map<string, number> } {
   if (maxDiscountedItems == null) {
-    return eligible.reduce((sum, item) => sum + itemLineTotalCents(item), 0)
-  }
-  const unitPrices: number[] = []
-  for (const item of eligible) {
-    for (let i = 0; i < item.quantity; i++) {
-      unitPrices.push(item.price_cents_snapshot)
+    const perItemDiscountedUnits = new Map(
+      eligible.map((item) => [item.id, item.quantity]),
+    )
+    return {
+      subtotalCents: eligible.reduce(
+        (sum, item) => sum + itemLineTotalCents(item),
+        0,
+      ),
+      perItemDiscountedUnits,
     }
   }
-  unitPrices.sort((a, b) => b - a)
-  return unitPrices
-    .slice(0, maxDiscountedItems)
-    .reduce((sum, price) => sum + price, 0)
+  const units: { cartItemId: string; price: number }[] = []
+  for (const item of eligible) {
+    for (let i = 0; i < item.quantity; i++) {
+      units.push({ cartItemId: item.id, price: item.price_cents_snapshot })
+    }
+  }
+  units.sort((a, b) => b.price - a.price)
+  const discounted = units.slice(0, maxDiscountedItems)
+  const perItemDiscountedUnits = new Map<string, number>()
+  for (const unit of discounted) {
+    perItemDiscountedUnits.set(
+      unit.cartItemId,
+      (perItemDiscountedUnits.get(unit.cartItemId) ?? 0) + 1,
+    )
+  }
+  return {
+    subtotalCents: discounted.reduce((sum, unit) => sum + unit.price, 0),
+    perItemDiscountedUnits,
+  }
 }
 
 async function eligibleItemsForDiscount(
@@ -104,10 +131,8 @@ async function appliedDiscountFor(
 ): Promise<AppliedCartDiscount | null> {
   const eligible = await eligibleItemsForDiscount(admin, discount, items)
   if (eligible.length === 0) return null
-  const eligibleSubtotalCents = discountableSubtotalCents(
-    eligible,
-    discount.max_discounted_items,
-  )
+  const { subtotalCents: eligibleSubtotalCents, perItemDiscountedUnits } =
+    discountableBreakdown(eligible, discount.max_discounted_items)
 
   let amountCents = 0
   if (discount.type === 'percentage') {
@@ -125,6 +150,10 @@ async function appliedDiscountFor(
     value: discount.value,
     amountCents,
     excludesFreeShipping: discount.excludes_free_shipping,
+    itemBreakdown: Array.from(perItemDiscountedUnits, ([cartItemId, discountedUnits]) => ({
+      cartItemId,
+      discountedUnits,
+    })),
   }
 }
 
