@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { COUNTRY_DEFAULT_LANGUAGE } from '#/lib/i18n/translations'
 
 export interface CheckoutInfo {
   email: string
@@ -36,15 +37,28 @@ export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
 
 const STORAGE_KEY = 'spades_checkout_info'
 
-function readStoredInfo(): CheckoutInfo {
+/** Falls back to the visitor's geo-detected country (see server/currency/geo.ts
+ *  — the same signal CurrencyProvider/LanguageProvider already use) rather
+ *  than always defaulting to PH, so a shopper visiting from e.g. Japan
+ *  doesn't have to manually change the country field away from the wrong
+ *  default. Only kicks in for a fresh checkout with nothing saved yet — a
+ *  returning shopper's own choice (including PH) always wins. Restricted to
+ *  the markets the site actually has pricing/shipping configured for (the
+ *  same five countries the language feature targets — see
+ *  COUNTRY_DEFAULT_LANGUAGE) rather than any geo-detected country, since an
+ *  unconfigured country wouldn't show up in the checkout's own country
+ *  picker (see CountrySelect's countryCodes prop) anyway. */
+function readStoredInfo(geoCountry: string | null): CheckoutInfo {
   if (typeof window === 'undefined') return EMPTY_CHECKOUT_INFO
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) return EMPTY_CHECKOUT_INFO
-    return { ...EMPTY_CHECKOUT_INFO, ...JSON.parse(raw) }
+    if (raw) return { ...EMPTY_CHECKOUT_INFO, ...JSON.parse(raw) }
   } catch {
-    return EMPTY_CHECKOUT_INFO
+    // fall through to the geo default below
   }
+  return geoCountry && geoCountry in COUNTRY_DEFAULT_LANGUAGE
+    ? { ...EMPTY_CHECKOUT_INFO, country: geoCountry }
+    : EMPTY_CHECKOUT_INFO
 }
 
 /** NCR has no real province in the PSGC data (see PHAddressFields) — fill in a sensible label before this goes anywhere that requires one (validation, the order's address snapshot). */
@@ -80,12 +94,18 @@ interface CheckoutContextValue {
 
 const CheckoutContext = createContext<CheckoutContextValue | null>(null)
 
-export function CheckoutProvider({ children }: { children: ReactNode }) {
+export function CheckoutProvider({
+  children,
+  geoCountry,
+}: {
+  children: ReactNode
+  geoCountry: string | null
+}) {
   const [info, setInfoState] = useState<CheckoutInfo>(EMPTY_CHECKOUT_INFO)
 
   useEffect(() => {
-    setInfoState(readStoredInfo())
-  }, [])
+    setInfoState(readStoredInfo(geoCountry))
+  }, [geoCountry])
 
   function setInfo(next: CheckoutInfo) {
     setInfoState(next)

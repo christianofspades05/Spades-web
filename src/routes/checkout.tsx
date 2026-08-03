@@ -6,8 +6,10 @@ export const Route = createFileRoute('/checkout')({
 })
 
 function CheckoutLayout() {
+  const { geoCountry } = Route.useRouteContext()
+
   return (
-    <CheckoutProvider>
+    <CheckoutProvider geoCountry={geoCountry}>
       <Outlet />
     </CheckoutProvider>
   )
