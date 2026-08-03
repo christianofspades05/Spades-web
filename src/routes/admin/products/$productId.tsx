@@ -343,28 +343,13 @@ function EditProductPage() {
                     className={inputClassName}
                   />
                 </label>
-                <label className={labelClassName}>
-                  Description (Japanese)
-                  <textarea
-                    value={form.descriptionJa}
-                    onChange={(e) =>
-                      setForm({ ...form, descriptionJa: e.target.value })
-                    }
-                    rows={8}
-                    className={inputClassName}
-                  />
-                </label>
-                <label className={labelClassName}>
-                  Description (Korean)
-                  <textarea
-                    value={form.descriptionKo}
-                    onChange={(e) =>
-                      setForm({ ...form, descriptionKo: e.target.value })
-                    }
-                    rows={8}
-                    className={inputClassName}
-                  />
-                </label>
+                {/* Japanese/Korean description fields hidden from this page
+                    per staff request — form.descriptionJa/descriptionKo are
+                    still loaded from and submitted back to
+                    products.description_ja/description_ko unchanged below,
+                    so existing translations are preserved and still served
+                    to JP/KR storefront visitors; only the editing UI here is
+                    hidden. */}
               </div>
             </Card>
 
