@@ -116,6 +116,8 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
   'returned_to_sender',
 ]
 
+const CARRIER_OPTIONS = ['J&T', 'SPX', 'DHL']
+
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
     const [order, adjacent] = await Promise.all([
@@ -763,12 +765,18 @@ function ShipmentForm({
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
         <label className={labelClassName}>
           Courier
-          <input
+          <select
             value={carrier}
             onChange={(e) => setCarrier(e.target.value)}
-            placeholder="J&T Express, LBC, Ninja Van…"
             className={inputClassName}
-          />
+          >
+            <option value="">Select courier…</option>
+            {CARRIER_OPTIONS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </label>
         <label className={labelClassName}>
           Tracking number
