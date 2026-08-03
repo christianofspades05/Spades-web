@@ -1115,6 +1115,14 @@ function DuplicateProductModal({
             />
             Duplicate pictures
           </label>
+          {duplicateImages && (
+            <p className="-mt-2 text-xs text-amber-600">
+              Heads up: Shopee/TikTok Shop reject a new listing that uses the
+              exact same pictures as one you've already pushed ("product is
+              duplicated"). If you plan to push this to a marketplace, swap in
+              at least one different picture first.
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm text-neutral-700">
             <input
               type="checkbox"

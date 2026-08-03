@@ -939,6 +939,15 @@ export async function pushNewProductToMarketplace(
     )
     .eq('product_id', productId)
     .eq('is_active', true)
+    // Without this, Postgres returns variants in whatever order it feels
+    // like — not the S/M/L/XL arrangement staff drag-and-drop into on the
+    // product edit page (see reorderVariants/getProductById's own
+    // `.order('sort_order', ...)`) — and that raw order is exactly what
+    // ends up as the sku list on the marketplace listing (confirmed on
+    // TikTok Shop's buyer-facing size picker showing e.g. XL, L, S, 3XL,
+    // 2XL, M). The staff's own arrangement is the source of truth
+    // everywhere it's displayed, not a re-derived size sort.
+    .order('sort_order')
   if (variantsError) throw variantsError
   if (variants.length === 0) {
     throw new Error('This product has no active variants to push.')

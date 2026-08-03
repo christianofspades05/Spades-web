@@ -188,6 +188,7 @@ export const getProductsByIds = createServerFn({ method: 'GET' })
       )
       .in('id', data.ids)
       .order('created_at', { ascending: false })
+      .order('sort_order', { foreignTable: 'variants' })
     if (error) throw error
     return products
   })

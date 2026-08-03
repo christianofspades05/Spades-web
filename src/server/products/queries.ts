@@ -296,6 +296,7 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
         .eq('slug', data.slug)
         .eq('status', 'active')
         .eq('brand', data.brand)
+        .order('sort_order', { foreignTable: 'variants' })
         .maybeSingle()
 
       if (error) throw error
