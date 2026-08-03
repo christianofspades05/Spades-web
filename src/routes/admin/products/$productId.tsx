@@ -708,7 +708,7 @@ function VariantRow({
 }) {
   const [expanded, setExpanded] = useState(false)
 
-  const [sku, setSku] = useState(variant.sku)
+  const [sku, setSku] = useState(variant.sku ?? '')
   const [size, setSize] = useState(variant.size ?? '')
   const [color, setColor] = useState(variant.color ?? '')
   const [style, setStyle] = useState(variant.style ?? '')

@@ -348,7 +348,7 @@ export interface Database {
         Row: {
           id: string
           product_id: string
-          sku: string
+          sku: string | null
           size: string | null
           color: string | null
           style: string | null
@@ -366,7 +366,6 @@ export interface Database {
           Database['public']['Tables']['product_variants']['Row']
         > & {
           product_id: string
-          sku: string
           price_cents: number
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Row']>

@@ -952,6 +952,16 @@ export async function pushNewProductToMarketplace(
   if (variants.length === 0) {
     throw new Error('This product has no active variants to push.')
   }
+  // A duplicated product's variants start with a blank SKU (see
+  // duplicateProduct) until staff fill in a real one — catch that here
+  // with a clear message instead of letting Shopee/TikTok reject the push
+  // with a confusing raw API error over a missing seller_sku field.
+  const missingSku = variants.filter((v) => !v.sku)
+  if (missingSku.length > 0) {
+    throw new Error(
+      `${missingSku.length} variant${missingSku.length === 1 ? '' : 's'} still need${missingSku.length === 1 ? 's' : ''} a SKU before this product can be pushed.`,
+    )
+  }
 
   const adapter = getAdapter(marketplace)
   const fresh = await ensureFreshConnection(connection)
@@ -965,7 +975,8 @@ export async function pushNewProductToMarketplace(
       attributeValues,
       variants: variants.map((v) => ({
         variantId: v.id,
-        sku: v.sku,
+        // Guaranteed non-null by the missingSku check above.
+        sku: v.sku!,
         size: v.size,
         color: v.color,
         style: v.style,
@@ -1137,7 +1148,7 @@ async function upsertVariantMappings(
 interface UnlinkedProduct {
   id: string
   name: string
-  variants: { id: string; sku: string }[]
+  variants: { id: string; sku: string | null }[]
 }
 
 /**
@@ -1256,8 +1267,8 @@ export async function connectExistingProductToMarketplace(
         )
         unmatched.push(
           caseInsensitiveMatch
-            ? `${v.sku} (${ourValues.join('/')}) — theirs is "${caseInsensitiveMatch.optionValues.join('/')}", letter case must match exactly`
-            : `${v.sku} (${ourValues.join('/') || 'no options'}) — no matching variant found`,
+            ? `${v.sku ?? '(no SKU)'} (${ourValues.join('/')}) — theirs is "${caseInsensitiveMatch.optionValues.join('/')}", letter case must match exactly`
+            : `${v.sku ?? '(no SKU)'} (${ourValues.join('/') || 'no options'}) — no matching variant found`,
         )
         continue
       }
@@ -1698,8 +1709,8 @@ export async function autoConnectProductsBySku(
 
     for (const product of products) {
       const localSkus = product.variants
-        .map((v) => v.sku.trim())
-        .filter(Boolean)
+        .map((v) => v.sku?.trim())
+        .filter((s): s is string => Boolean(s))
       if (localSkus.length === 0) {
         result.skipped.push({
           productId: product.id,
@@ -1751,7 +1762,7 @@ export async function autoConnectProductsBySku(
       }[] = []
       let unresolved = false
       for (const v of product.variants) {
-        const remoteVariant = skuToVariant.get(v.sku.trim())
+        const remoteVariant = v.sku ? skuToVariant.get(v.sku.trim()) : undefined
         if (!remoteVariant) {
           unresolved = true
           break

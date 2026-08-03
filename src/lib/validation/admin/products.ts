@@ -63,11 +63,17 @@ export const variantInputSchema = z.object({
 
 export const updateVariantSchema = variantInputSchema.extend({
   id: z.string().uuid(),
+  // Unlike creating a brand-new variant, editing an existing one may need
+  // to save other field changes (price, quantity, size) before staff have
+  // typed in a SKU — e.g. a duplicated product's variants start blank
+  // (see duplicateProduct) until filled in by hand. An empty string here
+  // is stored as null, same as never having set one.
+  sku: z.string().trim().max(100),
 })
 
 export const quickEditVariantSchema = z.object({
   id: z.string().uuid(),
-  sku: z.string().trim().min(1).max(100),
+  sku: z.string().trim().max(100),
   costPesos: z.number().min(0).optional(),
 })
 

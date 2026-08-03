@@ -140,7 +140,7 @@ function InventoryTableRow({
   row: InventoryRow
   onSaved: () => void
 }) {
-  const [sku, setSku] = useState(row.sku)
+  const [sku, setSku] = useState(row.sku ?? '')
   const [costPesos, setCostPesos] = useState(
     row.costCents !== null ? centsToPesos(row.costCents) : '',
   )
@@ -149,7 +149,7 @@ function InventoryTableRow({
 
   const originalCostPesos =
     row.costCents !== null ? centsToPesos(row.costCents) : ''
-  const dirty = sku !== row.sku || costPesos !== originalCostPesos
+  const dirty = sku !== (row.sku ?? '') || costPesos !== originalCostPesos
 
   async function handleSave() {
     setSaving(true)

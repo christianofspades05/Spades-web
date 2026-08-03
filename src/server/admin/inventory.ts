@@ -5,7 +5,7 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 
 export interface InventoryRow {
   variantId: string
-  sku: string
+  sku: string | null
   size: string | null
   color: string | null
   style: string | null

@@ -135,7 +135,7 @@ export interface ProductSyncRow {
   productImage: string | null
   productCreatedAt: string
   productType: ProductType
-  sku: string
+  sku: string | null
   size: string | null
   color: string | null
   style: string | null
@@ -242,7 +242,7 @@ export const listProductSyncStatus = createServerFn({ method: 'GET' })
     const PAGE_SIZE = 1000
     const variants: {
       id: string
-      sku: string
+      sku: string | null
       size: string | null
       color: string | null
       style: string | null

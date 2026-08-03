@@ -108,7 +108,7 @@ function BulkEditPage() {
           v.id,
           {
             productId: p.id,
-            sku: v.sku,
+            sku: v.sku ?? '',
             size: v.size ?? '',
             pricePesos: centsToPesos(v.price_cents),
             costPesos: v.cost_cents !== null ? centsToPesos(v.cost_cents) : '',
@@ -264,7 +264,7 @@ function BulkEditPage() {
                   ? centsToPesos(original.cost_cents)
                   : '') ||
               edit.size !== (original.size ?? '') ||
-              edit.sku !== original.sku
+              edit.sku !== (original.sku ?? '')
             ) {
               await updateVariant({
                 data: {

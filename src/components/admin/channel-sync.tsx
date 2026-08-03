@@ -372,7 +372,7 @@ export function ProductSyncSection({
       ? grouped.filter(
           (p) =>
             p.productName.toLowerCase().includes(query) ||
-            p.variants.some((v) => v.sku.toLowerCase().includes(query)),
+            p.variants.some((v) => v.sku?.toLowerCase().includes(query)),
         )
       : grouped
     const filtered =

@@ -275,6 +275,20 @@ export const placeOrder = createServerFn({ method: 'POST' })
         landmark: data.contact.landmark ?? null,
       }
 
+      // A duplicated product's variants start with a blank SKU (see
+      // duplicateProduct) until staff fill one in, and the activation guard
+      // in updateProduct is what's supposed to keep a blank-SKU variant
+      // from ever going active/sellable — this is the last line of
+      // defense against that invariant somehow not holding, since
+      // order_items.sku_snapshot is NOT NULL and would otherwise fail the
+      // whole checkout with a raw DB error instead of a clear one.
+      const missingSku = cart.items.find((item) => !item.variant.sku)
+      if (missingSku) {
+        throw new Error(
+          `"${missingSku.variant.product.name}" isn't available for purchase yet — please remove it from your cart.`,
+        )
+      }
+
       const itemsPayload: CheckoutReservationItem[] = cart.items.map((item) => {
         const lineSubtotalCents = item.quantity * item.price_cents_snapshot
         const variantLabel = [
@@ -289,7 +303,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           variantId: item.variant_id,
           productNameSnapshot: item.variant.product.name,
           variantLabelSnapshot: variantLabel || null,
-          skuSnapshot: item.variant.sku,
+          skuSnapshot: item.variant.sku!,
           unitPriceCents: item.price_cents_snapshot,
           quantity: item.quantity,
           lineSubtotalCents,

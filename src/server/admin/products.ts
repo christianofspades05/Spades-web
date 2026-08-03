@@ -480,6 +480,25 @@ export const updateProduct = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
+    // A duplicated product's variants start with a blank SKU (see
+    // duplicateProduct) so staff type a real one instead of shipping an
+    // auto-generated placeholder. Refuse to go active until every active
+    // variant has one — sku_snapshot on order_items is NOT NULL, so a
+    // customer buying a blank-SKU variant would fail to check out.
+    if (data.status === 'active') {
+      const { data: variants, error: variantsError } = await admin
+        .from('product_variants')
+        .select('sku')
+        .eq('product_id', data.id)
+        .eq('is_active', true)
+      if (variantsError) throw variantsError
+      if (variants.some((v) => !v.sku)) {
+        throw new Error(
+          'Every active variant needs a SKU before this product can go active — fill in the blank ones first.',
+        )
+      }
+    }
+
     const { data: product, error } = await admin
       .from('products')
       .update({
@@ -531,24 +550,6 @@ function friendlySkuError(error: { code?: string; message: string }, sku: string
     return new Error(`SKU "${sku}" is already used by another variant.`)
   }
   return error
-}
-
-async function uniqueSku(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  base: string,
-): Promise<string> {
-  let candidate = `${base}-copy`
-  let n = 2
-  for (;;) {
-    const { data: existing } = await admin
-      .from('product_variants')
-      .select('id')
-      .eq('sku', candidate)
-      .maybeSingle<{ id: string }>()
-    if (!existing) return candidate
-    candidate = `${base}-copy-${n}`
-    n += 1
-  }
 }
 
 /** Duplicates a product under a new title. Description, product type, status source, and collections always come along; images and variants (with their stock) are opt-in via checkboxes in the UI. */
@@ -603,19 +604,19 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
     }
 
     if (data.duplicateVariants) {
-      // Each variant's SKU is already unique from the others, so their
-      // "-copy" candidates can't collide with each other either — safe to
-      // duplicate every variant concurrently instead of one at a time,
-      // which was the slowest part of duplicating a product with a large
-      // size/color matrix.
+      // SKU is left blank (not an auto-generated "-copy" suffix) — staff
+      // type a real one for each duplicated variant before it's ready to
+      // sell (see the activation guard below, which refuses to let a
+      // product go active with any blank SKU still on an active variant).
+      // Safe to duplicate every variant concurrently since nothing here
+      // depends on another variant's insert completing first.
       await Promise.all(
         original.variants.map(async (variant) => {
-          const sku = await uniqueSku(admin, variant.sku)
           const { data: newVariant, error: variantError } = await admin
             .from('product_variants')
             .insert({
               product_id: newProduct.id,
-              sku,
+              sku: null,
               size: variant.size,
               color: variant.color,
               style: variant.style,
@@ -791,7 +792,7 @@ export const updateVariant = createServerFn({ method: 'POST' })
     const { data: variant, error } = await admin
       .from('product_variants')
       .update({
-        sku: data.sku,
+        sku: data.sku || null,
         size: data.size ?? null,
         color: data.color ?? null,
         style: data.style ?? null,
@@ -831,7 +832,7 @@ export const updateVariantQuickEdit = createServerFn({ method: 'POST' })
     const { data: variant, error } = await admin
       .from('product_variants')
       .update({
-        sku: data.sku,
+        sku: data.sku || null,
         cost_cents:
           data.costPesos !== undefined
             ? pesosToCents(data.costPesos)
