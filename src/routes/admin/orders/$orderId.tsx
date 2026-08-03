@@ -455,6 +455,7 @@ function OrderDetailPage() {
             >
               {order.customer.full_name ?? order.customer.email}
             </Link>
+            <p className="mt-0.5 text-xs text-neutral-500">{address.email}</p>
             <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
               <Link
                 to="/admin/customers/$customerId"
@@ -472,6 +473,20 @@ function OrderDetailPage() {
               </span>
             </div>
 
+            <div className="mt-3">
+              <CopyButton
+                value={[
+                  address.recipientName,
+                  address.phone,
+                  fullAddress,
+                  address.landmark ? `Landmark: ${address.landmark}` : null,
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+                label="Copy all"
+              />
+            </div>
+
             <div className="mt-4 flex flex-col gap-2 text-sm text-neutral-700">
               <Row label={address.recipientName}>
                 <CopyButton
@@ -479,9 +494,6 @@ function OrderDetailPage() {
                   label="Copy name"
                   iconOnly
                 />
-              </Row>
-              <Row label={address.email}>
-                <CopyButton value={address.email} label="Copy email" iconOnly />
               </Row>
               <Row label={address.phone}>
                 <CopyButton value={address.phone} label="Copy phone" iconOnly />

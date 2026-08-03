@@ -66,7 +66,7 @@ export const Route = createRootRoute({
         getStorefrontBanner({ data: { brand: storefrontScope.brand } }).catch(
           (err: unknown) => {
             console.error('getStorefrontBanner failed:', err)
-            return { text: '', isActive: false }
+            return { text: '', textJa: null, textKo: null, isActive: false }
           },
         ),
       ])
