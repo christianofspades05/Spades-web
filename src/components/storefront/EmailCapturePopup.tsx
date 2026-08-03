@@ -10,7 +10,7 @@ import {
 } from '#/components/storefront/ui'
 
 const STORAGE_KEY = 'email_capture_dismissed'
-const SHOW_DELAY_MS = 1500
+const SHOW_DELAY_MS = 5000
 
 /** Marketing email-capture popup — "give us your email, get a one-time
  *  discount code" (see server/storefront/email-capture.ts, which reuses
