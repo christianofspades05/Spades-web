@@ -39,7 +39,7 @@ export async function mintPerRecipientDiscount(
 ): Promise<MintedDiscount | null> {
   const { data: template, error } = await admin
     .from('discounts')
-    .select('title, type, value')
+    .select('title, type, value, max_discounted_items, excludes_free_shipping')
     .eq('id', templateDiscountId)
     .maybeSingle()
   if (error) throw error
@@ -66,6 +66,8 @@ export async function mintPerRecipientDiscount(
       code,
       type: template.type,
       value: template.value,
+      max_discounted_items: template.max_discounted_items,
+      excludes_free_shipping: template.excludes_free_shipping,
       max_uses: 1,
       max_uses_per_customer: 1,
       is_active: true,
