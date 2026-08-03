@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { loadStorefrontCollectionSections } from '#/server/collections/sections'
 import { CollectionSections } from '#/components/storefront/CollectionSections'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
 export const Route = createFileRoute('/collections/')({
@@ -23,11 +24,12 @@ export const Route = createFileRoute('/collections/')({
 
 function CollectionsPage() {
   const { sections } = Route.useLoaderData()
+  const { t } = useLanguage()
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
       <h1 className="mb-12 text-3xl font-black uppercase tracking-tight">
-        Collections
+        {t.collections.pageTitle}
       </h1>
       <CollectionSections sections={sections} />
     </div>

@@ -262,7 +262,11 @@ export interface Database {
           sort_order: number
           is_active: boolean
           title: string | null
+          title_ja: string | null
+          title_ko: string | null
           subtitle: string | null
+          subtitle_ja: string | null
+          subtitle_ko: string | null
           media_url: string | null
           link_url: string | null
           collection_id: string | null

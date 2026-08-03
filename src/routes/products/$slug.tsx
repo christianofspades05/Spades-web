@@ -384,9 +384,9 @@ function ProductPage() {
           them under title/buy-box like above would push the description
           ahead of the product photos. */}
       <div className="mt-10 md:hidden">
-        {product.description && (
+        {localizedDescription && (
           <p className="whitespace-pre-line text-neutral-600 dark:text-neutral-400">
-            {product.description}
+            {localizedDescription}
           </p>
         )}
         <ProductReviewsList reviews={reviews.reviews} mode="paginate" />

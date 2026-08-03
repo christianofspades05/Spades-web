@@ -9,23 +9,21 @@ const FETCH_LIMIT = 100
 
 export interface StorefrontCollectionSection {
   slug: string
-  title: string
   total: number
   products: StorefrontListingProduct[]
 }
 
-/** Fetches each curated storefront collection's first MAX_PRODUCTS_SHOWN products, for the homepage and /collections. */
+/** Fetches each curated storefront collection's first MAX_PRODUCTS_SHOWN products, for the homepage and /collections. Titles aren't resolved here — the visitor's language isn't known server-side, so the client looks the display title up via collectionTitleForSlug(slug, t). */
 export async function loadStorefrontCollectionSections(): Promise<
   StorefrontCollectionSection[]
 > {
   return Promise.all(
-    STOREFRONT_COLLECTIONS.map(async ({ slug, title }) => {
+    STOREFRONT_COLLECTIONS.map(async ({ slug }) => {
       const products = await listActiveProducts({
         data: { collectionSlug: slug, limit: FETCH_LIMIT },
       })
       return {
         slug,
-        title,
         total: products.length,
         products: products.slice(0, MAX_PRODUCTS_SHOWN).map(toListingProduct),
       }

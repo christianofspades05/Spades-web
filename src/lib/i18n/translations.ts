@@ -156,6 +156,23 @@ export interface Translations {
     body: string
     continueButton: string
   }
+  collections: {
+    pageTitle: string
+    allCollections: string
+    viewAll: string
+    noProductsYet: string
+    noProductsInCollection: string
+    graphicTees: string
+    muscleTees: string
+    poloShirts: string
+    hoodiesJackets: string
+    meshShorts: string
+    jorts: string
+    bottoms: string
+    jerseyTee: string
+    essentials: string
+    blanks: string
+  }
 }
 
 export const translations: Record<Language, Translations> = {
@@ -289,6 +306,23 @@ export const translations: Record<Language, Translations> = {
       body: 'Select the language you’d like to browse the site in.',
       continueButton: 'Continue',
     },
+    collections: {
+      pageTitle: 'Collections',
+      allCollections: 'All Collections',
+      viewAll: 'View all',
+      noProductsYet: 'No products yet.',
+      noProductsInCollection: 'No products in this collection yet.',
+      graphicTees: 'Graphic Tees',
+      muscleTees: 'Muscle Tees',
+      poloShirts: 'Polo Shirts',
+      hoodiesJackets: 'Hoodies & Jackets',
+      meshShorts: 'Mesh Shorts',
+      jorts: 'Jorts',
+      bottoms: 'Bottoms',
+      jerseyTee: 'Jersey Tee',
+      essentials: 'Essentials',
+      blanks: 'Blanks',
+    },
   },
   ja: {
     nav: {
@@ -419,6 +453,23 @@ export const translations: Record<Language, Translations> = {
       body: 'サイトを表示する言語を選択してください。',
       continueButton: '続ける',
     },
+    collections: {
+      pageTitle: 'コレクション',
+      allCollections: 'すべてのコレクション',
+      viewAll: 'すべて見る',
+      noProductsYet: '商品はまだありません。',
+      noProductsInCollection: 'このコレクションにはまだ商品がありません。',
+      graphicTees: 'グラフィックTシャツ',
+      muscleTees: 'マッスルTシャツ',
+      poloShirts: 'ポロシャツ',
+      hoodiesJackets: 'フーディー＆ジャケット',
+      meshShorts: 'メッシュショーツ',
+      jorts: 'ジョーツ',
+      bottoms: 'ボトムス',
+      jerseyTee: 'ジャージーTシャツ',
+      essentials: 'エッセンシャルズ',
+      blanks: '無地アイテム',
+    },
   },
   ko: {
     nav: {
@@ -548,6 +599,23 @@ export const translations: Record<Language, Translations> = {
       title: '언어를 선택하세요',
       body: '사이트를 이용할 언어를 선택해 주세요.',
       continueButton: '계속하기',
+    },
+    collections: {
+      pageTitle: '컬렉션',
+      allCollections: '모든 컬렉션',
+      viewAll: '전체 보기',
+      noProductsYet: '아직 상품이 없습니다.',
+      noProductsInCollection: '이 컬렉션에는 아직 상품이 없습니다.',
+      graphicTees: '그래픽 티셔츠',
+      muscleTees: '머슬 티셔츠',
+      poloShirts: '폴로 셔츠',
+      hoodiesJackets: '후디 & 재킷',
+      meshShorts: '메쉬 쇼츠',
+      jorts: '조트',
+      bottoms: '하의',
+      jerseyTee: '저지 티셔츠',
+      essentials: '에센셜',
+      blanks: '무지 아이템',
     },
   },
 }

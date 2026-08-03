@@ -5,6 +5,7 @@ import {
 } from '#/server/products/queries'
 import { toListingProduct } from '#/lib/utils/product-shape'
 import { collectionTitleForSlug } from '#/lib/collections/display'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { ProductGrid } from '#/components/storefront/ProductGrid'
 import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 
@@ -34,7 +35,7 @@ export const Route = createFileRoute('/collections/$slug')({
       data: { collectionSlug: params.slug, limit: FETCH_LIMIT },
     })
     return {
-      title: collectionTitleForSlug(params.slug),
+      slug: params.slug,
       products: products.map(toListingProduct),
       isScoped: collectionSlug !== null,
     }
@@ -43,26 +44,27 @@ export const Route = createFileRoute('/collections/$slug')({
 })
 
 function CollectionDetailPage() {
-  const { title, products, isScoped } = Route.useLoaderData()
+  const { slug, products, isScoped } = Route.useLoaderData()
+  const { t } = useLanguage()
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
       <div className="mb-10 flex items-center justify-between">
         <h1 className="text-3xl font-black uppercase tracking-tight">
-          {title}
+          {collectionTitleForSlug(slug, t)}
         </h1>
         {!isScoped && (
           <Link
             to="/collections"
             className="text-sm text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
           >
-            All Collections
+            {t.collections.allCollections}
           </Link>
         )}
       </div>
       <ProductGrid
         products={products}
-        emptyMessage="No products in this collection yet."
+        emptyMessage={t.collections.noProductsInCollection}
         columns={PRODUCTS_PER_ROW}
       />
     </div>

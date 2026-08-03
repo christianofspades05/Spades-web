@@ -549,7 +549,11 @@ function SectionForm({
 }) {
   const type = initial?.type ?? initialType!
   const [title, setTitle] = useState(initial?.title ?? '')
+  const [titleJa, setTitleJa] = useState(initial?.title_ja ?? '')
+  const [titleKo, setTitleKo] = useState(initial?.title_ko ?? '')
   const [subtitle, setSubtitle] = useState(initial?.subtitle ?? '')
+  const [subtitleJa, setSubtitleJa] = useState(initial?.subtitle_ja ?? '')
+  const [subtitleKo, setSubtitleKo] = useState(initial?.subtitle_ko ?? '')
   const [mediaUrl, setMediaUrl] = useState(initial?.media_url ?? '')
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? '')
   const [collectionId, setCollectionId] = useState(initial?.collection_id ?? '')
@@ -591,7 +595,11 @@ function SectionForm({
       page,
       brand,
       title: title || undefined,
+      titleJa: titleJa || undefined,
+      titleKo: titleKo || undefined,
       subtitle: subtitle || undefined,
+      subtitleJa: subtitleJa || undefined,
+      subtitleKo: subtitleKo || undefined,
       mediaUrl: mediaUrl || undefined,
       linkUrl: linkUrl || undefined,
       collectionId: collectionId || undefined,
@@ -650,26 +658,64 @@ function SectionForm({
         )}
 
         {(type === 'tagline' || type === 'product_grid') && (
-          <label className={labelClassName}>
-            {type === 'tagline' ? 'Heading' : 'Heading (optional)'}
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className={inputClassName}
-            />
-          </label>
+          <>
+            <label className={labelClassName}>
+              {type === 'tagline' ? 'Heading' : 'Heading (optional)'}
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Heading (Japanese, optional)
+              <input
+                value={titleJa}
+                onChange={(e) => setTitleJa(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Heading (Korean, optional)
+              <input
+                value={titleKo}
+                onChange={(e) => setTitleKo(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+          </>
         )}
 
         {type === 'tagline' && (
-          <label className={labelClassName}>
-            Body text
-            <textarea
-              value={subtitle}
-              onChange={(e) => setSubtitle(e.target.value)}
-              rows={3}
-              className={inputClassName}
-            />
-          </label>
+          <>
+            <label className={labelClassName}>
+              Body text
+              <textarea
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                rows={3}
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Body text (Japanese, optional)
+              <textarea
+                value={subtitleJa}
+                onChange={(e) => setSubtitleJa(e.target.value)}
+                rows={3}
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Body text (Korean, optional)
+              <textarea
+                value={subtitleKo}
+                onChange={(e) => setSubtitleKo(e.target.value)}
+                rows={3}
+                className={inputClassName}
+              />
+            </label>
+          </>
         )}
 
         {type === 'product_grid' && (

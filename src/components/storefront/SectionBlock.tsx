@@ -1,5 +1,6 @@
 import { ProductGrid } from '#/components/storefront/ProductGrid'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
+import { useLanguage } from '#/lib/i18n/LanguageContext'
 import type { RenderedStorefrontSection } from '#/server/storefront/sections'
 
 export function SectionBlock({
@@ -7,6 +8,8 @@ export function SectionBlock({
 }: {
   section: RenderedStorefrontSection
 }) {
+  const { t, language } = useLanguage()
+
   switch (section.type) {
     case 'hero':
       if (!section.media_url) return null
@@ -23,23 +26,36 @@ export function SectionBlock({
         </a>
       )
 
-    case 'tagline':
+    case 'tagline': {
+      const taglineTitle =
+        (language === 'ja'
+          ? section.title_ja
+          : language === 'ko'
+            ? section.title_ko
+            : null) || section.title
+      const taglineSubtitle =
+        (language === 'ja'
+          ? section.subtitle_ja
+          : language === 'ko'
+            ? section.subtitle_ko
+            : null) || section.subtitle
       return (
         <section className="bg-neutral-950 py-12 text-center text-white sm:py-16">
           <div className="mx-auto max-w-2xl px-6">
-            {section.title && (
+            {taglineTitle && (
               <h2 className="text-2xl font-black uppercase tracking-tight sm:text-3xl">
-                {section.title}
+                {taglineTitle}
               </h2>
             )}
-            {section.subtitle && (
+            {taglineSubtitle && (
               <p className="mt-3 whitespace-pre-line text-sm text-neutral-300 sm:text-base">
-                {section.subtitle}
+                {taglineSubtitle}
               </p>
             )}
           </div>
         </section>
       )
+    }
 
     case 'image':
       if (!section.media_url) return null
@@ -72,20 +88,26 @@ export function SectionBlock({
         />
       )
 
-    case 'product_grid':
+    case 'product_grid': {
       if (!section.collectionSlug || section.products.length === 0) {
         return null
       }
+      const gridTitle =
+        (language === 'ja'
+          ? section.titleJa
+          : language === 'ko'
+            ? section.titleKo
+            : null) || section.title
       return (
         <section className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
-          {section.title && (
+          {gridTitle && (
             <h2 className="mb-8 text-center text-sm font-bold uppercase tracking-[0.2em] text-neutral-950 dark:text-white">
-              {section.title}
+              {gridTitle}
             </h2>
           )}
           <ProductGrid
             products={section.products}
-            emptyMessage="No products yet."
+            emptyMessage={t.collections.noProductsYet}
             columns={5}
           />
           <div className="mt-10 flex justify-center">
@@ -95,11 +117,12 @@ export function SectionBlock({
               }
               className={buttonPrimaryClassName}
             >
-              View all
+              {t.collections.viewAll}
             </a>
           </div>
         </section>
       )
+    }
 
     default:
       return null
