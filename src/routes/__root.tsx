@@ -47,12 +47,28 @@ export const Route = createRootRoute({
     // first to know which brand's maintenance flag to check, then the rest
     // run in parallel as before.
     const storefrontScope = await getStorefrontScope()
+    // getMaintenanceMode/getStorefrontBanner both hit Supabase and throw on
+    // any error — caught individually with a safe fallback (off / no
+    // banner) rather than left to reject the whole Promise.all, which would
+    // throw beforeLoad itself and take down every route on this app for
+    // every visitor over what's just a cosmetic feature. A transient
+    // Supabase blip should degrade these two, not the entire site.
     const [geoDefaultCurrency, geoCountry, maintenanceMode, banner] =
       await Promise.all([
         getGeoDefaultCurrency(),
         getGeoCountry(),
-        getMaintenanceMode({ data: { brand: storefrontScope.brand } }),
-        getStorefrontBanner({ data: { brand: storefrontScope.brand } }),
+        getMaintenanceMode({ data: { brand: storefrontScope.brand } }).catch(
+          (err: unknown) => {
+            console.error('getMaintenanceMode failed:', err)
+            return false
+          },
+        ),
+        getStorefrontBanner({ data: { brand: storefrontScope.brand } }).catch(
+          (err: unknown) => {
+            console.error('getStorefrontBanner failed:', err)
+            return { text: '', isActive: false }
+          },
+        ),
       ])
     return {
       geoDefaultCurrency,
@@ -115,8 +131,13 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const isAdminRoute = pathname.startsWith('/admin')
-  const { geoDefaultCurrency, geoCountry, storefrontScope, maintenanceMode, banner } =
-    Route.useRouteContext()
+  const {
+    geoDefaultCurrency,
+    geoCountry,
+    storefrontScope,
+    maintenanceMode,
+    banner,
+  } = Route.useRouteContext()
   const showMaintenance = !isAdminRoute && maintenanceMode
   const pixelBootstrapScript = buildPixelBootstrapScript(
     storefrontScope.fbPixelId,
