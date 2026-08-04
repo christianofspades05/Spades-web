@@ -25,7 +25,7 @@ import {
   resolveSalePrices,
 } from '#/server/storefront/automatic-sales'
 import type { ProductWithVariants } from '#/types/entities'
-import type { Database } from '#/types/database.types'
+import type { Database, ProductBrand } from '#/types/database.types'
 
 export type StorefrontListingProduct =
   Database['public']['Views']['storefront_product_listing']['Row']
@@ -90,6 +90,59 @@ interface ProductWithStock extends ProductWithVariants {
   variants: (ProductWithVariants['variants'][number] & {
     inventory: { quantity_available: number }[]
   })[]
+}
+
+// Every product_grid section on a page independently needed "every active
+// product (with all variants+inventory) for rule-matching" — on a homepage
+// with several such sections, that's several concurrent full, unbounded,
+// heavily-joined table scans per page load, multiplied again by however many
+// visitors load the page at once. That's exactly what took the database down
+// during the 2026-08-04 incident (dozens of identical
+// `products?select=*,variants:product_variants(*,inventory(...))&status=eq.active`
+// calls firing within the same second, several timing out).
+//
+// Scoping to one brand shrinks the row count. The cache stores the in-flight
+// *promise*, not just the resolved value — a plain resolved-value TTL cache
+// (see lib/utils/cache.ts's createTtlCache) doesn't help here, because every
+// section's Promise.all branch reaches this function in the same tick,
+// before any of them has awaited far enough to populate a value-only cache.
+// Caching the promise itself means every one of those concurrent callers
+// awaits the exact same single DB round trip.
+const ACTIVE_PRODUCTS_CACHE_TTL_MS = 15_000
+const activeProductsByBrand = new Map<
+  ProductBrand,
+  { expiresAt: number; promise: Promise<ProductWithStock[]> }
+>()
+
+function getActiveProductsForBrand(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+  brand: ProductBrand,
+): Promise<ProductWithStock[]> {
+  const cached = activeProductsByBrand.get(brand)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+
+  const promise = (async () => {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select(
+        '*, variants:product_variants(*, inventory(quantity_available))',
+      )
+      .eq('status', 'active')
+      .eq('brand', brand)
+      .overrideTypes<ProductWithStock[], { merge: false }>()
+    if (error) throw error
+    return products
+  })()
+
+  activeProductsByBrand.set(brand, {
+    expiresAt: Date.now() + ACTIVE_PRODUCTS_CACHE_TTL_MS,
+    promise,
+  })
+  // A failed fetch shouldn't keep serving the same rejection to every other
+  // caller for the rest of the TTL window — clear it so the next call
+  // retries fresh instead of every section erroring out together.
+  promise.catch(() => activeProductsByBrand.delete(brand))
+  return promise
 }
 
 function inventoryStockOf(product: ProductWithStock): number {
@@ -178,7 +231,7 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
         .eq('is_active', true)
         .maybeSingle<{
           id: string
-          brand: string
+          brand: ProductBrand
           match_type: 'all' | 'any'
           rules: unknown
           sort_by: string
@@ -187,25 +240,18 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
         }>()
       if (!collection) return []
 
-      const [{ data: products, error }, { data: memberships }] =
-        await Promise.all([
-          supabase
-            .from('products')
-            .select(
-              '*, variants:product_variants(*, inventory(quantity_available))',
-            )
-            .eq('status', 'active')
-            .overrideTypes<ProductWithStock[], { merge: false }>(),
-          supabase
-            .from('product_collections')
-            .select('product_id, sort_order')
-            .eq('collection_id', collection.id)
-            .order('sort_order', { ascending: true })
-            .overrideTypes<
-              { product_id: string; sort_order: number }[],
-              { merge: false }
-            >(),
-        ])
+      const [products, { data: memberships, error }] = await Promise.all([
+        getActiveProductsForBrand(supabase, collection.brand),
+        supabase
+          .from('product_collections')
+          .select('product_id, sort_order')
+          .eq('collection_id', collection.id)
+          .order('sort_order', { ascending: true })
+          .overrideTypes<
+            { product_id: string; sort_order: number }[],
+            { merge: false }
+          >(),
+      ])
       if (error) throw error
 
       // Manually pinned products always stay in, regardless of `rules` — they
