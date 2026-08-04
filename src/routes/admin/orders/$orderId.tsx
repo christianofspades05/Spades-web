@@ -20,10 +20,12 @@ import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { formatOrderItemsForCopy } from '#/lib/utils/order-items-text'
+import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge, StatusBadge } from '#/components/admin/Badge'
 import { CopyButton } from '#/components/admin/CopyButton'
+import { OrderItemsEditor } from '#/components/admin/OrderItemsEditor'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -157,6 +159,7 @@ function OrderDetailPage() {
   // api/cron/expire-unpaid-orders.ts is just a 15-minute backstop in case
   // that webhook never arrives.
   const isUnpaidOnline = order.status === 'pending_payment' && !order.is_cod
+  const [editingItems, setEditingItems] = useState(false)
 
   const touchStart = useRef({ x: 0, y: 0 })
   function handleTouchStart(e: React.TouchEvent) {
@@ -270,106 +273,130 @@ function OrderDetailPage() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
                 Items
               </h2>
-              <CopyButton value={itemsCopyText} label="Copy items" />
-            </div>
-            <div className={isCancelled ? 'line-through decoration-2' : ''}>
-              <ul className="flex flex-col divide-y divide-neutral-100">
-                {order.order_items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center gap-3 py-3 text-sm"
+              <div className="flex items-center gap-2">
+                {!editingItems && isOrderItemsEditable(order) && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingItems(true)}
+                    className={buttonSecondaryClassName}
                   >
-                    {item.image_url ? (
-                      <img
-                        src={item.image_url}
-                        alt=""
-                        className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 object-cover"
-                      />
-                    ) : (
-                      <div className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 bg-neutral-50" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-neutral-900 underline decoration-neutral-300 underline-offset-2 md:no-underline">
-                        {item.product_name_snapshot}
-                      </p>
-                      {item.variant_label_snapshot && (
-                        <p className="text-neutral-500">
-                          {item.variant_label_snapshot}
-                        </p>
-                      )}
-                      <p className="text-neutral-500">
-                        {item.quantity} ×{' '}
-                        {formatCentsAsPHP(item.unit_price_cents)}
-                      </p>
-                    </div>
-                    <p className="font-medium text-neutral-900">
-                      {formatCentsAsPHP(item.line_total_cents)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
-                <div className="flex justify-between text-neutral-500">
-                  <span>Subtotal</span>
-                  <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
-                </div>
-                {order.market_markup_percent != null && (
-                  <div className="flex justify-between text-neutral-500">
-                    <span>Market markup (+{order.market_markup_percent}%)</span>
-                    <span>Included in subtotal</span>
-                  </div>
+                    Edit items
+                  </button>
                 )}
-                {order.discount_cents > 0 && (
-                  <div className="flex justify-between text-neutral-500">
-                    <span>Discount</span>
-                    <span>-{formatCentsAsPHP(order.discount_cents)}</span>
-                  </div>
-                )}
-                {order.platform_discount_cents > 0 && (
-                  <div className="flex justify-between text-neutral-500">
-                    <span>Platform discount ({order.source})</span>
-                    <span>
-                      -{formatCentsAsPHP(order.platform_discount_cents)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-neutral-500">
-                  <span>Shipping</span>
-                  <span>{formatCentsAsPHP(order.shipping_cents)}</span>
-                </div>
-                <div className="flex justify-between font-semibold text-neutral-900">
-                  <span>Total</span>
-                  <span>{formatCentsAsPHP(order.total_cents)}</span>
-                </div>
+                <CopyButton value={itemsCopyText} label="Copy items" />
               </div>
-
-              {order.platform_fee_breakdown.length > 0 && (
-                <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
-                  <p className="text-xs font-medium text-neutral-500">
-                    Platform fees ({order.source})
-                  </p>
-                  {order.platform_fee_breakdown.map((fee) => (
-                    <div
-                      key={fee.label}
-                      className="flex justify-between text-neutral-500"
+            </div>
+            {editingItems ? (
+              <OrderItemsEditor
+                order={order}
+                onCancel={() => setEditingItems(false)}
+                onSaved={() => {
+                  setEditingItems(false)
+                  router.invalidate()
+                }}
+              />
+            ) : (
+              <div className={isCancelled ? 'line-through decoration-2' : ''}>
+                <ul className="flex flex-col divide-y divide-neutral-100">
+                  {order.order_items.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center gap-3 py-3 text-sm"
                     >
-                      <span>{fee.label}</span>
-                      <span>-{formatCentsAsPHP(fee.amountCents)}</span>
-                    </div>
-                  ))}
-                  <div className="flex justify-between font-semibold text-neutral-900">
-                    <span>Net Sales</span>
-                    <span>
-                      {formatCentsAsPHP(
-                        order.subtotal_cents +
-                          order.shipping_cents -
-                          order.platform_fees_cents,
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt=""
+                          className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 object-cover"
+                        />
+                      ) : (
+                        <div className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 bg-neutral-50" />
                       )}
-                    </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-neutral-900 underline decoration-neutral-300 underline-offset-2 md:no-underline">
+                          {item.product_name_snapshot}
+                        </p>
+                        {item.variant_label_snapshot && (
+                          <p className="text-neutral-500">
+                            {item.variant_label_snapshot}
+                          </p>
+                        )}
+                        <p className="text-neutral-500">
+                          {item.quantity} ×{' '}
+                          {formatCentsAsPHP(item.unit_price_cents)}
+                        </p>
+                      </div>
+                      <p className="font-medium text-neutral-900">
+                        {formatCentsAsPHP(item.line_total_cents)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
+                  <div className="flex justify-between text-neutral-500">
+                    <span>Subtotal</span>
+                    <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
+                  </div>
+                  {order.market_markup_percent != null && (
+                    <div className="flex justify-between text-neutral-500">
+                      <span>
+                        Market markup (+{order.market_markup_percent}%)
+                      </span>
+                      <span>Included in subtotal</span>
+                    </div>
+                  )}
+                  {order.discount_cents > 0 && (
+                    <div className="flex justify-between text-neutral-500">
+                      <span>Discount</span>
+                      <span>-{formatCentsAsPHP(order.discount_cents)}</span>
+                    </div>
+                  )}
+                  {order.platform_discount_cents > 0 && (
+                    <div className="flex justify-between text-neutral-500">
+                      <span>Platform discount ({order.source})</span>
+                      <span>
+                        -{formatCentsAsPHP(order.platform_discount_cents)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-neutral-500">
+                    <span>Shipping</span>
+                    <span>{formatCentsAsPHP(order.shipping_cents)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-neutral-900">
+                    <span>Total</span>
+                    <span>{formatCentsAsPHP(order.total_cents)}</span>
                   </div>
                 </div>
-              )}
-            </div>
+
+                {order.platform_fee_breakdown.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
+                    <p className="text-xs font-medium text-neutral-500">
+                      Platform fees ({order.source})
+                    </p>
+                    {order.platform_fee_breakdown.map((fee) => (
+                      <div
+                        key={fee.label}
+                        className="flex justify-between text-neutral-500"
+                      >
+                        <span>{fee.label}</span>
+                        <span>-{formatCentsAsPHP(fee.amountCents)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between font-semibold text-neutral-900">
+                      <span>Net Sales</span>
+                      <span>
+                        {formatCentsAsPHP(
+                          order.subtotal_cents +
+                            order.shipping_cents -
+                            order.platform_fees_cents,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {order.returns.length > 0 && (

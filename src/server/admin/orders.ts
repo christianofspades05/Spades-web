@@ -5,6 +5,7 @@ import {
   cancelOrderSchema,
   orderStatusUpdateSchema,
   shipmentUpdateSchema,
+  updateOrderItemsSchema,
 } from '#/lib/validation/admin/orders'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -21,11 +22,19 @@ import {
   shipmentTrackingEmailSubject,
 } from '#/lib/email/templates/shipment-tracking'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
+import { isOrderItemsEditable } from '#/lib/admin/order-editability'
+import { resolveDiscountForCart } from '#/server/cart/discount'
+import { shippingCostCents } from '#/lib/checkout/shipping'
+import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import type { ExchangeRates } from '#/lib/utils/money'
+import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import { logStaffActivity } from './activity-log'
 import type {
+  CartItemWithVariant,
   Customer,
   Order,
   OrderItem,
+  OrderSource,
   OrderStatus,
   Payment,
   ReturnStatus,
@@ -82,7 +91,15 @@ export interface OrderReturn {
 
 export interface OrderWithDetails extends Order {
   customer: Customer
-  order_items: (OrderItem & { image_url: string | null })[]
+  order_items: (OrderItem & {
+    image_url: string | null
+    /** Which product this variant belongs to — needed by the order-items
+     *  editor's variant-swap dropdown (src/components/admin/
+     *  OrderItemsEditor.tsx) to look up sibling variants/sizes. Null when
+     *  the variant itself has since been deleted from the catalog
+     *  (order_items.variant_id is ON DELETE SET NULL). */
+    product_id: string | null
+  })[]
   payments: Payment[]
   shipments: Shipment[]
   returns: OrderReturn[]
@@ -92,27 +109,35 @@ export interface OrderWithDetails extends Order {
   customerStats: { ordersCount: number; failedDeliveryCount: number }
 }
 
+interface VariantProductInfo {
+  imageUrl: string | null
+  productId: string
+}
+
 /**
- * order_items only stores product/variant name snapshots, not an image —
- * this looks the current product image up via product_variants (which,
- * unlike orders/order_items, has a real Relationships entry in
- * database.types.ts, so the embedded select type-checks cleanly).
+ * order_items only stores product/variant name snapshots, not an image or
+ * product id — this looks both up via product_variants (which, unlike
+ * orders/order_items, has a real Relationships entry in database.types.ts,
+ * so the embedded select type-checks cleanly).
  */
-async function getProductImagesByVariantId(
+async function getVariantProductInfo(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   variantIds: string[],
-): Promise<Map<string, string | null>> {
-  const map = new Map<string, string | null>()
+): Promise<Map<string, VariantProductInfo>> {
+  const map = new Map<string, VariantProductInfo>()
   if (variantIds.length === 0) return map
 
   const { data, error } = await admin
     .from('product_variants')
-    .select('id, product:products(images)')
+    .select('id, product_id, product:products(images)')
     .in('id', variantIds)
   if (error) throw error
 
   for (const row of data) {
-    map.set(row.id, row.product.images[0] ?? null)
+    map.set(row.id, {
+      imageUrl: row.product.images[0] ?? null,
+      productId: row.product_id,
+    })
   }
   return map
 }
@@ -288,14 +313,14 @@ export const listOrders = createServerFn({ method: 'GET' })
         ),
       ),
     )
-    const imageMap = await getProductImagesByVariantId(admin, variantIds)
+    const variantInfoMap = await getVariantProductInfo(admin, variantIds)
 
     return orders.map((order) => ({
       ...order,
       order_items: order.order_items.map((item) => ({
         ...item,
         image_url: item.variant_id
-          ? (imageMap.get(item.variant_id) ?? null)
+          ? (variantInfoMap.get(item.variant_id)?.imageUrl ?? null)
           : null,
       })),
     }))
@@ -528,11 +553,11 @@ export const getOrderById = createServerFn({ method: 'GET' })
       ),
     )
     const [
-      imageMap,
+      variantInfoMap,
       { data: customerOrders, error: customerOrdersError },
       { data: returns, error: returnsError },
     ] = await Promise.all([
-      getProductImagesByVariantId(admin, variantIds),
+      getVariantProductInfo(admin, variantIds),
       admin
         .from('orders')
         .select('status, cancellation_reason')
@@ -555,12 +580,16 @@ export const getOrderById = createServerFn({ method: 'GET' })
 
     return {
       ...order,
-      order_items: order.order_items.map((item) => ({
-        ...item,
-        image_url: item.variant_id
-          ? (imageMap.get(item.variant_id) ?? null)
-          : null,
-      })),
+      order_items: order.order_items.map((item) => {
+        const info = item.variant_id
+          ? variantInfoMap.get(item.variant_id)
+          : undefined
+        return {
+          ...item,
+          image_url: info?.imageUrl ?? null,
+          product_id: info?.productId ?? null,
+        }
+      }),
       returns,
       customerStats: {
         ordersCount: customerOrders.length,
@@ -790,6 +819,385 @@ export const upsertShipment = createServerFn({ method: 'POST' })
     }
 
     return shipment
+  })
+
+/**
+ * Lets staff add/remove/swap-size on an order that's still safe to change —
+ * see isOrderItemsEditable (src/lib/admin/order-editability.ts) for the
+ * exact eligibility rules (storefront/admin orders only, no captured online
+ * payment, no shipment yet). The client submits the entire desired final
+ * item list, not a diff — this function figures out what changed by
+ * comparing it against what's currently in the database.
+ */
+export const updateOrderItems = createServerFn({ method: 'POST' })
+  .validator(updateOrderItemsSchema)
+  .handler(async ({ data }): Promise<Order> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: order, error } = await admin
+      .from('orders')
+      .select(
+        'id, status, source, discount_id, market_markup_percent, shipping_address, order_items(id, variant_id, quantity, unit_price_cents), payments(status), shipments(id)',
+      )
+      .eq('id', data.orderId)
+      .single()
+      .overrideTypes<
+        {
+          id: string
+          status: OrderStatus
+          source: OrderSource
+          discount_id: string | null
+          market_markup_percent: number | null
+          shipping_address: Record<string, unknown>
+          order_items: {
+            id: string
+            variant_id: string | null
+            quantity: number
+            unit_price_cents: number
+          }[]
+          payments: { status: Payment['status'] }[]
+          shipments: { id: string }[]
+        },
+        { merge: false }
+      >()
+    if (error) throw error
+
+    // Re-checked here even though the UI already hides "Edit items" for an
+    // ineligible order — the order's state may have changed (a shipment
+    // created in another tab, a payment just captured) in the seconds
+    // between the page loading and this request landing.
+    if (!isOrderItemsEditable(order)) {
+      throw new Error('This order can no longer have its items edited.')
+    }
+
+    const existingItemIds = new Set(order.order_items.map((i) => i.id))
+    for (const item of data.items) {
+      if (item.id && !existingItemIds.has(item.id)) {
+        throw new Error(
+          'One of the submitted items does not belong to this order.',
+        )
+      }
+    }
+    const submittedVariantIds = data.items.map((i) => i.variantId)
+    if (new Set(submittedVariantIds).size !== submittedVariantIds.length) {
+      throw new Error(
+        'The same size/variant was submitted more than once — change its quantity instead of adding it twice.',
+      )
+    }
+
+    // Fetched fresh (today's price/active state) for every variant this
+    // edit touches — both what's being kept/added and what's being removed
+    // — never trusting anything the client already had cached.
+    const allVariantIds = Array.from(
+      new Set([
+        ...submittedVariantIds,
+        ...order.order_items
+          .map((i) => i.variant_id)
+          .filter((v): v is string => v !== null),
+      ]),
+    )
+    const { data: variantRows, error: variantsError } = await admin
+      .from('product_variants')
+      .select('*, product:products(id, slug, name, images)')
+      .in('id', allVariantIds)
+    if (variantsError) throw variantsError
+    const variantById = new Map(variantRows.map((v) => [v.id, v]))
+
+    for (const item of data.items) {
+      if (!variantById.has(item.variantId)) {
+        throw new Error('One of the selected sizes/variants no longer exists.')
+      }
+    }
+
+    // A line whose variant was deleted from the catalog since the order was
+    // placed (order_items.variant_id is ON DELETE SET NULL) has no variant
+    // to diff against or restock — it's left untouched by this mutation
+    // entirely, regardless of what the client submitted, rather than being
+    // silently deleted for "not appearing" in a submission it structurally
+    // can never include (there's no variant id left to submit for it).
+    const editableExisting = order.order_items.filter(
+      (i): i is typeof i & { variant_id: string } => i.variant_id !== null,
+    )
+
+    function sumQuantityByVariant(
+      items: { variantId: string; quantity: number }[],
+    ): Map<string, number> {
+      const totals = new Map<string, number>()
+      for (const item of items) {
+        totals.set(
+          item.variantId,
+          (totals.get(item.variantId) ?? 0) + item.quantity,
+        )
+      }
+      return totals
+    }
+    const oldTotals = sumQuantityByVariant(
+      editableExisting.map((i) => ({ variantId: i.variant_id, quantity: i.quantity })),
+    )
+    const newTotals = sumQuantityByVariant(data.items)
+    const deltas = Array.from(
+      new Set([...oldTotals.keys(), ...newTotals.keys()]),
+      (variantId) => ({
+        variantId,
+        delta: (newTotals.get(variantId) ?? 0) - (oldTotals.get(variantId) ?? 0),
+      }),
+    ).filter((d) => d.delta !== 0)
+
+    // Anything past 'pending_payment' already had its stock committed
+    // (quantity_on_hand actually decremented) rather than merely reserved —
+    // same rule restockCancelledOrder uses below.
+    const wasCommitted = order.status !== 'pending_payment'
+
+    // Increases (need available stock) are attempted first, entirely before
+    // any order_items/orders row is touched. reserve_variant_stock is the
+    // only RPC with an atomic availability check (commit_variant_stock is
+    // an unconditional UPDATE with no guard) — so it's always called first
+    // as the gate, then immediately committed if this order's stock was
+    // already committed rather than merely reserved. Mirrors place-order.ts's
+    // own reserve-then-rollback-on-failure pattern.
+    const increased: {
+      variantId: string
+      quantity: number
+      committed: boolean
+    }[] = []
+    async function unwindIncreases() {
+      for (const inc of increased) {
+        await admin.rpc(
+          inc.committed ? 'restock_variant_stock' : 'release_variant_stock',
+          {
+            p_variant_id: inc.variantId,
+            p_quantity: inc.quantity,
+            p_reference_type: 'order_edit',
+            p_reference_id: data.orderId,
+          },
+        )
+      }
+    }
+
+    for (const inc of deltas.filter((d) => d.delta > 0)) {
+      const variant = variantById.get(inc.variantId)!
+      if (!variant.is_active) {
+        await unwindIncreases()
+        throw new Error(
+          `"${variant.product.name}" (${[variant.size, variant.color, variant.style].filter(Boolean).join(' / ')}) is no longer available for sale.`,
+        )
+      }
+      if (!variant.sku) {
+        await unwindIncreases()
+        throw new Error(
+          `"${variant.product.name}" (${[variant.size, variant.color, variant.style].filter(Boolean).join(' / ')}) needs a SKU before it can be added to an order — fill it in on the product page first.`,
+        )
+      }
+
+      const { data: ok, error: reserveError } = await admin.rpc(
+        'reserve_variant_stock',
+        {
+          p_variant_id: inc.variantId,
+          p_quantity: inc.delta,
+          p_reference_type: 'order_edit',
+          p_reference_id: data.orderId,
+        },
+      )
+      if (reserveError || !ok) {
+        await unwindIncreases()
+        throw new Error(
+          `Not enough stock for "${variant.product.name}" (${[variant.size, variant.color, variant.style].filter(Boolean).join(' / ')}).`,
+        )
+      }
+      const entry = { variantId: inc.variantId, quantity: inc.delta, committed: false }
+      increased.push(entry)
+
+      if (wasCommitted) {
+        const { error: commitError } = await admin.rpc('commit_variant_stock', {
+          p_variant_id: inc.variantId,
+          p_quantity: inc.delta,
+          p_reference_type: 'order_edit',
+          p_reference_id: data.orderId,
+        })
+        if (commitError) {
+          await unwindIncreases()
+          throw commitError
+        }
+        entry.committed = true
+      }
+    }
+
+    // Only reached once every increase above succeeded — safe to give stock
+    // back for anything that decreased.
+    for (const dec of deltas.filter((d) => d.delta < 0)) {
+      await admin.rpc(
+        wasCommitted ? 'restock_variant_stock' : 'release_variant_stock',
+        {
+          p_variant_id: dec.variantId,
+          p_quantity: -dec.delta,
+          p_reference_type: 'order_edit',
+          p_reference_id: data.orderId,
+        },
+      )
+    }
+
+    // Build the finalized item list once — reused for both the order_items
+    // writes below and the discount recompute further down.
+    const finalizedItems = data.items.map((item) => {
+      const variant = variantById.get(item.variantId)!
+      const existing = item.id
+        ? editableExisting.find((i) => i.id === item.id)
+        : undefined
+      // A pure quantity edit on the same variant keeps the originally-
+      // charged price — never retroactively reprice something the customer
+      // already agreed to at checkout. A new line or a variant swap is
+      // priced at today's catalog price instead.
+      const unchangedVariant = existing?.variant_id === item.variantId
+      const unitPriceCents =
+        existing && unchangedVariant
+          ? existing.unit_price_cents
+          : variant.price_cents
+      return { id: item.id, variant, quantity: item.quantity, unitPriceCents }
+    })
+
+    const removedIds = editableExisting
+      .filter((i) => !finalizedItems.some((f) => f.id === i.id))
+      .map((i) => i.id)
+    if (removedIds.length > 0) {
+      const { error: deleteError } = await admin
+        .from('order_items')
+        .delete()
+        .in('id', removedIds)
+      if (deleteError) throw deleteError
+    }
+
+    for (const item of finalizedItems) {
+      const lineSubtotalCents = item.unitPriceCents * item.quantity
+      const row = {
+        order_id: data.orderId,
+        variant_id: item.variant.id,
+        product_name_snapshot: item.variant.product.name,
+        variant_label_snapshot:
+          [item.variant.size, item.variant.color, item.variant.style]
+            .filter(Boolean)
+            .join(' / ') || null,
+        sku_snapshot: item.variant.sku ?? '',
+        unit_price_cents: item.unitPriceCents,
+        quantity: item.quantity,
+        line_subtotal_cents: lineSubtotalCents,
+        line_discount_cents: 0,
+        line_total_cents: lineSubtotalCents,
+      }
+
+      if (item.id) {
+        const { error: itemUpdateError } = await admin
+          .from('order_items')
+          .update(row)
+          .eq('id', item.id)
+        if (itemUpdateError) throw itemUpdateError
+      } else {
+        const { error: insertError } = await admin
+          .from('order_items')
+          .insert(row)
+        if (insertError) throw insertError
+      }
+    }
+
+    // Recompute order-level totals, reusing the exact same discount/
+    // shipping/markup logic place-order.ts uses at checkout.
+    const syntheticItems: CartItemWithVariant[] = finalizedItems.map((item) => ({
+      id: item.id ?? item.variant.id,
+      cart_id: '',
+      variant_id: item.variant.id,
+      quantity: item.quantity,
+      price_cents_snapshot: item.unitPriceCents,
+      created_at: '',
+      updated_at: '',
+      variant: item.variant,
+    }))
+
+    let discountCents = 0
+    let excludesFreeShipping = false
+    if (order.discount_id) {
+      const applied = await resolveDiscountForCart(
+        admin,
+        order.discount_id,
+        syntheticItems,
+      )
+      discountCents = applied?.amountCents ?? 0
+      excludesFreeShipping = applied?.excludesFreeShipping ?? false
+    }
+
+    const rawSubtotalCents = finalizedItems.reduce(
+      (sum, item) => sum + item.unitPriceCents * item.quantity,
+      0,
+    )
+    const subtotalCents = applyMarketMarkup(
+      rawSubtotalCents,
+      order.market_markup_percent ?? undefined,
+    )
+
+    const address = order.shipping_address as unknown as OrderShippingAddress
+    const country = address.country ?? 'PH'
+    let exchangeRates: ExchangeRates = {}
+    let marketShipping: MarketShippingConfig | undefined
+    if (country !== 'PH') {
+      const { data: rateRows } = await admin
+        .from('exchange_rates')
+        .select('currency, rate_to_php')
+      exchangeRates = Object.fromEntries(
+        (rateRows ?? []).map((r) => [r.currency, r.rate_to_php]),
+      )
+      const { data: marketRow } = await admin
+        .from('markets')
+        .select(
+          'shipping_price_cents, shipping_currency, free_shipping_min_subtotal_cents, free_shipping_min_items, market_countries!inner(country_code)',
+        )
+        .eq('is_active', true)
+        .eq('market_countries.country_code', country)
+        .maybeSingle()
+      if (marketRow) {
+        marketShipping = {
+          shippingPriceCents: marketRow.shipping_price_cents,
+          shippingCurrency: marketRow.shipping_currency,
+          freeShippingMinSubtotalCents:
+            marketRow.free_shipping_min_subtotal_cents,
+          freeShippingMinItems: marketRow.free_shipping_min_items,
+        }
+      }
+    }
+
+    const itemCount = finalizedItems.reduce((sum, item) => sum + item.quantity, 0)
+    const shippingCents = shippingCostCents(
+      country,
+      address.region,
+      subtotalCents - discountCents,
+      itemCount,
+      exchangeRates,
+      marketShipping,
+      excludesFreeShipping,
+    )
+    const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
+
+    const { data: updatedOrder, error: updateOrderError } = await admin
+      .from('orders')
+      .update({
+        subtotal_cents: subtotalCents,
+        discount_cents: discountCents,
+        shipping_cents: shippingCents,
+        total_cents: totalCents,
+      })
+      .eq('id', data.orderId)
+      .select('*')
+      .single()
+    if (updateOrderError) throw updateOrderError
+
+    await logStaffActivity(staff, 'order.items_update', 'orders', data.orderId, {
+      before: editableExisting.map((i) => ({
+        variantId: i.variant_id,
+        quantity: i.quantity,
+      })),
+      after: data.items,
+      stockMovements: deltas,
+    })
+
+    return updatedOrder
   })
 
 /**

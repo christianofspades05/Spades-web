@@ -890,6 +890,46 @@ export const searchProductsForPicker = createServerFn({ method: 'GET' })
     }))
   })
 
+export interface OrderEditVariantOption {
+  id: string
+  label: string
+  sku: string | null
+  priceCents: number
+  isActive: boolean
+  quantityAvailable: number
+}
+
+/** A product's variants for the admin order-items editor's "add item"/
+ *  "change size" picker (see components/admin/OrderItemsEditor.tsx) — needs
+ *  price + stock + active state up front so staff can see what's actually
+ *  available before picking, not just a bare list of sizes. */
+export const getVariantsForOrderEdit = createServerFn({ method: 'GET' })
+  .validator(z.object({ productId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<OrderEditVariantOption[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const { data: variants, error } = await admin
+      .from('product_variants')
+      .select(
+        'id, sku, size, color, style, price_cents, is_active, inventory(quantity_available)',
+      )
+      .eq('product_id', data.productId)
+    if (error) throw error
+
+    return variants.map((v) => ({
+      id: v.id,
+      label: [v.size, v.color, v.style].filter(Boolean).join(' / ') || 'Default',
+      sku: v.sku,
+      priceCents: v.price_cents,
+      isActive: v.is_active,
+      quantityAvailable: v.inventory.reduce(
+        (sum, i) => sum + i.quantity_available,
+        0,
+      ),
+    }))
+  })
+
 export const setProductCollections = createServerFn({ method: 'POST' })
   .validator(setProductCollectionsSchema)
   .handler(async ({ data }): Promise<{ ok: true }> => {

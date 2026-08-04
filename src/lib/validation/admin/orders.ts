@@ -53,7 +53,27 @@ export const bulkCancelOrdersSchema = z.object({
   reason: z.enum(CANCELLATION_REASONS),
 })
 
+const orderItemEditSchema = z.object({
+  // Existing order_item row id, or null for a brand-new line being added.
+  id: z.string().uuid().nullable(),
+  variantId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(999),
+})
+
+// Client submits the entire desired final item list, not a diff — the
+// server (updateOrderItems, src/server/admin/orders.ts) figures out what
+// changed by comparing this against what's currently in the database. Any
+// existing order_item id absent from this array is being removed.
+export const updateOrderItemsSchema = z.object({
+  orderId: z.string().uuid(),
+  items: z
+    .array(orderItemEditSchema)
+    .min(1, 'An order must have at least one item'),
+})
+
 export type OrderStatusUpdateInput = z.infer<typeof orderStatusUpdateSchema>
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
 export type CancelOrderInput = z.infer<typeof cancelOrderSchema>
 export type BulkCancelOrdersInput = z.infer<typeof bulkCancelOrdersSchema>
+export type OrderItemEditInput = z.infer<typeof orderItemEditSchema>
+export type UpdateOrderItemsInput = z.infer<typeof updateOrderItemsSchema>
