@@ -408,6 +408,28 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     return orders
   },
 
+  /**
+   * GET /order/202309/orders (fetch-by-id), not the /orders/search endpoint
+   * pullOrders uses — confirmed live that this returns the exact same order
+   * shape (including tracking_number) but sidesteps whatever's wrong with
+   * search's update_time_ge filter (see reconcileNonTerminalOrders). TikTok
+   * caps `ids` at 50 per call; the sync engine is responsible for chunking.
+   */
+  async pullOrdersByIds(connection, externalOrderIds) {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    if (externalOrderIds.length === 0) return []
+    const { orders } = await callTikTokApi<{ orders: TikTokOrder[] }>({
+      method: 'GET',
+      path: '/order/202309/orders',
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.shop_cipher ?? undefined,
+      query: { ids: externalOrderIds.join(',') },
+    })
+    return orders as unknown as Record<string, unknown>[]
+  },
+
   mapOrderToInternalFormat(platformOrderData): NormalizedOrder {
     const order = platformOrderData as unknown as TikTokOrder
     const address = order.recipient_address ?? {}

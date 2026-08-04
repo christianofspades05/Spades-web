@@ -45,6 +45,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           pullOrdersForMarketplace,
           pullReturnsForMarketplace,
           pushInventoryForAllProducts,
+          reconcileNonTerminalOrders,
         } = await import('#/server/integrations/marketplaces/sync-engine')
 
         const admin = getSupabaseAdminClient()
@@ -58,6 +59,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
         const pullResults: Record<string, unknown> = {}
         const returnResults: Record<string, unknown> = {}
         const reconcileResults: Record<string, unknown> = {}
+        const staleOrderResults: Record<string, unknown> = {}
 
         for (const connection of connections) {
           if (connection.marketplace === 'other') continue
@@ -87,6 +89,14 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
               error: err instanceof Error ? err.message : String(err),
             }
           }
+          try {
+            staleOrderResults[connection.marketplace] =
+              await reconcileNonTerminalOrders(connection.marketplace)
+          } catch (err) {
+            staleOrderResults[connection.marketplace] = {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
         }
 
         return Response.json({
@@ -94,6 +104,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           pullResults,
           returnResults,
           reconcileResults,
+          staleOrderResults,
         })
       },
     },

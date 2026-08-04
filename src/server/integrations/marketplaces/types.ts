@@ -230,6 +230,24 @@ export interface MarketplaceAdapter {
     since: Date,
   ) => Promise<Record<string, unknown>[]>
 
+  /**
+   * Fetches raw order objects by their platform id directly, bypassing
+   * whatever time-window/pagination the platform's "list changed orders"
+   * endpoint uses for pullOrders. Exists specifically for reconciliation —
+   * pullOrders' update_time_ge search has been observed (TikTok Shop, see
+   * reconcileNonTerminalOrders) to sometimes not re-surface an order for a
+   * long stretch after a real change (e.g. a tracking number attached
+   * post-collection-arrangement, or a platform-side auto-cancellation) even
+   * though the order is well within the lookback window — fetching by id
+   * sidesteps that class of bug entirely rather than debugging it platform
+   * by platform. Optional: only implemented where this gap has actually
+   * been observed live.
+   */
+  pullOrdersByIds?: (
+    connection: MarketplaceConnection,
+    externalOrderIds: string[],
+  ) => Promise<Record<string, unknown>[]>
+
   /** Normalizes one raw platform order into our internal shape. */
   mapOrderToInternalFormat: (
     platformOrderData: Record<string, unknown>,

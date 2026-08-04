@@ -383,8 +383,8 @@ const PICKED_UP_FULFILLMENT_STATUSES = new Set(['in_transit', 'delivered'])
 async function syncFulfillmentInfo(
   orderId: string,
   fulfillmentInfo: NormalizedOrder['fulfillmentInfo'],
-): Promise<void> {
-  if (!fulfillmentInfo) return
+): Promise<boolean> {
+  if (!fulfillmentInfo) return false
   const admin = getSupabaseAdminClient()
 
   const { data: shipment, error: shipmentError } = await admin
@@ -397,7 +397,7 @@ async function syncFulfillmentInfo(
     shipment?.status === fulfillmentInfo.status &&
     shipment.tracking_number === fulfillmentInfo.trackingNumber
   ) {
-    return
+    return false
   }
 
   const now = new Date().toISOString()
@@ -433,6 +433,8 @@ async function syncFulfillmentInfo(
       await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
     }
   }
+
+  return true
 }
 
 /**
@@ -730,6 +732,109 @@ export async function pullOrdersForMarketplace(
   })
 
   return { scanned: rawOrders.length, imported, failed }
+}
+
+const RECONCILIATION_TRACKED_STATUSES: OrderStatus[] = [
+  'paid',
+  'processing',
+  'packed',
+]
+const RECONCILE_BATCH_SIZE = 50
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+/**
+ * Re-checks every non-terminal order for `marketplace` directly against the
+ * platform's live order-by-id data, independent of pullOrders' update_time
+ * window. Exists because that window-based sync has been observed (TikTok
+ * Shop, 2026-08-04) to silently miss real changes — a tracking number
+ * attached well after collection was arranged, and a platform-side
+ * auto-cancellation — for hours to weeks, despite the regular pull running
+ * cleanly the whole time and nominally covering that period. Skips
+ * marketplaces whose adapter doesn't implement pullOrdersByIds (this gap
+ * hasn't been observed there, so there's nothing to reconcile against yet).
+ * Safe to run on every call: syncFulfillmentInfo/syncPlatformCancellation
+ * both no-op once local state already matches the platform's.
+ */
+export async function reconcileNonTerminalOrders(
+  marketplace: SyncableMarketplace,
+): Promise<{ scanned: number; updated: number; failed: number }> {
+  const adapter = getAdapter(marketplace)
+  if (!adapter.pullOrdersByIds) {
+    return { scanned: 0, updated: 0, failed: 0 }
+  }
+
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+
+  const admin = getSupabaseAdminClient()
+  const { data: orders, error } = await admin
+    .from('orders')
+    .select('id, external_order_id')
+    .eq('source', marketplace)
+    .not('external_order_id', 'is', null)
+    .in('status', RECONCILIATION_TRACKED_STATUSES)
+  if (error) throw error
+
+  const byExternalId = new Map(orders.map((o) => [o.external_order_id, o.id]))
+  let updated = 0
+  let failed = 0
+
+  for (const batch of chunk(
+    orders.map((o) => o.external_order_id),
+    RECONCILE_BATCH_SIZE,
+  )) {
+    let rawOrders: Record<string, unknown>[]
+    try {
+      rawOrders = await adapter.pullOrdersByIds(fresh, batch)
+    } catch (err) {
+      failed += batch.length
+      await logSync(
+        marketplace,
+        'reconcile_stale_orders',
+        'failed',
+        { batch },
+        getErrorMessage(err),
+      )
+      continue
+    }
+
+    for (const raw of rawOrders) {
+      let orderId: string | undefined
+      try {
+        const normalized = adapter.mapOrderToInternalFormat(raw)
+        orderId = byExternalId.get(normalized.externalOrderId)
+        if (!orderId) continue
+
+        const changed = normalized.isCancelled
+          ? await syncPlatformCancellation(orderId, normalized.cancellationDetail)
+          : await syncFulfillmentInfo(orderId, normalized.fulfillmentInfo)
+        if (changed) updated += 1
+      } catch (err) {
+        failed += 1
+        await logSync(
+          marketplace,
+          'reconcile_stale_orders',
+          'failed',
+          { orderId, raw },
+          getErrorMessage(err),
+        )
+      }
+    }
+  }
+
+  await logSync(marketplace, 'reconcile_stale_orders', 'success', {
+    scanned: orders.length,
+    updated,
+    failed,
+  })
+
+  return { scanned: orders.length, updated, failed }
 }
 
 // ---------------------------------------------------------------------------
