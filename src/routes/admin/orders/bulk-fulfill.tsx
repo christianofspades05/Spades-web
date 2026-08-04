@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import {
@@ -90,9 +90,33 @@ function BulkFulfillPage() {
     setSavingAll(false)
   }
 
+  // Saves the row the moment staff tab/click off the tracking number field,
+  // instead of relying on them to remember a separate Save click. Shipmate
+  // reads this same table directly, so the real-world gap this closes is the
+  // time between a waybill being entered here and a warehouse scan finding
+  // it — not just staff convenience.
+  function handleTrackingBlur(order: BulkFulfillmentOrder) {
+    const row = rows[order.id]
+    if (!row.trackingNumber.trim()) return
+    if (row.saveState === 'saving' || row.saveState === 'saved') return
+    void saveRow(order)
+  }
+
   const readyToSaveCount = orders.filter(
     (o) => rows[o.id].trackingNumber.trim() && rows[o.id].saveState !== 'saved',
   ).length
+
+  // Last-resort safety net for the rare case a tab closes before the blur
+  // above fires (e.g. the tracking number is the last thing typed and the
+  // tab is closed immediately, with no click/tab-away in between).
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (readyToSaveCount === 0) return
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [readyToSaveCount])
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -224,6 +248,7 @@ function BulkFulfillPage() {
                           saveState: 'idle',
                         })
                       }
+                      onBlur={() => handleTrackingBlur(order)}
                       className={CELL_INPUT}
                     />
                   </td>
