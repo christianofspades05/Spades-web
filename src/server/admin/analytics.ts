@@ -135,25 +135,10 @@ async function computeChannelSales(
   // by flipping the order's own status — see sync-engine.ts's comment on
   // why full-order status isn't used, since a return can be partial) still
   // shows the order's original total_cents unless the refunded amount is
-  // subtracted back out here.
-  const refundChunks = await Promise.all(
-    chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
-      fetchAllRows((offset) =>
-        admin
-          .from('returns')
-          .select('order_id, refund_amount_cents')
-          .eq('status', 'refunded')
-          .in('order_id', ids)
-          .range(offset, offset + 999),
-      ),
-    ),
-  )
-  const refundByOrderId = new Map<string, number>()
-  for (const ret of refundChunks.flat()) {
-    const current = refundByOrderId.get(ret.order_id) ?? 0
-    refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
-  }
-
+  // subtracted back out here. Neither this nor the order_items fetch below
+  // depends on the other — both only need orderIds — so they run
+  // concurrently instead of one after the other.
+  //
   // order_items outnumbers orders (most orders have multiple line items),
   // so this table crosses the 1000-row cap before orders itself does — the
   // select's own row cap is the risk within each chunk, which is why this
@@ -161,17 +146,36 @@ async function computeChannelSales(
   // against a different limit: a wide date range can produce enough order
   // ids that a single .in('order_id', orderIds) query string gets rejected
   // outright (same failure mode fixed on the customers page).
-  const itemChunks = await Promise.all(
-    chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
-      fetchAllRows((offset) =>
-        admin
-          .from('order_items')
-          .select('order_id, variant_id, quantity')
-          .in('order_id', ids)
-          .range(offset, offset + 999),
+  const [refundChunks, itemChunks] = await Promise.all([
+    Promise.all(
+      chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('returns')
+            .select('order_id, refund_amount_cents')
+            .eq('status', 'refunded')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
       ),
     ),
-  )
+    Promise.all(
+      chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('order_items')
+            .select('order_id, variant_id, quantity')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    ),
+  ])
+  const refundByOrderId = new Map<string, number>()
+  for (const ret of refundChunks.flat()) {
+    const current = refundByOrderId.get(ret.order_id) ?? 0
+    refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
+  }
   const items = itemChunks.flat()
 
   const variantIds = Array.from(
@@ -372,17 +376,29 @@ async function computeCancelledAndReturns(
 ): Promise<CancelledReturnsResult> {
   const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
-  const cancelledOrders = await fetchAllRows((offset) => {
-    let query = admin
-      .from('orders')
-      .select('id, source, cancellation_reason, cancelled_at, total_cents')
-      .eq('status', 'cancelled')
-      .gte('cancelled_at', rangeStart)
-      .lte('cancelled_at', rangeEnd)
-      .range(offset, offset + 999)
-    if (channelFilter) query = query.eq('source', channelFilter)
-    return query
-  })
+  // Neither of these depends on the other (different table, different date
+  // column) — run concurrently rather than one after another.
+  const [cancelledOrders, returnsRaw] = await Promise.all([
+    fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('id, source, cancellation_reason, cancelled_at, total_cents')
+        .eq('status', 'cancelled')
+        .gte('cancelled_at', rangeStart)
+        .lte('cancelled_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (channelFilter) query = query.eq('source', channelFilter)
+      return query
+    }),
+    fetchAllRows((offset) =>
+      admin
+        .from('returns')
+        .select('id, order_id, refund_amount_cents, requested_at')
+        .gte('requested_at', rangeStart)
+        .lte('requested_at', rangeEnd)
+        .range(offset, offset + 999),
+    ),
+  ])
 
   // A single-day range (e.g. "Today") gets bucketed by hour instead of by
   // day — see the same treatment in dashboard.ts's getDashboardAnalytics.
@@ -431,15 +447,6 @@ async function computeCancelledAndReturns(
       failedDeliveryAmountCents += order.total_cents
     }
   }
-
-  const returnsRaw = await fetchAllRows((offset) =>
-    admin
-      .from('returns')
-      .select('id, order_id, refund_amount_cents, requested_at')
-      .gte('requested_at', rangeStart)
-      .lte('requested_at', rangeEnd)
-      .range(offset, offset + 999),
-  )
 
   const returnOrderIds = Array.from(new Set(returnsRaw.map((r) => r.order_id)))
   const returnOrders =
@@ -662,19 +669,40 @@ async function computeSalesAnalytics(
 }> {
   const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
 
-  const orders = await fetchAllRows((offset) => {
-    let query = admin
-      .from('orders')
-      .select(
-        'id, source, status, placed_at, subtotal_cents, discount_cents, shipping_cents, total_cents',
-      )
-      .gte('placed_at', rangeStart)
-      .lte('placed_at', rangeEnd)
-      .range(offset, offset + 999)
-    if (channelFilter) query = query.eq('source', channelFilter)
-    if (brandFilter) query = query.eq('brand', brandFilter)
-    return query
-  })
+  // Cancellations are counted by when they were cancelled, not when the
+  // order was originally placed (same distinction getCancelledAndReturns
+  // makes) — an order placed weeks ago and cancelled today belongs in
+  // today's cancellation count, not the day it was placed. That means this
+  // needs its own range query rather than reusing the placed_at-filtered
+  // `orders` fetched below. It doesn't depend on `orders` at all, so both
+  // run concurrently instead of one after the other.
+  const [orders, cancelledOrders] = await Promise.all([
+    fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select(
+          'id, source, status, placed_at, subtotal_cents, discount_cents, shipping_cents, total_cents',
+        )
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (channelFilter) query = query.eq('source', channelFilter)
+      if (brandFilter) query = query.eq('brand', brandFilter)
+      return query
+    }),
+    fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('id, source, cancellation_reason, total_cents')
+        .eq('status', 'cancelled')
+        .gte('cancelled_at', rangeStart)
+        .lte('cancelled_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (channelFilter) query = query.eq('source', channelFilter)
+      if (brandFilter) query = query.eq('brand', brandFilter)
+      return query
+    }),
+  ])
 
   const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
   const orderIds = liveOrders.map((o) => o.id)
@@ -697,24 +725,6 @@ async function computeSalesAnalytics(
     refundByOrderId.set(ret.order_id, current + (ret.refund_amount_cents ?? 0))
   }
 
-  // Cancellations are counted by when they were cancelled, not when the
-  // order was originally placed (same distinction getCancelledAndReturns
-  // makes) — an order placed weeks ago and cancelled today belongs in
-  // today's cancellation count, not the day it was placed. That means this
-  // needs its own range query rather than reusing the placed_at-filtered
-  // `orders` fetched above.
-  const cancelledOrders = await fetchAllRows((offset) => {
-    let query = admin
-      .from('orders')
-      .select('id, source, cancellation_reason, total_cents')
-      .eq('status', 'cancelled')
-      .gte('cancelled_at', rangeStart)
-      .lte('cancelled_at', rangeEnd)
-      .range(offset, offset + 999)
-    if (channelFilter) query = query.eq('source', channelFilter)
-    if (brandFilter) query = query.eq('brand', brandFilter)
-    return query
-  })
   const cancelledOrderCount = cancelledOrders.length
   // What the order would have been worth had it gone through — the
   // customer-facing total, not gross-sales-minus-COGS, since this is meant
@@ -836,28 +846,28 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
 
     const admin = getSupabaseAdminClient()
 
-    const current = await computeSalesAnalytics(
-      admin,
-      data.from,
-      data.to,
-      data.channel,
-      data.brand,
-    )
+    // The previous-period comparison is completely independent of the
+    // current period's data, so both run concurrently instead of one after
+    // the other when comparePrevious is on — halving the wall-clock time
+    // for that case.
+    const [current, prevResult] = await Promise.all([
+      computeSalesAnalytics(admin, data.from, data.to, data.channel, data.brand),
+      data.comparePrevious
+        ? (() => {
+            const prev = previousPeriod(data.from, data.to)
+            return computeSalesAnalytics(
+              admin,
+              prev.from,
+              prev.to,
+              data.channel,
+              data.brand,
+            )
+          })()
+        : null,
+    ])
 
-    let previousTotals: SalesAnalyticsTotals | null = null
-    let previousDaily: SalesAnalyticsDailyPoint[] = []
-    if (data.comparePrevious) {
-      const prev = previousPeriod(data.from, data.to)
-      const prevResult = await computeSalesAnalytics(
-        admin,
-        prev.from,
-        prev.to,
-        data.channel,
-        data.brand,
-      )
-      previousTotals = prevResult.totals
-      previousDaily = prevResult.daily
-    }
+    const previousTotals: SalesAnalyticsTotals | null = prevResult?.totals ?? null
+    const previousDaily: SalesAnalyticsDailyPoint[] = prevResult?.daily ?? []
 
     const daily = current.daily.map((point, i) => ({
       ...point,
