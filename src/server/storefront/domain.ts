@@ -99,7 +99,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     collectionSlug: null,
     name: 'Spades',
     shopLabel: 'Spades',
-    title: 'Spades — Philippine Streetwear',
+    title: 'Spades — Streetwear Goods',
     tagline: 'Streetwear for those who bet on themselves.',
     taglineJa: '自分自身に賭ける者たちのためのストリートウェア。',
     taglineKo: '스스로에게 베팅하는 이들을 위한 스트리트웨어.',
