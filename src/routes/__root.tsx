@@ -49,12 +49,15 @@ export const Route = createRootRoute({
     // first to know which brand's maintenance flag to check, then the rest
     // run in parallel as before.
     const storefrontScope = await getStorefrontScope()
-    // getMaintenanceMode/getStorefrontBanner both hit Supabase and throw on
-    // any error — caught individually with a safe fallback (off / no
-    // banner) rather than left to reject the whole Promise.all, which would
-    // throw beforeLoad itself and take down every route on this app for
-    // every visitor over what's just a cosmetic feature. A transient
-    // Supabase blip should degrade these two, not the entire site.
+    // Every one of these is caught individually with a safe fallback rather
+    // than left to reject the whole Promise.all, which would throw
+    // beforeLoad itself and 500 every route on this app for every visitor
+    // over what's otherwise just a cosmetic/best-effort feature. A
+    // transient Supabase (or Vercel geo-header) blip should degrade these,
+    // not take down the entire site — this is what actually happened during
+    // the 2026-08-03 ~11:20pm PST incident (Supabase-side connectivity
+    // issues briefly 500'd the homepage before geoCountry/geoDefaultCurrency
+    // were wrapped the same way banner/maintenance already were).
     const [
       geoDefaultCurrency,
       geoCountry,
@@ -62,8 +65,14 @@ export const Route = createRootRoute({
       banner,
       emailCapturePopupEnabled,
     ] = await Promise.all([
-      getGeoDefaultCurrency(),
-      getGeoCountry(),
+      getGeoDefaultCurrency().catch((err: unknown) => {
+        console.error('getGeoDefaultCurrency failed:', err)
+        return null
+      }),
+      getGeoCountry().catch((err: unknown) => {
+        console.error('getGeoCountry failed:', err)
+        return null
+      }),
       getMaintenanceMode({ data: { brand: storefrontScope.brand } }).catch(
         (err: unknown) => {
           console.error('getMaintenanceMode failed:', err)
