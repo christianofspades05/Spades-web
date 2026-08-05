@@ -352,3 +352,85 @@ export const getLiveViewerCount = createServerFn({ method: 'GET' })
     if (error) throw error
     return { count: count ?? 0 }
   })
+
+// Personal/test accounts used for poking around the storefront — never a
+// real customer's lifetime value, so always excluded from the average
+// regardless of what they've spent.
+const EXCLUDED_CLV_EMAILS = [
+  'paoloxcruz02@gmail.com',
+  'christianandrecawaling152@gmail.com',
+]
+
+export interface CustomerLifetimeValueResult {
+  /** Null once there are no eligible customers to average over. */
+  averageCents: number | null
+  /** How many customers the average was computed over — shown alongside
+   *  the figure so a tiny sample size is never mistaken for a stable one. */
+  customerCount: number
+}
+
+/**
+ * Average lifetime spend per customer — deliberately a plain historical
+ * average (each customer's total real-order spend, averaged across
+ * everyone who's spent something), not a predictive model. There's no
+ * churn-rate/purchase-frequency data to honestly project from, and a
+ * simple, correct historical figure beats a modeled one dressed up to look
+ * more sophisticated than the data supports.
+ *
+ * Deliberately NOT date-ranged or channel-filtered, unlike
+ * getDashboardAnalytics above — "lifetime" value doesn't fit a date window,
+ * and a customer's full relationship should count regardless of which
+ * channel any one of their orders came through. Brand still applies, since
+ * Spades/Ysrael/Aspire 365 customers are meaningfully different pools.
+ */
+export const getAverageCustomerLifetimeValue = createServerFn({
+  method: 'GET',
+})
+  .validator(z.object({ brand: z.string().optional() }))
+  .handler(async ({ data }): Promise<CustomerLifetimeValueResult> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const { data: excludedCustomers, error: excludedError } = await admin
+      .from('customers')
+      .select('id')
+      .in('email', EXCLUDED_CLV_EMAILS)
+    if (excludedError) throw excludedError
+    const excludedIds = new Set(excludedCustomers.map((c) => c.id))
+
+    const orders = await fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('customer_id, total_cents, status')
+        .range(offset, offset + 999)
+      if (data.brand) query = query.eq('brand', data.brand)
+      return query
+    })
+
+    const spendByCustomer = new Map<string, number>()
+    for (const order of orders) {
+      if (VOID_STATUSES.has(order.status)) continue
+      if (excludedIds.has(order.customer_id)) continue
+      spendByCustomer.set(
+        order.customer_id,
+        (spendByCustomer.get(order.customer_id) ?? 0) + order.total_cents,
+      )
+    }
+
+    // Only customers who've actually spent something count toward the
+    // average — a $0-lifetime customer (e.g. a guest row the email-capture
+    // popup created that never converted) would otherwise drag the average
+    // down for no meaningful reason.
+    const spendValues = Array.from(spendByCustomer.values()).filter(
+      (cents) => cents > 0,
+    )
+    if (spendValues.length === 0) {
+      return { averageCents: null, customerCount: 0 }
+    }
+
+    const totalCents = spendValues.reduce((sum, cents) => sum + cents, 0)
+    return {
+      averageCents: Math.round(totalCents / spendValues.length),
+      customerCount: spendValues.length,
+    }
+  })

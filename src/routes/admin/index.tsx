@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { getDashboardAnalytics, getLiveViewerCount } from '#/server/admin/dashboard'
+import {
+  getAverageCustomerLifetimeValue,
+  getDashboardAnalytics,
+  getLiveViewerCount,
+} from '#/server/admin/dashboard'
+import type { CustomerLifetimeValueResult } from '#/server/admin/dashboard'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
@@ -73,6 +78,28 @@ function useLiveViewerCount(brand: string | undefined) {
   return count
 }
 
+/** Re-fetches only on brand change — deliberately independent of the main
+ *  loader's date range/channel deps, since lifetime value doesn't fit a
+ *  date window and isn't channel-scoped (see getAverageCustomerLifetimeValue's
+ *  own doc comment). */
+function useAverageCustomerLifetimeValue(brand: string | undefined) {
+  const [result, setResult] = useState<CustomerLifetimeValueResult | null>(
+    null,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    getAverageCustomerLifetimeValue({ data: { brand } }).then((r) => {
+      if (!cancelled) setResult(r)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [brand])
+
+  return result
+}
+
 export const Route = createFileRoute('/admin/')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
@@ -105,6 +132,7 @@ function AdminPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const liveCount = useLiveViewerCount(search.brand)
+  const clv = useAverageCustomerLifetimeValue(search.brand)
 
   function handleRangeChange(
     preset: DateRangePreset,
@@ -331,6 +359,20 @@ function AdminPage() {
             />
           </div>
         </Card>
+
+        <Card className="p-5">
+          <p className="text-sm font-medium text-neutral-500">
+            Average customer lifetime value
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-neutral-900">
+            {clv?.averageCents == null ? '—' : formatCentsAsPHP(clv.averageCents)}
+          </p>
+          <p className="mt-1 text-xs text-neutral-400">
+            {clv && clv.customerCount > 0
+              ? `Across ${clv.customerCount} customer${clv.customerCount === 1 ? '' : 's'}, all-time`
+              : 'All-time — not scoped to the date range above'}
+          </p>
+        </Card>
       </div>
 
       <p className="mt-3 text-xs text-neutral-400">
@@ -340,7 +382,10 @@ function AdminPage() {
         before this feature shipped aren't counted retroactively. Conversion
         rate is online-store orders ÷ unique visitors. Average order value is
         sales ÷ orders over the selected range. Dashed lines show the
-        previous period for comparison.
+        previous period for comparison. Average customer lifetime value is
+        each customer's total real-order spend, averaged across everyone
+        who's spent more than ₱0 — always all-time, not affected by the
+        date range above.
       </p>
     </div>
   )
