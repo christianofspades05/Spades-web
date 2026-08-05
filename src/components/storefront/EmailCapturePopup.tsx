@@ -90,7 +90,7 @@ export function EmailCapturePopup({ enabled }: { enabled: boolean }) {
             <h2 className="pr-6 text-lg font-semibold text-neutral-900 dark:text-white">
               {t.emailCapture.title}
             </h2>
-            <p className="mt-2 text-sm whitespace-nowrap text-neutral-600 dark:text-neutral-400">
+            <p className="mt-2 text-sm text-neutral-600 sm:whitespace-nowrap dark:text-neutral-400">
               {t.emailCapture.body}
             </p>
 
