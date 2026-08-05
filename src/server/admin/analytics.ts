@@ -628,6 +628,125 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
     }
   })
 
+export interface CustomerTypeBucket {
+  salesCents: number
+  orderCount: number
+  customerCount: number
+}
+
+export interface SalesByCustomerTypeResult {
+  firstTime: CustomerTypeBucket
+  repeat: CustomerTypeBucket
+  /** (repeat customers ÷ all customers who ordered in this range) × 100 —
+   *  null once no one ordered in the range at all. Reuses the exact same
+   *  new/existing classification as firstTime/repeat above, so this number
+   *  and the donut it sits next to are always consistent with each other. */
+  retentionRatePct: number | null
+}
+
+/**
+ * Splits this range's sales between customers who are ordering for the
+ * very first time ever during it, and customers who already had at least
+ * one order before the range started — classified per CUSTOMER, not per
+ * order, so a returning customer's second order this period still counts
+ * as "repeat" sales, and a brand-new customer's second order this same
+ * period still counts as "first-time" sales (they were still acquired
+ * during this window either way).
+ */
+export const getSalesByCustomerType = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      brand: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<SalesByCustomerTypeResult> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+
+    const orders = await fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('customer_id, status, total_cents')
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (data.channel) query = query.eq('source', data.channel)
+      if (data.brand) query = query.eq('brand', data.brand)
+      return query
+    })
+    const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+    const customerIds = Array.from(
+      new Set(liveOrders.map((o) => o.customer_id)),
+    )
+
+    // Which of these customers already had a real order before this range
+    // started — chunked to avoid a large .in() filter (see
+    // resolveCollectionScopedProductIds's own comment on the same limit).
+    const existingCustomerIds = new Set<string>()
+    for (const idsChunk of chunkArray(customerIds, ORDER_ID_CHUNK_SIZE)) {
+      const priorOrders = await fetchAllRows((offset) =>
+        admin
+          .from('orders')
+          .select('customer_id, status')
+          .in('customer_id', idsChunk)
+          .lt('placed_at', rangeStart)
+          .range(offset, offset + 999),
+      )
+      for (const order of priorOrders) {
+        if (!VOID_STATUSES.has(order.status)) {
+          existingCustomerIds.add(order.customer_id)
+        }
+      }
+    }
+
+    let firstTimeSalesCents = 0
+    let firstTimeOrderCount = 0
+    let repeatSalesCents = 0
+    let repeatOrderCount = 0
+    const firstTimeCustomers = new Set<string>()
+    const repeatCustomers = new Set<string>()
+
+    for (const order of liveOrders) {
+      if (existingCustomerIds.has(order.customer_id)) {
+        repeatSalesCents += order.total_cents
+        repeatOrderCount += 1
+        repeatCustomers.add(order.customer_id)
+      } else {
+        firstTimeSalesCents += order.total_cents
+        firstTimeOrderCount += 1
+        firstTimeCustomers.add(order.customer_id)
+      }
+    }
+
+    const totalCustomers = firstTimeCustomers.size + repeatCustomers.size
+
+    return {
+      firstTime: {
+        salesCents: firstTimeSalesCents,
+        orderCount: firstTimeOrderCount,
+        customerCount: firstTimeCustomers.size,
+      },
+      repeat: {
+        salesCents: repeatSalesCents,
+        orderCount: repeatOrderCount,
+        customerCount: repeatCustomers.size,
+      },
+      retentionRatePct:
+        totalCustomers > 0
+          ? (repeatCustomers.size / totalCustomers) * 100
+          : null,
+    }
+  })
+
 export interface SalesAnalyticsTotals {
   grossSalesCents: number
   discountsCents: number
