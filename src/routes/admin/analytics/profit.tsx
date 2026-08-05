@@ -6,7 +6,6 @@ import {
   getOrderProfitList,
   getProductProfitBreakdown,
   getSalesByChannel,
-  getSalesByCustomerType,
 } from '#/server/admin/analytics'
 import type { OrderProfitRow } from '#/server/admin/analytics'
 import { StatusBadge } from '#/components/admin/Badge'
@@ -54,11 +53,6 @@ const CHANNEL_COLORS: Record<OrderSource, string> = {
   admin: '#94a3b8',
 }
 
-const CUSTOMER_TYPE_COLORS = {
-  firstTime: '#f59e0b',
-  repeat: '#0ea5e9',
-}
-
 const ORDER_PROFIT_PAGE_SIZE = 25
 
 export const Route = createFileRoute('/admin/analytics/profit')({
@@ -79,44 +73,35 @@ export const Route = createFileRoute('/admin/analytics/profit')({
       from: deps.from,
       to: deps.to,
     })
-    const [sales, products, orderProfit, customerTypeSales] =
-      await Promise.all([
-        getSalesByChannel({
-          data: {
-            ...resolved,
-            channel: deps.channel,
-            brand: deps.brand,
-            comparePrevious: deps.compare,
-          },
-        }),
-        getProductProfitBreakdown({
-          data: { ...resolved, channel: deps.channel, brand: deps.brand },
-        }),
-        getOrderProfitList({
-          data: {
-            ...resolved,
-            channel: deps.channel,
-            brand: deps.brand,
-            page: deps.orderPage,
-            pageSize: ORDER_PROFIT_PAGE_SIZE,
-          },
-        }),
-        getSalesByCustomerType({
-          data: { ...resolved, channel: deps.channel, brand: deps.brand },
-        }),
-      ])
-    return { sales, products, orderProfit, customerTypeSales }
+    const [sales, products, orderProfit] = await Promise.all([
+      getSalesByChannel({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          brand: deps.brand,
+          comparePrevious: deps.compare,
+        },
+      }),
+      getProductProfitBreakdown({
+        data: { ...resolved, channel: deps.channel, brand: deps.brand },
+      }),
+      getOrderProfitList({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          brand: deps.brand,
+          page: deps.orderPage,
+          pageSize: ORDER_PROFIT_PAGE_SIZE,
+        },
+      }),
+    ])
+    return { sales, products, orderProfit }
   },
   component: ProfitPage,
 })
 
 function ProfitPage() {
-  const {
-    sales: result,
-    products,
-    orderProfit,
-    customerTypeSales,
-  } = Route.useLoaderData()
+  const { sales: result, products, orderProfit } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -139,23 +124,6 @@ function ProfitPage() {
     value: Math.max(c.netProfitCents, 0),
     color: CHANNEL_COLORS[c.source],
   }))
-  const salesByChannelSlices = result.channels.map((c) => ({
-    label: SOURCE_LABELS[c.source],
-    value: Math.max(c.netSalesCents, 0),
-    color: CHANNEL_COLORS[c.source],
-  }))
-  const customerTypeSlices = [
-    {
-      label: '1st-time customers',
-      value: Math.max(customerTypeSales.firstTime.salesCents, 0),
-      color: CUSTOMER_TYPE_COLORS.firstTime,
-    },
-    {
-      label: 'Repeat customers',
-      value: Math.max(customerTypeSales.repeat.salesCents, 0),
-      color: CUSTOMER_TYPE_COLORS.repeat,
-    },
-  ]
   const prevBySource = new Map(
     (result.previous?.channels ?? []).map((c) => [c.source, c]),
   )
@@ -510,121 +478,6 @@ function ProfitPage() {
           </div>
         </div>
       </Card>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-6">
-          <h2 className="text-sm font-semibold text-neutral-900">
-            Sales by Channel
-          </h2>
-          <p className="text-xs text-neutral-500">
-            Net sales — gross sales minus discounts and refunds
-          </p>
-
-          <div className="mt-6 flex flex-wrap items-center gap-10">
-            <DonutChart slices={salesByChannelSlices} />
-            <div className="flex flex-col gap-3">
-              {result.channels.map((c) => (
-                <div
-                  key={c.source}
-                  className="flex items-center justify-between gap-8"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="size-2.5 rounded-full"
-                      style={{ backgroundColor: CHANNEL_COLORS[c.source] }}
-                    />
-                    <span className="text-sm text-neutral-700">
-                      {SOURCE_LABELS[c.source]}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.netSalesCents)}
-                  </p>
-                </div>
-              ))}
-              {result.channels.length === 0 && (
-                <p className="text-sm text-neutral-400">
-                  No sales in this range.
-                </p>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-900">
-                1st-time vs. Repeat Customers
-              </h2>
-              <p className="text-xs text-neutral-500">
-                Sales split by whether the customer had already ordered
-                before this range
-              </p>
-            </div>
-            {customerTypeSales.retentionRatePct !== null && (
-              <div className="text-right">
-                <p className="text-xl font-semibold text-neutral-900">
-                  {customerTypeSales.retentionRatePct.toFixed(1)}%
-                </p>
-                <p className="text-xs text-neutral-400">retention rate</p>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-10">
-            <DonutChart slices={customerTypeSlices} />
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-8">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ backgroundColor: CUSTOMER_TYPE_COLORS.firstTime }}
-                  />
-                  <span className="text-sm text-neutral-700">
-                    1st-time customers
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(customerTypeSales.firstTime.salesCents)}
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    {customerTypeSales.firstTime.customerCount} customer
-                    {customerTypeSales.firstTime.customerCount === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-8">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ backgroundColor: CUSTOMER_TYPE_COLORS.repeat }}
-                  />
-                  <span className="text-sm text-neutral-700">
-                    Repeat customers
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(customerTypeSales.repeat.salesCents)}
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    {customerTypeSales.repeat.customerCount} customer
-                    {customerTypeSales.repeat.customerCount === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </div>
-              {customerTypeSales.firstTime.customerCount === 0 &&
-                customerTypeSales.repeat.customerCount === 0 && (
-                  <p className="text-sm text-neutral-400">
-                    No customers in this range.
-                  </p>
-                )}
-            </div>
-          </div>
-        </Card>
-      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {result.channels.map((c) => {

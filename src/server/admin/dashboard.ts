@@ -354,40 +354,51 @@ export const getLiveViewerCount = createServerFn({ method: 'GET' })
   })
 
 // Personal/test accounts used for poking around the storefront — never a
-// real customer's lifetime value, so always excluded from the average
+// real customer's lifetime value, so always excluded from these figures
 // regardless of what they've spent.
 const EXCLUDED_CLV_EMAILS = [
   'paoloxcruz02@gmail.com',
   'christianandrecawaling152@gmail.com',
 ]
 
-export interface CustomerLifetimeValueResult {
+export interface CustomerEconomicsResult {
   /** Null once there are no eligible customers to average over. */
-  averageCents: number | null
-  /** How many customers the average was computed over — shown alongside
-   *  the figure so a tiny sample size is never mistaken for a stable one. */
+  averageLifetimeValueCents: number | null
+  /** (customers with 2+ real orders) ÷ (all eligible customers) × 100 — null
+   *  once there are no eligible customers. */
+  repeatPurchaseRatePct: number | null
+  /** (sum of each eligible customer's real order count) ÷ (eligible
+   *  customer count) — null once there are no eligible customers. */
+  averageOrdersPerCustomer: number | null
+  /** How many customers these figures were computed over — shown alongside
+   *  them so a tiny sample size is never mistaken for a stable one. */
   customerCount: number
 }
 
 /**
- * Average lifetime spend per customer — deliberately a plain historical
- * average (each customer's total real-order spend, averaged across
- * everyone who's spent something), not a predictive model. There's no
- * churn-rate/purchase-frequency data to honestly project from, and a
- * simple, correct historical figure beats a modeled one dressed up to look
- * more sophisticated than the data supports.
+ * All-time, per-customer economics: average lifetime spend, repeat purchase
+ * rate, and average orders per customer — all three computed from the same
+ * eligible customer set (deliberately a plain historical average, not a
+ * predictive model; there's no churn-rate/purchase-frequency data to
+ * honestly project from) so they never tell subtly inconsistent stories
+ * about who counts.
+ *
+ * Eligible = real spend greater than ₱0 (a $0-lifetime customer — e.g. a
+ * guest row the email-capture popup created that never converted — would
+ * otherwise drag every average down for no meaningful reason) and not one
+ * of the excluded personal/test accounts above.
  *
  * Deliberately NOT date-ranged or channel-filtered, unlike
- * getDashboardAnalytics above — "lifetime" value doesn't fit a date window,
- * and a customer's full relationship should count regardless of which
- * channel any one of their orders came through. Brand still applies, since
+ * getDashboardAnalytics above — "lifetime" doesn't fit a date window, and a
+ * customer's full relationship should count regardless of which channel
+ * any one of their orders came through. Brand still applies, since
  * Spades/Ysrael/Aspire 365 customers are meaningfully different pools.
  */
-export const getAverageCustomerLifetimeValue = createServerFn({
+export const getCustomerEconomics = createServerFn({
   method: 'GET',
 })
   .validator(z.object({ brand: z.string().optional() }))
-  .handler(async ({ data }): Promise<CustomerLifetimeValueResult> => {
+  .handler(async ({ data }): Promise<CustomerEconomicsResult> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
@@ -408,6 +419,7 @@ export const getAverageCustomerLifetimeValue = createServerFn({
     })
 
     const spendByCustomer = new Map<string, number>()
+    const orderCountByCustomer = new Map<string, number>()
     for (const order of orders) {
       if (VOID_STATUSES.has(order.status)) continue
       if (excludedIds.has(order.customer_id)) continue
@@ -415,22 +427,45 @@ export const getAverageCustomerLifetimeValue = createServerFn({
         order.customer_id,
         (spendByCustomer.get(order.customer_id) ?? 0) + order.total_cents,
       )
+      orderCountByCustomer.set(
+        order.customer_id,
+        (orderCountByCustomer.get(order.customer_id) ?? 0) + 1,
+      )
     }
 
-    // Only customers who've actually spent something count toward the
-    // average — a $0-lifetime customer (e.g. a guest row the email-capture
-    // popup created that never converted) would otherwise drag the average
-    // down for no meaningful reason.
-    const spendValues = Array.from(spendByCustomer.values()).filter(
-      (cents) => cents > 0,
+    // Only customers who've actually spent something are eligible — see
+    // the doc comment above.
+    const eligibleCustomerIds = Array.from(spendByCustomer.keys()).filter(
+      (id) => (spendByCustomer.get(id) ?? 0) > 0,
     )
-    if (spendValues.length === 0) {
-      return { averageCents: null, customerCount: 0 }
+    if (eligibleCustomerIds.length === 0) {
+      return {
+        averageLifetimeValueCents: null,
+        repeatPurchaseRatePct: null,
+        averageOrdersPerCustomer: null,
+        customerCount: 0,
+      }
     }
 
-    const totalCents = spendValues.reduce((sum, cents) => sum + cents, 0)
+    const totalSpendCents = eligibleCustomerIds.reduce(
+      (sum, id) => sum + (spendByCustomer.get(id) ?? 0),
+      0,
+    )
+    const totalOrders = eligibleCustomerIds.reduce(
+      (sum, id) => sum + (orderCountByCustomer.get(id) ?? 0),
+      0,
+    )
+    const repeatCustomerCount = eligibleCustomerIds.filter(
+      (id) => (orderCountByCustomer.get(id) ?? 0) >= 2,
+    ).length
+
     return {
-      averageCents: Math.round(totalCents / spendValues.length),
-      customerCount: spendValues.length,
+      averageLifetimeValueCents: Math.round(
+        totalSpendCents / eligibleCustomerIds.length,
+      ),
+      repeatPurchaseRatePct:
+        (repeatCustomerCount / eligibleCustomerIds.length) * 100,
+      averageOrdersPerCustomer: totalOrders / eligibleCustomerIds.length,
+      customerCount: eligibleCustomerIds.length,
     }
   })
