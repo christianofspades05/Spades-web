@@ -387,32 +387,56 @@ async function syncFulfillmentInfo(
   if (!fulfillmentInfo) return false
   const admin = getSupabaseAdminClient()
 
+  // Every raw TikTok status TIKTOK_STATUS_TO_FULFILLMENT maps (adapter.ts)
+  // is also one of PAID_STATUSES there — so fulfillmentInfo existing at all
+  // means the order is paid on the platform's side, full stop. This runs
+  // unconditionally, before the shipment-unchanged early-return below,
+  // specifically to correct an order that was imported while TikTok
+  // still briefly reported UNPAID (a real race at the exact moment of
+  // first pull) and has been stuck reporting pending_payment ever since —
+  // otherwise indistinguishable from a genuinely-unpaid order, and
+  // invisible to reconcileNonTerminalOrders' status filter below because
+  // of it (confirmed live on order SPD-5513, 2026-08-05: TikTok had long
+  // since paid and packed it, but this app kept reporting pending_payment
+  // forever, so its tracking number was never re-checked either). Once
+  // corrected, a later pull can still push it on to 'shipped' below.
+  const { data: orderBefore, error: orderReadError } = await admin
+    .from('orders')
+    .select('status')
+    .eq('id', orderId)
+    .single()
+  if (orderReadError) throw orderReadError
+  let currentStatus = orderBefore.status
+  if (currentStatus === 'pending_payment') {
+    await admin.from('orders').update({ status: 'paid' }).eq('id', orderId)
+    currentStatus = 'paid'
+  }
+
   const { data: shipment, error: shipmentError } = await admin
     .from('shipments')
     .select('id, status, tracking_number')
     .eq('order_id', orderId)
     .maybeSingle()
   if (shipmentError) throw shipmentError
-  if (
+  const shipmentUnchanged =
     shipment?.status === fulfillmentInfo.status &&
     shipment.tracking_number === fulfillmentInfo.trackingNumber
-  ) {
-    return false
-  }
 
-  const now = new Date().toISOString()
-  const patch = {
-    order_id: orderId,
-    carrier: fulfillmentInfo.carrier,
-    tracking_number: fulfillmentInfo.trackingNumber,
-    status: fulfillmentInfo.status,
-    shipped_at: fulfillmentInfo.status === 'in_transit' ? now : undefined,
-    delivered_at: fulfillmentInfo.status === 'delivered' ? now : undefined,
-  }
-  if (shipment) {
-    await admin.from('shipments').update(patch).eq('id', shipment.id)
-  } else {
-    await admin.from('shipments').insert(patch)
+  if (!shipmentUnchanged) {
+    const now = new Date().toISOString()
+    const patch = {
+      order_id: orderId,
+      carrier: fulfillmentInfo.carrier,
+      tracking_number: fulfillmentInfo.trackingNumber,
+      status: fulfillmentInfo.status,
+      shipped_at: fulfillmentInfo.status === 'in_transit' ? now : undefined,
+      delivered_at: fulfillmentInfo.status === 'delivered' ? now : undefined,
+    }
+    if (shipment) {
+      await admin.from('shipments').update(patch).eq('id', shipment.id)
+    } else {
+      await admin.from('shipments').insert(patch)
+    }
   }
 
   // Also advance the order's own status (drives the status filter pills on
@@ -422,19 +446,14 @@ async function syncFulfillmentInfo(
   // isn't the same as being fulfilled), and only moving it forward, never
   // overwriting something further along like delivered, or a cancelled/
   // refunded/failed order.
-  if (PICKED_UP_FULFILLMENT_STATUSES.has(fulfillmentInfo.status)) {
-    const { data: order, error: orderReadError } = await admin
-      .from('orders')
-      .select('status')
-      .eq('id', orderId)
-      .single()
-    if (orderReadError) throw orderReadError
-    if (STATUSES_BEFORE_SHIPPED.has(order.status)) {
-      await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
-    }
+  if (
+    PICKED_UP_FULFILLMENT_STATUSES.has(fulfillmentInfo.status) &&
+    STATUSES_BEFORE_SHIPPED.has(currentStatus)
+  ) {
+    await admin.from('orders').update({ status: 'shipped' }).eq('id', orderId)
   }
 
-  return true
+  return !shipmentUnchanged || currentStatus !== orderBefore.status
 }
 
 /**
