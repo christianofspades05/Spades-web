@@ -112,10 +112,15 @@ export interface DailyPoint {
   salesCents: number
   visitors: number
   conversionRate: number | null
+  /** salesCents / orders for this bucket, rounded to the nearest cent — null
+   *  once orders is 0, same "nothing to divide by" convention
+   *  conversionRate already uses. */
+  aovCents: number | null
   previousOrders: number
   previousSalesCents: number
   previousVisitors: number
   previousConversionRate: number | null
+  previousAovCents: number | null
 }
 
 export interface DashboardAnalytics {
@@ -124,6 +129,10 @@ export interface DashboardAnalytics {
   orders: { count: number; previousCount: number }
   visitors: { count: number; previousCount: number }
   conversionRate: { rate: number | null; previousRate: number | null }
+  /** Average order value — sales.cents / orders.count over the whole
+   *  selected range, not a per-bucket average of the daily figures (which
+   *  would over-weight low-order days). Null once orders.count is 0. */
+  averageOrderValue: { cents: number | null; previousCents: number | null }
   daily: DailyPoint[]
 }
 
@@ -229,12 +238,18 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
           point.visitors > 0
             ? (point.storefrontOrders / point.visitors) * 100
             : null,
+        aovCents:
+          point.orders > 0 ? Math.round(point.salesCents / point.orders) : null,
         previousOrders: prevPoint?.orders ?? 0,
         previousSalesCents: prevPoint?.salesCents ?? 0,
         previousVisitors: prevPoint?.visitors ?? 0,
         previousConversionRate:
           prevPoint && prevPoint.visitors > 0
             ? (prevPoint.storefrontOrders / prevPoint.visitors) * 100
+            : null,
+        previousAovCents:
+          prevPoint && prevPoint.orders > 0
+            ? Math.round(prevPoint.salesCents / prevPoint.orders)
             : null,
       }
     })
@@ -288,6 +303,12 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         ? (previousStorefrontOrdersCount / previousUniqueVisitors.size) * 100
         : null
 
+    const aovCents = ordersCount > 0 ? Math.round(salesCents / ordersCount) : null
+    const previousAovCents =
+      previousOrdersCount > 0
+        ? Math.round(previousSalesCents / previousOrdersCount)
+        : null
+
     return {
       range: { from: data.from, to: data.to },
       sales: { cents: salesCents, previousCents: previousSalesCents },
@@ -300,6 +321,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         rate: conversionRate,
         previousRate: previousConversionRate,
       },
+      averageOrderValue: { cents: aovCents, previousCents: previousAovCents },
       daily,
     }
   })

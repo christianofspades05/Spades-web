@@ -27,6 +27,7 @@ const SALES_COLOR = '#2c6ecb'
 const ORDERS_COLOR = '#16a34a'
 const VISITORS_COLOR = '#ea580c'
 const CONVERSION_COLOR = '#7c3aed'
+const AOV_COLOR = '#0d9488'
 
 const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
@@ -139,6 +140,14 @@ function AdminPage() {
           analytics.conversionRate.previousRate,
         )
       : null
+  const aovTrend =
+    analytics.averageOrderValue.cents !== null &&
+    analytics.averageOrderValue.previousCents !== null
+      ? percentChange(
+          analytics.averageOrderValue.cents,
+          analytics.averageOrderValue.previousCents,
+        )
+      : null
 
   const salesChartData = analytics.daily.map((d) => ({
     label: d.date,
@@ -159,6 +168,11 @@ function AdminPage() {
     label: d.date,
     current: d.conversionRate ?? 0,
     previous: d.previousConversionRate ?? 0,
+  }))
+  const aovChartData = analytics.daily.map((d) => ({
+    label: d.date,
+    current: d.aovCents ?? 0,
+    previous: d.previousAovCents ?? 0,
   }))
 
   return (
@@ -195,7 +209,7 @@ function AdminPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="p-5">
           <p className="text-sm font-medium text-neutral-500">Sales</p>
           <div className="mt-2 flex items-end justify-between">
@@ -289,6 +303,34 @@ function AdminPage() {
             />
           </div>
         </Card>
+
+        <Card className="p-5">
+          <p className="text-sm font-medium text-neutral-500">
+            Average order value
+          </p>
+          <div className="mt-2 flex items-end justify-between">
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-semibold text-neutral-900">
+                {analytics.averageOrderValue.cents === null
+                  ? '—'
+                  : formatCentsAsPHP(analytics.averageOrderValue.cents)}
+              </p>
+              <MetricSparkline
+                values={analytics.daily.map((d) => d.aovCents ?? 0)}
+                color={AOV_COLOR}
+              />
+            </div>
+            <TrendTag value={aovTrend} />
+          </div>
+          <div className="mt-4">
+            <TrendLineChart
+              data={aovChartData}
+              color={AOV_COLOR}
+              formatValue={formatCentsAsPHP}
+              syncId="dashboard-trends"
+            />
+          </div>
+        </Card>
       </div>
 
       <p className="mt-3 text-xs text-neutral-400">
@@ -296,7 +338,8 @@ function AdminPage() {
         failed orders are excluded from sales. Visitors count unique anonymous
         browser ids seen on the storefront during the selected period — visits
         before this feature shipped aren't counted retroactively. Conversion
-        rate is online-store orders ÷ unique visitors. Dashed lines show the
+        rate is online-store orders ÷ unique visitors. Average order value is
+        sales ÷ orders over the selected range. Dashed lines show the
         previous period for comparison.
       </p>
     </div>
