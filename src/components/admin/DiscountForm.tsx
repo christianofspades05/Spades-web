@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { centsToPesos } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { utcIsoToStoreLocalDateTimeInput } from '#/lib/utils/date-range'
 import type { DiscountInput } from '#/lib/validation/admin/discounts'
 import { Card } from '#/components/admin/Card'
 import {
@@ -43,10 +44,12 @@ export function DiscountForm({
     discount?.type === 'fixed_amount' ? centsToPesos(discount.value) : 0,
   )
   const [startsAt, setStartsAt] = useState(
-    discount?.starts_at ? toLocalInput(discount.starts_at) : '',
+    discount?.starts_at
+      ? utcIsoToStoreLocalDateTimeInput(discount.starts_at)
+      : '',
   )
   const [endsAt, setEndsAt] = useState(
-    discount?.ends_at ? toLocalInput(discount.ends_at) : '',
+    discount?.ends_at ? utcIsoToStoreLocalDateTimeInput(discount.ends_at) : '',
   )
   const [maxUses, setMaxUses] = useState<number | ''>(discount?.max_uses ?? '')
   const [oneUsePerCustomer, setOneUsePerCustomer] = useState(
@@ -391,11 +394,4 @@ export function DiscountForm({
       </form>
     </Card>
   )
-}
-
-function toLocalInput(isoString: string): string {
-  const date = new Date(isoString)
-  const offset = date.getTimezoneOffset()
-  const local = new Date(date.getTime() - offset * 60_000)
-  return local.toISOString().slice(0, 16)
 }

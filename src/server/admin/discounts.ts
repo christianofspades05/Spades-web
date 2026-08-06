@@ -9,6 +9,7 @@ import type { DiscountInput } from '#/lib/validation/admin/discounts'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
+import { storeLocalDateTimeToUtcIso } from '#/lib/utils/date-range'
 import { logStaffActivity } from './activity-log'
 import type { Discount } from '#/types/entities'
 
@@ -37,8 +38,10 @@ function toRow(data: DiscountInput) {
     max_uses_per_customer: data.oneUsePerCustomer ? 1 : null,
     max_discounted_items: data.maxDiscountedItems ?? null,
     excludes_free_shipping: data.excludesFreeShipping,
-    starts_at: data.startsAt ? new Date(data.startsAt).toISOString() : null,
-    ends_at: data.endsAt ? new Date(data.endsAt).toISOString() : null,
+    starts_at: data.startsAt
+      ? storeLocalDateTimeToUtcIso(data.startsAt)
+      : null,
+    ends_at: data.endsAt ? storeLocalDateTimeToUtcIso(data.endsAt) : null,
     is_active: data.isActive,
   }
 }

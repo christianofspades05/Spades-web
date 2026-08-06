@@ -15,6 +15,11 @@ function storeNow(): Date {
   return new Date(Date.now() + STORE_UTC_OFFSET_MS)
 }
 
+/** The store-local (UTC+8) hour (0-23) for an arbitrary instant — defaults to right now. Used for time-of-day gates like the Lalamove checkout window (see lib/checkout/lalamove-eligibility.ts). */
+export function storeLocalHour(date: Date = new Date()): number {
+  return new Date(date.getTime() + STORE_UTC_OFFSET_MS).getUTCHours()
+}
+
 /** Converts a UTC timestamp (e.g. a `placed_at` column value) into the store-local YYYY-MM-DD it falls on. */
 export function storeLocalDateKey(isoUtc: string): string {
   return new Date(new Date(isoUtc).getTime() + STORE_UTC_OFFSET_MS)
@@ -27,6 +32,29 @@ export function storeLocalHourKey(isoUtc: string): string {
   return new Date(new Date(isoUtc).getTime() + STORE_UTC_OFFSET_MS)
     .toISOString()
     .slice(0, 13)
+}
+
+/**
+ * Converts an `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm, no
+ * timezone of its own) into the correct UTC ISO instant, treating it as
+ * store-local (PH) wall-clock time — never the runtime's own local
+ * timezone. Without this, a value entered on a server (Vercel, always UTC)
+ * or a browser set to some other timezone gets silently misinterpreted,
+ * shifting the stored instant by however many hours that runtime differs
+ * from PH (e.g. entering "11:30 PM" and having it saved as if it were
+ * already UTC quietly moves it 8 hours later).
+ */
+export function storeLocalDateTimeToUtcIso(localDateTime: string): string {
+  return new Date(`${localDateTime}:00${STORE_UTC_OFFSET}`).toISOString()
+}
+
+/** The inverse of storeLocalDateTimeToUtcIso — a UTC ISO instant (e.g. a
+ *  discounts.starts_at column value) formatted as a store-local (PH)
+ *  <input type="datetime-local"> value. */
+export function utcIsoToStoreLocalDateTimeInput(isoUtc: string): string {
+  return new Date(new Date(isoUtc).getTime() + STORE_UTC_OFFSET_MS)
+    .toISOString()
+    .slice(0, 16)
 }
 
 /**
