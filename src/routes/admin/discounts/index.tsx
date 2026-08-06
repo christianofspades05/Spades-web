@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { listAllDiscounts } from '#/server/admin/discounts'
 import { formatCentsAsPHP } from '#/lib/utils/money'
@@ -5,6 +6,7 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
 import {
   buttonPrimaryClassName,
+  inputClassName,
   tableCellClassName,
   tableHeadClassName,
   tableRowClassName,
@@ -46,6 +48,16 @@ function valueLabel(d: Discount): string {
 
 function DiscountsPage() {
   const discounts = Route.useLoaderData()
+  const [search, setSearch] = useState('')
+
+  const query = search.trim().toLowerCase()
+  const filteredDiscounts = query
+    ? discounts.filter(
+        (d) =>
+          d.title.toLowerCase().includes(query) ||
+          (d.code?.toLowerCase().includes(query) ?? false),
+      )
+    : discounts
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -59,11 +71,20 @@ function DiscountsPage() {
         }
       />
 
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by title or code"
+        className={`${inputClassName} mb-4 w-full max-w-sm`}
+      />
+
       <div className={tableWrapperClassName}>
-        {discounts.length === 0 ? (
+        {filteredDiscounts.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">
-            No discounts yet. Create a discount code customers can enter at
-            checkout, or a store sale that applies automatically.
+            {discounts.length === 0
+              ? 'No discounts yet. Create a discount code customers can enter at checkout, or a store sale that applies automatically.'
+              : 'No discounts match your search.'}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -79,7 +100,7 @@ function DiscountsPage() {
                 </tr>
               </thead>
               <tbody>
-                {discounts.map((discount) => {
+                {filteredDiscounts.map((discount) => {
                   const status = computeStatus(discount)
                   return (
                     <tr key={discount.id} className={tableRowClassName}>
