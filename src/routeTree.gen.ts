@@ -71,6 +71,7 @@ import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
 import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
 import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
+import { Route as AdminAnalyticsProductAnalyticsRouteImport } from './routes/admin/analytics/product-analytics'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
 import { Route as ApiOauthTiktokConnectRouteImport } from './routes/api/oauth/tiktok/connect'
 import { Route as ApiOauthTiktokCallbackRouteImport } from './routes/api/oauth/tiktok/callback'
@@ -397,6 +398,12 @@ const AdminAnalyticsProfitRoute = AdminAnalyticsProfitRouteImport.update({
   path: '/analytics/profit',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminAnalyticsProductAnalyticsRoute =
+  AdminAnalyticsProductAnalyticsRouteImport.update({
+    id: '/analytics/product-analytics',
+    path: '/analytics/product-analytics',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminAnalyticsCancelledReturnsRoute =
   AdminAnalyticsCancelledReturnsRouteImport.update({
     id: '/analytics/cancelled-returns',
@@ -455,6 +462,7 @@ export interface FileRoutesByFullPath {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
@@ -523,6 +531,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
@@ -594,6 +603,7 @@ export interface FileRoutesById {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
@@ -666,6 +676,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
     | '/admin/channels/$marketplace'
@@ -734,6 +745,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reviews'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
     | '/admin/channels/$marketplace'
@@ -804,6 +816,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
     | '/admin/channels/$marketplace'
@@ -1322,6 +1335,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAnalyticsProfitRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/analytics/product-analytics': {
+      id: '/admin/analytics/product-analytics'
+      path: '/analytics/product-analytics'
+      fullPath: '/admin/analytics/product-analytics'
+      preLoaderRoute: typeof AdminAnalyticsProductAnalyticsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/analytics/cancelled-returns': {
       id: '/admin/analytics/cancelled-returns'
       path: '/analytics/cancelled-returns'
@@ -1370,6 +1390,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
+  AdminAnalyticsProductAnalyticsRoute: typeof AdminAnalyticsProductAnalyticsRoute
   AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
   AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
@@ -1405,6 +1426,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
+  AdminAnalyticsProductAnalyticsRoute: AdminAnalyticsProductAnalyticsRoute,
   AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,
   AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,

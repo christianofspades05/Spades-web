@@ -83,7 +83,8 @@ function toISODate(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-function daysAgo(n: number): string {
+/** Store-local YYYY-MM-DD that was `n` days before today (n=0 → today). */
+export function daysAgo(n: number): string {
   const d = storeNow()
   d.setUTCDate(d.getUTCDate() - n)
   return toISODate(d)

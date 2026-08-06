@@ -31,6 +31,7 @@ const PRODUCTS_SUB_LINKS = [
 const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/sales', label: 'Sales' },
   { to: '/admin/analytics/profit', label: 'Profit' },
+  { to: '/admin/analytics/product-analytics', label: 'Product Analytics' },
   { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
 ] as const
 
