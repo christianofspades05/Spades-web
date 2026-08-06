@@ -203,6 +203,9 @@ function ProductAnalyticsPage() {
                       Units sold
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      Current qty
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       Gross sales
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
@@ -221,6 +224,9 @@ function ProductAnalyticsPage() {
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {p.unitsSold}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {p.currentStockOnHand ?? '—'}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {formatCentsAsPHP(p.grossSalesCents)}

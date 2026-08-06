@@ -1018,6 +1018,10 @@ export interface ProductProfitRow {
   srpCents: number | null
   costCents: number | null
   netProfitPerUnitCents: number | null
+  /** Live stock on hand, summed across all of the product's variants —
+   *  independent of the row's date range. Null for snapshot-name buckets
+   *  (line items with no variant, e.g. a manual price adjustment). */
+  currentStockOnHand: number | null
 }
 
 const productProfitCache = createTtlCache<ProductProfitRow[]>(
@@ -1116,6 +1120,28 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       products.map((p) => [p.id, p.images[0] ?? null]),
     )
 
+    // Current stock is a live figure, not scoped to the date range — fetched
+    // across ALL of each product's variants (not just the ones sold in this
+    // range), since a size that didn't sell still counts toward stock on hand.
+    const stockRows =
+      productIds.length > 0
+        ? await fetchAllRows((offset) =>
+            admin
+              .from('products')
+              .select('id, variants:product_variants(inventory(quantity_on_hand))')
+              .in('id', productIds)
+              .range(offset, offset + 999),
+          )
+        : []
+    const currentStockByProduct = new Map<string, number>()
+    for (const row of stockRows) {
+      let stock = 0
+      for (const variant of row.variants) {
+        for (const inv of variant.inventory) stock += inv.quantity_on_hand
+      }
+      currentStockByProduct.set(row.id, stock)
+    }
+
     interface Bucket {
       productId: string | null
       name: string
@@ -1171,6 +1197,9 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
           costCents: b.costCents,
           netProfitPerUnitCents:
             b.unitsSold > 0 ? Math.round(netProfitCents / b.unitsSold) : null,
+          currentStockOnHand: b.productId
+            ? (currentStockByProduct.get(b.productId) ?? 0)
+            : null,
         }
       })
       .sort((a, b) => b.netProfitCents - a.netProfitCents)
