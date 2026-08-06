@@ -60,6 +60,11 @@ const CUSTOMER_TYPE_COLORS = {
   repeat: '#0ea5e9',
 }
 
+const PAYMENT_METHOD_COLORS = {
+  cod: '#171717',
+  online: '#2c6ecb',
+}
+
 const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
   label: STOREFRONT_BRAND_LABELS[brand],
@@ -256,6 +261,18 @@ function AdminPage() {
       color: CUSTOMER_TYPE_COLORS.repeat,
     },
   ]
+  const paymentMethodSlices = [
+    {
+      label: 'Cash on Delivery',
+      value: Math.max(analytics.paymentMethodSplit.cod.salesCents, 0),
+      color: PAYMENT_METHOD_COLORS.cod,
+    },
+    {
+      label: 'Online Payment',
+      value: Math.max(analytics.paymentMethodSplit.online.salesCents, 0),
+      color: PAYMENT_METHOD_COLORS.online,
+    },
+  ]
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -450,7 +467,7 @@ function AdminPage() {
         </Card>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-neutral-900">
             Sales by Channel
@@ -560,6 +577,76 @@ function AdminPage() {
                 salesByCustomerType.repeat.customerCount === 0 && (
                   <p className="text-sm text-neutral-400">
                     No customers in this range.
+                  </p>
+                )}
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Cash on Delivery vs. Online Payment
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Online Store customers only — TikTok/Shopee/Lazada never offer
+            COD through us
+          </p>
+
+          <div className="mt-6 flex flex-wrap items-center gap-10">
+            <DonutChart slices={paymentMethodSlices} />
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-8">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="size-2.5 rounded-full"
+                    style={{ backgroundColor: PAYMENT_METHOD_COLORS.cod }}
+                  />
+                  <span className="text-sm text-neutral-700">
+                    Cash on Delivery
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-neutral-900">
+                    {formatCentsAsPHP(
+                      analytics.paymentMethodSplit.cod.salesCents,
+                    )}
+                  </p>
+                  <p className="text-xs text-neutral-400">
+                    {analytics.paymentMethodSplit.cod.orderCount} order
+                    {analytics.paymentMethodSplit.cod.orderCount === 1
+                      ? ''
+                      : 's'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-8">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="size-2.5 rounded-full"
+                    style={{ backgroundColor: PAYMENT_METHOD_COLORS.online }}
+                  />
+                  <span className="text-sm text-neutral-700">
+                    Online Payment
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-neutral-900">
+                    {formatCentsAsPHP(
+                      analytics.paymentMethodSplit.online.salesCents,
+                    )}
+                  </p>
+                  <p className="text-xs text-neutral-400">
+                    {analytics.paymentMethodSplit.online.orderCount} order
+                    {analytics.paymentMethodSplit.online.orderCount === 1
+                      ? ''
+                      : 's'}
+                  </p>
+                </div>
+              </div>
+              {analytics.paymentMethodSplit.cod.orderCount === 0 &&
+                analytics.paymentMethodSplit.online.orderCount === 0 && (
+                  <p className="text-sm text-neutral-400">
+                    No Online Store orders in this range.
                   </p>
                 )}
             </div>

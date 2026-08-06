@@ -133,6 +133,14 @@ export interface DashboardAnalytics {
    *  selected range, not a per-bucket average of the daily figures (which
    *  would over-weight low-order days). Null once orders.count is 0. */
   averageOrderValue: { cents: number | null; previousCents: number | null }
+  /** Cash on Delivery vs. Online Payment, Online Store orders only —
+   *  TikTok/Shopee/Lazada never offer COD through us, so mixing them in
+   *  would misrepresent the split. Not affected by the Channel filter,
+   *  same as conversionRate above. */
+  paymentMethodSplit: {
+    cod: { salesCents: number; orderCount: number }
+    online: { salesCents: number; orderCount: number }
+  }
   daily: DailyPoint[]
 }
 
@@ -164,7 +172,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         fetchAllRows((offset) => {
           let query = admin
             .from('orders')
-            .select('placed_at, total_cents, status, source')
+            .select('placed_at, total_cents, status, source, is_cod')
             .gte('placed_at', rangeStart)
             .lte('placed_at', rangeEnd)
             .range(offset, offset + 999)
@@ -309,6 +317,27 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         ? Math.round(previousSalesCents / previousOrdersCount)
         : null
 
+    // Online Store orders only (never TikTok/Shopee/Lazada, which never
+    // offer COD through us) — how a customer paid on our own site,
+    // regardless of whatever the page's Channel filter is set to, same
+    // "storefront is its own fixed lens" precedent conversionRate already
+    // follows above.
+    const storefrontOrders = currentOrders.filter(
+      (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
+    )
+    const codOrders = storefrontOrders.filter((o) => o.is_cod)
+    const onlineOrders = storefrontOrders.filter((o) => !o.is_cod)
+    const paymentMethodSplit = {
+      cod: {
+        salesCents: codOrders.reduce((sum, o) => sum + o.total_cents, 0),
+        orderCount: codOrders.length,
+      },
+      online: {
+        salesCents: onlineOrders.reduce((sum, o) => sum + o.total_cents, 0),
+        orderCount: onlineOrders.length,
+      },
+    }
+
     return {
       range: { from: data.from, to: data.to },
       sales: { cents: salesCents, previousCents: previousSalesCents },
@@ -322,6 +351,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
         previousRate: previousConversionRate,
       },
       averageOrderValue: { cents: aovCents, previousCents: previousAovCents },
+      paymentMethodSplit,
       daily,
     }
   })
