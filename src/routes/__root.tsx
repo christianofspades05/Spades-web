@@ -23,7 +23,13 @@ import { getStorefrontScope } from '#/server/storefront/domain'
 import { getMaintenanceMode } from '#/server/storefront/maintenance'
 import { getStorefrontBanner } from '#/server/storefront/banner'
 import { getEmailCapturePopupEnabled } from '#/server/storefront/email-capture'
+import { withTimeout } from '#/lib/utils/timeout'
 import appCss from '../styles.css?url'
+
+/** A Supabase/Cloudflare edge blip can hang far longer than it's worth
+ *  waiting on a best-effort, already-has-a-fallback value for — see
+ *  withTimeout's doc comment. */
+const BEFORE_LOAD_IO_TIMEOUT_MS = 3000
 
 /**
  * Runs before hydration so a returning visitor never sees a flash of the
@@ -73,19 +79,24 @@ export const Route = createRootRoute({
         console.error('getGeoCountry failed:', err)
         return null
       }),
-      getMaintenanceMode({ data: { brand: storefrontScope.brand } }).catch(
-        (err: unknown) => {
-          console.error('getMaintenanceMode failed:', err)
-          return false
-        },
-      ),
-      getStorefrontBanner({ data: { brand: storefrontScope.brand } }).catch(
-        (err: unknown) => {
-          console.error('getStorefrontBanner failed:', err)
-          return { text: '', textJa: null, textKo: null, isActive: false }
-        },
-      ),
-      getEmailCapturePopupEnabled().catch((err: unknown) => {
+      withTimeout(
+        getMaintenanceMode({ data: { brand: storefrontScope.brand } }),
+        BEFORE_LOAD_IO_TIMEOUT_MS,
+      ).catch((err: unknown) => {
+        console.error('getMaintenanceMode failed:', err)
+        return false
+      }),
+      withTimeout(
+        getStorefrontBanner({ data: { brand: storefrontScope.brand } }),
+        BEFORE_LOAD_IO_TIMEOUT_MS,
+      ).catch((err: unknown) => {
+        console.error('getStorefrontBanner failed:', err)
+        return { text: '', textJa: null, textKo: null, isActive: false }
+      }),
+      withTimeout(
+        getEmailCapturePopupEnabled(),
+        BEFORE_LOAD_IO_TIMEOUT_MS,
+      ).catch((err: unknown) => {
         console.error('getEmailCapturePopupEnabled failed:', err)
         return false
       }),
