@@ -138,6 +138,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                   market_markup_percent: reservation.market_markup_percent,
                   shipping_method: reservation.shipping_method,
                   lalamove_info: reservation.lalamove_info,
+                  customer_notes: reservation.customer_notes,
                 })
                 .select('id, order_number')
                 .single()

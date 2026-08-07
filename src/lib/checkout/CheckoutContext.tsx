@@ -18,15 +18,18 @@ export interface CheckoutInfo {
   addressLine1: string
   addressLine2: string
   landmark: string
-  /** 'lalamove' only ever applies to Spades/Metro-Manila/12-4pm — see
-   *  lib/checkout/lalamove-eligibility.ts. Its delivery fee is never
-   *  charged through this site; it's collected in cash by the rider on
-   *  drop-off, so lalamoveEstimatedFeeCents below is informational only. */
+  /** 'lalamove' only ever applies to Spades/Metro-Manila, any day except
+   *  Sunday — see lib/checkout/lalamove-eligibility.ts. Its delivery fee
+   *  (lalamoveEstimatedFeeCents, plus a buffer) is charged online together
+   *  with the items, same as any other shipping method. */
   shippingMethod: 'standard' | 'lalamove'
   lalamoveDropoffLat: number | null
   lalamoveDropoffLng: number | null
   lalamoveDropoffAddress: string
   lalamoveEstimatedFeeCents: number | null
+  /** Customer-entered checkout note (delivery instructions, etc.) — shown
+   *  read-only to staff on the order detail page. */
+  orderNotes: string
 }
 
 export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
@@ -47,6 +50,7 @@ export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
   lalamoveDropoffLng: null,
   lalamoveDropoffAddress: '',
   lalamoveEstimatedFeeCents: null,
+  orderNotes: '',
 }
 
 const STORAGE_KEY = 'spades_checkout_info'

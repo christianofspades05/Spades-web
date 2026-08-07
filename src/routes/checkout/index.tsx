@@ -560,6 +560,23 @@ function CheckoutPage() {
             )}
           </section>
 
+          <section>
+            <h2 className="mb-4 text-lg font-semibold">Order notes</h2>
+            <label className={labelClassName}>
+              Anything we should know? (optional)
+              <textarea
+                rows={3}
+                maxLength={500}
+                value={info.orderNotes}
+                onChange={(e) =>
+                  setInfo({ ...info, orderNotes: e.target.value })
+                }
+                placeholder="Delivery instructions, gift note, etc."
+                className={inputClassName}
+              />
+            </label>
+          </section>
+
           {error && (
             <p className="rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
               {error}

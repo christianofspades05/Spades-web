@@ -400,6 +400,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             currency: data.currency,
             brand: scope.brand,
             market_markup_percent: marketMarkupPercent ?? null,
+            customer_notes: data.contact.orderNotes || null,
           })
           .select('id, order_number')
           .single()
@@ -523,6 +524,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           items: itemsPayload,
           shipping_method: data.contact.shippingMethod,
           lalamove_info: lalamoveInfo,
+          customer_notes: data.contact.orderNotes || null,
         })
         .select('id')
         .single()

@@ -24,10 +24,9 @@ export const checkoutContactBaseSchema = z.object({
   addressLine1: z.string().trim().min(1).max(200),
   addressLine2: z.string().trim().max(200).optional(),
   landmark: z.string().trim().max(200).optional(),
-  // 'lalamove' only ever applies to Spades/Metro-Manila/12-4pm (see
-  // lib/checkout/lalamove-eligibility.ts) — its fee is never charged
-  // through this site, just collected in cash by the rider on delivery, so
-  // there's no cents field here to validate.
+  orderNotes: z.string().trim().max(500).optional(),
+  // 'lalamove' only ever applies to Spades/Metro-Manila, any day except
+  // Sunday (see lib/checkout/lalamove-eligibility.ts).
   shippingMethod: z.enum(['standard', 'lalamove']).default('standard'),
   // Nullable, not just optional — CheckoutInfo (see
   // lib/checkout/CheckoutContext.tsx) uses null for "no pin yet".

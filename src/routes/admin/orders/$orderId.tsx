@@ -11,6 +11,7 @@ import {
   cancelOrder,
   getAdjacentOrderIds,
   getOrderById,
+  updateOrderNotes,
   updateOrderStatus,
   upsertShipment,
 } from '#/server/admin/orders'
@@ -270,6 +271,13 @@ function OrderDetailPage() {
         </div>
       )}
 
+      {order.shipping_method === 'lalamove' && (
+        <div className="mb-6 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-900">
+          🛵 This order ships via Lalamove — book it from the Lalamove Orders
+          page or the panel below, not a standard courier.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <Card className={isCancelled ? 'p-5 opacity-60' : 'p-5'}>
@@ -402,6 +410,12 @@ function OrderDetailPage() {
               </div>
             )}
           </Card>
+
+          <OrderNotesCard
+            orderId={order.id}
+            customerNotes={order.customer_notes}
+            staffNotes={order.notes}
+          />
 
           {order.returns.length > 0 && (
             <Card className="p-5">
@@ -746,6 +760,78 @@ function CancelOrderPanel({
   )
 }
 
+/** Customer's checkout note (read-only) plus staff's own internal notes
+ *  (editable) — deliberately two separate fields (orders.customer_notes vs
+ *  orders.notes) so one is never silently overwritten by the other. */
+function OrderNotesCard({
+  orderId,
+  customerNotes,
+  staffNotes,
+}: {
+  orderId: string
+  customerNotes: string | null
+  staffNotes: string | null
+}) {
+  const [notes, setNotes] = useState(staffNotes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      await updateOrderNotes({ data: { orderId, notes } })
+      setSaved(true)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Notes
+      </h2>
+      {customerNotes && (
+        <div className="mb-4 rounded-md bg-neutral-50 p-3 text-sm">
+          <p className="mb-1 text-xs font-semibold text-neutral-500">
+            Customer note
+          </p>
+          <p className="text-neutral-900">{customerNotes}</p>
+        </div>
+      )}
+      <label className={labelClassName}>
+        Staff notes (internal, not visible to the customer)
+        <textarea
+          rows={3}
+          value={notes}
+          onChange={(e) => {
+            setNotes(e.target.value)
+            setSaved(false)
+          }}
+          className={inputClassName}
+        />
+      </label>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className={buttonSecondaryClassName}
+        >
+          {saving ? 'Saving…' : 'Save notes'}
+        </button>
+        {saved && <span className="text-sm text-emerald-600">Saved</span>}
+        {error && <span className="text-sm text-red-600">{error}</span>}
+      </div>
+    </Card>
+  )
+}
+
 function ShipmentForm({
   orderId,
   shipment,
@@ -761,6 +847,7 @@ function ShipmentForm({
   onSaved: () => void
 }) {
   const alreadyFulfilled = !!shipment?.tracking_number
+  const isLalamoveShipment = shipment?.carrier === 'lalamove'
   const [carrier, setCarrier] = useState(shipment?.carrier ?? '')
   const [trackingNumber, setTrackingNumber] = useState(
     shipment?.tracking_number ?? '',
@@ -814,18 +901,27 @@ function ShipmentForm({
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
         <label className={labelClassName}>
           Courier
-          <select
-            value={carrier}
-            onChange={(e) => setCarrier(e.target.value)}
-            className={inputClassName}
-          >
-            <option value="">Select courier…</option>
-            {CARRIER_OPTIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          {isLalamoveShipment ? (
+            <input
+              value="Lalamove"
+              disabled
+              title="Booked via Lalamove — see the panel above to manage this trip."
+              className={`${inputClassName} bg-neutral-100 text-neutral-500`}
+            />
+          ) : (
+            <select
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+              className={inputClassName}
+            >
+              <option value="">Select courier…</option>
+              {CARRIER_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
         <label className={labelClassName}>
           Tracking number

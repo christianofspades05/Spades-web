@@ -569,6 +569,7 @@ export interface Database {
           cancellation_reason: OrderCancellationReason | null
           cancellation_detail: string | null
           notes: string | null
+          customer_notes: string | null
           review_requested_at: string | null
           review_request_sent: boolean
           review_token: string | null
@@ -628,6 +629,7 @@ export interface Database {
           items: CheckoutReservationItem[]
           shipping_method: ShippingMethod
           lalamove_info: LalamoveInfo | null
+          customer_notes: string | null
           xendit_invoice_id: string | null
           created_at: string
         }

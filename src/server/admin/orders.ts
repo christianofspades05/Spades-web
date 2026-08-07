@@ -730,6 +730,26 @@ export const updateOrderStatus = createServerFn({ method: 'POST' })
     return order
   })
 
+/** Staff-editable internal notes — separate from orders.customer_notes
+ *  (what the customer wrote at checkout, read-only). */
+export const updateOrderNotes = createServerFn({ method: 'POST' })
+  .validator(z.object({ orderId: z.string().uuid(), notes: z.string().max(2000) }))
+  .handler(async ({ data }): Promise<Order> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: order, error } = await admin
+      .from('orders')
+      .update({ notes: data.notes || null })
+      .eq('id', data.orderId)
+      .select('*')
+      .single()
+    if (error) throw error
+
+    await logStaffActivity(staff, 'order.notes_update', 'orders', order.id, {})
+    return order
+  })
+
 export const upsertShipment = createServerFn({ method: 'POST' })
   .validator(shipmentUpdateSchema)
   .handler(async ({ data }): Promise<Shipment> => {
