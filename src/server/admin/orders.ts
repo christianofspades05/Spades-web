@@ -207,11 +207,29 @@ async function resolveFulfillmentOrderIds(
   return {}
 }
 
+/** Bare `YYYY-MM-DD` only — `new Date(search)` alone is far too permissive
+ *  (it happily parses a bare 4-digit string like "5320" as the year
+ *  5320-01-01), which turned a plain order-number digit search into a
+ *  spurious placed_at range that mostly matched nothing but still diluted
+ *  the result set. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
 /** Resolves the free-text search filter into a PostgREST `.or()` condition list, shared by `listOrders` and `getOrdersCount`. */
 async function resolveSearchOrConditions(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   search: string,
 ): Promise<string[]> {
+  // Staff type names loosely — reordered, missing a middle name, etc. — so
+  // "Juan Cruz" should still find "Juan Dela Cruz". Splitting on whitespace
+  // and requiring every token to appear somewhere (not necessarily
+  // contiguous, unlike a single ilike) covers that; email stays a plain
+  // substring match since it's typed as one unbroken token anyway.
+  const nameTokens = search.split(/\s+/).filter(Boolean)
+  const nameCondition =
+    nameTokens.length > 1
+      ? `and(${nameTokens.map((t) => `full_name.ilike.%${t}%`).join(',')})`
+      : `full_name.ilike.%${search}%`
+
   const [
     { data: matchingCustomers },
     { data: matchingItems },
@@ -220,7 +238,7 @@ async function resolveSearchOrConditions(
     admin
       .from('customers')
       .select('id')
-      .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`),
+      .or(`email.ilike.%${search}%,${nameCondition}`),
     admin
       .from('order_items')
       .select('order_id')
@@ -239,23 +257,33 @@ async function resolveSearchOrConditions(
     new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
   )
 
-  const orConditions = [
-    `order_number.ilike.%${search}%`,
-    `external_order_id.ilike.%${search}%`,
-  ]
+  const orConditions = [`order_number.ilike.%${search}%`]
+  // external_order_id is a raw UUID for every storefront order (the
+  // checkout_reservations id — never shown to anyone, never worth
+  // searching), so an ilike substring match against it was matching
+  // unrelated orders purely by hex-digit coincidence (e.g. searching a
+  // plain order-number digit string like "5320" turns up hits inside
+  // random UUIDs), burying the real order-number match under noise.
+  // Marketplace orders' external_order_id is the platform's real,
+  // human-meaningful order id, so it stays searchable there — gated to
+  // longer queries since a short digit run (e.g. "5320") still turns up
+  // coincidental hits inside marketplaces' 15+ digit numeric order ids.
+  if (search.length >= 6) {
+    orConditions.push(
+      `and(source.neq.storefront,external_order_id.ilike.%${search}%)`,
+    )
+  }
   if (customerIds.length > 0) {
     orConditions.push(`customer_id.in.(${customerIds.join(',')})`)
   }
   if (matchedOrderIds.length > 0) {
     orConditions.push(`id.in.(${matchedOrderIds.join(',')})`)
   }
-  const searchAsDate = new Date(search)
-  if (!Number.isNaN(searchAsDate.getTime())) {
+  if (ISO_DATE_RE.test(search)) {
     // Store-local day boundaries, not the host's local time — matches the
     // same PH (UTC+8) treatment used everywhere else `placed_at` gets
     // compared against a calendar date.
-    const dateKey = searchAsDate.toISOString().slice(0, 10)
-    const { start, end } = storeRangeToUtcBounds(dateKey, dateKey)
+    const { start, end } = storeRangeToUtcBounds(search, search)
     orConditions.push(`and(placed_at.gte.${start},placed_at.lte.${end})`)
   }
   return orConditions
