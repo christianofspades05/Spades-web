@@ -110,6 +110,11 @@ export interface OrderWithDetails extends Order {
   payments: Payment[]
   shipments: Shipment[]
   returns: OrderReturn[]
+  /** Null when no discount was applied, or the discount itself was since
+   *  deleted (orders.discount_id is ON DELETE SET NULL) — lets staff see
+   *  which promo (Clearance Sale, Birthday, an abandoned-cart code, etc.)
+   *  actually produced order.discount_cents. */
+  discount: { title: string; code: string | null } | null
   /** Computed live from the customer's real order history, not the
    *  customers table's own counter columns — nothing currently keeps those
    *  maintained (see the same note in listCustomers below). */
@@ -563,6 +568,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
       variantInfoMap,
       { data: customerOrders, error: customerOrdersError },
       { data: returns, error: returnsError },
+      discount,
     ] = await Promise.all([
       getVariantProductInfo(admin, variantIds),
       admin
@@ -576,6 +582,14 @@ export const getOrderById = createServerFn({ method: 'GET' })
         )
         .eq('order_id', data.id)
         .order('requested_at', { ascending: false }),
+      order.discount_id
+        ? admin
+            .from('discounts')
+            .select('title, code')
+            .eq('id', order.discount_id)
+            .maybeSingle()
+            .then((r) => r.data)
+        : Promise.resolve(null),
     ])
     if (customerOrdersError) throw customerOrdersError
     if (returnsError) throw returnsError
@@ -598,6 +612,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
         }
       }),
       returns,
+      discount,
       customerStats: {
         ordersCount: customerOrders.length,
         failedDeliveryCount,

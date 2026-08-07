@@ -359,7 +359,19 @@ function OrderDetailPage() {
                   )}
                   {order.discount_cents > 0 && (
                     <div className="flex justify-between text-neutral-500">
-                      <span>Discount</span>
+                      <span>
+                        Discount
+                        {order.discount && (
+                          <span className="text-neutral-400">
+                            {' '}
+                            ({order.discount.title}
+                            {order.discount.code
+                              ? ` – ${order.discount.code}`
+                              : ''}
+                            )
+                          </span>
+                        )}
+                      </span>
                       <span>-{formatCentsAsPHP(order.discount_cents)}</span>
                     </div>
                   )}
