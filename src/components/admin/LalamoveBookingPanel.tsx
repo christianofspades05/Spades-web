@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { ComponentType } from 'react'
 import {
   bookLalamoveShipment,
   refreshLalamoveStatus,
 } from '#/server/admin/orders'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { loadGoogleMaps } from '#/lib/google-maps/loader'
 import { Card } from '#/components/admin/Card'
 import {
   buttonPrimaryClassName,
@@ -13,6 +15,33 @@ import {
   labelClassName,
 } from '#/components/admin/ui'
 import type { LalamoveInfo } from '#/types/database.types'
+
+type LocationMapComponent = ComponentType<{ lat: number; lng: number }>
+
+/** Loaded once per panel instance, same dynamic-import-after-script-load
+ *  reasoning as storefront/LalamoveAddressPicker.tsx. */
+function useLalamoveLocationMap() {
+  const [MapComponent, setMapComponent] =
+    useState<LocationMapComponent | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    loadGoogleMaps()
+      .then(() => import('#/components/admin/LalamoveLocationMap'))
+      .then((mod) => {
+        if (!cancelled) setMapComponent(() => mod.default)
+      })
+      .catch(() => {
+        // Best-effort only — the address text below still lets staff book
+        // without the map if it fails to load.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return MapComponent
+}
 
 /** Staff's "confirm and book" action for a paid Lalamove order — shown in
  *  place of the plain ShipmentForm until a shipments row actually exists
@@ -33,6 +62,7 @@ export function LalamoveBookingPanel({
   const [pickupContactPhone, setPickupContactPhone] = useState('')
   const [booking, setBooking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const MapComponent = useLalamoveLocationMap()
 
   async function handleBook(event: React.FormEvent) {
     event.preventDefault()
@@ -56,6 +86,14 @@ export function LalamoveBookingPanel({
         Lalamove Delivery
       </h2>
       <p className="text-sm text-neutral-900">{lalamoveInfo.dropoffAddress}</p>
+      {MapComponent && (
+        <div className="mt-3">
+          <MapComponent
+            lat={lalamoveInfo.dropoffLat}
+            lng={lalamoveInfo.dropoffLng}
+          />
+        </div>
+      )}
       <p className="mt-1 text-xs text-neutral-500">
         Customer already paid an estimated fee of{' '}
         {formatCentsAsPHP(lalamoveInfo.estimatedFeeCents)} at checkout. The
