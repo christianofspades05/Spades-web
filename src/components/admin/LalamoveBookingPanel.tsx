@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import {
   bookLalamoveShipment,
   refreshLalamoveStatus,
+  upsertShipment,
 } from '#/server/admin/orders'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -64,6 +65,18 @@ export function LalamoveBookingPanel({
   const [error, setError] = useState<string | null>(null)
   const MapComponent = useLalamoveLocationMap()
 
+  // Some staff book the rider directly in Lalamove's own app/dashboard
+  // (e.g. to pick a service tier or handle an edge case this panel's live
+  // API call doesn't support) rather than through "Book Lalamove Rider"
+  // above — this lets them paste that trip's tracking link straight in,
+  // going through the same upsertShipment path (and customer email) as a
+  // normal courier, instead of being stuck with no way to mark it shipped.
+  const [manualEntry, setManualEntry] = useState(false)
+  const [trackingNumber, setTrackingNumber] = useState('')
+  const [trackingUrl, setTrackingUrl] = useState('')
+  const [savingManual, setSavingManual] = useState(false)
+  const [manualError, setManualError] = useState<string | null>(null)
+
   async function handleBook(event: React.FormEvent) {
     event.preventDefault()
     setBooking(true)
@@ -77,6 +90,28 @@ export function LalamoveBookingPanel({
       setError(getErrorMessage(err))
     } finally {
       setBooking(false)
+    }
+  }
+
+  async function handleManualSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    setSavingManual(true)
+    setManualError(null)
+    try {
+      await upsertShipment({
+        data: {
+          orderId,
+          carrier: 'lalamove',
+          trackingNumber,
+          trackingUrl: trackingUrl || undefined,
+          status: 'in_transit',
+        },
+      })
+      onBooked()
+    } catch (err) {
+      setManualError(getErrorMessage(err))
+    } finally {
+      setSavingManual(false)
     }
   }
 
@@ -131,6 +166,60 @@ export function LalamoveBookingPanel({
           {booking ? 'Booking…' : 'Book Lalamove Rider'}
         </button>
       </form>
+
+      {!manualEntry ? (
+        <button
+          type="button"
+          onClick={() => setManualEntry(true)}
+          className="mt-3 text-xs text-neutral-500 underline hover:text-neutral-700"
+        >
+          Already booked this rider directly in Lalamove? Paste the tracking
+          link instead
+        </button>
+      ) : (
+        <form
+          onSubmit={handleManualSubmit}
+          className="mt-4 space-y-3 border-t border-neutral-200 pt-4"
+        >
+          <label className={labelClassName}>
+            Tracking number
+            <input
+              required
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              className={inputClassName}
+            />
+          </label>
+          <label className={labelClassName}>
+            Tracking link
+            <input
+              value={trackingUrl}
+              onChange={(e) => setTrackingUrl(e.target.value)}
+              placeholder="https://share.lalamove.com/..."
+              className={inputClassName}
+            />
+          </label>
+          {manualError && (
+            <p className="text-sm text-red-600">{manualError}</p>
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={savingManual}
+              className={buttonSecondaryClassName}
+            >
+              {savingManual ? 'Saving…' : 'Save tracking link'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setManualEntry(false)}
+              className="text-xs text-neutral-500 underline hover:text-neutral-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </Card>
   )
 }
