@@ -54,7 +54,10 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       .from('email_automations')
       .select('*')
       .order('event_type', { ascending: true })
-    if (error) throw error
+    if (error) {
+      console.error('listEmailAutomations: email_automations query failed:', error)
+      throw error
+    }
 
     const automationIds = data.map((a) => a.id)
 
@@ -62,7 +65,10 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       .from('discounts')
       .select('id, email_automation_id')
       .in('email_automation_id', automationIds)
-    if (mintedError) throw mintedError
+    if (mintedError) {
+      console.error('listEmailAutomations: discounts query failed:', mintedError)
+      throw mintedError
+    }
 
     const automationIdByDiscountId = new Map(
       mintedDiscounts
@@ -83,7 +89,10 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
         .select('discount_id, total_cents')
         .in('discount_id', Array.from(automationIdByDiscountId.keys()))
         .not('status', 'in', '(cancelled,refunded)')
-      if (ordersError) throw ordersError
+      if (ordersError) {
+        console.error('listEmailAutomations: orders query failed:', ordersError)
+        throw ordersError
+      }
       for (const order of orders) {
         if (!order.discount_id) continue
         const automationId = automationIdByDiscountId.get(order.discount_id)
@@ -102,7 +111,10 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       .from('email_sends')
       .select('email_automation_id, sent_at')
       .in('email_automation_id', automationIds)
-    if (sendsError) throw sendsError
+    if (sendsError) {
+      console.error('listEmailAutomations: email_sends query failed:', sendsError)
+      throw sendsError
+    }
 
     const thirtyDaysAgoISO = new Date(Date.now() - THIRTY_DAYS_MS).toISOString()
     const sendStatsByAutomationId = new Map<
@@ -224,7 +236,10 @@ export const listEmailContacts = createServerFn({ method: 'GET' })
     }
 
     const { data: contacts, error } = await query
-    if (error) throw error
+    if (error) {
+      console.error('listEmailContacts: customers query failed:', error)
+      throw error
+    }
     return contacts
   })
 
@@ -248,7 +263,10 @@ export const getEmailContactsCount = createServerFn({ method: 'GET' })
     }
 
     const { count, error } = await query
-    if (error) throw error
+    if (error) {
+      console.error('getEmailContactsCount: customers query failed:', error)
+      throw error
+    }
     return { total: count ?? 0 }
   })
 
