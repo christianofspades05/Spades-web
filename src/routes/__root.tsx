@@ -19,7 +19,10 @@ import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
 import { LanguageProvider } from '#/lib/i18n/LanguageContext'
 import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
-import { getStorefrontScope } from '#/server/storefront/domain'
+import {
+  getStorefrontScope,
+  redirectNonCanonicalVercelHost,
+} from '#/server/storefront/domain'
 import { getMaintenanceMode } from '#/server/storefront/maintenance'
 import { getStorefrontBanner } from '#/server/storefront/banner'
 import { getEmailCapturePopupEnabled } from '#/server/storefront/email-capture'
@@ -50,6 +53,10 @@ function buildNoFlashThemeScript(defaultTheme: 'light' | 'dark'): string {
 
 export const Route = createRootRoute({
   beforeLoad: async () => {
+    // See redirectNonCanonicalVercelHost's doc comment — bounces a visitor
+    // away from Vercel's own *.vercel.app hosts before anything else runs.
+    await redirectNonCanonicalVercelHost()
+
     // storefrontScope resolves synchronously from the request's Host
     // header (no I/O — see server/storefront/domain.ts), so it's awaited
     // first to know which brand's maintenance flag to check, then the rest

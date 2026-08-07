@@ -16,6 +16,7 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeader, getRequestUrl } from '@tanstack/react-start/server'
+import { redirect } from '@tanstack/react-router'
 
 export const BRANDS = ['spades', 'ysrael', 'aspire365'] as const
 export type Brand = (typeof BRANDS)[number]
@@ -182,7 +183,7 @@ function brandForHostname(hostname: string): Brand {
  * so a *relative* preview link would show Spades' unscoped content
  * regardless of which brand the staff member picked.
  */
-function primaryHostnameFor(brand: Brand): string | null {
+export function primaryHostnameFor(brand: Brand): string | null {
   return (
     Object.entries(HOSTNAME_TO_BRAND).find(([, b]) => b === brand)?.[0] ?? null
   )
@@ -237,6 +238,47 @@ export function getCrossBrandLinks(currentBrand: Brand): CrossBrandLink[] {
     })
     .filter((link): link is CrossBrandLink => link !== null)
 }
+
+/**
+ * Vercel's own auto-generated project alias (spades-web-profitmate.
+ * vercel.app) sits behind Vercel's account-level access wall, and this app
+ * has no reason to ever be reached through *any* *.vercel.app host in
+ * production — but robots.txt allows crawling everything, and this app
+ * answers identically on every host it's reachable from, so Google indexed
+ * pages under that alias and started sending real customers straight into
+ * the access wall instead of the real site. Bounces them to the canonical
+ * domain, preserving whatever page they were trying to reach.
+ *
+ * A dedicated createServerFn (called from __root.tsx's beforeLoad) rather
+ * than folded into getStorefrontScope itself: that function is also called
+ * directly from checkout server functions (place-order.ts, lalamove.ts),
+ * where throwing a redirect wouldn't be handled the same way it is when
+ * thrown from a route's beforeLoad. Being its own createServerFn (rather
+ * than raw getRequestHeader/redirect calls inline in beforeLoad) is what
+ * makes it safe to call from client-side navigations too — the handler
+ * body, and the request-header access it does, only ever actually runs
+ * server-side.
+ */
+export const redirectNonCanonicalVercelHost = createServerFn({
+  method: 'GET',
+}).handler((): void => {
+  if (import.meta.env.DEV) return
+  const hostname = (getRequestHeader('host') ?? '').split(':')[0]
+  if (!hostname.endsWith('.vercel.app')) return
+
+  // The bare apex, not primaryHostnameFor('spades')'s www — that helper
+  // deliberately prefers www for admin preview/cross-brand links in case
+  // the apex is still mid-DNS-cutover, but the apex has been confirmed
+  // live for a while now, and the bare domain is what's meant to be
+  // customer-facing here.
+  const canonicalHost = 'spades-official.com'
+
+  const url = getRequestUrl()
+  throw redirect({
+    href: `https://${canonicalHost}${url.pathname}${url.search}`,
+    statusCode: 301,
+  })
+})
 
 export const getStorefrontScope = createServerFn({ method: 'GET' }).handler(
   (): StorefrontScope => {
