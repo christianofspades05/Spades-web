@@ -9,6 +9,7 @@ import {
 } from '#/lib/checkout/CheckoutContext'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import { LALAMOVE_FEE_BUFFER_CENTS } from '#/lib/checkout/lalamove-eligibility'
 import {
   getActiveMarketMarkups,
   getActiveMarketShipping,
@@ -46,6 +47,7 @@ function PaymentPage() {
     discountCents,
     isLoading,
     codAvailable,
+    codUnavailableReason,
   } = useCart()
   const { info, clear } = useCheckout()
   const { paymentFailed } = Route.useSearch()
@@ -56,9 +58,21 @@ function PaymentPage() {
     paymentFailed ? t.payment.paymentFailedError : null,
   )
 
+  const isLalamove = info.shippingMethod === 'lalamove'
+  // Shown next to a disabled (not hidden) COD option so the customer knows
+  // why, rather than it just silently not being there.
+  const codDisabledReason = isLalamove
+    ? 'Not available for Lalamove delivery — online payment only.'
+    : !codAvailable
+      ? (codUnavailableReason ??
+        'Cash on Delivery is not available for items in your cart.')
+      : null
+
   useEffect(() => {
-    if (!codAvailable && method === 'cod') setMethod('online')
-  }, [codAvailable, method])
+    // Lalamove is online-payment-only, same as any other COD restriction —
+    // never trust the client alone, place-order.ts re-checks this too.
+    if (codDisabledReason && method === 'cod') setMethod('online')
+  }, [codDisabledReason, method])
 
   if (isLoading) {
     return (
@@ -118,7 +132,16 @@ function PaymentPage() {
     marketShipping[info.country],
     cart.discount?.excludesFreeShipping ?? false,
   )
-  const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
+  // Lalamove's delivery fee is charged same as any other shipping method —
+  // the live quote plus a fixed buffer (see place-order.ts, which fetches
+  // its own fresh quote at order time rather than trusting this estimate).
+  const chargedShippingCents = isLalamove
+    ? (info.lalamoveEstimatedFeeCents ?? 0) + LALAMOVE_FEE_BUFFER_CENTS
+    : shippingCents
+  const totalCents = Math.max(
+    0,
+    subtotalCents - discountCents + chargedShippingCents,
+  )
   const addressLines =
     info.country === 'PH'
       ? [
@@ -204,25 +227,31 @@ function PaymentPage() {
           {t.payment.paymentMethod}
         </h2>
         <div className="space-y-2">
-          {codAvailable && (
-            <label
-              className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-4 py-3 ${
-                method === 'cod'
-                  ? 'border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
-                  : 'border-neutral-200 dark:border-neutral-800'
-              }`}
-            >
-              <input
-                type="radio"
-                name="payment"
-                checked={method === 'cod'}
-                onChange={() => setMethod('cod')}
-              />
-              <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
-                {t.payment.cod}
-              </span>
-            </label>
-          )}
+          <label
+            className={`flex items-center gap-3 rounded-md border-2 px-4 py-3 ${
+              codDisabledReason
+                ? 'cursor-not-allowed border-neutral-200 opacity-50 dark:border-neutral-800'
+                : method === 'cod'
+                  ? 'cursor-pointer border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                  : 'cursor-pointer border-neutral-200 dark:border-neutral-800'
+            }`}
+          >
+            <input
+              type="radio"
+              name="payment"
+              disabled={!!codDisabledReason}
+              checked={method === 'cod'}
+              onChange={() => setMethod('cod')}
+            />
+            <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
+              {t.payment.cod}
+              {codDisabledReason && (
+                <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                  {codDisabledReason}
+                </span>
+              )}
+            </span>
+          </label>
 
           <label
             className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-4 py-3 ${
@@ -268,7 +297,11 @@ function PaymentPage() {
             {t.payment.shipping}
           </span>
           <span className="font-medium">
-            {shippingCents === 0 ? t.checkout.free : formatPrice(shippingCents)}
+            {isLalamove
+              ? formatPrice(chargedShippingCents)
+              : shippingCents === 0
+                ? t.checkout.free
+                : formatPrice(shippingCents)}
           </span>
         </div>
         <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">

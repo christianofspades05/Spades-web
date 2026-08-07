@@ -24,6 +24,16 @@ export const checkoutContactBaseSchema = z.object({
   addressLine1: z.string().trim().min(1).max(200),
   addressLine2: z.string().trim().max(200).optional(),
   landmark: z.string().trim().max(200).optional(),
+  // 'lalamove' only ever applies to Spades/Metro-Manila/12-4pm (see
+  // lib/checkout/lalamove-eligibility.ts) — its fee is never charged
+  // through this site, just collected in cash by the rider on delivery, so
+  // there's no cents field here to validate.
+  shippingMethod: z.enum(['standard', 'lalamove']).default('standard'),
+  // Nullable, not just optional — CheckoutInfo (see
+  // lib/checkout/CheckoutContext.tsx) uses null for "no pin yet".
+  lalamoveDropoffLat: z.number().nullable().optional(),
+  lalamoveDropoffLng: z.number().nullable().optional(),
+  lalamoveDropoffAddress: z.string().trim().max(300).optional(),
 })
 
 export const checkoutContactSchema = checkoutContactBaseSchema.superRefine(
@@ -48,6 +58,18 @@ export const checkoutContactSchema = checkoutContactBaseSchema.superRefine(
         code: 'custom',
         path: ['barangay'],
         message: 'Barangay is required',
+      })
+    }
+    if (
+      data.shippingMethod === 'lalamove' &&
+      (data.lalamoveDropoffLat == null ||
+        data.lalamoveDropoffLng == null ||
+        !data.lalamoveDropoffAddress)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lalamoveDropoffLat'],
+        message: 'Drop a pin for your Lalamove delivery location',
       })
     }
   },

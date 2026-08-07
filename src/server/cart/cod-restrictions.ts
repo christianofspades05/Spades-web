@@ -11,25 +11,48 @@ import type { CartItemWithVariant } from '#/types/entities'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 
+export interface CodAvailability {
+  available: boolean
+  /** Customer-facing explanation for why COD is blocked, shown next to a
+   *  disabled (not hidden) COD option at checkout — null when available. */
+  reason: string | null
+}
+
+const AVAILABLE: CodAvailability = { available: true, reason: null }
+
 export async function resolveCodAvailability(
   admin: Admin,
   items: CartItemWithVariant[],
-): Promise<boolean> {
+): Promise<CodAvailability> {
   const { data: restrictions, error } = await admin
     .from('cod_restrictions')
     .select('scope, scope_ids')
     .eq('is_active', true)
   if (error) throw error
-  if (restrictions.length === 0) return true
+  if (restrictions.length === 0) return AVAILABLE
 
   const productIds = Array.from(
     new Set(items.map((item) => item.variant.product.id)),
   )
-  if (productIds.length === 0) return true
+  if (productIds.length === 0) return AVAILABLE
 
   const productScoped = restrictions.filter((r) => r.scope === 'product')
   const blockedByProduct = new Set(productScoped.flatMap((r) => r.scope_ids))
-  if (productIds.some((id) => blockedByProduct.has(id))) return false
+  const blockedProductIds = productIds.filter((id) => blockedByProduct.has(id))
+  if (blockedProductIds.length > 0) {
+    const { data: products } = await admin
+      .from('products')
+      .select('name')
+      .in('id', blockedProductIds)
+    const names = (products ?? []).map((p) => p.name)
+    return {
+      available: false,
+      reason:
+        names.length > 0
+          ? `Cash on Delivery is not available for ${names.join(', ')}.`
+          : 'Cash on Delivery is not available for one or more items in your cart.',
+    }
+  }
 
   const collectionIds = Array.from(
     new Set(
@@ -38,12 +61,32 @@ export async function resolveCodAvailability(
         .flatMap((r) => r.scope_ids),
     ),
   )
-  if (collectionIds.length === 0) return true
+  if (collectionIds.length === 0) return AVAILABLE
 
-  const blockedByCollection = await resolveCollectionScopedProductIds(
-    admin,
-    collectionIds,
-    productIds,
+  // Checked one collection at a time (rather than all at once) so the
+  // reason names only the collection(s) that actually matched something in
+  // THIS cart — not every collection with an active restriction.
+  const { data: collections } = await admin
+    .from('collections')
+    .select('id, name')
+    .in('id', collectionIds)
+  const nameById = new Map((collections ?? []).map((c) => [c.id, c.name]))
+
+  const perCollectionMatches = await Promise.all(
+    collectionIds.map(async (id) => ({
+      id,
+      matched: await resolveCollectionScopedProductIds(admin, [id], productIds),
+    })),
   )
-  return !productIds.some((id) => blockedByCollection.has(id))
+  const blockingNames = perCollectionMatches
+    .filter(({ matched }) => productIds.some((id) => matched.has(id)))
+    .map(({ id }) => nameById.get(id))
+    .filter((name): name is string => Boolean(name))
+
+  if (blockingNames.length === 0) return AVAILABLE
+
+  return {
+    available: false,
+    reason: `Cash on Delivery is not available for items in the ${blockingNames.join(', ')} collection${blockingNames.length > 1 ? 's' : ''}.`,
+  }
 }

@@ -27,6 +27,10 @@ import { Badge, StatusBadge } from '#/components/admin/Badge'
 import { CopyButton } from '#/components/admin/CopyButton'
 import { OrderItemsEditor } from '#/components/admin/OrderItemsEditor'
 import {
+  LalamoveBookingPanel,
+  LalamoveRefreshButton,
+} from '#/components/admin/LalamoveBookingPanel'
+import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
   inputClassName,
@@ -433,11 +437,29 @@ function OrderDetailPage() {
             </Card>
           )}
 
-          <ShipmentForm
-            orderId={order.id}
-            shipment={order.shipments[0] ?? null}
-            onSaved={() => router.invalidate()}
-          />
+          {order.shipping_method === 'lalamove' &&
+          !order.shipments[0] &&
+          order.lalamove_info ? (
+            <LalamoveBookingPanel
+              orderId={order.id}
+              lalamoveInfo={order.lalamove_info}
+              onBooked={() => router.invalidate()}
+            />
+          ) : (
+            <>
+              <ShipmentForm
+                orderId={order.id}
+                shipment={order.shipments[0] ?? null}
+                onSaved={() => router.invalidate()}
+              />
+              {order.shipments[0]?.carrier === 'lalamove' && (
+                <LalamoveRefreshButton
+                  orderId={order.id}
+                  onRefreshed={() => router.invalidate()}
+                />
+              )}
+            </>
+          )}
 
           <StatusForm
             orderId={order.id}

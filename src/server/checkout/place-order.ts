@@ -30,9 +30,14 @@ import {
 import { assertDiscountIsRedeemable } from '#/server/cart/discount'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import {
+  LALAMOVE_FEE_BUFFER_CENTS,
+  isLalamoveEligible,
+} from '#/lib/checkout/lalamove-eligibility'
+import { getLalamoveQuotation } from '#/lib/lalamove/client'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
-import type { CheckoutReservationItem } from '#/types/database.types'
+import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { sendEmail, withDisplayName } from '#/lib/email/resend'
@@ -95,6 +100,24 @@ export const placeOrder = createServerFn({ method: 'POST' })
       if (data.paymentProvider === 'cod' && !cart.codAvailable) {
         throw new Error(
           'Cash on Delivery is not available for items in your cart. Please pay online instead.',
+        )
+      }
+
+      // Lalamove is Spades/Metro-Manila/12-4pm-only and online-payment-only
+      // — same never-trust-the-client principle as the COD check above.
+      const isLalamove = data.contact.shippingMethod === 'lalamove'
+      if (isLalamove && data.paymentProvider === 'cod') {
+        throw new Error('Lalamove delivery requires online payment.')
+      }
+      if (
+        isLalamove &&
+        !isLalamoveEligible({
+          brand: scope.brand,
+          region: data.contact.region ?? '',
+        })
+      ) {
+        throw new Error(
+          'Lalamove delivery is only available for Metro Manila addresses on the Spades store, any day except Sunday.',
         )
       }
 
@@ -173,7 +196,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
       )
 
       const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0)
-      const shippingCents = shippingCostCents(
+      let shippingCents = shippingCostCents(
         data.contact.country,
         data.contact.region ?? '',
         subtotalCents - discountCents,
@@ -182,6 +205,40 @@ export const placeOrder = createServerFn({ method: 'POST' })
         marketShipping,
         cart.discount?.excludesFreeShipping ?? false,
       )
+
+      let lalamoveInfo: LalamoveInfo | null = null
+      if (isLalamove) {
+        const dropoffLat = data.contact.lalamoveDropoffLat
+        const dropoffLng = data.contact.lalamoveDropoffLng
+        const dropoffAddress = data.contact.lalamoveDropoffAddress
+        if (dropoffLat == null || dropoffLng == null || !dropoffAddress) {
+          throw new Error('Missing Lalamove delivery pin.')
+        }
+        // Never trust the client's earlier estimate — a Lalamove quotation
+        // is only valid 5 minutes, and checkout may well have taken longer.
+        const quotation = await getLalamoveQuotation({
+          dropoffLat,
+          dropoffLng,
+          dropoffAddress,
+        })
+        lalamoveInfo = {
+          quotationId: quotation.quotationId,
+          pickupStopId: quotation.pickupStopId,
+          dropoffStopId: quotation.dropoffStopId,
+          dropoffLat,
+          dropoffLng,
+          dropoffAddress,
+          estimatedFeeCents: quotation.feeCents,
+          quotedAt: new Date().toISOString(),
+        }
+        // Charged same as any other shipping method — the live quote plus
+        // a fixed buffer, since the actual trip gets re-quoted (and may
+        // differ slightly) when staff book it later. The buffer is the
+        // store's cushion against that drift; the customer is never asked
+        // for anything more once they've paid this.
+        shippingCents = quotation.feeCents + LALAMOVE_FEE_BUFFER_CENTS
+      }
+
       const totalCents = Math.max(
         0,
         subtotalCents - discountCents + shippingCents,
@@ -464,6 +521,8 @@ export const placeOrder = createServerFn({ method: 'POST' })
           market_markup_percent: marketMarkupPercent ?? null,
           shipping_address: shippingAddress,
           items: itemsPayload,
+          shipping_method: data.contact.shippingMethod,
+          lalamove_info: lalamoveInfo,
         })
         .select('id')
         .single()

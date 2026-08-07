@@ -13,28 +13,59 @@ import { saveCartEmail } from '#/server/cart/mutations'
 import {
   freeShippingProgress,
   shippingCostCents,
+  shippingZoneForRegion,
 } from '#/lib/checkout/shipping'
+import type { ShippingZone } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import {
+  LALAMOVE_FEE_BUFFER_CENTS,
+  isLalamoveAvailableToday,
+  isLalamoveRegionEligible,
+} from '#/lib/checkout/lalamove-eligibility'
 import {
   getActiveMarketMarkups,
   getActiveMarketShipping,
 } from '#/server/storefront/market-pricing'
+import { getLalamoveEstimate } from '#/server/checkout/lalamove'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import {
   centsToMajorUnits,
   convertCents,
   effectiveCurrency,
+  formatCentsAsPHP,
 } from '#/lib/utils/money'
+import { getErrorMessage } from '#/lib/utils/errors'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import { CountrySelect } from '#/components/storefront/CountrySelect'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
+import { LalamoveAddressPicker } from '#/components/storefront/LalamoveAddressPicker'
 import {
   buttonPrimaryClassName,
   inputClassName,
   labelClassName,
 } from '#/components/storefront/ui'
+
+// PH-domestic standard shipping label, by zone — includes an estimated
+// delivery window so the customer knows what "Standard shipping" actually
+// means for their address, not just what it costs.
+const PH_STANDARD_SHIPPING_LABELS: Record<ShippingZone, string> = {
+  metro_manila: 'Metro Manila - 2-3 days delivery',
+  luzon: 'Luzon - 2-5 days delivery',
+  visayas: 'Visayas - 5-10 days delivery',
+  mindanao: 'Mindanao - 7-10 days delivery',
+}
+
+function standardShippingLabel(
+  country: string,
+  region: string,
+  fallback: string,
+): string {
+  return country === 'PH'
+    ? PH_STANDARD_SHIPPING_LABELS[shippingZoneForRegion(region)]
+    : fallback
+}
 
 export const Route = createFileRoute('/checkout/')({
   loader: async () => ({
@@ -44,8 +75,89 @@ export const Route = createFileRoute('/checkout/')({
   component: CheckoutPage,
 })
 
+/** Delivery pin + live fee estimate for the Lalamove shipping option — kept
+ *  as its own component so re-fetching the estimate on pin move doesn't
+ *  re-render the whole checkout page. The estimate is informational only;
+ *  place-order.ts always fetches its own fresh quotation at order time. */
+function LalamoveDeliveryPicker() {
+  const { info, setInfo } = useCheckout()
+  const [estimating, setEstimating] = useState(false)
+  const [estimateError, setEstimateError] = useState<string | null>(null)
+
+  const pin =
+    info.lalamoveDropoffLat != null && info.lalamoveDropoffLng != null
+      ? { lat: info.lalamoveDropoffLat, lng: info.lalamoveDropoffLng }
+      : null
+  const searchHint = [info.addressLine1, info.barangay, info.city, info.province]
+    .filter(Boolean)
+    .join(', ')
+
+  useEffect(() => {
+    if (!pin) return
+    let cancelled = false
+    setEstimating(true)
+    setEstimateError(null)
+    getLalamoveEstimate({
+      data: {
+        dropoffLat: pin.lat,
+        dropoffLng: pin.lng,
+        dropoffAddress: info.lalamoveDropoffAddress || searchHint,
+      },
+    })
+      .then((result) => {
+        if (cancelled) return
+        setInfo({
+          ...info,
+          lalamoveEstimatedFeeCents: result.estimatedFeeCents,
+        })
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setEstimateError(getErrorMessage(err))
+      })
+      .finally(() => {
+        if (!cancelled) setEstimating(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // Re-estimates only when the pin itself moves — info/setInfo change on
+    // every keystroke elsewhere in the form and would otherwise refire this.
+  }, [pin?.lat, pin?.lng])
+
+  return (
+    <div className="space-y-3 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+      <LalamoveAddressPicker
+        pin={pin}
+        onPinChange={(next) =>
+          setInfo({
+            ...info,
+            lalamoveDropoffLat: next.lat,
+            lalamoveDropoffLng: next.lng,
+            lalamoveDropoffAddress: searchHint,
+          })
+        }
+        searchHint={searchHint}
+      />
+      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+        {estimating
+          ? 'Getting delivery estimate…'
+          : estimateError
+            ? estimateError
+            : info.lalamoveEstimatedFeeCents != null
+              ? `Lalamove delivery fee: ${formatCentsAsPHP(info.lalamoveEstimatedFeeCents + LALAMOVE_FEE_BUFFER_CENTS)} — included in your total.`
+              : 'Drop a pin above to get an estimated delivery fee.'}
+      </p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        Orders placed 4PM–11:59PM are booked the next day at 10AM. Orders
+        placed 12AM–9:59AM are booked starting 10AM.
+      </p>
+    </div>
+  )
+}
+
 function CheckoutPage() {
   const { marketMarkups, marketShipping } = Route.useLoaderData()
+  const { storefrontScope } = Route.useRouteContext()
   const { currency, rates, formatPrice } = useCurrency()
   const { t } = useLanguage()
   const {
@@ -75,6 +187,25 @@ function CheckoutPage() {
       currency: target,
     })
   }, [isLoading, cart, rawSubtotalCents, discountCents, currency, rates])
+
+  const lalamoveRegionEligible = isLalamoveRegionEligible({
+    brand: storefrontScope.brand,
+    region: info.region,
+  })
+  const lalamoveAvailableToday = isLalamoveAvailableToday()
+  const lalamoveEligible = lalamoveRegionEligible && lalamoveAvailableToday
+
+  // If the region changes away from Metro Manila (or it becomes Sunday)
+  // while Lalamove is selected, fall back to standard rather than
+  // letting the customer proceed with a no-longer-valid choice — place-order
+  // would reject it anyway, but this catches it before they even try. Placed
+  // before the early returns below (with every other hook in this
+  // component) — hooks can't be called conditionally.
+  useEffect(() => {
+    if (info.shippingMethod === 'lalamove' && !lalamoveEligible) {
+      setInfo({ ...info, shippingMethod: 'standard' })
+    }
+  }, [lalamoveEligible])
 
   if (isLoading) {
     return (
@@ -120,7 +251,16 @@ function CheckoutPage() {
           cart.discount?.excludesFreeShipping ?? false,
         )
       : null
-  const totalCents = subtotalCents - discountCents + (shippingCents ?? 0)
+  // Lalamove's delivery fee is charged through this site same as any other
+  // shipping method — the live quote plus a fixed buffer (see place-order.ts,
+  // which fetches its own fresh quote at order time rather than trusting
+  // this estimate) rather than what shippingCostCents() would've charged
+  // for a standard delivery to the same address.
+  const chargedShippingCents =
+    info.shippingMethod === 'lalamove'
+      ? (info.lalamoveEstimatedFeeCents ?? 0) + LALAMOVE_FEE_BUFFER_CENTS
+      : (shippingCents ?? 0)
+  const totalCents = subtotalCents - discountCents + chargedShippingCents
 
   function handleCountryChange(country: string) {
     setInfo({
@@ -130,6 +270,9 @@ function CheckoutPage() {
       province: '',
       city: '',
       barangay: '',
+      // Lalamove never applies outside PH/Metro Manila — falling back to
+      // standard rather than leaving a now-invalid selection in place.
+      shippingMethod: 'standard',
     })
   }
 
@@ -315,26 +458,106 @@ function CheckoutPage() {
               <p className="rounded-md bg-neutral-50 px-4 py-3 text-sm text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
                 {t.checkout.selectRegionPrompt}
               </p>
+            ) : lalamoveRegionEligible ? (
+              <div className="space-y-3">
+                <label
+                  className={`flex cursor-pointer items-center justify-between rounded-md border-2 px-4 py-3 text-sm ${
+                    info.shippingMethod === 'standard'
+                      ? 'border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                      : 'border-neutral-200 dark:border-neutral-800'
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="shippingMethod"
+                      checked={info.shippingMethod === 'standard'}
+                      onChange={() =>
+                        setInfo({ ...info, shippingMethod: 'standard' })
+                      }
+                    />
+                    <span className="font-medium text-neutral-900 dark:text-white">
+                      {standardShippingLabel(
+                        info.country,
+                        info.region,
+                        t.checkout.standardShipping,
+                      )}
+                    </span>
+                  </span>
+                  <span className="font-medium text-neutral-900 dark:text-white">
+                    {shippingCents === 0
+                      ? t.checkout.free
+                      : formatPrice(shippingCents)}
+                  </span>
+                </label>
+
+                <label
+                  className={`flex items-center justify-between gap-3 rounded-md border-2 px-4 py-3 text-sm ${
+                    !lalamoveAvailableToday
+                      ? 'cursor-not-allowed border-neutral-200 opacity-50 dark:border-neutral-800'
+                      : info.shippingMethod === 'lalamove'
+                        ? 'cursor-pointer border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                        : 'cursor-pointer border-neutral-200 dark:border-neutral-800'
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="shippingMethod"
+                      disabled={!lalamoveAvailableToday}
+                      checked={info.shippingMethod === 'lalamove'}
+                      onChange={() =>
+                        setInfo({ ...info, shippingMethod: 'lalamove' })
+                      }
+                    />
+                    <span className="font-medium text-neutral-900 dark:text-white">
+                      Lalamove Same-day Delivery (10AM–4PM, Metro Manila only)
+                      {!lalamoveAvailableToday && (
+                        <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                          Not available on Sundays.
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  {info.lalamoveEstimatedFeeCents != null && (
+                    <span className="font-medium whitespace-nowrap text-neutral-900 dark:text-white">
+                      {formatCentsAsPHP(
+                        info.lalamoveEstimatedFeeCents +
+                          LALAMOVE_FEE_BUFFER_CENTS,
+                      )}
+                    </span>
+                  )}
+                </label>
+
+                {info.shippingMethod === 'lalamove' &&
+                  lalamoveAvailableToday && <LalamoveDeliveryPicker />}
+              </div>
             ) : (
               <div className="flex items-center justify-between rounded-md border border-neutral-900 bg-neutral-50 px-4 py-3 text-sm dark:border-white dark:bg-neutral-900">
                 <span className="font-medium text-neutral-900 dark:text-white">
-                  {t.checkout.standardShipping}
+                  {standardShippingLabel(
+                    info.country,
+                    info.region,
+                    t.checkout.standardShipping,
+                  )}
                 </span>
                 <span className="font-medium text-neutral-900 dark:text-white">
                   {shippingCents === 0 ? t.checkout.free : formatPrice(shippingCents)}
                 </span>
               </div>
             )}
-            <FreeShippingNudge
-              progress={freeShippingProgress(
-                info.country,
-                subtotalCents - discountCents,
-                cart.items.reduce((sum, item) => sum + item.quantity, 0),
-                marketShipping[info.country],
-                cart.discount?.excludesFreeShipping ?? false,
-              )}
-              className="mt-3 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
-            />
+            {info.shippingMethod !== 'lalamove' && (
+              <FreeShippingNudge
+                progress={freeShippingProgress(
+                  info.country,
+                  subtotalCents - discountCents,
+                  cart.items.reduce((sum, item) => sum + item.quantity, 0),
+                  marketShipping[info.country],
+                  cart.discount?.excludesFreeShipping ?? false,
+                )}
+                className="mt-3 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
+              />
+            )}
           </section>
 
           {error && (
@@ -426,11 +649,13 @@ function CheckoutPage() {
                 {t.payment.shipping}
               </span>
               <span className="font-medium">
-                {shippingCents == null
-                  ? t.checkout.enterDeliveryRegion
-                  : shippingCents === 0
-                    ? t.checkout.free
-                    : formatPrice(shippingCents)}
+                {info.shippingMethod === 'lalamove'
+                  ? formatPrice(chargedShippingCents)
+                  : shippingCents == null
+                    ? t.checkout.enterDeliveryRegion
+                    : shippingCents === 0
+                      ? t.checkout.free
+                      : formatPrice(shippingCents)}
               </span>
             </div>
             <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">

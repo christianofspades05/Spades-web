@@ -17,6 +17,7 @@ interface CartContextValue {
   discountCents: number
   totalCents: number
   codAvailable: boolean
+  codUnavailableReason: string | null
   isLoading: boolean
   addItem: (variantId: string, quantity: number) => Promise<void>
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>
@@ -60,6 +61,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       discountCents,
       totalCents: Math.max(0, subtotalCents - discountCents),
       codAvailable: cart?.codAvailable ?? true,
+      codUnavailableReason: cart?.codUnavailableReason ?? null,
       isLoading,
       addItem: async (variantId, quantity) => {
         const updated = await addCartItem({ data: { variantId, quantity } })

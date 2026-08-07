@@ -13,6 +13,7 @@ export interface CartWithItems {
   items: CartItemWithVariant[]
   discount: AppliedCartDiscount | null
   codAvailable: boolean
+  codUnavailableReason: string | null
 }
 
 export async function loadCartWithItems(
@@ -38,7 +39,7 @@ export async function loadCartWithItems(
   if (cartError) throw cartError
   if (itemsError) throw itemsError
 
-  const [codeDiscount, codAvailable] = await Promise.all([
+  const [codeDiscount, cod] = await Promise.all([
     resolveDiscountForCart(admin, cart.discount_id, items),
     resolveCodAvailability(admin, items),
   ])
@@ -49,7 +50,14 @@ export async function loadCartWithItems(
   const discount =
     codeDiscount ?? (await resolveBestAutomaticDiscountForCart(admin, items))
 
-  return { id: cart.id, currency: cart.currency, items, discount, codAvailable }
+  return {
+    id: cart.id,
+    currency: cart.currency,
+    items,
+    discount,
+    codAvailable: cod.available,
+    codUnavailableReason: cod.reason,
+  }
 }
 
 /** Throws unless the cart identified by `cartId` belongs to the given guest session token. */

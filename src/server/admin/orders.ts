@@ -26,8 +26,14 @@ import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { resolveDiscountForCart } from '#/server/cart/discount'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
+import {
+  getLalamoveOrderStatus,
+  getLalamoveQuotation,
+  placeLalamoveOrder,
+} from '#/lib/lalamove/client'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
+import type { LalamoveInfo } from '#/types/database.types'
 import { logStaffActivity } from './activity-log'
 import type {
   CartItemWithVariant,
@@ -39,6 +45,7 @@ import type {
   Payment,
   ReturnStatus,
   Shipment,
+  ShipmentStatus,
 } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager', 'packer'] as const
@@ -1356,3 +1363,303 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
       return { cancelled, skipped }
     },
   )
+
+export interface LalamoveOrderItemRow {
+  id: string
+  productName: string
+  variantLabel: string | null
+  quantity: number
+  imageUrl: string | null
+}
+
+export interface LalamoveOrderRow {
+  id: string
+  orderNumber: string
+  status: OrderStatus
+  placedAt: string
+  recipientName: string
+  recipientEmail: string
+  lalamoveInfo: LalamoveInfo | null
+  items: LalamoveOrderItemRow[]
+  shipment: {
+    trackingNumber: string | null
+    trackingUrl: string | null
+    status: ShipmentStatus
+  } | null
+}
+
+/** Every Lalamove-shipping order, newest first — powers the admin Lalamove
+ *  Orders page (src/routes/admin/orders/lalamove.tsx), where staff confirm
+ *  and book the ones still waiting, and check status on the ones already
+ *  booked. Includes order items (with product images) so staff can see
+ *  what to pack without opening each order individually. */
+export const getLalamoveOrders = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<LalamoveOrderRow[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const { data, error } = await admin
+      .from('orders')
+      .select(
+        'id, order_number, status, placed_at, shipping_address, lalamove_info, shipments(tracking_number, tracking_url, status), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
+      )
+      .eq('shipping_method', 'lalamove')
+      .order('placed_at', { ascending: false })
+    if (error) throw error
+
+    // The hand-written Database type (types/database.types.ts) has no
+    // Relationships metadata for orders/shipments/order_items, so
+    // postgrest-js can't infer this embedded select — cast to the shape it
+    // actually returns.
+    const rows = data as unknown as {
+      id: string
+      order_number: string
+      status: OrderStatus
+      placed_at: string
+      shipping_address: Record<string, unknown>
+      lalamove_info: LalamoveInfo | null
+      shipments: Pick<Shipment, 'tracking_number' | 'tracking_url' | 'status'>[]
+      order_items: {
+        id: string
+        product_name_snapshot: string
+        variant_label_snapshot: string | null
+        quantity: number
+        variant_id: string | null
+      }[]
+    }[]
+
+    const variantIds = Array.from(
+      new Set(
+        rows
+          .flatMap((o) => o.order_items)
+          .map((i) => i.variant_id)
+          .filter((v): v is string => v !== null),
+      ),
+    )
+    const variantInfoMap = await getVariantProductInfo(admin, variantIds)
+
+    return rows.map((order) => {
+      const address = order.shipping_address as unknown as OrderShippingAddress
+      const hasShipment = order.shipments.length > 0
+      const shipment = order.shipments[0]
+      return {
+        id: order.id,
+        orderNumber: order.order_number,
+        status: order.status,
+        placedAt: order.placed_at,
+        recipientName: address.recipientName,
+        recipientEmail: address.email,
+        lalamoveInfo: order.lalamove_info,
+        items: order.order_items.map((item) => ({
+          id: item.id,
+          productName: item.product_name_snapshot,
+          variantLabel: item.variant_label_snapshot,
+          quantity: item.quantity,
+          imageUrl: item.variant_id
+            ? (variantInfoMap.get(item.variant_id)?.imageUrl ?? null)
+            : null,
+        })),
+        shipment: hasShipment
+          ? {
+              trackingNumber: shipment.tracking_number,
+              trackingUrl: shipment.tracking_url,
+              status: shipment.status,
+            }
+          : null,
+      }
+    })
+  },
+)
+
+/** Lalamove's own order-status enum -> this app's shipment_status enum.
+ *  ASSIGNING_DRIVER/ON_GOING map to 'packed' (booked, not yet physically
+ *  moving) rather than 'in_transit' — that's reserved for PICKED_UP, once
+ *  the rider actually has the parcel. Unrecognized/future Lalamove statuses
+ *  fall back to 'pending' rather than guessing. */
+function mapLalamoveStatus(lalamoveStatus: string): ShipmentStatus {
+  switch (lalamoveStatus) {
+    case 'ASSIGNING_DRIVER':
+    case 'ON_GOING':
+      return 'packed'
+    case 'PICKED_UP':
+      return 'in_transit'
+    case 'COMPLETED':
+      return 'delivered'
+    case 'CANCELED':
+    case 'REJECTED':
+    case 'EXPIRED':
+      return 'failed'
+    default:
+      return 'pending'
+  }
+}
+
+const bookLalamoveShipmentSchema = z.object({
+  orderId: z.string().uuid(),
+  pickupContactName: z.string().trim().min(1).max(120),
+  pickupContactPhone: z.string().trim().min(1).max(30),
+})
+
+/**
+ * Staff's "confirm and book" action for a paid Lalamove order — the pending
+ * quotation/pin captured at checkout (orders.lalamove_info) only becomes a
+ * real courier trip here. Deliberately does NOT create the `shipments` row
+ * until this succeeds: inserting one earlier would've flipped
+ * orders.has_shipment true via the trigger in
+ * 0048_orders_has_shipment.sql, wrongly showing an unbooked order as
+ * "Fulfilled" in the admin Orders list.
+ */
+export const bookLalamoveShipment = createServerFn({ method: 'POST' })
+  .validator(bookLalamoveShipmentSchema)
+  .handler(async ({ data }): Promise<Shipment> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: order, error: orderError } = await admin
+      .from('orders')
+      .select(
+        'id, order_number, status, shipping_method, lalamove_info, shipping_address',
+      )
+      .eq('id', data.orderId)
+      .single()
+    if (orderError) throw orderError
+    if (order.shipping_method !== 'lalamove') {
+      throw new Error('This order is not a Lalamove delivery.')
+    }
+    if (!order.lalamove_info) {
+      throw new Error('This order has no stored Lalamove delivery pin.')
+    }
+    if (order.status !== 'paid' && order.status !== 'processing') {
+      throw new Error(
+        `Cannot book Lalamove for an order that's ${order.status}.`,
+      )
+    }
+
+    const { data: existingShipment } = await admin
+      .from('shipments')
+      .select('id')
+      .eq('order_id', data.orderId)
+      .maybeSingle()
+    if (existingShipment) {
+      throw new Error('This order already has a Lalamove booking.')
+    }
+
+    const address = order.shipping_address as unknown as OrderShippingAddress
+    const info = order.lalamove_info
+
+    // The checkout-time quotation is long expired (5-minute validity) by
+    // the time staff books — always fetch a fresh one right before booking.
+    const quotation = await getLalamoveQuotation({
+      dropoffLat: info.dropoffLat,
+      dropoffLng: info.dropoffLng,
+      dropoffAddress: info.dropoffAddress,
+    })
+
+    // Delivery fee was already charged online at checkout — nothing for
+    // the rider to collect from the recipient.
+    const booking = await placeLalamoveOrder({
+      quotationId: quotation.quotationId,
+      pickupStopId: quotation.pickupStopId,
+      dropoffStopId: quotation.dropoffStopId,
+      senderName: data.pickupContactName,
+      senderPhone: data.pickupContactPhone,
+      recipientName: address.recipientName,
+      recipientPhone: address.phone,
+    })
+
+    const { data: shipment, error: shipmentError } = await admin
+      .from('shipments')
+      .insert({
+        order_id: data.orderId,
+        carrier: 'lalamove',
+        tracking_number: booking.lalamoveOrderId,
+        tracking_url: booking.shareLink,
+        status: mapLalamoveStatus(booking.status),
+        raw_payload: { quotation, booking: booking.raw },
+      })
+      .select('*')
+      .single()
+    if (shipmentError) throw shipmentError
+
+    if (order.status === 'paid') {
+      await admin
+        .from('orders')
+        .update({ status: 'processing' })
+        .eq('id', data.orderId)
+    }
+
+    await logStaffActivity(
+      staff,
+      'order.lalamove_booked',
+      'shipments',
+      shipment.id,
+      {
+        orderId: data.orderId,
+        lalamoveOrderId: booking.lalamoveOrderId,
+        feeCents: quotation.feeCents,
+      },
+    )
+
+    // Best-effort — a Resend outage shouldn't block the booking itself,
+    // which has already succeeded with a real Lalamove driver by this point.
+    void sendEmail({
+      to: address.email,
+      subject: shipmentTrackingEmailSubject(order.order_number),
+      from: withDisplayName(
+        'Spades Official Orders',
+        process.env.RESEND_FROM_EMAIL_ORDERS,
+      ),
+      html: shipmentTrackingEmailHtml({
+        orderNumber: order.order_number,
+        carrier: 'Lalamove',
+        trackingNumber: booking.lalamoveOrderId,
+        trackingUrl: booking.shareLink,
+      }),
+    }).catch((err: unknown) => {
+      console.error('Failed to send Lalamove tracking email:', err)
+    })
+
+    return shipment
+  })
+
+/** Manual status pull for a booked Lalamove shipment — there's no incoming
+ *  Lalamove webhook wired up yet, so staff refresh on demand instead. */
+export const refreshLalamoveStatus = createServerFn({ method: 'POST' })
+  .validator(z.object({ orderId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<Shipment> => {
+    await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: shipment, error } = await admin
+      .from('shipments')
+      .select('id, carrier, tracking_number, raw_payload')
+      .eq('order_id', data.orderId)
+      .single()
+    if (error) throw error
+    if (shipment.carrier !== 'lalamove' || !shipment.tracking_number) {
+      throw new Error('This order has no Lalamove booking to refresh.')
+    }
+
+    const { status, raw } = await getLalamoveOrderStatus(
+      shipment.tracking_number,
+    )
+    const nextStatus = mapLalamoveStatus(status)
+    const now = new Date().toISOString()
+
+    const { data: updated, error: updateError } = await admin
+      .from('shipments')
+      .update({
+        status: nextStatus,
+        raw_payload: {
+          ...(shipment.raw_payload ?? {}),
+          latestStatus: raw,
+        },
+        ...(nextStatus === 'delivered' ? { delivered_at: now } : {}),
+      })
+      .eq('id', shipment.id)
+      .select('*')
+      .single()
+    if (updateError) throw updateError
+
+    return updated
+  })

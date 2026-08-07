@@ -18,6 +18,15 @@ export interface CheckoutInfo {
   addressLine1: string
   addressLine2: string
   landmark: string
+  /** 'lalamove' only ever applies to Spades/Metro-Manila/12-4pm — see
+   *  lib/checkout/lalamove-eligibility.ts. Its delivery fee is never
+   *  charged through this site; it's collected in cash by the rider on
+   *  drop-off, so lalamoveEstimatedFeeCents below is informational only. */
+  shippingMethod: 'standard' | 'lalamove'
+  lalamoveDropoffLat: number | null
+  lalamoveDropoffLng: number | null
+  lalamoveDropoffAddress: string
+  lalamoveEstimatedFeeCents: number | null
 }
 
 export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
@@ -33,6 +42,11 @@ export const EMPTY_CHECKOUT_INFO: CheckoutInfo = {
   addressLine1: '',
   addressLine2: '',
   landmark: '',
+  shippingMethod: 'standard',
+  lalamoveDropoffLat: null,
+  lalamoveDropoffLng: null,
+  lalamoveDropoffAddress: '',
+  lalamoveEstimatedFeeCents: null,
 }
 
 const STORAGE_KEY = 'spades_checkout_info'
@@ -80,6 +94,11 @@ export function isCheckoutInfoComplete(info: CheckoutInfo): boolean {
     info.postalCode,
   )
   if (!hasCommon) return false
+  if (info.shippingMethod === 'lalamove') {
+    if (info.lalamoveDropoffLat == null || info.lalamoveDropoffLng == null) {
+      return false
+    }
+  }
   if (info.country === 'PH') {
     return Boolean(info.region && info.barangay)
   }

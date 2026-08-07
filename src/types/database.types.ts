@@ -58,6 +58,24 @@ export interface CheckoutReservationItem {
   lineTotalCents: number
 }
 
+export type ShippingMethod = 'standard' | 'lalamove'
+
+/** Lalamove quotation + dropoff pin captured at checkout time, held on
+ *  checkout_reservations/orders until staff books the actual trip (see
+ *  bookLalamoveShipment in server/admin/orders.ts) — the checkout-time
+ *  quotationId is expired (5-minute validity) by the time that happens, so
+ *  it's kept only for audit purposes; booking always fetches a fresh one. */
+export interface LalamoveInfo {
+  quotationId: string
+  pickupStopId: string
+  dropoffStopId: string
+  dropoffLat: number
+  dropoffLng: number
+  dropoffAddress: string
+  estimatedFeeCents: number
+  quotedAt: string
+}
+
 export type SyncLogStatus = 'success' | 'failed'
 
 export type PaymentProvider =
@@ -541,6 +559,8 @@ export interface Database {
           billing_address: Record<string, unknown> | null
           is_cod: boolean
           has_shipment: boolean
+          shipping_method: ShippingMethod
+          lalamove_info: LalamoveInfo | null
           cod_eligibility_reason: string | null
           requires_partial_payment: boolean
           risk_score: number | null
@@ -606,6 +626,8 @@ export interface Database {
           market_markup_percent: number | null
           shipping_address: Record<string, unknown>
           items: CheckoutReservationItem[]
+          shipping_method: ShippingMethod
+          lalamove_info: LalamoveInfo | null
           xendit_invoice_id: string | null
           created_at: string
         }

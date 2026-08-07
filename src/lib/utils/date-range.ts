@@ -20,6 +20,14 @@ export function storeLocalHour(date: Date = new Date()): number {
   return new Date(date.getTime() + STORE_UTC_OFFSET_MS).getUTCHours()
 }
 
+/** The store-local (UTC+8) day of week (0 = Sunday .. 6 = Saturday) for an
+ *  arbitrary instant — defaults to right now. Used for day-of-week gates
+ *  like Lalamove being unavailable on Sundays (see
+ *  lib/checkout/lalamove-eligibility.ts). */
+export function storeLocalDayOfWeek(date: Date = new Date()): number {
+  return new Date(date.getTime() + STORE_UTC_OFFSET_MS).getUTCDay()
+}
+
 /** Converts a UTC timestamp (e.g. a `placed_at` column value) into the store-local YYYY-MM-DD it falls on. */
 export function storeLocalDateKey(isoUtc: string): string {
   return new Date(new Date(isoUtc).getTime() + STORE_UTC_OFFSET_MS)

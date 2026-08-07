@@ -28,6 +28,10 @@ const PRODUCTS_SUB_LINKS = [
   { to: '/admin/inventory', label: 'Inventory' },
 ] as const
 
+const ORDERS_SUB_LINKS = [
+  { to: '/admin/orders/lalamove', label: 'Lalamove Orders' },
+] as const
+
 const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/sales', label: 'Sales' },
   { to: '/admin/analytics/profit', label: 'Profit' },
@@ -52,11 +56,17 @@ export function AdminNav({
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [expanded, setExpanded] = useState(false)
+  const [ordersExpanded, setOrdersExpanded] = useState(false)
 
   const underProducts =
     pathname.startsWith('/admin/products') ||
     PRODUCTS_SUB_LINKS.some((link) => pathname.startsWith(link.to))
   const productsOpen = expanded || underProducts
+
+  const underOrdersSubLinks = ORDERS_SUB_LINKS.some((link) =>
+    pathname.startsWith(link.to),
+  )
+  const ordersOpen = ordersExpanded || underOrdersSubLinks
 
   async function handleSignOut() {
     await getSupabaseBrowserClient().auth.signOut()
@@ -145,18 +155,56 @@ export function AdminNav({
           </div>
         )}
 
-        <Link
-          to="/admin/orders"
-          onClick={onNavigate}
-          className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
-            pathname.startsWith('/admin/orders')
+        <div
+          className={`flex items-center rounded-md ${
+            pathname.startsWith('/admin/orders') && !underOrdersSubLinks
               ? 'bg-neutral-100 text-neutral-950'
               : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
           }`}
         >
-          <ShoppingBag size={17} strokeWidth={2} />
-          Orders
-        </Link>
+          <Link
+            to="/admin/orders"
+            onClick={onNavigate}
+            className="flex flex-1 items-center gap-2.5 px-3 py-2 text-sm font-medium"
+          >
+            <ShoppingBag size={17} strokeWidth={2} />
+            Orders
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOrdersExpanded((v) => !v)}
+            className="px-2 py-2 text-neutral-400 hover:text-neutral-700"
+            aria-label={ordersOpen ? 'Collapse' : 'Expand'}
+          >
+            {ordersOpen ? (
+              <ChevronDown size={15} />
+            ) : (
+              <ChevronRight size={15} />
+            )}
+          </button>
+        </div>
+
+        {ordersOpen && (
+          <div className="mb-1 flex flex-col gap-0.5 pl-7">
+            {ORDERS_SUB_LINKS.map((link) => {
+              const isActive = pathname.startsWith(link.to)
+              return (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  onClick={onNavigate}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                    isActive
+                      ? 'bg-neutral-100 text-neutral-950'
+                      : 'text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
+          </div>
+        )}
 
         <Link
           to="/admin/customers"
