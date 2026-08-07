@@ -1,5 +1,15 @@
 allowBuilds:
   unrs-resolver: true
+# Forces a single copy of router-core across the whole tree — without this,
+# sub-dependencies (router-devtools-core, router-ssr-query-core) resolve
+# their own loose range independently and can land on a different patch
+# than @tanstack/react-router itself, splitting the router's internal state
+# across two module instances. That caused a real production bug: some
+# components (e.g. RouteLoadingIndicator) read from a different router-core
+# instance than the rest of the app during client-side navigation, so
+# useRouteContext() intermittently returned undefined mid-transition.
+overrides:
+  '@tanstack/router-core': 1.171.15
 minimumReleaseAgeExclude:
   - '@supabase/auth-js@2.110.4'
   - '@supabase/functions-js@2.110.4'
