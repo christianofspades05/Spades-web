@@ -84,10 +84,17 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       { count: number; revenueCents: number }
     >()
     if (automationIdByDiscountId.size > 0) {
+      // Filtering in memory (below) against automationIdByDiscountId, rather
+      // than passing its keys to .in(), because that id list is every
+      // per-recipient minted discount ever sent by any automation —
+      // hundreds to low thousands of UUIDs, which blew past PostgREST's
+      // request-size limit ("Bad Request") once the welcome automation's
+      // send volume grew enough. Only orders that actually used *some*
+      // discount are a small, safe set to pull in full instead.
       const { data: orders, error: ordersError } = await admin
         .from('orders')
         .select('discount_id, total_cents')
-        .in('discount_id', Array.from(automationIdByDiscountId.keys()))
+        .not('discount_id', 'is', null)
         .not('status', 'in', '(cancelled,refunded)')
       if (ordersError) {
         console.error('listEmailAutomations: orders query failed:', ordersError)
