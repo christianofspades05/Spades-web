@@ -28,7 +28,7 @@ export function ProductCard({ product }: ProductCardProps) {
       <div className="relative aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-900">
         {imageUrl ? (
           <img
-            src={optimizedImageUrl(imageUrl, 500)}
+            src={optimizedImageUrl(imageUrl, 640)}
             alt={product.name}
             loading="lazy"
             className="h-full w-full object-contain transition duration-300 group-hover:scale-105"

@@ -5,6 +5,12 @@
 // Next.js; the allowed source domain is declared in vercel.json's `images`
 // config. Only available on an actual Vercel deployment — `vite dev` has no
 // such endpoint, so local development just serves the original file.
+//
+// `width` must exactly match one of the values in vercel.json's
+// `images.sizes` — Vercel rejects the request with a 400 otherwise (found
+// the hard way: a 500 here silently 400'd every product grid image in
+// production since only the vercel.json list, not arbitrary widths, is
+// accepted).
 export function optimizedImageUrl(
   src: string,
   width: number,
