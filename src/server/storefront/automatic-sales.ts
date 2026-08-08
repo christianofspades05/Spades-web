@@ -12,6 +12,7 @@
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { Discount } from '#/types/entities'
+import { createPromiseCache } from '#/lib/utils/cache'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 
@@ -29,24 +30,36 @@ export type AutomaticDiscount = Pick<
   | 'excludes_free_shipping'
 >
 
-/** Every currently-active automatic discount (Store sale or Collection sale) — active meaning is_active, and within its starts_at/ends_at window if either is set. Cheap: the discounts table only ever has a handful of automatic rows at once, so no pagination/caching here. */
+// Called on every single product-detail page view (and every listing page)
+// to price each product — the discounts table itself only ever has a
+// handful of active automatic rows at once, but re-fetching it per view adds
+// up site-wide the same way storefront/maintenance.ts's flag did. Not
+// brand-scoped, so a single fixed key.
+const ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_MS = 15_000
+const activeAutomaticDiscountsCache = createPromiseCache<AutomaticDiscount[]>(
+  ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_MS,
+)
+
+/** Every currently-active automatic discount (Store sale or Collection sale) — active meaning is_active, and within its starts_at/ends_at window if either is set. */
 export async function getActiveAutomaticDiscounts(
   admin: Admin,
 ): Promise<AutomaticDiscount[]> {
-  const { data, error } = await admin
-    .from('discounts')
-    .select(
-      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, starts_at, ends_at',
-    )
-    .eq('kind', 'automatic')
-    .eq('is_active', true)
-  if (error) throw error
+  return activeAutomaticDiscountsCache.get('default', async () => {
+    const { data, error } = await admin
+      .from('discounts')
+      .select(
+        'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, starts_at, ends_at',
+      )
+      .eq('kind', 'automatic')
+      .eq('is_active', true)
+    if (error) throw error
 
-  const now = Date.now()
-  return data.filter((d) => {
-    if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
-    if (d.ends_at && new Date(d.ends_at).getTime() < now) return false
-    return true
+    const now = Date.now()
+    return data.filter((d) => {
+      if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
+      if (d.ends_at && new Date(d.ends_at).getTime() < now) return false
+      return true
+    })
   })
 }
 

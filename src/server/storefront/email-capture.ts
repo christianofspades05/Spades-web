@@ -18,22 +18,32 @@ import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import { renderEmailBlocks } from '#/lib/email/blocks'
 import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
 import { logEmailSend } from '#/lib/email/log-send'
+import { createPromiseCache } from '#/lib/utils/cache'
 
 const POPUP_CODE_EXPIRY_DAYS = 1
+
+// Same rationale as storefront/maintenance.ts's cache — checked on every
+// page load, rarely changes. Not brand-scoped, so a single fixed key.
+const EMAIL_CAPTURE_POPUP_CACHE_TTL_MS = 15_000
+const emailCapturePopupCache = createPromiseCache<boolean>(
+  EMAIL_CAPTURE_POPUP_CACHE_TTL_MS,
+)
 
 /** Whether the popup should even render — the admin hasn't necessarily
  *  turned the welcome automation on or attached a discount template yet. */
 export const getEmailCapturePopupEnabled = createServerFn({
   method: 'GET',
 }).handler(async (): Promise<boolean> => {
-  const admin = getSupabaseAdminClient()
-  const { data: automation, error } = await admin
-    .from('email_automations')
-    .select('is_active, discount_id')
-    .eq('event_type', 'welcome')
-    .maybeSingle()
-  if (error) throw error
-  return Boolean(automation?.is_active && automation.discount_id)
+  return emailCapturePopupCache.get('default', async () => {
+    const admin = getSupabaseAdminClient()
+    const { data: automation, error } = await admin
+      .from('email_automations')
+      .select('is_active, discount_id')
+      .eq('event_type', 'welcome')
+      .maybeSingle()
+    if (error) throw error
+    return Boolean(automation?.is_active && automation.discount_id)
+  })
 })
 
 export type EmailCaptureResult =
