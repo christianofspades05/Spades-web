@@ -337,8 +337,8 @@ export function DiscountForm({
             </label>
             <p className="text-xs font-normal text-neutral-500">
               e.g. a 20% store sale + this code stacks to 30% off, added
-              together. Never stacks with a collection sale like Clearance —
-              those never combine with anything.
+              together. Off by default — an unchecked code just replaces
+              the sale price instead.
             </p>
           </div>
         )}
@@ -362,6 +362,24 @@ export function DiscountForm({
               </label>
             ))}
           </fieldset>
+        )}
+
+        {method === 'collection_sale' && (
+          <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <input
+              type="checkbox"
+              checked={stacksWithSale}
+              onChange={(e) => setStacksWithSale(e.target.checked)}
+            />
+            Also apply on top of an active store-wide sale
+          </label>
+        )}
+        {method === 'collection_sale' && (
+          <p className="-mt-2 text-xs font-normal text-neutral-500">
+            Off by default (e.g. Clearance) — this sale's items only get
+            its own rate, ignoring any store-wide sale. Check this to add
+            the two together instead.
+          </p>
         )}
 
         {method === 'collection_sale' && (

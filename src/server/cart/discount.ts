@@ -6,7 +6,10 @@
  * isn't built yet.
  */
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
-import { getActiveAutomaticDiscounts } from '#/server/storefront/automatic-sales'
+import {
+  getActiveAutomaticDiscounts,
+  splitAdditiveAndExclusiveDiscounts,
+} from '#/server/storefront/automatic-sales'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant, Discount } from '#/types/entities'
@@ -199,90 +202,147 @@ async function appliedDiscountFor(
   }
 }
 
-/** Combines two discounts' per-item breakdowns — discountedAmountCents adds
- *  up (a unit genuinely gets both cuts when both discounts actually apply
- *  to it), while discountedUnits takes whichever is higher (it's just a
- *  unit *count* for the "applies to X of Y" hint, not a currency amount, so
- *  a unit discounted by both should still count once, not twice). Critically,
- *  an item that only ONE of the two discounts covers (e.g. a non-clearance
- *  item under a store-wide-sale-only + Clearance-sale stack) only picks up
- *  that one discount's amount here — never the other's, since it's simply
- *  absent from that discount's own breakdown. */
-function mergeItemBreakdowns(
-  a: {
-    cartItemId: string
-    discountedUnits: number
-    discountedAmountCents: number
-  }[],
-  b: {
-    cartItemId: string
-    discountedUnits: number
-    discountedAmountCents: number
-  }[],
-): {
+type ItemBreakdownEntry = {
   cartItemId: string
   discountedUnits: number
   discountedAmountCents: number
-}[] {
-  const merged = new Map<
-    string,
-    { discountedUnits: number; discountedAmountCents: number }
-  >()
-  for (const entry of [...a, ...b]) {
-    const existing = merged.get(entry.cartItemId) ?? {
-      discountedUnits: 0,
-      discountedAmountCents: 0,
+}
+
+/**
+ * Combines a set of "additive" discounts (store-wide sales, and any
+ * collection sale explicitly marked stacks_with_sale) with a set of
+ * "exclusive" discounts (a collection sale that isn't — e.g. Clearance)
+ * into one result. An item covered by an exclusive discount uses ONLY the
+ * best exclusive discount's own amount for that item, full stop — the
+ * store-wide sale (and any additive collection sale) never touches it,
+ * which is the whole point of leaving a collection sale off
+ * stacks_with_sale. Every other item sums every additive discount that
+ * applies to it. See splitAdditiveAndExclusiveDiscounts (in
+ * server/storefront/automatic-sales.ts) for how the split itself is
+ * decided.
+ */
+async function combineAdditiveAndExclusiveDiscounts(
+  admin: Admin,
+  items: CartItemWithVariant[],
+  additiveDiscounts: Pick<
+    Discount,
+    | 'id'
+    | 'code'
+    | 'title'
+    | 'type'
+    | 'value'
+    | 'scope'
+    | 'scope_ids'
+    | 'max_discounted_items'
+    | 'excludes_free_shipping'
+  >[],
+  exclusiveDiscounts: Pick<
+    Discount,
+    | 'id'
+    | 'code'
+    | 'title'
+    | 'type'
+    | 'value'
+    | 'scope'
+    | 'scope_ids'
+    | 'max_discounted_items'
+    | 'excludes_free_shipping'
+  >[],
+): Promise<AppliedCartDiscount | null> {
+  const appliedAdditive: AppliedCartDiscount[] = []
+  for (const discount of additiveDiscounts) {
+    const applied = await appliedDiscountFor(admin, discount, items)
+    if (applied) appliedAdditive.push(applied)
+  }
+  const appliedExclusive: AppliedCartDiscount[] = []
+  for (const discount of exclusiveDiscounts) {
+    const applied = await appliedDiscountFor(admin, discount, items)
+    if (applied) appliedExclusive.push(applied)
+  }
+  if (appliedAdditive.length === 0 && appliedExclusive.length === 0) return null
+
+  const exclusiveByItem = new Map<string, ItemBreakdownEntry>()
+  for (const applied of appliedExclusive) {
+    for (const entry of applied.itemBreakdown) {
+      const existing = exclusiveByItem.get(entry.cartItemId)
+      if (!existing || entry.discountedAmountCents > existing.discountedAmountCents) {
+        exclusiveByItem.set(entry.cartItemId, entry)
+      }
     }
-    merged.set(entry.cartItemId, {
-      discountedUnits: Math.max(existing.discountedUnits, entry.discountedUnits),
-      discountedAmountCents:
-        existing.discountedAmountCents + entry.discountedAmountCents,
-    })
   }
-  return Array.from(merged, ([cartItemId, entry]) => ({ cartItemId, ...entry }))
+
+  const additiveByItem = new Map<string, ItemBreakdownEntry>()
+  for (const applied of appliedAdditive) {
+    for (const entry of applied.itemBreakdown) {
+      if (exclusiveByItem.has(entry.cartItemId)) continue
+      const existing = additiveByItem.get(entry.cartItemId) ?? {
+        cartItemId: entry.cartItemId,
+        discountedUnits: 0,
+        discountedAmountCents: 0,
+      }
+      additiveByItem.set(entry.cartItemId, {
+        cartItemId: entry.cartItemId,
+        discountedUnits: Math.max(existing.discountedUnits, entry.discountedUnits),
+        discountedAmountCents:
+          existing.discountedAmountCents + entry.discountedAmountCents,
+      })
+    }
+  }
+
+  // Safety clamp: two additive percentage discounts can in principle sum
+  // past 100% for a single item (e.g. 60% + 50%) — cap each item's total
+  // cut at its own line total so that never produces a negative price.
+  const lineTotalCentsByItem = new Map(
+    items.map((item) => [item.id, itemLineTotalCents(item)]),
+  )
+  const itemBreakdown = [...exclusiveByItem.values(), ...additiveByItem.values()].map(
+    (entry) => ({
+      ...entry,
+      discountedAmountCents: Math.min(
+        entry.discountedAmountCents,
+        lineTotalCentsByItem.get(entry.cartItemId) ?? entry.discountedAmountCents,
+      ),
+    }),
+  )
+  if (itemBreakdown.length === 0) return null
+
+  const amountCents = itemBreakdown.reduce(
+    (sum, entry) => sum + entry.discountedAmountCents,
+    0,
+  )
+
+  const allApplied = [...appliedAdditive, ...appliedExclusive]
+  // A customer-entered code always leads as the combined result's identity
+  // when one's involved — it's the one explicit action the customer took.
+  // Otherwise the discount contributing the most leads (typically the
+  // store-wide sale, since it's usually the broadest).
+  const primary =
+    allApplied.find((applied) => applied.code != null) ??
+    allApplied.reduce((best, applied) =>
+      applied.amountCents > best.amountCents ? applied : best,
+    )
+  const stackedWith = allApplied
+    .filter((applied) => applied.id !== primary.id)
+    .map((applied) => ({
+      title: applied.title,
+      amountCents: applied.amountCents,
+      type: applied.type,
+      value: applied.value,
+    }))
+
+  return { ...primary, amountCents, stackedWith, itemBreakdown }
 }
 
-/** Adds `extra` on top of `primary`, additively — the shared math behind
- *  every kind of stacking this module does (a code stacking onto a
- *  store-wide sale, or a Clearance collection sale stacking onto a
- *  store-wide sale). `primary` keeps its own id/code/title as the combined
- *  result's identity; `extra` just contributes its amount and shows up in
- *  stackedWith. The per-item breakdown merge (not a flat combined
- *  percentage) is what keeps this correct when `primary` and `extra` don't
- *  cover the exact same cart items — see mergeItemBreakdowns. */
-function combineAppliedDiscounts(
-  primary: AppliedCartDiscount,
-  extra: AppliedCartDiscount,
-  cartTotalCents: number,
-): AppliedCartDiscount {
-  return {
-    ...primary,
-    amountCents: Math.min(
-      primary.amountCents + extra.amountCents,
-      cartTotalCents,
-    ),
-    stackedWith: [
-      ...primary.stackedWith,
-      {
-        title: extra.title,
-        amountCents: extra.amountCents,
-        type: extra.type,
-        value: extra.value,
-      },
-    ],
-    itemBreakdown: mergeItemBreakdowns(
-      primary.itemBreakdown,
-      extra.itemBreakdown,
-    ),
-  }
-}
-
-/** Recomputes what a cart's already-attached discount (if any) is currently
- *  worth — and, if that discount is marked stacks_with_sale, adds in
- *  whatever active store-wide (scope 'all') automatic sale also applies.
- *  Deliberately never stacks with a collection-scoped sale (e.g.
- *  Clearance) even if one is active — see discounts.stacks_with_sale's own
- *  migration comment. */
+/**
+ * Recomputes what a cart's already-attached discount code is currently
+ * worth. If the code is marked stacks_with_sale, it joins the pool of
+ * "additive" discounts (alongside any active store-wide sale) — otherwise
+ * it simply replaces every automatic discount outright, same as always
+ * ("a code the customer typed in always wins"). Either way, a
+ * non-stacking collection sale (e.g. Clearance) stays exclusive: an item
+ * in that collection is untouched by the code, keeping its own flat
+ * collection-sale rate — see combineAdditiveAndExclusiveDiscounts.
+ */
 export async function resolveDiscountForCart(
   admin: Admin,
   discountId: string | null,
@@ -298,36 +358,28 @@ export async function resolveDiscountForCart(
   if (error) throw error
   if (!discount || !discount.is_active) return null
 
-  const applied = await appliedDiscountFor(admin, discount, items)
-  if (!applied || !discount.stacks_with_sale) return applied
+  if (!discount.stacks_with_sale) {
+    return appliedDiscountFor(admin, discount, items)
+  }
 
   const activeAutomaticDiscounts = await getActiveAutomaticDiscounts(admin)
-  const storeWideSale = activeAutomaticDiscounts.find((d) => d.scope === 'all')
-  if (!storeWideSale) return applied
-
-  const saleApplied = await appliedDiscountFor(admin, storeWideSale, items)
-  if (!saleApplied) return applied
-
-  const cartTotalCents = items.reduce(
-    (sum, item) => sum + itemLineTotalCents(item),
-    0,
+  const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(
+    activeAutomaticDiscounts,
   )
-  return combineAppliedDiscounts(applied, saleApplied, cartTotalCents)
+  return combineAdditiveAndExclusiveDiscounts(
+    admin,
+    items,
+    [discount, ...additive],
+    exclusive,
+  )
 }
 
 /**
  * A cart with no customer-entered code still gets every active automatic
- * discount that applies to at least one item, all stacked together — e.g.
- * a store-wide sale and a Clearance collection sale both apply at once to
- * a clearance product, since they're deliberately scoped to different,
- * separate collections rather than competing for the same items. Never
- * persisted to carts.discount_id since eligibility can shift as the cart's
- * contents change, unlike a code the customer explicitly typed in.
- *
- * The store-wide sale (if one is active) always leads as the combined
- * result's id/title/code — matches how discounts.stacks_with_sale codes
- * key their own stacking eligibility purely off "is a store-wide sale
- * active," regardless of what collection sales are also running.
+ * discount that applies, combined the same way a code stacking onto a sale
+ * does — see combineAdditiveAndExclusiveDiscounts. Never persisted to
+ * carts.discount_id since eligibility can shift as the cart's contents
+ * change, unlike a code the customer explicitly typed in.
  */
 export async function resolveAutomaticDiscountsForCart(
   admin: Admin,
@@ -337,24 +389,8 @@ export async function resolveAutomaticDiscountsForCart(
   const activeDiscounts = await getActiveAutomaticDiscounts(admin)
   if (activeDiscounts.length === 0) return null
 
-  const ordered = [...activeDiscounts].sort((a, b) =>
-    a.scope === b.scope ? 0 : a.scope === 'all' ? -1 : 1,
-  )
-
-  const cartTotalCents = items.reduce(
-    (sum, item) => sum + itemLineTotalCents(item),
-    0,
-  )
-
-  let combined: AppliedCartDiscount | null = null
-  for (const discount of ordered) {
-    const applied = await appliedDiscountFor(admin, discount, items)
-    if (!applied) continue
-    combined = combined
-      ? combineAppliedDiscounts(combined, applied, cartTotalCents)
-      : applied
-  }
-  return combined
+  const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(activeDiscounts)
+  return combineAdditiveAndExclusiveDiscounts(admin, items, additive, exclusive)
 }
 
 /** Throws a user-facing message if a discount is inactive, outside its date window, or has hit its usage cap. Shared by the cart-apply step and the final checkout re-check. */

@@ -7,9 +7,14 @@
  *  - the cart (src/server/cart/discount.ts) wants the same thing to reduce
  *    a checkout total without the customer entering a code.
  * Both need the exact same "which discounts apply, and how they combine
- * when more than one does" logic, so it lives here once. Every applicable
- * discount stacks (added together) — see resolveSalePrices' own doc
- * comment for why.
+ * when more than one does" logic, so it lives here once.
+ *
+ * A Store sale (scope 'all') and any Collection sale marked
+ * stacks_with_sale add together for a product eligible for both. A
+ * Collection sale NOT marked stacks_with_sale (the default — e.g.
+ * Clearance) is exclusive instead: a product in that collection gets only
+ * that sale's own rate, full stop, ignoring the store-wide sale entirely
+ * for that product — see resolveSalePrices' own doc comment for why.
  */
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -30,6 +35,7 @@ export type AutomaticDiscount = Pick<
   | 'excluded_collection_ids'
   | 'max_discounted_items'
   | 'excludes_free_shipping'
+  | 'stacks_with_sale'
 >
 
 // Called on every single product-detail page view (and every listing page)
@@ -50,7 +56,7 @@ export async function getActiveAutomaticDiscounts(
     const { data, error } = await admin
       .from('discounts')
       .select(
-        'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, starts_at, ends_at',
+        'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, stacks_with_sale, starts_at, ends_at',
       )
       .eq('kind', 'automatic')
       .eq('is_active', true)
@@ -63,6 +69,26 @@ export async function getActiveAutomaticDiscounts(
       return true
     })
   })
+}
+
+/** Splits active automatic discounts into "additive" (a store-wide sale,
+ *  or a collection sale explicitly marked stacks_with_sale) and
+ *  "exclusive" (a collection sale that isn't — the default, e.g.
+ *  Clearance) — shared by both resolveSalePrices below and
+ *  src/server/cart/discount.ts's cart-side equivalent. */
+export function splitAdditiveAndExclusiveDiscounts(
+  activeDiscounts: AutomaticDiscount[],
+): { additive: AutomaticDiscount[]; exclusive: AutomaticDiscount[] } {
+  const additive: AutomaticDiscount[] = []
+  const exclusive: AutomaticDiscount[] = []
+  for (const discount of activeDiscounts) {
+    if (discount.scope === 'all' || discount.stacks_with_sale) {
+      additive.push(discount)
+    } else {
+      exclusive.push(discount)
+    }
+  }
+  return { additive, exclusive }
 }
 
 function discountAmountCents(
@@ -86,13 +112,14 @@ export interface ProductSale {
 
 /**
  * Every active automatic discount that applies to each product, given its
- * regular price, stacked together — a Store sale (scope 'all') and a
- * Collection sale (e.g. Clearance) both applying to the same product add
- * up rather than only the bigger one winning, since they're deliberately
- * scoped to different, separate collections rather than competing for the
- * same items (see resolveAutomaticDiscountsForCart in
+ * regular price. A product in a non-stacking Collection sale (e.g.
+ * Clearance) gets ONLY that sale's own rate — the store-wide sale is
+ * ignored entirely for that product, full stop. Everything else (the
+ * store-wide sale, plus any Collection sale explicitly marked
+ * stacks_with_sale) adds together. See splitAdditiveAndExclusiveDiscounts'
+ * doc comment, and resolveAutomaticDiscountsForCart in
  * src/server/cart/discount.ts, which mirrors this exact logic for
- * checkout). Entries with no matching active discount are simply absent
+ * checkout. Entries with no matching active discount are simply absent
  * from the returned map.
  *
  * `id` is what keys the returned map and what `priceCents` belongs to;
@@ -148,17 +175,33 @@ export async function resolveSalePrices(
     // still handles those scopes independently for discount codes.
   }
 
-  // Store-wide sale(s) first, so its title leads a combined "Store Sale +
-  // Clearance" label the same way it leads the cart-side combined result.
-  const ordered = [...activeDiscounts].sort((a, b) =>
-    a.scope === b.scope ? 0 : a.scope === 'all' ? -1 : 1,
-  )
+  const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(activeDiscounts)
 
   for (const product of products) {
+    let exclusiveBest: ProductSale | null = null
+    for (const discount of exclusive) {
+      if (!eligibleProductIdsByDiscount.get(discount.id)?.has(product.productId)) {
+        continue
+      }
+      const amountCents = discountAmountCents(discount, product.priceCents)
+      if (amountCents <= 0) continue
+      if (!exclusiveBest || amountCents > product.priceCents - exclusiveBest.salePriceCents) {
+        exclusiveBest = {
+          discountId: discount.id,
+          discountTitle: discount.title,
+          salePriceCents: Math.max(0, product.priceCents - amountCents),
+        }
+      }
+    }
+    if (exclusiveBest) {
+      result.set(product.id, exclusiveBest)
+      continue
+    }
+
     let totalAmountCents = 0
     let discountId: string | null = null
     let discountTitle = ''
-    for (const discount of ordered) {
+    for (const discount of additive) {
       if (
         !eligibleProductIdsByDiscount.get(discount.id)?.has(product.productId)
       ) {

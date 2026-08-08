@@ -233,11 +233,15 @@ function CartPage() {
       </ul>
 
       <div className="mt-8 border-t border-neutral-200 pt-6 dark:border-neutral-800">
-        {discount ? (
+        {/* Only a real customer-entered code gets the "applied [Remove]"
+            treatment — an automatic store-wide/collection sale isn't
+            something the customer did, so it just shows up in the price
+            breakdown below instead, with no banner to remove. */}
+        {discount?.code ? (
           <div className="mb-5 flex items-center justify-between rounded-md bg-green-50 px-4 py-3 dark:bg-green-950/30">
             <div>
               <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                {t.cart.applied(discount.code ?? discount.title)}
+                {t.cart.applied(discount.code)}
               </p>
               <p className="text-xs text-green-700 dark:text-green-400">
                 {discountLabel}
