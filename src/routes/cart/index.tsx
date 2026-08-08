@@ -108,12 +108,13 @@ function CartPage() {
   }
 
   const discount = cart.discount
+  function formatDiscountRate(type: string, value: number): string {
+    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
+  }
   const discountLabel = discount
-    ? discount.effectivePercentageOff != null
-      ? `${discount.effectivePercentageOff}% off`
-      : discount.type === 'fixed_amount'
-        ? `${formatPrice(discount.value)} off`
-        : t.cart.freeShippingLabel
+    ? discount.type === 'free_shipping'
+      ? t.cart.freeShippingLabel
+      : formatDiscountRate(discount.type, discount.value)
     : null
 
   return (
@@ -136,23 +137,18 @@ function CartPage() {
             .filter(Boolean)
             .join(' / ')
           const imageUrl = item.variant.product.images[0]
-          const discountedUnits =
-            discount?.itemBreakdown.find((b) => b.cartItemId === item.id)
-              ?.discountedUnits ?? 0
+          const itemDiscount = discount?.itemBreakdown.find(
+            (b) => b.cartItemId === item.id,
+          )
+          const discountedUnits = itemDiscount?.discountedUnits ?? 0
           const lineTotalCents = item.quantity * item.price_cents_snapshot
-          // Only computable for a percentage discount (or a stacked pair
-          // that's percentage + percentage) — see AppliedCartDiscount's
-          // effectivePercentageOff doc comment for why a fixed_amount
-          // discount doesn't get a clean per-unit price here.
-          const discountedLineCents =
-            discountedUnits > 0 && discount?.effectivePercentageOff != null
-              ? (item.quantity - discountedUnits) * item.price_cents_snapshot +
-                discountedUnits *
-                  Math.round(
-                    item.price_cents_snapshot *
-                      (1 - discount.effectivePercentageOff / 100),
-                  )
-              : null
+          // Uses this item's own discountedAmountCents (not a blanket
+          // percentage) since a stacked discount may not cover every item
+          // the same way — see AppliedCartDiscount.itemBreakdown's doc
+          // comment.
+          const discountedLineCents = itemDiscount
+            ? lineTotalCents - itemDiscount.discountedAmountCents
+            : null
 
           return (
             <li key={item.id} className="flex gap-4 py-5">
@@ -248,7 +244,8 @@ function CartPage() {
                 {discount.stackedWith.map((stacked) => (
                   <span key={stacked.title}>
                     {' '}
-                    {t.cart.stackedWithSale(stacked.title)}
+                    {t.cart.stackedWithSale(stacked.title)} (
+                    {formatDiscountRate(stacked.type, stacked.value)})
                   </span>
                 ))}
               </p>

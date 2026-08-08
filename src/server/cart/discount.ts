@@ -28,73 +28,72 @@ export interface AppliedCartDiscount {
    *  discounts.excludes_free_shipping. Checked by shippingCostCents'
    *  callers, never by this module itself. */
   excludesFreeShipping: boolean
-  /** How many units of each cart item actually got the discount — only
-   *  present for items with at least one discounted unit (a cart item
-   *  entirely outside the discount's scope, or fully excluded by
-   *  max_discounted_items, just doesn't appear here). Lets the cart/
-   *  checkout UI show e.g. "discount applies to 2 of 4" per line instead of
-   *  only a single lump-sum total. */
-  itemBreakdown: { cartItemId: string; discountedUnits: number }[]
-  /** The combined "% off" a discounted unit's price actually drops by —
-   *  just `value` for a plain percentage discount, or the sum of every
-   *  stacked discount's value when all of them are percentage-type. Null
-   *  once any fixed_amount discount is part of the mix, since a flat peso
-   *  amount doesn't map to one clean per-unit price. Lets the cart UI show
-   *  a real "was ₱X, now ₱Y" line under a discounted item instead of only
-   *  the aggregate total. */
-  effectivePercentageOff: number | null
+  /** How much each cart item actually got knocked off, summed across every
+   *  stacked discount that applies to it — only present for items with at
+   *  least one discounted unit (a cart item entirely outside every
+   *  discount's scope, or fully excluded by max_discounted_items, just
+   *  doesn't appear here). Tracked per item (not just as one combined
+   *  percentage) specifically because two stacked discounts can cover
+   *  different, non-identical subsets of the cart — e.g. a store-wide sale
+   *  applies to every item while a Clearance collection sale only applies
+   *  to items actually in that collection, so a non-clearance item must
+   *  only ever show the store-wide sale's own cut, never the combined
+   *  rate. Lets the cart/checkout UI show e.g. "discount applies to 2 of
+   *  4" and a real "was ₱X, now ₱Y" per line, both correctly scoped. */
+  itemBreakdown: {
+    cartItemId: string
+    discountedUnits: number
+    discountedAmountCents: number
+  }[]
   /** Every other discount stacked on top of this one — e.g. a Clearance
    *  collection sale stacking on top of an active store-wide sale (see
    *  resolveAutomaticDiscountsForCart), or a code marked
    *  discounts.stacks_with_sale stacking on top of an active store-wide
-   *  sale (see resolveDiscountForCart). Empty when nothing else applies. */
-  stackedWith: { title: string; amountCents: number }[]
+   *  sale (see resolveDiscountForCart). Empty when nothing else applies.
+   *  `type`/`value` are the stacked discount's own rate — e.g. so the cart
+   *  can show "15% off + Clearance Sale (40% off)" instead of one
+   *  (potentially inaccurate, since the two may not share eligible items)
+   *  combined percentage. */
+  stackedWith: {
+    title: string
+    amountCents: number
+    type: Discount['type']
+    value: number
+  }[]
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
   return item.quantity * item.price_cents_snapshot
 }
 
-/** The subtotal a percentage/fixed_amount discount actually applies to, and
- *  which cart items it came from — every eligible unit, unless
- *  maxDiscountedItems caps it to only the N highest-priced units (the
- *  owner's choice: a capped code discounts the customer's priciest picks
- *  first, full price on the rest). Ties (equal-priced units from different
- *  items) are broken by `eligible`'s own order, via a stable sort. */
+/** The individual units (one entry per unit, not per line) a
+ *  percentage/fixed_amount discount actually applies to, and their combined
+ *  value — every eligible unit, unless maxDiscountedItems caps it to only
+ *  the N highest-priced units (the owner's choice: a capped code discounts
+ *  the customer's priciest picks first, full price on the rest). Ties
+ *  (equal-priced units from different items) are broken by `eligible`'s own
+ *  order, via a stable sort. */
 function discountableBreakdown(
   eligible: CartItemWithVariant[],
   maxDiscountedItems: number | null,
-): { subtotalCents: number; perItemDiscountedUnits: Map<string, number> } {
-  if (maxDiscountedItems == null) {
-    const perItemDiscountedUnits = new Map(
-      eligible.map((item) => [item.id, item.quantity]),
-    )
-    return {
-      subtotalCents: eligible.reduce(
-        (sum, item) => sum + itemLineTotalCents(item),
-        0,
-      ),
-      perItemDiscountedUnits,
-    }
-  }
-  const units: { cartItemId: string; price: number }[] = []
+): { subtotalCents: number; units: { cartItemId: string; priceCents: number }[] } {
+  const allUnits: { cartItemId: string; priceCents: number }[] = []
   for (const item of eligible) {
     for (let i = 0; i < item.quantity; i++) {
-      units.push({ cartItemId: item.id, price: item.price_cents_snapshot })
+      allUnits.push({ cartItemId: item.id, priceCents: item.price_cents_snapshot })
     }
   }
-  units.sort((a, b) => b.price - a.price)
-  const discounted = units.slice(0, maxDiscountedItems)
-  const perItemDiscountedUnits = new Map<string, number>()
-  for (const unit of discounted) {
-    perItemDiscountedUnits.set(
-      unit.cartItemId,
-      (perItemDiscountedUnits.get(unit.cartItemId) ?? 0) + 1,
-    )
+  if (maxDiscountedItems == null) {
+    return {
+      subtotalCents: allUnits.reduce((sum, unit) => sum + unit.priceCents, 0),
+      units: allUnits,
+    }
   }
+  allUnits.sort((a, b) => b.priceCents - a.priceCents)
+  const units = allUnits.slice(0, maxDiscountedItems)
   return {
-    subtotalCents: discounted.reduce((sum, unit) => sum + unit.price, 0),
-    perItemDiscountedUnits,
+    subtotalCents: units.reduce((sum, unit) => sum + unit.priceCents, 0),
+    units,
   }
 }
 
@@ -149,8 +148,10 @@ async function appliedDiscountFor(
 ): Promise<AppliedCartDiscount | null> {
   const eligible = await eligibleItemsForDiscount(admin, discount, items)
   if (eligible.length === 0) return null
-  const { subtotalCents: eligibleSubtotalCents, perItemDiscountedUnits } =
-    discountableBreakdown(eligible, discount.max_discounted_items)
+  const { subtotalCents: eligibleSubtotalCents, units } = discountableBreakdown(
+    eligible,
+    discount.max_discounted_items,
+  )
 
   let amountCents = 0
   if (discount.type === 'percentage') {
@@ -160,6 +161,28 @@ async function appliedDiscountFor(
   }
   if (amountCents <= 0) return null
 
+  // Per-unit for a percentage discount (exact — every unit drops by the
+  // same rate). A fixed_amount discount's one flat capped amount doesn't
+  // belong to any single unit, so it's allocated proportionally to each
+  // unit's own price instead.
+  const perItem = new Map<
+    string,
+    { discountedUnits: number; discountedAmountCents: number }
+  >()
+  for (const unit of units) {
+    const unitAmountCents =
+      discount.type === 'percentage'
+        ? Math.round((unit.priceCents * discount.value) / 100)
+        : Math.round((amountCents * unit.priceCents) / eligibleSubtotalCents)
+    const entry = perItem.get(unit.cartItemId) ?? {
+      discountedUnits: 0,
+      discountedAmountCents: 0,
+    }
+    entry.discountedUnits += 1
+    entry.discountedAmountCents += unitAmountCents
+    perItem.set(unit.cartItemId, entry)
+  }
+
   return {
     id: discount.id,
     code: discount.code,
@@ -168,34 +191,55 @@ async function appliedDiscountFor(
     value: discount.value,
     amountCents,
     excludesFreeShipping: discount.excludes_free_shipping,
-    effectivePercentageOff: discount.type === 'percentage' ? discount.value : null,
     stackedWith: [],
-    itemBreakdown: Array.from(perItemDiscountedUnits, ([cartItemId, discountedUnits]) => ({
+    itemBreakdown: Array.from(perItem, ([cartItemId, entry]) => ({
       cartItemId,
-      discountedUnits,
+      ...entry,
     })),
   }
 }
 
-/** Unions two discounts' per-item discounted-unit counts, taking whichever
- *  is higher per item — used when stacking, since a unit discounted by
- *  both the code and the sale should just show as "discounted," not double
- *  counted. */
+/** Combines two discounts' per-item breakdowns — discountedAmountCents adds
+ *  up (a unit genuinely gets both cuts when both discounts actually apply
+ *  to it), while discountedUnits takes whichever is higher (it's just a
+ *  unit *count* for the "applies to X of Y" hint, not a currency amount, so
+ *  a unit discounted by both should still count once, not twice). Critically,
+ *  an item that only ONE of the two discounts covers (e.g. a non-clearance
+ *  item under a store-wide-sale-only + Clearance-sale stack) only picks up
+ *  that one discount's amount here — never the other's, since it's simply
+ *  absent from that discount's own breakdown. */
 function mergeItemBreakdowns(
-  a: { cartItemId: string; discountedUnits: number }[],
-  b: { cartItemId: string; discountedUnits: number }[],
-): { cartItemId: string; discountedUnits: number }[] {
-  const merged = new Map<string, number>()
+  a: {
+    cartItemId: string
+    discountedUnits: number
+    discountedAmountCents: number
+  }[],
+  b: {
+    cartItemId: string
+    discountedUnits: number
+    discountedAmountCents: number
+  }[],
+): {
+  cartItemId: string
+  discountedUnits: number
+  discountedAmountCents: number
+}[] {
+  const merged = new Map<
+    string,
+    { discountedUnits: number; discountedAmountCents: number }
+  >()
   for (const entry of [...a, ...b]) {
-    merged.set(
-      entry.cartItemId,
-      Math.max(merged.get(entry.cartItemId) ?? 0, entry.discountedUnits),
-    )
+    const existing = merged.get(entry.cartItemId) ?? {
+      discountedUnits: 0,
+      discountedAmountCents: 0,
+    }
+    merged.set(entry.cartItemId, {
+      discountedUnits: Math.max(existing.discountedUnits, entry.discountedUnits),
+      discountedAmountCents:
+        existing.discountedAmountCents + entry.discountedAmountCents,
+    })
   }
-  return Array.from(merged, ([cartItemId, discountedUnits]) => ({
-    cartItemId,
-    discountedUnits,
-  }))
+  return Array.from(merged, ([cartItemId, entry]) => ({ cartItemId, ...entry }))
 }
 
 /** Adds `extra` on top of `primary`, additively — the shared math behind
@@ -203,7 +247,9 @@ function mergeItemBreakdowns(
  *  store-wide sale, or a Clearance collection sale stacking onto a
  *  store-wide sale). `primary` keeps its own id/code/title as the combined
  *  result's identity; `extra` just contributes its amount and shows up in
- *  stackedWith. */
+ *  stackedWith. The per-item breakdown merge (not a flat combined
+ *  percentage) is what keeps this correct when `primary` and `extra` don't
+ *  cover the exact same cart items — see mergeItemBreakdowns. */
 function combineAppliedDiscounts(
   primary: AppliedCartDiscount,
   extra: AppliedCartDiscount,
@@ -215,14 +261,14 @@ function combineAppliedDiscounts(
       primary.amountCents + extra.amountCents,
       cartTotalCents,
     ),
-    effectivePercentageOff:
-      primary.effectivePercentageOff != null &&
-      extra.effectivePercentageOff != null
-        ? primary.effectivePercentageOff + extra.effectivePercentageOff
-        : null,
     stackedWith: [
       ...primary.stackedWith,
-      { title: extra.title, amountCents: extra.amountCents },
+      {
+        title: extra.title,
+        amountCents: extra.amountCents,
+        type: extra.type,
+        value: extra.value,
+      },
     ],
     itemBreakdown: mergeItemBreakdowns(
       primary.itemBreakdown,

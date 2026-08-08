@@ -602,22 +602,18 @@ function CheckoutPage() {
                 .filter(Boolean)
                 .join(' / ')
               const imageUrl = item.variant.product.images[0]
-              const discountedUnits =
-                cart.discount?.itemBreakdown.find(
-                  (b) => b.cartItemId === item.id,
-                )?.discountedUnits ?? 0
+              const itemDiscount = cart.discount?.itemBreakdown.find(
+                (b) => b.cartItemId === item.id,
+              )
+              const discountedUnits = itemDiscount?.discountedUnits ?? 0
               const lineTotalCents = item.quantity * item.price_cents_snapshot
-              const discountedLineCents =
-                discountedUnits > 0 &&
-                cart.discount?.effectivePercentageOff != null
-                  ? (item.quantity - discountedUnits) *
-                      item.price_cents_snapshot +
-                    discountedUnits *
-                      Math.round(
-                        item.price_cents_snapshot *
-                          (1 - cart.discount.effectivePercentageOff / 100),
-                      )
-                  : null
+              // Uses this item's own discountedAmountCents (not a blanket
+              // percentage) since a stacked discount may not cover every
+              // item the same way — see
+              // AppliedCartDiscount.itemBreakdown's doc comment.
+              const discountedLineCents = itemDiscount
+                ? lineTotalCents - itemDiscount.discountedAmountCents
+                : null
               return (
                 <li key={item.id} className="flex gap-3">
                   <div className="relative h-16 w-14 shrink-0 overflow-hidden rounded-md bg-neutral-200 dark:bg-neutral-800">
