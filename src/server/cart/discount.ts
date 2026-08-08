@@ -19,9 +19,10 @@ export interface AppliedCartDiscount {
   title: string
   type: Discount['type']
   value: number
-  /** Total discount amount — includes the stacked sale's amount too, when
-   *  stackedSale is set below. Everything that subtracts a discount from a
-   *  total (checkout, the cart summary) should use this one field. */
+  /** Total discount amount — includes every stacked discount's amount too,
+   *  when stackedWith below is non-empty. Everything that subtracts a
+   *  discount from a total (checkout, the cart summary) should use this
+   *  one field. */
   amountCents: number
   /** True if this discount should always charge normal shipping — see
    *  discounts.excludes_free_shipping. Checked by shippingCostCents'
@@ -35,18 +36,19 @@ export interface AppliedCartDiscount {
    *  only a single lump-sum total. */
   itemBreakdown: { cartItemId: string; discountedUnits: number }[]
   /** The combined "% off" a discounted unit's price actually drops by —
-   *  just `value` for a plain percentage discount, or the sum of this
-   *  discount's value and the stacked sale's value when both are
-   *  percentage-type. Null for a fixed_amount discount (or a fixed_amount
-   *  stacked sale), since a flat peso amount doesn't map to one clean
-   *  per-unit price. Lets the cart UI show a real "was ₱X, now ₱Y" line
-   *  under a discounted item instead of only the aggregate total. */
+   *  just `value` for a plain percentage discount, or the sum of every
+   *  stacked discount's value when all of them are percentage-type. Null
+   *  once any fixed_amount discount is part of the mix, since a flat peso
+   *  amount doesn't map to one clean per-unit price. Lets the cart UI show
+   *  a real "was ₱X, now ₱Y" line under a discounted item instead of only
+   *  the aggregate total. */
   effectivePercentageOff: number | null
-  /** Set when a code marked discounts.stacks_with_sale is applied while a
-   *  store-wide (scope 'all') automatic sale is also active — see
-   *  resolveDiscountForCart. A collection-scoped sale (e.g. Clearance)
-   *  never stacks, regardless of this flag. */
-  stackedSale: { title: string; amountCents: number } | null
+  /** Every other discount stacked on top of this one — e.g. a Clearance
+   *  collection sale stacking on top of an active store-wide sale (see
+   *  resolveAutomaticDiscountsForCart), or a code marked
+   *  discounts.stacks_with_sale stacking on top of an active store-wide
+   *  sale (see resolveDiscountForCart). Empty when nothing else applies. */
+  stackedWith: { title: string; amountCents: number }[]
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
@@ -167,7 +169,7 @@ async function appliedDiscountFor(
     amountCents,
     excludesFreeShipping: discount.excludes_free_shipping,
     effectivePercentageOff: discount.type === 'percentage' ? discount.value : null,
-    stackedSale: null,
+    stackedWith: [],
     itemBreakdown: Array.from(perItemDiscountedUnits, ([cartItemId, discountedUnits]) => ({
       cartItemId,
       discountedUnits,
@@ -194,6 +196,39 @@ function mergeItemBreakdowns(
     cartItemId,
     discountedUnits,
   }))
+}
+
+/** Adds `extra` on top of `primary`, additively — the shared math behind
+ *  every kind of stacking this module does (a code stacking onto a
+ *  store-wide sale, or a Clearance collection sale stacking onto a
+ *  store-wide sale). `primary` keeps its own id/code/title as the combined
+ *  result's identity; `extra` just contributes its amount and shows up in
+ *  stackedWith. */
+function combineAppliedDiscounts(
+  primary: AppliedCartDiscount,
+  extra: AppliedCartDiscount,
+  cartTotalCents: number,
+): AppliedCartDiscount {
+  return {
+    ...primary,
+    amountCents: Math.min(
+      primary.amountCents + extra.amountCents,
+      cartTotalCents,
+    ),
+    effectivePercentageOff:
+      primary.effectivePercentageOff != null &&
+      extra.effectivePercentageOff != null
+        ? primary.effectivePercentageOff + extra.effectivePercentageOff
+        : null,
+    stackedWith: [
+      ...primary.stackedWith,
+      { title: extra.title, amountCents: extra.amountCents },
+    ],
+    itemBreakdown: mergeItemBreakdowns(
+      primary.itemBreakdown,
+      extra.itemBreakdown,
+    ),
+  }
 }
 
 /** Recomputes what a cart's already-attached discount (if any) is currently
@@ -231,36 +266,24 @@ export async function resolveDiscountForCart(
     (sum, item) => sum + itemLineTotalCents(item),
     0,
   )
-
-  return {
-    ...applied,
-    amountCents: Math.min(
-      applied.amountCents + saleApplied.amountCents,
-      cartTotalCents,
-    ),
-    effectivePercentageOff:
-      applied.effectivePercentageOff != null &&
-      saleApplied.effectivePercentageOff != null
-        ? applied.effectivePercentageOff + saleApplied.effectivePercentageOff
-        : null,
-    stackedSale: { title: saleApplied.title, amountCents: saleApplied.amountCents },
-    itemBreakdown: mergeItemBreakdowns(
-      applied.itemBreakdown,
-      saleApplied.itemBreakdown,
-    ),
-  }
+  return combineAppliedDiscounts(applied, saleApplied, cartTotalCents)
 }
 
 /**
- * A cart with no customer-entered code still gets whichever active
- * automatic discount (Store sale / Collection sale) is worth the most —
- * never persisted to carts.discount_id since eligibility can shift as the
- * cart's contents change, unlike a code the customer explicitly typed in.
- * If more than one automatic discount applies, only the better one wins
- * (they never stack) — same rule the storefront's sale-price display uses,
- * see resolveSalePrices in src/server/storefront/automatic-sales.ts.
+ * A cart with no customer-entered code still gets every active automatic
+ * discount that applies to at least one item, all stacked together — e.g.
+ * a store-wide sale and a Clearance collection sale both apply at once to
+ * a clearance product, since they're deliberately scoped to different,
+ * separate collections rather than competing for the same items. Never
+ * persisted to carts.discount_id since eligibility can shift as the cart's
+ * contents change, unlike a code the customer explicitly typed in.
+ *
+ * The store-wide sale (if one is active) always leads as the combined
+ * result's id/title/code — matches how discounts.stacks_with_sale codes
+ * key their own stacking eligibility purely off "is a store-wide sale
+ * active," regardless of what collection sales are also running.
  */
-export async function resolveBestAutomaticDiscountForCart(
+export async function resolveAutomaticDiscountsForCart(
   admin: Admin,
   items: CartItemWithVariant[],
 ): Promise<AppliedCartDiscount | null> {
@@ -268,14 +291,24 @@ export async function resolveBestAutomaticDiscountForCart(
   const activeDiscounts = await getActiveAutomaticDiscounts(admin)
   if (activeDiscounts.length === 0) return null
 
-  let best: AppliedCartDiscount | null = null
-  for (const discount of activeDiscounts) {
+  const ordered = [...activeDiscounts].sort((a, b) =>
+    a.scope === b.scope ? 0 : a.scope === 'all' ? -1 : 1,
+  )
+
+  const cartTotalCents = items.reduce(
+    (sum, item) => sum + itemLineTotalCents(item),
+    0,
+  )
+
+  let combined: AppliedCartDiscount | null = null
+  for (const discount of ordered) {
     const applied = await appliedDiscountFor(admin, discount, items)
-    if (applied && (!best || applied.amountCents > best.amountCents)) {
-      best = applied
-    }
+    if (!applied) continue
+    combined = combined
+      ? combineAppliedDiscounts(combined, applied, cartTotalCents)
+      : applied
   }
-  return best
+  return combined
 }
 
 /** Throws a user-facing message if a discount is inactive, outside its date window, or has hit its usage cap. Shared by the cart-apply step and the final checkout re-check. */

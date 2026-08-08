@@ -1,13 +1,15 @@
 /**
- * Resolves what an active "automatic" discount (a Store sale or Collection
- * sale — see DiscountForm.tsx) is worth for a given product/variant, for
- * two different callers:
+ * Resolves what the active "automatic" discounts (Store sales and
+ * Collection sales — see DiscountForm.tsx) are worth for a given
+ * product/variant, for two different callers:
  *  - the storefront (product cards, collection pages, product detail) want
  *    a sale price to display next to the regular one;
  *  - the cart (src/server/cart/discount.ts) wants the same thing to reduce
  *    a checkout total without the customer entering a code.
- * Both need the exact same "which discount applies, and which one wins if
- * more than one does" logic, so it lives here once.
+ * Both need the exact same "which discounts apply, and how they combine
+ * when more than one does" logic, so it lives here once. Every applicable
+ * discount stacks (added together) — see resolveSalePrices' own doc
+ * comment for why.
  */
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -83,11 +85,15 @@ export interface ProductSale {
 }
 
 /**
- * The best active automatic discount for each product, given its regular
- * price — "best" meaning the lowest resulting sale price, so a Store sale
- * and a Collection sale both applying to the same product never stack.
- * Entries with no matching active discount are simply absent from the
- * returned map.
+ * Every active automatic discount that applies to each product, given its
+ * regular price, stacked together — a Store sale (scope 'all') and a
+ * Collection sale (e.g. Clearance) both applying to the same product add
+ * up rather than only the bigger one winning, since they're deliberately
+ * scoped to different, separate collections rather than competing for the
+ * same items (see resolveAutomaticDiscountsForCart in
+ * src/server/cart/discount.ts, which mirrors this exact logic for
+ * checkout). Entries with no matching active discount are simply absent
+ * from the returned map.
  *
  * `id` is what keys the returned map and what `priceCents` belongs to;
  * `productId` (defaults to `id`) is what collection membership is actually
@@ -142,25 +148,37 @@ export async function resolveSalePrices(
     // still handles those scopes independently for discount codes.
   }
 
+  // Store-wide sale(s) first, so its title leads a combined "Store Sale +
+  // Clearance" label the same way it leads the cart-side combined result.
+  const ordered = [...activeDiscounts].sort((a, b) =>
+    a.scope === b.scope ? 0 : a.scope === 'all' ? -1 : 1,
+  )
+
   for (const product of products) {
-    let best: ProductSale | null = null
-    for (const discount of activeDiscounts) {
+    let totalAmountCents = 0
+    let discountId: string | null = null
+    let discountTitle = ''
+    for (const discount of ordered) {
       if (
         !eligibleProductIdsByDiscount.get(discount.id)?.has(product.productId)
       ) {
         continue
       }
       const amount = discountAmountCents(discount, product.priceCents)
-      const salePriceCents = Math.max(0, product.priceCents - amount)
-      if (!best || salePriceCents < best.salePriceCents) {
-        best = {
-          discountId: discount.id,
-          discountTitle: discount.title,
-          salePriceCents,
-        }
-      }
+      if (amount <= 0) continue
+      totalAmountCents += amount
+      discountId ??= discount.id
+      discountTitle = discountTitle
+        ? `${discountTitle} + ${discount.title}`
+        : discount.title
     }
-    if (best) result.set(product.id, best)
+    if (discountId) {
+      result.set(product.id, {
+        discountId,
+        discountTitle,
+        salePriceCents: Math.max(0, product.priceCents - totalAmountCents),
+      })
+    }
   }
 
   return result

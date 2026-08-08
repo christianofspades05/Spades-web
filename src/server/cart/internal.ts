@@ -1,7 +1,7 @@
 /** Shared helpers for src/server/cart/queries.ts and mutations.ts. */
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant } from '#/types/entities'
-import { resolveBestAutomaticDiscountForCart, resolveDiscountForCart } from './discount'
+import { resolveAutomaticDiscountsForCart, resolveDiscountForCart } from './discount'
 import type { AppliedCartDiscount } from './discount'
 import { resolveCodAvailability } from './cod-restrictions'
 
@@ -45,10 +45,11 @@ export async function loadCartWithItems(
   ])
   // A customer-entered code always wins if one's attached — never silently
   // swapped out for an automatic sale, even a bigger one, since applying a
-  // code was an explicit action. Only fall back to the best active
-  // automatic discount when there's no code at all.
+  // code was an explicit action (its own stacking, if any, is handled
+  // inside resolveDiscountForCart). Only fall back to every currently
+  // active automatic discount, stacked together, when there's no code.
   const discount =
-    codeDiscount ?? (await resolveBestAutomaticDiscountForCart(admin, items))
+    codeDiscount ?? (await resolveAutomaticDiscountsForCart(admin, items))
 
   return {
     id: cart.id,

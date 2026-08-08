@@ -109,8 +109,8 @@ function CartPage() {
 
   const discount = cart.discount
   const discountLabel = discount
-    ? discount.type === 'percentage'
-      ? `${discount.value}% off`
+    ? discount.effectivePercentageOff != null
+      ? `${discount.effectivePercentageOff}% off`
       : discount.type === 'fixed_amount'
         ? `${formatPrice(discount.value)} off`
         : t.cart.freeShippingLabel
@@ -245,9 +245,12 @@ function CartPage() {
               </p>
               <p className="text-xs text-green-700 dark:text-green-400">
                 {discountLabel}
-                {discount.stackedSale && (
-                  <> {t.cart.stackedWithSale(discount.stackedSale.title)}</>
-                )}
+                {discount.stackedWith.map((stacked) => (
+                  <span key={stacked.title}>
+                    {' '}
+                    {t.cart.stackedWithSale(stacked.title)}
+                  </span>
+                ))}
               </p>
             </div>
             <button
