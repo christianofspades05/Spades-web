@@ -100,12 +100,12 @@ function VerifyPage() {
           <input
             required
             inputMode="numeric"
-            pattern="[0-9]{6}"
-            maxLength={6}
+            pattern="[0-9]{8}"
+            maxLength={8}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             className={`${inputClassName} text-center text-lg tracking-[0.5em]`}
-            placeholder="000000"
+            placeholder="00000000"
           />
         </label>
         {error && (
@@ -118,7 +118,7 @@ function VerifyPage() {
         )}
         <button
           type="submit"
-          disabled={submitting || code.length !== 6}
+          disabled={submitting || code.length !== 8}
           className={`${buttonPrimaryClassName} w-full justify-center`}
         >
           {submitting ? t.account.verifying : t.account.verify}
