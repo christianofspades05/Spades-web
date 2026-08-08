@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { listAllDiscounts } from '#/server/admin/discounts'
+import { z } from 'zod'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { getDiscountsCount, listDiscounts } from '#/server/admin/discounts'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
 import {
   buttonPrimaryClassName,
+  buttonSecondaryClassName,
   inputClassName,
   tableCellClassName,
   tableHeadClassName,
@@ -14,8 +16,22 @@ import {
 } from '#/components/admin/ui'
 import type { Discount } from '#/types/entities'
 
+const PAGE_SIZE = 50
+
 export const Route = createFileRoute('/admin/discounts/')({
-  loader: () => listAllDiscounts(),
+  validateSearch: z.object({
+    q: z.string().optional(),
+    page: z.number().int().min(1).catch(1),
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => {
+    const filters = { q: deps.q }
+    const [discounts, { total }] = await Promise.all([
+      listDiscounts({ data: { ...filters, page: deps.page } }),
+      getDiscountsCount({ data: filters }),
+    ])
+    return { discounts, total }
+  },
   component: DiscountsPage,
 })
 
@@ -47,23 +63,28 @@ function valueLabel(d: Discount): string {
 }
 
 function DiscountsPage() {
-  const discounts = Route.useLoaderData()
-  const [search, setSearch] = useState('')
+  const { discounts, total } = Route.useLoaderData()
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+  const [searchInput, setSearchInput] = useState(search.q ?? '')
 
-  const query = search.trim().toLowerCase()
-  const filteredDiscounts = query
-    ? discounts.filter(
-        (d) =>
-          d.title.toLowerCase().includes(query) ||
-          (d.code?.toLowerCase().includes(query) ?? false),
-      )
-    : discounts
+  const page = search.page
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const rangeStartIndex = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const rangeEndIndex = Math.min(page * PAGE_SIZE, total)
+
+  function handleSearchSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    navigate({
+      search: (prev) => ({ ...prev, q: searchInput || undefined, page: 1 }),
+    })
+  }
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Discounts"
-        subtitle={`${discounts.length} ${discounts.length === 1 ? 'discount' : 'discounts'}`}
+        subtitle={`${total} ${total === 1 ? 'discount' : 'discounts'}`}
         action={
           <Link to="/admin/discounts/new" className={buttonPrimaryClassName}>
             Create discount
@@ -71,18 +92,20 @@ function DiscountsPage() {
         }
       />
 
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by title or code"
-        className={`${inputClassName} mb-4 w-full max-w-sm`}
-      />
+      <form onSubmit={handleSearchSubmit} className="mb-4 w-full max-w-sm">
+        <input
+          type="text"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by title or code"
+          className={`${inputClassName} w-full`}
+        />
+      </form>
 
       <div className={tableWrapperClassName}>
-        {filteredDiscounts.length === 0 ? (
+        {discounts.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">
-            {discounts.length === 0
+            {total === 0 && !search.q
               ? 'No discounts yet. Create a discount code customers can enter at checkout, or a store sale that applies automatically.'
               : 'No discounts match your search.'}
           </p>
@@ -100,7 +123,7 @@ function DiscountsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDiscounts.map((discount) => {
+                {discounts.map((discount) => {
                   const status = computeStatus(discount)
                   return (
                     <tr key={discount.id} className={tableRowClassName}>
@@ -151,6 +174,37 @@ function DiscountsPage() {
           </div>
         )}
       </div>
+
+      {total > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
+          <p>
+            Showing {rangeStartIndex}–{rangeEndIndex} of {total}
+          </p>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/admin/discounts"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page - 1 })}
+              aria-disabled={page <= 1}
+              className={`${buttonSecondaryClassName} ${page <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Previous
+            </Link>
+            <span className="text-xs text-neutral-400">
+              Page {page} of {totalPages}
+            </span>
+            <Link
+              to="/admin/discounts"
+              from={Route.fullPath}
+              search={(prev) => ({ ...prev, page: page + 1 })}
+              aria-disabled={page >= totalPages}
+              className={`${buttonSecondaryClassName} ${page >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+            >
+              Next
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

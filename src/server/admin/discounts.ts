@@ -59,6 +59,71 @@ export const listAllDiscounts = createServerFn({ method: 'GET' }).handler(
   },
 )
 
+const DISCOUNTS_PAGE_SIZE = 50
+
+const discountsFilterSchema = z.object({
+  q: z.string().optional(),
+})
+
+/** Escapes the wildcards PostgREST's ilike/or-clause parser treats specially
+ *  (%, comma, and the pattern-match chars themselves) so a search term that
+ *  happens to contain one doesn't silently broaden the match or break the
+ *  `.or()` clause's comma-separated syntax — same convention used by
+ *  admin/customers.ts's buildSearchClause. */
+function sanitizeDiscountSearch(q: string | undefined): string | null {
+  const trimmed = q?.trim()
+  if (!trimmed) return null
+  return trimmed.replace(/[%,]/g, '')
+}
+
+function buildDiscountSearchClause(search: string): string {
+  return `title.ilike.%${search}%,code.ilike.%${search}%`
+}
+
+/** Paginated discounts for the admin Discounts list — listAllDiscounts above
+ *  stays unpaginated for the email automation discount picker, which
+ *  genuinely needs the full set for a dropdown. */
+export const listDiscounts = createServerFn({ method: 'GET' })
+  .validator(
+    discountsFilterSchema.extend({
+      page: z.number().int().min(1).default(1),
+    }),
+  )
+  .handler(async ({ data }): Promise<Discount[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const search = sanitizeDiscountSearch(data.q)
+    const offset = (data.page - 1) * DISCOUNTS_PAGE_SIZE
+
+    let query = admin.from('discounts').select('*')
+    if (search) query = query.or(buildDiscountSearchClause(search))
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + DISCOUNTS_PAGE_SIZE - 1)
+
+    const { data: discounts, error } = await query
+    if (error) throw error
+    return discounts
+  })
+
+export const getDiscountsCount = createServerFn({ method: 'GET' })
+  .validator(discountsFilterSchema)
+  .handler(async ({ data }): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const search = sanitizeDiscountSearch(data.q)
+    let query = admin
+      .from('discounts')
+      .select('id', { count: 'exact', head: true })
+    if (search) query = query.or(buildDiscountSearchClause(search))
+
+    const { count, error } = await query
+    if (error) throw error
+    return { total: count ?? 0 }
+  })
+
 export const getDiscountById = createServerFn({ method: 'GET' })
   .validator(z.object({ id: z.string().uuid() }))
   .handler(async ({ data }): Promise<Discount | null> => {
