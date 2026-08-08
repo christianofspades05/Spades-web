@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '#/lib/utils/cn'
+import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 
 interface ImageGalleryProps {
   images: string[]
@@ -30,7 +31,7 @@ export function ImageGallery({ images, alt }: ImageGalleryProps) {
     <div>
       <div className="relative aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-900">
         <img
-          src={images[activeIndex]}
+          src={optimizedImageUrl(images[activeIndex], 1200)}
           alt={alt}
           className="h-full w-full object-cover"
         />
@@ -69,7 +70,12 @@ export function ImageGallery({ images, alt }: ImageGalleryProps) {
                   : 'border-transparent',
               )}
             >
-              <img src={image} alt="" className="h-full w-full object-cover" />
+              <img
+                src={optimizedImageUrl(image, 128)}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+              />
             </button>
           ))}
         </div>
