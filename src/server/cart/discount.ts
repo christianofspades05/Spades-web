@@ -335,13 +335,16 @@ async function combineAdditiveAndExclusiveDiscounts(
 
 /**
  * Recomputes what a cart's already-attached discount code is currently
- * worth. If the code is marked stacks_with_sale, it joins the pool of
- * "additive" discounts (alongside any active store-wide sale) — otherwise
- * it simply replaces every automatic discount outright, same as always
- * ("a code the customer typed in always wins"). Either way, a
- * non-stacking collection sale (e.g. Clearance) stays exclusive: an item
- * in that collection is untouched by the code, keeping its own flat
- * collection-sale rate — see combineAdditiveAndExclusiveDiscounts.
+ * worth. Whether it stacks with an active store-wide sale is decided by
+ * the SALE's own stacks_with_sale setting (see DiscountForm.tsx's "Allow
+ * discount codes to also apply on top of this sale") — not by the code —
+ * so a store owner flips it once per sale rather than editing every
+ * individual code. When no active store-wide sale allows it, the code
+ * simply replaces every additive automatic discount outright, same as
+ * always ("a code the customer typed in always wins"). Either way, an
+ * exclusive collection sale (e.g. Clearance) stays untouched: an item in
+ * that collection keeps its own flat collection-sale rate regardless of
+ * any code — see combineAdditiveAndExclusiveDiscounts.
  */
 export async function resolveDiscountForCart(
   admin: Admin,
@@ -358,18 +361,17 @@ export async function resolveDiscountForCart(
   if (error) throw error
   if (!discount || !discount.is_active) return null
 
-  if (!discount.stacks_with_sale) {
-    return appliedDiscountFor(admin, discount, items)
-  }
-
   const activeAutomaticDiscounts = await getActiveAutomaticDiscounts(admin)
   const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(
     activeAutomaticDiscounts,
   )
+  const activeSaleAllowsCodeStacking = additive.some(
+    (d) => d.scope === 'all' && d.stacks_with_sale,
+  )
   return combineAdditiveAndExclusiveDiscounts(
     admin,
     items,
-    [discount, ...additive],
+    activeSaleAllowsCodeStacking ? [discount, ...additive] : [discount],
     exclusive,
   )
 }

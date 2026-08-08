@@ -39,9 +39,7 @@ export async function mintPerRecipientDiscount(
 ): Promise<MintedDiscount | null> {
   const { data: template, error } = await admin
     .from('discounts')
-    .select(
-      'title, type, value, max_discounted_items, excludes_free_shipping, stacks_with_sale',
-    )
+    .select('title, type, value, max_discounted_items, excludes_free_shipping')
     .eq('id', templateDiscountId)
     .maybeSingle()
   if (error) throw error
@@ -70,7 +68,9 @@ export async function mintPerRecipientDiscount(
       value: template.value,
       max_discounted_items: template.max_discounted_items,
       excludes_free_shipping: template.excludes_free_shipping,
-      stacks_with_sale: template.stacks_with_sale,
+      // Whether this code stacks with an active store-wide sale is decided
+      // by the sale's own setting, not the code's — see
+      // resolveDiscountForCart. Nothing to copy from the template here.
       max_uses: 1,
       max_uses_per_customer: 1,
       is_active: true,

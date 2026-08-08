@@ -327,20 +327,26 @@ export function DiscountForm({
               />
               Don't also give free shipping when this code is used
             </label>
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
-              <input
-                type="checkbox"
-                checked={stacksWithSale}
-                onChange={(e) => setStacksWithSale(e.target.checked)}
-              />
-              Also apply on top of an active store-wide sale
-            </label>
-            <p className="text-xs font-normal text-neutral-500">
-              e.g. a 20% store sale + this code stacks to 30% off, added
-              together. Off by default — an unchecked code just replaces
-              the sale price instead.
-            </p>
           </div>
+        )}
+
+        {method === 'store_sale' && (
+          <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <input
+              type="checkbox"
+              checked={stacksWithSale}
+              onChange={(e) => setStacksWithSale(e.target.checked)}
+            />
+            Allow discount codes to also apply on top of this sale
+          </label>
+        )}
+        {method === 'store_sale' && (
+          <p className="-mt-2 text-xs font-normal text-neutral-500">
+            Off by default — a customer's code just replaces this sale's
+            price. Check this so codes add to it instead, e.g. this 15%
+            sale + a 10% Abandoned Cart code = 25% off. Controlled here so
+            you flip it once per sale instead of on every individual code.
+          </p>
         )}
 
         {method === 'store_sale' && collections.length > 0 && (

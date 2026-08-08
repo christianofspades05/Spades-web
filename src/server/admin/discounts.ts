@@ -38,15 +38,16 @@ function toRow(data: DiscountInput) {
     max_uses_per_customer: data.oneUsePerCustomer ? 1 : null,
     max_discounted_items: data.maxDiscountedItems ?? null,
     excludes_free_shipping: data.excludesFreeShipping,
-    // Meaningful for a code (stacks onto an active store-wide sale instead
-    // of replacing it) and for a collection sale (stacks onto an active
-    // store-wide sale instead of standing alone at its own rate) — never
-    // for a store sale itself, which is the base everything else stacks
-    // onto.
-    stacks_with_sale:
-      data.kind === 'code' || data.scope === 'collection'
-        ? data.stacksWithSale
-        : false,
+    // Meaningful only for an automatic discount — never a code (see
+    // resolveDiscountForCart for why the control lives here instead of on
+    // individual codes). On a Store sale (scope 'all'), it means "let
+    // discount codes stack with me" instead of always getting replaced by
+    // whichever code the customer applies. On a Collection sale (scope
+    // 'collection'), it means "stack onto an active store-wide sale"
+    // instead of standing alone at its own rate (e.g. Clearance) — a
+    // completely different axis from the Store sale meaning, just sharing
+    // the same column since only one applies per discount's own scope.
+    stacks_with_sale: data.kind === 'automatic' ? data.stacksWithSale : false,
     starts_at: data.startsAt
       ? storeLocalDateTimeToUtcIso(data.startsAt)
       : null,
