@@ -19,6 +19,8 @@ import {
 } from '#/server/admin/maintenance'
 import type { MaintenanceModeRow } from '#/server/admin/maintenance'
 import {
+  createStorefrontBanner,
+  deleteStorefrontBanner,
   listStorefrontBanners,
   setStorefrontBanner,
 } from '#/server/admin/storefront-banner'
@@ -107,25 +109,26 @@ function StorefrontSectionsPage() {
   }
 
   const [bannerRows, setBannerRows] = useState<StorefrontBannerRow[]>(banners)
-  const [savingBannerBrand, setSavingBannerBrand] = useState<
+  useEffect(() => {
+    setBannerRows(banners)
+  }, [banners])
+  const [savingBannerId, setSavingBannerId] = useState<string | null>(null)
+  const [addingBannerBrand, setAddingBannerBrand] = useState<
     (typeof STOREFRONT_BRANDS)[number] | null
   >(null)
 
-  function updateBannerField(
-    forBrand: (typeof STOREFRONT_BRANDS)[number],
-    patch: Partial<StorefrontBannerRow>,
-  ) {
+  function updateBannerField(id: string, patch: Partial<StorefrontBannerRow>) {
     setBannerRows((prev) =>
-      prev.map((r) => (r.brand === forBrand ? { ...r, ...patch } : r)),
+      prev.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     )
   }
 
   async function saveBanner(row: StorefrontBannerRow) {
-    setSavingBannerBrand(row.brand)
+    setSavingBannerId(row.id)
     try {
       await setStorefrontBanner({
         data: {
-          brand: row.brand,
+          id: row.id,
           text: row.text,
           textJa: row.text_ja ?? undefined,
           textKo: row.text_ko ?? undefined,
@@ -133,8 +136,24 @@ function StorefrontSectionsPage() {
         },
       })
     } finally {
-      setSavingBannerBrand(null)
+      setSavingBannerId(null)
     }
+  }
+
+  async function addBanner(forBrand: (typeof STOREFRONT_BRANDS)[number]) {
+    setAddingBannerBrand(forBrand)
+    try {
+      await createStorefrontBanner({ data: { brand: forBrand } })
+      refresh()
+    } finally {
+      setAddingBannerBrand(null)
+    }
+  }
+
+  async function removeBanner(row: StorefrontBannerRow) {
+    if (!confirm('Delete this banner?')) return
+    await deleteStorefrontBanner({ data: { id: row.id } })
+    refresh()
   }
 
   const [addingType, setAddingType] = useState<StorefrontSectionType | null>(
@@ -258,70 +277,111 @@ function StorefrontSectionsPage() {
             Top banner
           </p>
           <p className="mb-3 text-xs text-neutral-500">
-            The bar at the very top of the storefront, above the header.
-            Leave text empty or turn it off to hide it entirely.
+            The bar at the very top of the storefront, above the header. Add
+            more than one and they'll rotate automatically. Leave text empty
+            or turn a banner off to hide it.
           </p>
-          <div className="flex flex-col gap-2">
-            {bannerRows.map((row) => (
-              <div
-                key={row.brand}
-                className="flex flex-col gap-2 rounded-lg border border-neutral-200 p-3"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <span className="w-20 shrink-0 text-sm font-medium text-neutral-900">
-                    {STOREFRONT_BRAND_LABELS[row.brand]}
-                  </span>
-                  <input
-                    value={row.text}
-                    onChange={(e) =>
-                      updateBannerField(row.brand, { text: e.target.value })
-                    }
-                    placeholder="Banner text…"
-                    className={`${inputClassName} flex-1`}
-                  />
-                  <div className="flex shrink-0 items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-700">
-                      <input
-                        type="checkbox"
-                        checked={row.is_active}
-                        onChange={(e) =>
-                          updateBannerField(row.brand, {
-                            is_active: e.target.checked,
-                          })
-                        }
-                      />
-                      Visible
-                    </label>
+          <div className="flex flex-col gap-5">
+            {STOREFRONT_BRANDS.map((brandKey) => {
+              const rows = bannerRows.filter((r) => r.brand === brandKey)
+              return (
+                <div key={brandKey}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-neutral-900">
+                      {STOREFRONT_BRAND_LABELS[brandKey]}
+                    </span>
                     <button
                       type="button"
-                      disabled={savingBannerBrand === row.brand}
-                      onClick={() => saveBanner(row)}
+                      disabled={addingBannerBrand === brandKey}
+                      onClick={() => addBanner(brandKey)}
                       className={buttonSecondaryClassName}
                     >
-                      {savingBannerBrand === row.brand ? 'Saving…' : 'Save'}
+                      {addingBannerBrand === brandKey
+                        ? 'Adding…'
+                        : '+ Add banner'}
                     </button>
                   </div>
+                  <div className="flex flex-col gap-2">
+                    {rows.length === 0 && (
+                      <p className="text-xs text-neutral-400">
+                        No banners yet.
+                      </p>
+                    )}
+                    {rows.map((row) => (
+                      <div
+                        key={row.id}
+                        className="flex flex-col gap-2 rounded-lg border border-neutral-200 p-3"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            value={row.text}
+                            onChange={(e) =>
+                              updateBannerField(row.id, {
+                                text: e.target.value,
+                              })
+                            }
+                            placeholder="Banner text…"
+                            className={`${inputClassName} flex-1`}
+                          />
+                          <div className="flex shrink-0 items-center gap-2">
+                            <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-700">
+                              <input
+                                type="checkbox"
+                                checked={row.is_active}
+                                onChange={(e) =>
+                                  updateBannerField(row.id, {
+                                    is_active: e.target.checked,
+                                  })
+                                }
+                              />
+                              Visible
+                            </label>
+                            <button
+                              type="button"
+                              disabled={savingBannerId === row.id}
+                              onClick={() => saveBanner(row)}
+                              className={buttonSecondaryClassName}
+                            >
+                              {savingBannerId === row.id ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeBanner(row)}
+                              className="rounded-md p-2 text-neutral-400 hover:bg-red-50 hover:text-red-600"
+                              aria-label="Delete banner"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <input
+                            value={row.text_ja ?? ''}
+                            onChange={(e) =>
+                              updateBannerField(row.id, {
+                                text_ja: e.target.value,
+                              })
+                            }
+                            placeholder="Banner text (Japanese, optional)…"
+                            className={inputClassName}
+                          />
+                          <input
+                            value={row.text_ko ?? ''}
+                            onChange={(e) =>
+                              updateBannerField(row.id, {
+                                text_ko: e.target.value,
+                              })
+                            }
+                            placeholder="Banner text (Korean, optional)…"
+                            className={inputClassName}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2 pl-0 sm:pl-24">
-                  <input
-                    value={row.text_ja ?? ''}
-                    onChange={(e) =>
-                      updateBannerField(row.brand, { text_ja: e.target.value })
-                    }
-                    placeholder="Banner text (Japanese, optional)…"
-                    className={inputClassName}
-                  />
-                  <input
-                    value={row.text_ko ?? ''}
-                    onChange={(e) =>
-                      updateBannerField(row.brand, { text_ko: e.target.value })
-                    }
-                    placeholder="Banner text (Korean, optional)…"
-                    className={inputClassName}
-                  />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
 

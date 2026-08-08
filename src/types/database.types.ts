@@ -319,11 +319,13 @@ export interface Database {
       }
       storefront_banner: {
         Row: {
+          id: string
           brand: ProductBrand
           text: string
           text_ja: string | null
           text_ko: string | null
           is_active: boolean
+          sort_order: number
           updated_at: string
         }
         Insert: Partial<

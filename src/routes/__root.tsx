@@ -98,7 +98,7 @@ export const Route = createRootRoute({
         BEFORE_LOAD_IO_TIMEOUT_MS,
       ).catch((err: unknown) => {
         console.error('getStorefrontBanner failed:', err)
-        return { text: '', textJa: null, textKo: null, isActive: false }
+        return []
       }),
       withTimeout(
         getEmailCapturePopupEnabled(),

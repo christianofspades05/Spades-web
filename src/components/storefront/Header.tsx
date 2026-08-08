@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Menu, Search, ShoppingBag, User, X } from 'lucide-react'
 import { useCart } from '#/lib/cart/CartContext'
@@ -10,12 +10,18 @@ import { LanguageSelector } from '#/components/storefront/LanguageSelector'
 import { SearchOverlay } from '#/components/storefront/SearchOverlay'
 import { getCrossBrandLinks } from '#/server/storefront/domain'
 import type { StorefrontScope } from '#/server/storefront/domain'
-import type { StorefrontBanner } from '#/server/storefront/banner'
+import type { StorefrontBannerMessage } from '#/server/storefront/banner'
 
 interface HeaderProps {
   scope: StorefrontScope
-  banner: StorefrontBanner
+  banner: StorefrontBannerMessage[]
 }
+
+/** How long each banner shows before crossfading to the next, when a brand
+ *  has more than one active. */
+const BANNER_ROTATE_MS = 4000
+/** Must match the `duration-*` class below the fade is applied with. */
+const BANNER_FADE_MS = 300
 
 // Spades is the flagship brand with its own content pages; Ysrael/Aspire
 // 365 are collection-scoped sub-brands with no About/Reviews/Contact copy
@@ -40,20 +46,44 @@ export function Header({ scope, banner }: HeaderProps) {
   const navLinks =
     scope.collectionSlug === null ? FULL_NAV_LINKS : MINIMAL_NAV_LINKS
   const crossBrandLinks = getCrossBrandLinks(scope.brand)
-  const bannerText =
-    (language === 'ja'
-      ? banner.textJa
-      : language === 'ko'
-        ? banner.textKo
-        : null) || banner.text
+  const bannerTexts = banner
+    .map(
+      (message) =>
+        (language === 'ja'
+          ? message.textJa
+          : language === 'ko'
+            ? message.textKo
+            : null) || message.text,
+    )
+    .filter((text) => text.trim() !== '')
+
+  const [bannerIndex, setBannerIndex] = useState(0)
+  const [bannerFading, setBannerFading] = useState(false)
+  useEffect(() => {
+    if (bannerTexts.length <= 1) return
+    const id = setInterval(() => {
+      setBannerFading(true)
+      setTimeout(() => {
+        setBannerIndex((i) => (i + 1) % bannerTexts.length)
+        setBannerFading(false)
+      }, BANNER_FADE_MS)
+    }, BANNER_ROTATE_MS)
+    return () => clearInterval(id)
+    // Only the count should restart the rotation timer — a language switch
+    // changing which strings are non-empty shouldn't reset the interval.
+  }, [bannerTexts.length])
 
   return (
     <header>
-      {banner.isActive && bannerText && (
+      {bannerTexts.length > 0 && (
         <div
           className={`bg-brand px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-wider sm:text-xs ${scope.promoBannerTextClassName}`}
         >
-          {bannerText}
+          <span
+            className={`inline-block transition-opacity duration-300 ${bannerFading ? 'opacity-0' : 'opacity-100'}`}
+          >
+            {bannerTexts[bannerIndex % bannerTexts.length]}
+          </span>
         </div>
       )}
       <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
