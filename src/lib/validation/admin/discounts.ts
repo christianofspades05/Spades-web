@@ -27,6 +27,11 @@ export const discountInputSchema = z
     // regardless of the post-discount subtotal. Meant for gift-style codes
     // (e.g. a birthday discount) that shouldn't stack with free shipping.
     excludesFreeShipping: z.boolean().default(false),
+    // Only meaningful for kind 'code' — lets this specific code add on top
+    // of an active store-wide (scope 'all') automatic sale instead of
+    // replacing it. Never extends to a collection-scoped sale (e.g.
+    // Clearance), which never stacks with anything regardless of this flag.
+    stacksWithSale: z.boolean().default(false),
     isActive: z.boolean().default(true),
     excludedCollectionIds: z.array(z.string().uuid()).default([]),
     includedCollectionIds: z.array(z.string().uuid()).default([]),

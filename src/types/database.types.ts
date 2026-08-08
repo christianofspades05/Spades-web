@@ -750,6 +750,7 @@ export interface Database {
           email_automation_id: string | null
           max_discounted_items: number | null
           excludes_free_shipping: boolean
+          stacks_with_sale: boolean
           created_at: string
           updated_at: string
         }

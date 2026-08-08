@@ -606,6 +606,18 @@ function CheckoutPage() {
                 cart.discount?.itemBreakdown.find(
                   (b) => b.cartItemId === item.id,
                 )?.discountedUnits ?? 0
+              const lineTotalCents = item.quantity * item.price_cents_snapshot
+              const discountedLineCents =
+                discountedUnits > 0 &&
+                cart.discount?.effectivePercentageOff != null
+                  ? (item.quantity - discountedUnits) *
+                      item.price_cents_snapshot +
+                    discountedUnits *
+                      Math.round(
+                        item.price_cents_snapshot *
+                          (1 - cart.discount.effectivePercentageOff / 100),
+                      )
+                  : null
               return (
                 <li key={item.id} className="flex gap-3">
                   <div className="relative h-16 w-14 shrink-0 overflow-hidden rounded-md bg-neutral-200 dark:bg-neutral-800">
@@ -639,9 +651,20 @@ function CheckoutPage() {
                         </p>
                       )}
                     </div>
-                    <p className="whitespace-nowrap text-sm font-medium text-neutral-900 dark:text-white">
-                      {formatPrice(item.quantity * item.price_cents_snapshot)}
-                    </p>
+                    {discountedLineCents != null ? (
+                      <div className="whitespace-nowrap text-right">
+                        <p className="text-xs text-neutral-400 line-through dark:text-neutral-600">
+                          {formatPrice(lineTotalCents)}
+                        </p>
+                        <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                          {formatPrice(discountedLineCents)}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="whitespace-nowrap text-sm font-medium text-neutral-900 dark:text-white">
+                        {formatPrice(lineTotalCents)}
+                      </p>
+                    )}
                   </div>
                 </li>
               )

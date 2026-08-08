@@ -61,6 +61,9 @@ export function DiscountForm({
   const [excludesFreeShipping, setExcludesFreeShipping] = useState(
     discount?.excludes_free_shipping ?? false,
   )
+  const [stacksWithSale, setStacksWithSale] = useState(
+    discount?.stacks_with_sale ?? false,
+  )
   const [isActive, setIsActive] = useState(discount?.is_active ?? true)
   const [excludedCollectionIds, setExcludedCollectionIds] = useState<string[]>(
     discount?.excluded_collection_ids ?? [],
@@ -104,6 +107,7 @@ export function DiscountForm({
         maxDiscountedItems:
           maxDiscountedItems === '' ? undefined : maxDiscountedItems,
         excludesFreeShipping,
+        stacksWithSale,
         isActive,
         excludedCollectionIds:
           method === 'store_sale' ? excludedCollectionIds : [],
@@ -323,6 +327,19 @@ export function DiscountForm({
               />
               Don't also give free shipping when this code is used
             </label>
+            <label className="flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={stacksWithSale}
+                onChange={(e) => setStacksWithSale(e.target.checked)}
+              />
+              Also apply on top of an active store-wide sale
+            </label>
+            <p className="text-xs font-normal text-neutral-500">
+              e.g. a 20% store sale + this code stacks to 30% off, added
+              together. Never stacks with a collection sale like Clearance —
+              those never combine with anything.
+            </p>
           </div>
         )}
 

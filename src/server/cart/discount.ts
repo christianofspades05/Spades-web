@@ -19,6 +19,9 @@ export interface AppliedCartDiscount {
   title: string
   type: Discount['type']
   value: number
+  /** Total discount amount — includes the stacked sale's amount too, when
+   *  stackedSale is set below. Everything that subtracts a discount from a
+   *  total (checkout, the cart summary) should use this one field. */
   amountCents: number
   /** True if this discount should always charge normal shipping — see
    *  discounts.excludes_free_shipping. Checked by shippingCostCents'
@@ -31,6 +34,19 @@ export interface AppliedCartDiscount {
    *  checkout UI show e.g. "discount applies to 2 of 4" per line instead of
    *  only a single lump-sum total. */
   itemBreakdown: { cartItemId: string; discountedUnits: number }[]
+  /** The combined "% off" a discounted unit's price actually drops by —
+   *  just `value` for a plain percentage discount, or the sum of this
+   *  discount's value and the stacked sale's value when both are
+   *  percentage-type. Null for a fixed_amount discount (or a fixed_amount
+   *  stacked sale), since a flat peso amount doesn't map to one clean
+   *  per-unit price. Lets the cart UI show a real "was ₱X, now ₱Y" line
+   *  under a discounted item instead of only the aggregate total. */
+  effectivePercentageOff: number | null
+  /** Set when a code marked discounts.stacks_with_sale is applied while a
+   *  store-wide (scope 'all') automatic sale is also active — see
+   *  resolveDiscountForCart. A collection-scoped sale (e.g. Clearance)
+   *  never stacks, regardless of this flag. */
+  stackedSale: { title: string; amountCents: number } | null
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
@@ -150,6 +166,8 @@ async function appliedDiscountFor(
     value: discount.value,
     amountCents,
     excludesFreeShipping: discount.excludes_free_shipping,
+    effectivePercentageOff: discount.type === 'percentage' ? discount.value : null,
+    stackedSale: null,
     itemBreakdown: Array.from(perItemDiscountedUnits, ([cartItemId, discountedUnits]) => ({
       cartItemId,
       discountedUnits,
@@ -157,7 +175,33 @@ async function appliedDiscountFor(
   }
 }
 
-/** Recomputes what a cart's already-attached discount (if any) is currently worth. */
+/** Unions two discounts' per-item discounted-unit counts, taking whichever
+ *  is higher per item — used when stacking, since a unit discounted by
+ *  both the code and the sale should just show as "discounted," not double
+ *  counted. */
+function mergeItemBreakdowns(
+  a: { cartItemId: string; discountedUnits: number }[],
+  b: { cartItemId: string; discountedUnits: number }[],
+): { cartItemId: string; discountedUnits: number }[] {
+  const merged = new Map<string, number>()
+  for (const entry of [...a, ...b]) {
+    merged.set(
+      entry.cartItemId,
+      Math.max(merged.get(entry.cartItemId) ?? 0, entry.discountedUnits),
+    )
+  }
+  return Array.from(merged, ([cartItemId, discountedUnits]) => ({
+    cartItemId,
+    discountedUnits,
+  }))
+}
+
+/** Recomputes what a cart's already-attached discount (if any) is currently
+ *  worth — and, if that discount is marked stacks_with_sale, adds in
+ *  whatever active store-wide (scope 'all') automatic sale also applies.
+ *  Deliberately never stacks with a collection-scoped sale (e.g.
+ *  Clearance) even if one is active — see discounts.stacks_with_sale's own
+ *  migration comment. */
 export async function resolveDiscountForCart(
   admin: Admin,
   discountId: string | null,
@@ -173,7 +217,38 @@ export async function resolveDiscountForCart(
   if (error) throw error
   if (!discount || !discount.is_active) return null
 
-  return appliedDiscountFor(admin, discount, items)
+  const applied = await appliedDiscountFor(admin, discount, items)
+  if (!applied || !discount.stacks_with_sale) return applied
+
+  const activeAutomaticDiscounts = await getActiveAutomaticDiscounts(admin)
+  const storeWideSale = activeAutomaticDiscounts.find((d) => d.scope === 'all')
+  if (!storeWideSale) return applied
+
+  const saleApplied = await appliedDiscountFor(admin, storeWideSale, items)
+  if (!saleApplied) return applied
+
+  const cartTotalCents = items.reduce(
+    (sum, item) => sum + itemLineTotalCents(item),
+    0,
+  )
+
+  return {
+    ...applied,
+    amountCents: Math.min(
+      applied.amountCents + saleApplied.amountCents,
+      cartTotalCents,
+    ),
+    effectivePercentageOff:
+      applied.effectivePercentageOff != null &&
+      saleApplied.effectivePercentageOff != null
+        ? applied.effectivePercentageOff + saleApplied.effectivePercentageOff
+        : null,
+    stackedSale: { title: saleApplied.title, amountCents: saleApplied.amountCents },
+    itemBreakdown: mergeItemBreakdowns(
+      applied.itemBreakdown,
+      saleApplied.itemBreakdown,
+    ),
+  }
 }
 
 /**

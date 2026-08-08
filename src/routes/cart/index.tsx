@@ -139,6 +139,20 @@ function CartPage() {
           const discountedUnits =
             discount?.itemBreakdown.find((b) => b.cartItemId === item.id)
               ?.discountedUnits ?? 0
+          const lineTotalCents = item.quantity * item.price_cents_snapshot
+          // Only computable for a percentage discount (or a stacked pair
+          // that's percentage + percentage) — see AppliedCartDiscount's
+          // effectivePercentageOff doc comment for why a fixed_amount
+          // discount doesn't get a clean per-unit price here.
+          const discountedLineCents =
+            discountedUnits > 0 && discount?.effectivePercentageOff != null
+              ? (item.quantity - discountedUnits) * item.price_cents_snapshot +
+                discountedUnits *
+                  Math.round(
+                    item.price_cents_snapshot *
+                      (1 - discount.effectivePercentageOff / 100),
+                  )
+              : null
 
           return (
             <li key={item.id} className="flex gap-4 py-5">
@@ -203,9 +217,20 @@ function CartPage() {
                 </div>
               </div>
 
-              <p className="whitespace-nowrap font-medium text-neutral-900 dark:text-white">
-                {formatPrice(item.quantity * item.price_cents_snapshot)}
-              </p>
+              {discountedLineCents != null ? (
+                <div className="whitespace-nowrap text-right">
+                  <p className="text-sm text-neutral-400 line-through dark:text-neutral-600">
+                    {formatPrice(lineTotalCents)}
+                  </p>
+                  <p className="font-medium text-green-700 dark:text-green-400">
+                    {formatPrice(discountedLineCents)}
+                  </p>
+                </div>
+              ) : (
+                <p className="whitespace-nowrap font-medium text-neutral-900 dark:text-white">
+                  {formatPrice(lineTotalCents)}
+                </p>
+              )}
             </li>
           )
         })}
@@ -220,6 +245,9 @@ function CartPage() {
               </p>
               <p className="text-xs text-green-700 dark:text-green-400">
                 {discountLabel}
+                {discount.stackedSale && (
+                  <> {t.cart.stackedWithSale(discount.stackedSale.title)}</>
+                )}
               </p>
             </div>
             <button

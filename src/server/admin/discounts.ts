@@ -38,6 +38,7 @@ function toRow(data: DiscountInput) {
     max_uses_per_customer: data.oneUsePerCustomer ? 1 : null,
     max_discounted_items: data.maxDiscountedItems ?? null,
     excludes_free_shipping: data.excludesFreeShipping,
+    stacks_with_sale: data.kind === 'code' ? data.stacksWithSale : false,
     starts_at: data.startsAt
       ? storeLocalDateTimeToUtcIso(data.startsAt)
       : null,

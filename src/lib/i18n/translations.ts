@@ -92,6 +92,9 @@ export interface Translations {
      *  units (see discounts.max_discounted_items) — e.g. "Discount applies
      *  to 2 of 4". */
     discountAppliesTo: (discounted: number, total: number) => string
+    /** Shown under the applied-discount banner when a code is stacked on
+     *  top of an active store-wide sale — e.g. "+ Summer Sale". */
+    stackedWithSale: (saleTitle: string) => string
     total: string
     checkout: string
   }
@@ -355,6 +358,7 @@ export const translations: Record<Language, Translations> = {
       discount: 'Discount',
       discountAppliesTo: (discounted, total) =>
         `Discount applies to ${discounted} of ${total}`,
+      stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: 'Total',
       checkout: 'Checkout',
     },
@@ -632,6 +636,7 @@ export const translations: Record<Language, Translations> = {
       discount: '割引',
       discountAppliesTo: (discounted, total) =>
         `割引は${total}点中${discounted}点に適用されます`,
+      stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '合計',
       checkout: 'レジに進む',
     },
@@ -908,6 +913,7 @@ export const translations: Record<Language, Translations> = {
       discount: '할인',
       discountAppliesTo: (discounted, total) =>
         `할인은 ${total}개 중 ${discounted}개에 적용됩니다`,
+      stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '합계',
       checkout: '결제하기',
     },
