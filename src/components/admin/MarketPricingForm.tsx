@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { getErrorMessage } from '#/lib/utils/errors'
 import type { MarketInput } from '#/lib/validation/admin/market-pricing'
 import { COUNTRIES, formatCountryName } from '#/lib/utils/countries'
-import { SUPPORTED_CURRENCIES } from '#/lib/utils/money'
+import { SUPPORTED_CURRENCIES, minorUnitsPerMajor } from '#/lib/utils/money'
 import type { Currency } from '#/lib/utils/money'
 import { Card } from '#/components/admin/Card'
 import {
@@ -68,16 +68,21 @@ export function MarketPricingForm({
   )
   const [isActive, setIsActive] = useState(market?.is_active ?? true)
   const [shippingName, setShippingName] = useState(market?.shipping_name ?? '')
-  const [shippingPrice, setShippingPrice] = useState(
-    market?.shipping_price_cents != null
-      ? String(market.shipping_price_cents / 100)
-      : '',
-  )
   const [shippingCurrency, setShippingCurrency] = useState<Currency>(
     (market?.shipping_currency as Currency | undefined) ??
       (market?.countryCodes.length === 1
         ? (COUNTRY_CURRENCY[market.countryCodes[0]] ?? 'PHP')
         : 'PHP'),
+  )
+  const [shippingPrice, setShippingPrice] = useState(
+    market?.shipping_price_cents != null
+      ? String(
+          market.shipping_price_cents /
+            minorUnitsPerMajor(
+              (market.shipping_currency as Currency | undefined) ?? 'PHP',
+            ),
+        )
+      : '',
   )
   const [freeShippingMode, setFreeShippingMode] = useState<
     'none' | 'amount' | 'items'
@@ -129,7 +134,9 @@ export function MarketPricingForm({
         isActive,
         shippingName: shippingName.trim() || undefined,
         shippingPriceCents: shippingPrice.trim()
-          ? Math.round(Number(shippingPrice) * 100)
+          ? Math.round(
+              Number(shippingPrice) * minorUnitsPerMajor(shippingCurrency),
+            )
           : undefined,
         shippingCurrency,
         freeShippingMinSubtotalCents:
@@ -270,7 +277,7 @@ export function MarketPricingForm({
                 <input
                   type="number"
                   min={0}
-                  step="0.01"
+                  step={minorUnitsPerMajor(shippingCurrency) === 1 ? '1' : '0.01'}
                   value={shippingPrice}
                   onChange={(e) => setShippingPrice(e.target.value)}
                   placeholder="e.g. 350"
