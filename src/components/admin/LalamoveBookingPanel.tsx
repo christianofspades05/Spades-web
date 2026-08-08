@@ -44,6 +44,35 @@ function useLalamoveLocationMap() {
   return MapComponent
 }
 
+/** The customer's checkout pin, shown for the whole life of a Lalamove
+ *  order — unlike LalamoveBookingPanel below, this isn't specific to the
+ *  pre-booking step, so staff can still see (and visually confirm) where
+ *  the order actually went after it's booked/fulfilled, not just before. */
+export function LalamoveLocationCard({
+  lalamoveInfo,
+}: {
+  lalamoveInfo: LalamoveInfo
+}) {
+  const MapComponent = useLalamoveLocationMap()
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Lalamove Delivery
+      </h2>
+      <p className="text-sm text-neutral-900">{lalamoveInfo.dropoffAddress}</p>
+      {MapComponent && (
+        <div className="mt-3">
+          <MapComponent
+            lat={lalamoveInfo.dropoffLat}
+            lng={lalamoveInfo.dropoffLng}
+          />
+        </div>
+      )}
+    </Card>
+  )
+}
+
 /** Staff's "confirm and book" action for a paid Lalamove order — shown in
  *  place of the plain ShipmentForm until a shipments row actually exists
  *  (see bookLalamoveShipment in server/admin/orders.ts for why booking and
@@ -63,7 +92,6 @@ export function LalamoveBookingPanel({
   const [pickupContactPhone, setPickupContactPhone] = useState('')
   const [booking, setBooking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const MapComponent = useLalamoveLocationMap()
 
   // Some staff book the rider directly in Lalamove's own app/dashboard
   // (e.g. to pick a service tier or handle an edge case this panel's live
@@ -118,18 +146,9 @@ export function LalamoveBookingPanel({
   return (
     <Card className="p-5">
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-        Lalamove Delivery
+        Book Rider
       </h2>
-      <p className="text-sm text-neutral-900">{lalamoveInfo.dropoffAddress}</p>
-      {MapComponent && (
-        <div className="mt-3">
-          <MapComponent
-            lat={lalamoveInfo.dropoffLat}
-            lng={lalamoveInfo.dropoffLng}
-          />
-        </div>
-      )}
-      <p className="mt-1 text-xs text-neutral-500">
+      <p className="text-xs text-neutral-500">
         Customer already paid an estimated fee of{' '}
         {formatCentsAsPHP(lalamoveInfo.estimatedFeeCents)} at checkout. The
         actual fee is re-quoted right before booking — any small difference

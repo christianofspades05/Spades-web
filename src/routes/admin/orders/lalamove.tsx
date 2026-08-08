@@ -7,6 +7,7 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { StatusBadge } from '#/components/admin/Badge'
 import {
   LalamoveBookingPanel,
+  LalamoveLocationCard,
   LalamoveRefreshButton,
 } from '#/components/admin/LalamoveBookingPanel'
 import {
@@ -190,14 +191,19 @@ function LalamoveOrdersPage() {
                             colSpan={7}
                             className="border-t border-neutral-100 bg-neutral-50 p-4"
                           >
-                            <LalamoveBookingPanel
-                              orderId={order.id}
-                              lalamoveInfo={order.lalamoveInfo}
-                              onBooked={() => {
-                                setExpandedId(null)
-                                router.invalidate()
-                              }}
-                            />
+                            <div className="flex flex-col gap-4">
+                              <LalamoveLocationCard
+                                lalamoveInfo={order.lalamoveInfo}
+                              />
+                              <LalamoveBookingPanel
+                                orderId={order.id}
+                                lalamoveInfo={order.lalamoveInfo}
+                                onBooked={() => {
+                                  setExpandedId(null)
+                                  router.invalidate()
+                                }}
+                              />
+                            </div>
                           </td>
                         </tr>
                       )}

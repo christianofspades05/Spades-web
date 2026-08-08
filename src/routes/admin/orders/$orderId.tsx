@@ -29,6 +29,7 @@ import { CopyButton } from '#/components/admin/CopyButton'
 import { OrderItemsEditor } from '#/components/admin/OrderItemsEditor'
 import {
   LalamoveBookingPanel,
+  LalamoveLocationCard,
   LalamoveRefreshButton,
 } from '#/components/admin/LalamoveBookingPanel'
 import {
@@ -461,6 +462,10 @@ function OrderDetailPage() {
                 ))}
               </ul>
             </Card>
+          )}
+
+          {order.shipping_method === 'lalamove' && order.lalamove_info && (
+            <LalamoveLocationCard lalamoveInfo={order.lalamove_info} />
           )}
 
           {order.shipping_method === 'lalamove' &&
