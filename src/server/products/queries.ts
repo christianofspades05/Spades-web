@@ -510,6 +510,7 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
         .eq('brand', data.brand)
         .eq('product_type', data.productType)
         .neq('id', data.excludeProductId)
+        .gt('total_stock', 0)
       const { data: products, error } = await query.limit(data.limit)
 
       if (error) throw error
