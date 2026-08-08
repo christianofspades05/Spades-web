@@ -116,6 +116,12 @@ function LoginPage() {
                 autoComplete="current-password"
               />
             </label>
+            <Link
+              to="/account/forgot-password"
+              className="-mt-2 self-end text-xs text-neutral-500 underline hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+            >
+              {t.account.forgotPassword}
+            </Link>
             {error && (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}

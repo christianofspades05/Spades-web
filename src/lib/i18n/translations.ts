@@ -243,6 +243,21 @@ export interface Translations {
     resendCode: string
     resendCodeWithTimer: (seconds: number) => string
     codeResent: string
+    forgotPassword: string
+    forgotPasswordHeading: string
+    forgotPasswordBody: string
+    sendResetLink: string
+    sendingResetLink: string
+    resetLinkSentBody: string
+    backToLogin: string
+    setNewPasswordHeading: string
+    setNewPasswordBody: string
+    newPassword: string
+    confirmNewPassword: string
+    passwordsDontMatch: string
+    updatingPassword: string
+    updatePassword: string
+    resetLinkExpired: string
     thanksForReview: string
     reviewAppreciation: string
     backToAccount: string
@@ -493,7 +508,7 @@ export const translations: Record<Language, Translations> = {
       creatingAccount: 'Creating account…',
       signUpWithGoogle: 'Sign up with Google',
       checkYourEmail: 'Check your email',
-      codeSentPrefix: 'We sent a 6-digit code to',
+      codeSentPrefix: 'We sent an 8-digit code to',
       codeSentSuffix: 'Enter it below to verify your account.',
       verificationCode: 'Verification code',
       verifying: 'Verifying…',
@@ -501,6 +516,24 @@ export const translations: Record<Language, Translations> = {
       resendCode: 'Resend code',
       resendCodeWithTimer: (seconds) => `Resend code (${seconds}s)`,
       codeResent: 'A new code has been sent.',
+      forgotPassword: 'Forgot password?',
+      forgotPasswordHeading: 'Reset your password',
+      forgotPasswordBody:
+        "Enter your email and we'll send you a link to reset your password.",
+      sendResetLink: 'Send reset link',
+      sendingResetLink: 'Sending…',
+      resetLinkSentBody:
+        "If an account exists for that email, we've sent a link to reset your password.",
+      backToLogin: 'Back to sign in',
+      setNewPasswordHeading: 'Set a new password',
+      setNewPasswordBody: 'Choose a new password for your account.',
+      newPassword: 'New password',
+      confirmNewPassword: 'Confirm new password',
+      passwordsDontMatch: "Passwords don't match",
+      updatingPassword: 'Updating…',
+      updatePassword: 'Update password',
+      resetLinkExpired:
+        'This reset link is invalid or has expired. Request a new one.',
       thanksForReview: 'Thanks for your review!',
       reviewAppreciation:
         "We appreciate you taking the time — it'll appear on the product page once it's been checked.",
@@ -751,7 +784,7 @@ export const translations: Record<Language, Translations> = {
       creatingAccount: 'アカウント作成中…',
       signUpWithGoogle: 'Googleで登録',
       checkYourEmail: 'メールをご確認ください',
-      codeSentPrefix: '6桁のコードを送信しました：',
+      codeSentPrefix: '8桁のコードを送信しました：',
       codeSentSuffix: '下に入力してアカウントを認証してください。',
       verificationCode: '認証コード',
       verifying: '認証中…',
@@ -759,6 +792,24 @@ export const translations: Record<Language, Translations> = {
       resendCode: 'コードを再送信',
       resendCodeWithTimer: (seconds) => `コードを再送信（${seconds}秒）`,
       codeResent: '新しいコードを送信しました。',
+      forgotPassword: 'パスワードをお忘れですか？',
+      forgotPasswordHeading: 'パスワードを再設定',
+      forgotPasswordBody:
+        'メールアドレスを入力すると、パスワード再設定用のリンクをお送りします。',
+      sendResetLink: 'リセットリンクを送信',
+      sendingResetLink: '送信中…',
+      resetLinkSentBody:
+        'ご入力のメールアドレスのアカウントが存在する場合、パスワード再設定用のリンクをお送りしました。',
+      backToLogin: 'ログインに戻る',
+      setNewPasswordHeading: '新しいパスワードを設定',
+      setNewPasswordBody: 'アカウントの新しいパスワードを設定してください。',
+      newPassword: '新しいパスワード',
+      confirmNewPassword: '新しいパスワード（確認）',
+      passwordsDontMatch: 'パスワードが一致しません',
+      updatingPassword: '更新中…',
+      updatePassword: 'パスワードを更新',
+      resetLinkExpired:
+        'このリセットリンクは無効か期限切れです。もう一度リクエストしてください。',
       thanksForReview: 'レビューありがとうございます！',
       reviewAppreciation:
         'お時間をいただきありがとうございます — 確認後、商品ページに表示されます。',
@@ -1006,7 +1057,7 @@ export const translations: Record<Language, Translations> = {
       creatingAccount: '계정 생성 중…',
       signUpWithGoogle: 'Google로 가입하기',
       checkYourEmail: '이메일을 확인해 주세요',
-      codeSentPrefix: '6자리 코드를 다음 주소로 보내드렸습니다:',
+      codeSentPrefix: '8자리 코드를 다음 주소로 보내드렸습니다:',
       codeSentSuffix: '아래에 입력하여 계정을 인증해 주세요.',
       verificationCode: '인증 코드',
       verifying: '인증 중…',
@@ -1014,6 +1065,23 @@ export const translations: Record<Language, Translations> = {
       resendCode: '코드 재전송',
       resendCodeWithTimer: (seconds) => `코드 재전송 (${seconds}초)`,
       codeResent: '새 코드가 전송되었습니다.',
+      forgotPassword: '비밀번호를 잊으셨나요?',
+      forgotPasswordHeading: '비밀번호 재설정',
+      forgotPasswordBody: '이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.',
+      sendResetLink: '재설정 링크 보내기',
+      sendingResetLink: '전송 중…',
+      resetLinkSentBody:
+        '입력하신 이메일로 계정이 존재하는 경우, 비밀번호 재설정 링크를 보내드렸습니다.',
+      backToLogin: '로그인으로 돌아가기',
+      setNewPasswordHeading: '새 비밀번호 설정',
+      setNewPasswordBody: '계정에 사용할 새 비밀번호를 설정해 주세요.',
+      newPassword: '새 비밀번호',
+      confirmNewPassword: '새 비밀번호 확인',
+      passwordsDontMatch: '비밀번호가 일치하지 않습니다',
+      updatingPassword: '업데이트 중…',
+      updatePassword: '비밀번호 업데이트',
+      resetLinkExpired:
+        '이 재설정 링크는 유효하지 않거나 만료되었습니다. 다시 요청해 주세요.',
       thanksForReview: '리뷰를 남겨주셔서 감사합니다!',
       reviewAppreciation:
         '소중한 시간 내어주셔서 감사합니다 — 확인 후 상품 페이지에 표시됩니다.',
