@@ -114,29 +114,51 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       }
     }
 
-    const { data: sendRows, error: sendsError } = await admin
-      .from('email_sends')
-      .select('email_automation_id, sent_at')
-      .in('email_automation_id', automationIds)
-    if (sendsError) {
-      console.error('listEmailAutomations: email_sends query failed:', sendsError)
-      throw sendsError
-    }
-
+    // Per-automation counts, not a bulk row fetch — fetching every
+    // email_sends row to count them in memory silently truncated at
+    // PostgREST's default 1000-row response cap once total sends across
+    // every automation passed that (3,000+ and climbing), starving every
+    // automation's count except whichever one's rows happened to fill that
+    // first page. A COUNT query never returns rows, so it isn't subject to
+    // that cap regardless of how large the table grows.
     const thirtyDaysAgoISO = new Date(Date.now() - THIRTY_DAYS_MS).toISOString()
     const sendStatsByAutomationId = new Map<
       string,
       { total: number; last30Days: number }
     >()
-    for (const row of sendRows) {
-      const existing = sendStatsByAutomationId.get(row.email_automation_id) ?? {
-        total: 0,
-        last30Days: 0,
-      }
-      existing.total += 1
-      if (row.sent_at >= thirtyDaysAgoISO) existing.last30Days += 1
-      sendStatsByAutomationId.set(row.email_automation_id, existing)
-    }
+    await Promise.all(
+      automationIds.map(async (automationId) => {
+        const [totalResult, last30Result] = await Promise.all([
+          admin
+            .from('email_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('email_automation_id', automationId),
+          admin
+            .from('email_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('email_automation_id', automationId)
+            .gte('sent_at', thirtyDaysAgoISO),
+        ])
+        if (totalResult.error) {
+          console.error(
+            'listEmailAutomations: email_sends total count failed:',
+            totalResult.error,
+          )
+          throw totalResult.error
+        }
+        if (last30Result.error) {
+          console.error(
+            'listEmailAutomations: email_sends 30-day count failed:',
+            last30Result.error,
+          )
+          throw last30Result.error
+        }
+        sendStatsByAutomationId.set(automationId, {
+          total: totalResult.count ?? 0,
+          last30Days: last30Result.count ?? 0,
+        })
+      }),
+    )
 
     return data.map((automation) => {
       const stats = statsByAutomationId.get(automation.id)
