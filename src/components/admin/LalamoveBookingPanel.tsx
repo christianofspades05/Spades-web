@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
 import {
   bookLalamoveShipment,
+  createShipmentPhotoUploadUrl,
   refreshLalamoveStatus,
+  setShipmentPickupPhoto,
   upsertShipment,
 } from '#/server/admin/orders'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { loadGoogleMaps } from '#/lib/google-maps/loader'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { Card } from '#/components/admin/Card'
 import {
   buttonPrimaryClassName,
@@ -280,5 +283,82 @@ export function LalamoveRefreshButton({
       </button>
       {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
     </div>
+  )
+}
+
+/** Staff photographs the package when the rider arrives to pick it up and
+ *  uploads it here — saved on the shipment and emailed to the customer
+ *  immediately as pickup confirmation. Only meaningful once a shipment
+ *  exists (there's nothing to photograph before a rider is booked), unlike
+ *  LalamoveLocationCard above which spans the whole order lifecycle. */
+export function LalamovePickupPhotoCard({
+  orderId,
+  photoUrl,
+  onUploaded,
+}: {
+  orderId: string
+  photoUrl: string | null
+  onUploaded: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const { path, token, publicUrl } = await createShipmentPhotoUploadUrl({
+        data: { fileName: file.name },
+      })
+      const { error: uploadError } = await getSupabaseBrowserClient()
+        .storage.from('shipment-photos')
+        .uploadToSignedUrl(path, token, file)
+      if (uploadError) throw uploadError
+      await setShipmentPickupPhoto({ data: { orderId, photoUrl: publicUrl } })
+      onUploaded()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Pickup Photo
+      </h2>
+      <p className="mb-3 text-xs text-neutral-500">
+        Photograph the package when the rider picks it up — uploading emails
+        it to the customer right away as pickup confirmation.
+      </p>
+      {photoUrl && (
+        <img
+          src={photoUrl}
+          alt="Package at pickup"
+          className="mb-3 w-full max-w-xs rounded-lg border border-neutral-200"
+        />
+      )}
+      <label
+        className={`${buttonSecondaryClassName} ${uploading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+      >
+        {uploading
+          ? 'Uploading…'
+          : photoUrl
+            ? 'Replace photo'
+            : 'Upload photo'}
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          disabled={uploading}
+          className="hidden"
+        />
+      </label>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </Card>
   )
 }

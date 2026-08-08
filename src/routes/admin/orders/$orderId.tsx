@@ -30,6 +30,7 @@ import { OrderItemsEditor } from '#/components/admin/OrderItemsEditor'
 import {
   LalamoveBookingPanel,
   LalamoveLocationCard,
+  LalamovePickupPhotoCard,
   LalamoveRefreshButton,
 } from '#/components/admin/LalamoveBookingPanel'
 import {
@@ -484,10 +485,17 @@ function OrderDetailPage() {
                 onSaved={() => router.invalidate()}
               />
               {order.shipments[0]?.carrier === 'lalamove' && (
-                <LalamoveRefreshButton
-                  orderId={order.id}
-                  onRefreshed={() => router.invalidate()}
-                />
+                <>
+                  <LalamoveRefreshButton
+                    orderId={order.id}
+                    onRefreshed={() => router.invalidate()}
+                  />
+                  <LalamovePickupPhotoCard
+                    orderId={order.id}
+                    photoUrl={order.shipments[0].pickup_photo_url}
+                    onUploaded={() => router.invalidate()}
+                  />
+                </>
               )}
             </>
           )}

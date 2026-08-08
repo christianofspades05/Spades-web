@@ -21,6 +21,10 @@ import {
   shipmentTrackingEmailHtml,
   shipmentTrackingEmailSubject,
 } from '#/lib/email/templates/shipment-tracking'
+import {
+  pickupPhotoEmailHtml,
+  pickupPhotoEmailSubject,
+} from '#/lib/email/templates/pickup-photo'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { resolveDiscountForCart } from '#/server/cart/discount'
@@ -1725,4 +1729,106 @@ export const refreshLalamoveStatus = createServerFn({ method: 'POST' })
     if (updateError) throw updateError
 
     return updated
+  })
+
+/**
+ * Signed upload URL for a shipment pickup photo — same direct-to-Storage
+ * pattern as createStorefrontSectionUploadUrl (see that function's doc
+ * comment for why: base64-through-createServerFn blows past Vercel's
+ * request body cap).
+ */
+export const createShipmentPhotoUploadUrl = createServerFn({
+  method: 'POST',
+})
+  .validator(z.object({ fileName: z.string() }))
+  .handler(
+    async ({
+      data,
+    }): Promise<{ path: string; token: string; publicUrl: string }> => {
+      await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
+
+      const extension = data.fileName.includes('.')
+        ? data.fileName.split('.').pop()
+        : 'jpg'
+      const path = `${crypto.randomUUID()}.${extension}`
+
+      const { data: signed, error } = await admin.storage
+        .from('shipment-photos')
+        .createSignedUploadUrl(path)
+      if (error) throw error
+
+      const { data: publicUrl } = admin.storage
+        .from('shipment-photos')
+        .getPublicUrl(path)
+
+      return { path, token: signed.token, publicUrl: publicUrl.publicUrl }
+    },
+  )
+
+/**
+ * Staff photographs the package when the rider picks it up (Lalamove
+ * orders) and uploads it here — saved on the shipment row and immediately
+ * emailed to the customer as pickup confirmation, the same reassurance
+ * role shipmentTrackingEmail already plays via a tracking number, just
+ * with a photo instead.
+ */
+export const setShipmentPickupPhoto = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({ orderId: z.string().uuid(), photoUrl: z.string().url() }),
+  )
+  .handler(async ({ data }): Promise<Shipment> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: order, error: orderError } = await admin
+      .from('orders')
+      .select('order_number, shipping_address, source')
+      .eq('id', data.orderId)
+      .single()
+    if (orderError) throw orderError
+
+    const { data: shipment, error } = await admin
+      .from('shipments')
+      .update({ pickup_photo_url: data.photoUrl })
+      .eq('order_id', data.orderId)
+      .select('*')
+      .single()
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'order.pickup_photo_upload',
+      'shipments',
+      shipment.id,
+      { orderId: data.orderId },
+    )
+
+    // Same marketplace-relay-address exclusion as upsertShipment's tracking
+    // email — TikTok/Shopee/Lazada customers get updates through the
+    // platform app itself, not our email.
+    if (
+      order.source !== 'tiktok_shop' &&
+      order.source !== 'shopee' &&
+      order.source !== 'lazada'
+    ) {
+      const address = order.shipping_address as unknown as OrderShippingAddress
+      void sendEmail({
+        to: address.email,
+        subject: pickupPhotoEmailSubject(order.order_number),
+        from: withDisplayName(
+          'Spades Official Orders',
+          process.env.RESEND_FROM_EMAIL_ORDERS,
+        ),
+        html: pickupPhotoEmailHtml({
+          orderNumber: order.order_number,
+          photoUrl: data.photoUrl,
+          trackingUrl: shipment.tracking_url,
+        }),
+      }).catch((err: unknown) => {
+        console.error('Failed to send pickup photo email:', err)
+      })
+    }
+
+    return shipment
   })

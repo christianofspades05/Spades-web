@@ -691,6 +691,7 @@ export interface Database {
           status: ShipmentStatus
           packed_by: string | null
           label_url: string | null
+          pickup_photo_url: string | null
           raw_payload: Record<string, unknown> | null
           shipped_at: string | null
           delivered_at: string | null
