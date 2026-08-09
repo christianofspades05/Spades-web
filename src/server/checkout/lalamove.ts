@@ -28,7 +28,9 @@ export const getLalamoveEstimate = createServerFn({ method: 'POST' })
         throw new Error('Lalamove delivery is only available on Spades.')
       }
       if (!isLalamoveAvailableToday()) {
-        throw new Error('Lalamove delivery is not available on Sundays.')
+        throw new Error(
+          'Lalamove delivery is not available Saturday from 4PM onwards, or on Sundays.',
+        )
       }
 
       const quotation = await getLalamoveQuotation({

@@ -1,18 +1,21 @@
 /**
  * Whether the Lalamove same-day-courier checkout option should be offered:
- * Spades only, Metro Manila only, any day except Sunday. Checked both
- * client-side (to show/hide the option) and server-side in place-order.ts
- * (never trust the client).
+ * Spades only, Metro Manila only, and never Sunday or Saturday from 4PM
+ * onwards (no staff around to book/confirm a rider that late into the
+ * weekend). Checked both client-side (to show/hide the option) and
+ * server-side in place-order.ts (never trust the client).
  *
- * Orders can be PLACED any time (except Sunday), but actual riders are only
- * booked 10AM-4PM daily — see LALAMOVE_BOOKING_START_HOUR/END_HOUR below,
- * used for the customer-facing copy explaining when their order will
+ * Orders can be PLACED any time within that window, but actual riders are
+ * only booked 10AM-4PM daily — see LALAMOVE_BOOKING_START_HOUR/END_HOUR
+ * below, used for the customer-facing copy explaining when their order will
  * actually get booked, not for gating whether the option is selectable.
  */
 import { shippingZoneForRegion } from '#/lib/checkout/shipping'
-import { storeLocalDayOfWeek } from '#/lib/utils/date-range'
+import { storeLocalDayOfWeek, storeLocalHour } from '#/lib/utils/date-range'
 
 const SUNDAY = 0
+const SATURDAY = 6
+const SATURDAY_CUTOFF_HOUR = 16
 
 /** The daily window staff actually book Lalamove riders in — informational
  *  only (see module doc comment above), shown in the checkout copy so
@@ -21,7 +24,12 @@ export const LALAMOVE_BOOKING_START_HOUR = 10
 export const LALAMOVE_BOOKING_END_HOUR = 16
 
 export function isLalamoveAvailableToday(now: Date = new Date()): boolean {
-  return storeLocalDayOfWeek(now) !== SUNDAY
+  const day = storeLocalDayOfWeek(now)
+  if (day === SUNDAY) return false
+  if (day === SATURDAY && storeLocalHour(now) >= SATURDAY_CUTOFF_HOUR) {
+    return false
+  }
+  return true
 }
 
 /** Brand/region check only, no day-of-week — lets the checkout UI show the

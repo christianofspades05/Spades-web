@@ -103,8 +103,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
         )
       }
 
-      // Lalamove is Spades/Metro-Manila/12-4pm-only and online-payment-only
-      // — same never-trust-the-client principle as the COD check above.
+      // Lalamove is Spades/Metro-Manila-only, unavailable Saturday from 4PM
+      // onwards or on Sundays, and online-payment-only — same
+      // never-trust-the-client principle as the COD check above.
       const isLalamove = data.contact.shippingMethod === 'lalamove'
       if (isLalamove && data.paymentProvider === 'cod') {
         throw new Error('Lalamove delivery requires online payment.')
@@ -117,7 +118,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         })
       ) {
         throw new Error(
-          'Lalamove delivery is only available for Metro Manila addresses on the Spades store, any day except Sunday.',
+          'Lalamove delivery is only available for Metro Manila addresses on the Spades store, and not Saturday from 4PM onwards or on Sundays.',
         )
       }
 

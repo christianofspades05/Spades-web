@@ -195,8 +195,9 @@ function CheckoutPage() {
   const lalamoveAvailableToday = isLalamoveAvailableToday()
   const lalamoveEligible = lalamoveRegionEligible && lalamoveAvailableToday
 
-  // If the region changes away from Metro Manila (or it becomes Sunday)
-  // while Lalamove is selected, fall back to standard rather than
+  // If the region changes away from Metro Manila (or the window closes —
+  // Sunday, or Saturday from 4PM onwards) while Lalamove is selected, fall
+  // back to standard rather than
   // letting the customer proceed with a no-longer-valid choice — place-order
   // would reject it anyway, but this catches it before they even try. Placed
   // before the early returns below (with every other hook in this
@@ -514,7 +515,8 @@ function CheckoutPage() {
                       Lalamove Same-day Delivery (10AM–4PM, Metro Manila only)
                       {!lalamoveAvailableToday && (
                         <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
-                          Not available on Sundays.
+                          Not available Saturday from 4PM onwards, or on
+                          Sundays.
                         </span>
                       )}
                     </span>
