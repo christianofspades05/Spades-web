@@ -1104,7 +1104,45 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         : []
     const variantById = new Map(variants.map((v) => [v.id, v]))
 
-    const productIds = Array.from(new Set(variants.map((v) => v.product_id)))
+    // order_items.variant_id is nullable (ON DELETE SET NULL — see
+    // 0001_init_schema.sql:412): once a variant is deleted/replaced (e.g. a
+    // size re-added during a product edit), every historical order_items row
+    // that used it loses its variant_id, leaving only product_name_snapshot
+    // (the product's name captured at order time) to identify it. Resolve
+    // those back to the live product by name so they land in the same bucket
+    // as the product's other, intact sales instead of splitting into a
+    // separate "orphaned" row with no cost data. Best-effort: if two
+    // different products ever shared the exact same name, this picks
+    // whichever one the query happens to return first.
+    const orphanNames = Array.from(
+      new Set(
+        items
+          .filter((i) => i.variant_id === null)
+          .map((i) => i.product_name_snapshot),
+      ),
+    )
+    const productIdByOrphanName = new Map<string, string>()
+    if (orphanNames.length > 0) {
+      const orphanMatches = await fetchAllRows((offset) =>
+        admin
+          .from('products')
+          .select('id, name')
+          .in('name', orphanNames)
+          .range(offset, offset + 999),
+      )
+      for (const p of orphanMatches) {
+        if (!productIdByOrphanName.has(p.name)) {
+          productIdByOrphanName.set(p.name, p.id)
+        }
+      }
+    }
+
+    const productIds = Array.from(
+      new Set([
+        ...variants.map((v) => v.product_id),
+        ...productIdByOrphanName.values(),
+      ]),
+    )
     const products =
       productIds.length > 0
         ? await fetchAllRows((offset) =>
@@ -1123,23 +1161,49 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     // Current stock is a live figure, not scoped to the date range — fetched
     // across ALL of each product's variants (not just the ones sold in this
     // range), since a size that didn't sell still counts toward stock on hand.
+    // Also doubles as the cost/SRP fallback for orphaned line items above —
+    // their own variant's price/cost is gone, so the average across the
+    // product's currently active variants is the best available estimate,
+    // and a real average beats silently treating cost as ₱0 (which used to
+    // inflate margin on those units to an artificial 100%).
     const stockRows =
       productIds.length > 0
         ? await fetchAllRows((offset) =>
             admin
               .from('products')
-              .select('id, variants:product_variants(inventory(quantity_on_hand))')
+              .select(
+                'id, variants:product_variants(price_cents, cost_cents, inventory(quantity_on_hand))',
+              )
               .in('id', productIds)
               .range(offset, offset + 999),
           )
         : []
     const currentStockByProduct = new Map<string, number>()
+    const avgCostByProduct = new Map<string, number>()
+    const avgSrpByProduct = new Map<string, number>()
     for (const row of stockRows) {
       let stock = 0
+      let costSum = 0
+      let costCount = 0
+      let srpSum = 0
       for (const variant of row.variants) {
         for (const inv of variant.inventory) stock += inv.quantity_on_hand
+        // cost_cents is nullable (staff hasn't always filled it in) — only
+        // average over variants that actually have one set, rather than
+        // treating a missing cost as ₱0 and dragging the average down.
+        if (variant.cost_cents !== null) {
+          costSum += variant.cost_cents
+          costCount += 1
+        }
+        srpSum += variant.price_cents
       }
       currentStockByProduct.set(row.id, stock)
+      if (costCount > 0) {
+        avgCostByProduct.set(row.id, Math.round(costSum / costCount))
+      }
+      if (row.variants.length > 0) {
+        avgSrpByProduct.set(row.id, Math.round(srpSum / row.variants.length))
+      }
     }
 
     interface Bucket {
@@ -1157,10 +1221,27 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       const variant = item.variant_id
         ? variantById.get(item.variant_id)
         : undefined
-      const productId = variant?.product_id ?? null
-      // Line items with no variant (e.g. a manual price adjustment) get
-      // grouped by their own snapshot name instead of a shared product.
+      // A variant-less item still resolves to its real product via the
+      // name lookup above, whenever that product still exists — only a
+      // renamed/fully-deleted product falls through to the snapshot-name
+      // bucket below.
+      const productId =
+        variant?.product_id ??
+        productIdByOrphanName.get(item.product_name_snapshot) ??
+        null
+      // Line items with no variant AND no resolvable product (e.g. a manual
+      // price adjustment, or the product itself was deleted) get grouped by
+      // their own snapshot name instead of a shared product.
       const key = productId ?? `snapshot:${item.product_name_snapshot}`
+      // Fallback cost/SRP for a variant-less item: the average across the
+      // resolved product's currently active variants, not ₱0 — a real
+      // estimate instead of silently inflating this unit's margin to 100%.
+      const fallbackCostCents = productId
+        ? (avgCostByProduct.get(productId) ?? 0)
+        : 0
+      const fallbackSrpCents = productId
+        ? (avgSrpByProduct.get(productId) ?? null)
+        : null
       const bucket = buckets.get(key) ?? {
         productId,
         name: productId
@@ -1170,12 +1251,13 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         unitsSold: 0,
         grossSalesCents: 0,
         costOfGoodsCents: 0,
-        srpCents: variant?.price_cents ?? null,
-        costCents: variant?.cost_cents ?? null,
+        srpCents: variant?.price_cents ?? fallbackSrpCents,
+        costCents: variant?.cost_cents ?? (productId ? fallbackCostCents : null),
       }
       bucket.unitsSold += item.quantity
       bucket.grossSalesCents += item.line_total_cents
-      bucket.costOfGoodsCents += (variant?.cost_cents ?? 0) * item.quantity
+      bucket.costOfGoodsCents +=
+        (variant?.cost_cents ?? fallbackCostCents) * item.quantity
       buckets.set(key, bucket)
     }
 
