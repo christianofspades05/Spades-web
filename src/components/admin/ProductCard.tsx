@@ -13,7 +13,7 @@ export interface ProductCardData {
 /** Mobile row rendering of a product-list item — a compact list row (checkbox, photo, title/status, stock, collections), matching the same flat, dense list style as InventoryCard.tsx rather than a padded card. Kept out of products/index.tsx to avoid adding to that file's already-heavy route-type-checking surface (see OrderCard.tsx for the same reasoning). */
 export function ProductCard({
   product,
-  onHand,
+  available,
   isLowStock,
   categories,
   variantCount,
@@ -22,7 +22,7 @@ export function ProductCard({
   onOpen,
 }: {
   product: ProductCardData
-  onHand: number
+  available: number
   isLowStock: boolean
   categories: string
   variantCount: number
@@ -61,7 +61,7 @@ export function ProductCard({
           <span
             className={`text-xs ${isLowStock ? 'font-medium text-red-600' : 'text-neutral-500'}`}
           >
-            {onHand} in stock for {variantCount}{' '}
+            {available} in stock for {variantCount}{' '}
             {variantCount === 1 ? 'variant' : 'variants'}
           </span>
         </div>

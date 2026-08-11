@@ -223,20 +223,25 @@ function ProductsPage() {
 
   const rows = useMemo(() => {
     const withComputed = products.map((product) => {
-      const onHand = product.variants.reduce(
+      // Available (on-hand minus whatever's already reserved by active
+      // carts/checkouts), not raw on-hand — matches what the Inventory page
+      // and product detail page now show, and is the number that actually
+      // determines whether a customer can still buy it (see
+      // QuantityEditor.tsx).
+      const available = product.variants.reduce(
         (sum, v) =>
-          sum + v.inventory.reduce((s, inv) => s + inv.quantity_on_hand, 0),
+          sum + v.inventory.reduce((s, inv) => s + inv.quantity_available, 0),
         0,
       )
       const isLowStock = product.variants.some((v) =>
         v.inventory.some(
-          (inv) => inv.quantity_on_hand <= inv.low_stock_threshold,
+          (inv) => inv.quantity_available <= inv.low_stock_threshold,
         ),
       )
       const categories = product.collections
         .map((c) => c.collection.name)
         .join(', ')
-      return { product, onHand, isLowStock, categories }
+      return { product, available, isLowStock, categories }
     })
 
     const dir = search.dir === 'asc' ? 1 : -1
@@ -245,7 +250,7 @@ function ProductsPage() {
         case 'title':
           return dir * a.product.name.localeCompare(b.product.name)
         case 'inventory':
-          return dir * (a.onHand - b.onHand)
+          return dir * (a.available - b.available)
         case 'type':
           return (
             dir * a.product.product_type.localeCompare(b.product.product_type)
@@ -525,11 +530,11 @@ function ProductsPage() {
 
       {rows.length > 0 && (
         <div className="md:hidden">
-          {rows.map(({ product, onHand, isLowStock, categories }) => (
+          {rows.map(({ product, available, isLowStock, categories }) => (
             <ProductCard
               key={product.id}
               product={product}
-              onHand={onHand}
+              available={available}
               isLowStock={isLowStock}
               categories={categories}
               variantCount={product.variants.length}
@@ -579,7 +584,7 @@ function ProductsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ product, onHand, isLowStock, categories }) => {
+                {rows.map(({ product, available, isLowStock, categories }) => {
                   return (
                     <tr key={product.id} className={tableRowClassName}>
                       <td className={tableCellClassName}>
@@ -621,7 +626,7 @@ function ProductsPage() {
                             isLowStock ? 'font-medium text-red-600' : ''
                           }
                         >
-                          {onHand} in stock
+                          {available} in stock
                         </span>
                         <span className="text-neutral-500">
                           {' '}
