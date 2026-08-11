@@ -4,29 +4,39 @@ import { adjustInventory } from '#/server/admin/products'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { buttonPrimaryClassName, inputClassName } from '#/components/admin/ui'
 
-/** Quick absolute-quantity edit — computes the delta under the hood so stock changes still go through the audited adjustInventory path. `variant="pill"` is the compact, rounded-pill look used by the mobile inventory list (see InventoryCard.tsx); the default keeps the existing boxed-input look used everywhere else. */
+/** Quick edit of a variant's *available* stock — the only number staff
+ *  should need to think about (on-hand and reserved-by-active-carts are
+ *  internal bookkeeping that used to be shown side by side and confused
+ *  staff about which one they were actually changing). Since reserved is
+ *  untouched by this edit, a change of N in desired availability is always
+ *  exactly a change of N to on-hand (available = on_hand - reserved), so
+ *  the same delta this always computed still goes through the audited
+ *  adjustInventory path unchanged. `variant="pill"` is the compact,
+ *  rounded-pill look used by the mobile inventory list (see
+ *  InventoryCard.tsx); the default keeps the existing boxed-input look used
+ *  everywhere else. */
 export function QuantityEditor({
   variantId,
-  quantity,
+  availableQuantity,
   onSaved,
   variant = 'default',
 }: {
   variantId: string
-  quantity: number
+  availableQuantity: number
   onSaved: () => void
   variant?: 'default' | 'pill'
 }) {
-  const [value, setValue] = useState(quantity)
+  const [value, setValue] = useState(availableQuantity)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const dirty = value !== quantity
+  const dirty = value !== availableQuantity
 
   async function handleSave() {
     setSaving(true)
     setError(null)
     try {
       await adjustInventory({
-        data: { variantId, quantityDelta: value - quantity },
+        data: { variantId, quantityDelta: value - availableQuantity },
       })
       onSaved()
     } catch (err) {

@@ -822,7 +822,7 @@ function VariantRow({
         <td className={tableCellClassName}>
           <QuantityEditor
             variantId={variant.id}
-            quantity={inventory?.quantity_on_hand ?? 0}
+            availableQuantity={inventory?.quantity_available ?? 0}
             onSaved={onSaved}
           />
         </td>

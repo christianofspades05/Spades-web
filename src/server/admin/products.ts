@@ -989,7 +989,25 @@ export const adjustInventory = createServerFn({ method: 'POST' })
       .eq('id', current.id)
       .select('*')
       .single()
-    if (updateError) throw updateError
+    if (updateError) {
+      // inventory_reserved_le_on_hand (0001_init_schema.sql:213) blocks
+      // dropping on-hand below what's already reserved by an active
+      // cart/checkout for this variant. The admin UI only ever asks staff
+      // to edit *available* stock now (QuantityEditor computes this same
+      // delta from a desired available quantity), which keeps this
+      // constraint satisfied by construction as long as the target is >= 0
+      // — so hitting it here means reserved grew between page load and
+      // save (someone else just added/checked out with this variant).
+      if (
+        updateError.code === '23514' &&
+        updateError.message.includes('inventory_reserved_le_on_hand')
+      ) {
+        throw new Error(
+          "Can't save — the number reserved in active carts/checkouts for this variant changed since the page loaded. Refresh and try again.",
+        )
+      }
+      throw updateError
+    }
 
     const { error: movementError } = await admin
       .from('inventory_movements')

@@ -55,7 +55,7 @@ function InventoryPage() {
 
   const totalAvailable = rows.reduce((sum, r) => sum + r.quantityAvailable, 0)
   const lowStockCount = rows.filter(
-    (r) => r.quantityOnHand <= r.lowStockThreshold,
+    (r) => r.quantityAvailable <= r.lowStockThreshold,
   ).length
 
   return (
@@ -110,10 +110,7 @@ function InventoryPage() {
                   <th className={tableHeadClassName}>Variant</th>
                   <th className={tableHeadClassName}>SKU</th>
                   <th className={tableHeadClassName}>Cost</th>
-                  <th className={tableHeadClassName}>On hand</th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Available
-                  </th>
+                  <th className={tableHeadClassName}>Available</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,34 +216,33 @@ function InventoryTableRow({
             }
             className={`${inputClassName} w-24`}
           />
+          {dirty && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className={`${buttonPrimaryClassName} px-2 py-1 text-xs`}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
         </div>
+        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       </td>
       <td className={tableCellClassName}>
-        <QuantityEditor
-          variantId={row.variantId}
-          quantity={row.quantityOnHand}
-          onSaved={onSaved}
-        />
-      </td>
-      <td
-        className={`${tableCellClassName} text-right ${
-          row.quantityOnHand <= row.lowStockThreshold
-            ? 'font-medium text-red-600'
-            : ''
-        }`}
-      >
-        {row.quantityAvailable}
-        {dirty && (
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className={`${buttonPrimaryClassName} ml-2 px-2 py-1 text-xs`}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        )}
-        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+        <div className="flex items-center gap-2">
+          <QuantityEditor
+            variantId={row.variantId}
+            availableQuantity={row.quantityAvailable}
+            onSaved={onSaved}
+          />
+          {row.quantityAvailable <= row.lowStockThreshold && (
+            <span
+              title="Low stock"
+              className="size-1.5 shrink-0 rounded-full bg-red-500"
+            />
+          )}
+        </div>
       </td>
     </tr>
   )

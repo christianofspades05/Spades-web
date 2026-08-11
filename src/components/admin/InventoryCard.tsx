@@ -10,7 +10,7 @@ export function InventoryCard({
   row: InventoryRow
   onSaved: () => void
 }) {
-  const isLowStock = row.quantityOnHand <= row.lowStockThreshold
+  const isLowStock = row.quantityAvailable <= row.lowStockThreshold
   const variantLabel = [row.size, row.color, row.style]
     .filter(Boolean)
     .join(' / ')
@@ -48,7 +48,7 @@ export function InventoryCard({
       <QuantityEditor
         variant="pill"
         variantId={row.variantId}
-        quantity={row.quantityOnHand}
+        availableQuantity={row.quantityAvailable}
         onSaved={onSaved}
       />
     </div>
