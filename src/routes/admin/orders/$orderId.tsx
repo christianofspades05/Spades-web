@@ -230,7 +230,16 @@ function OrderDetailPage() {
             </Link>
           </div>
         }
-        subtitle={order.customer.email}
+        subtitle={`${order.customer.email} · Placed ${new Date(
+          order.placed_at,
+        ).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        })} at ${new Date(order.placed_at).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        })}`}
         action={
           <div className="flex items-center gap-2">
             {order.brand !== 'spades' && (
