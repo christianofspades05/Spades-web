@@ -28,6 +28,7 @@ const COUNTRY_CURRENCY: Partial<Record<string, Currency>> = {
   JP: 'JPY',
   MO: 'MOP',
   KR: 'KRW',
+  TW: 'TWD',
   AT: 'EUR',
   CY: 'EUR',
   EE: 'EUR',

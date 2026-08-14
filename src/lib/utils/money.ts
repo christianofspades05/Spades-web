@@ -41,6 +41,7 @@ export const SUPPORTED_CURRENCIES = [
   'JPY',
   'MOP',
   'KRW',
+  'TWD',
 ] as const
 export type Currency = (typeof SUPPORTED_CURRENCIES)[number]
 
@@ -56,6 +57,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   JPY: 'ja-JP',
   MOP: 'zh-MO',
   KRW: 'ko-KR',
+  TWD: 'zh-TW',
 }
 
 // Most of our supported currencies use 2 decimal places (100 minor units

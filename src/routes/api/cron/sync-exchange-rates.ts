@@ -26,6 +26,7 @@ const SUPPORTED_CURRENCIES = [
   'JPY',
   'MOP',
   'KRW',
+  'TWD',
 ] as const
 
 function isAuthorized(request: Request): boolean {

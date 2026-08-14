@@ -19,6 +19,7 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   JP: 'JPY',
   MO: 'MOP',
   KR: 'KRW',
+  TW: 'TWD',
   // Eurozone
   AT: 'EUR',
   BE: 'EUR',
