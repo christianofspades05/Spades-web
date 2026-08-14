@@ -1,5 +1,6 @@
 import {
   HeadContent,
+  Link,
   Scripts,
   createRootRoute,
   useRouterState,
@@ -52,6 +53,15 @@ function buildNoFlashThemeScript(defaultTheme: 'light' | 'dark'): string {
 }
 
 export const Route = createRootRoute({
+  // Without this, both an unmatched path (e.g. a bot probing pre-migration
+  // Shopify-era URLs like /products.json or /cart.js) and an explicit
+  // `throw notFound()` from any route's loader (11 of them across storefront
+  // and admin — see products/$slug.tsx, admin/orders/$orderId.tsx, etc.)
+  // have nowhere to render, which crashes the SSR render as an unhandled
+  // error and surfaces as a raw 500 instead of a clean 404 — confirmed live
+  // via Vercel's runtime logs, ~1,000 of these over 7 days, almost all bots
+  // hitting old Shopify-convention endpoints that don't exist in this app.
+  notFoundComponent: NotFoundComponent,
   beforeLoad: async () => {
     // See redirectNonCanonicalVercelHost's doc comment — bounces a visitor
     // away from Vercel's own *.vercel.app hosts before anything else runs.
@@ -251,5 +261,29 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+/** Renders inside RootDocument's `{children}` slot (see above) — the
+ *  storefront Header/Footer or admin chrome around it still render
+ *  normally, only the page body differs. */
+function NotFoundComponent() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isAdminRoute = pathname.startsWith('/admin')
+  return (
+    <div className="mx-auto flex min-h-[50vh] max-w-lg flex-col items-center justify-center px-6 py-16 text-center">
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">
+        Page not found
+      </h1>
+      <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+        The page you're looking for doesn't exist or may have been moved.
+      </p>
+      <Link
+        to={isAdminRoute ? '/admin' : '/'}
+        className="mt-6 inline-flex items-center justify-center rounded-md bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
+      >
+        {isAdminRoute ? 'Back to admin' : 'Back to homepage'}
+      </Link>
+    </div>
   )
 }
