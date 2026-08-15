@@ -72,54 +72,76 @@ export const listOrderEmailMessages = createServerFn({ method: 'GET' })
     }))
   })
 
-export interface UnreadCustomerReply {
+/** Cheap poll target for the admin nav bell's badge count — admin.tsx calls
+ *  this every 30s. The dropdown's actual content comes from
+ *  listCustomerReplies below, fetched only when it's opened. */
+export const getUnreadCustomerReplyCount = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<number> => {
+  await requireStaff()
+  const admin = getSupabaseAdminClient()
+
+  const { count, error } = await admin
+    .from('order_email_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('direction', 'inbound')
+    .is('read_at', null)
+  if (error) throw error
+  return count ?? 0
+})
+
+export interface CustomerReply {
   id: string
   orderId: string
   orderNumber: string
   bodyText: string | null
   createdAt: string
+  read: boolean
 }
 
-const UNREAD_REPLIES_PREVIEW_LIMIT = 10
+const CUSTOMER_REPLIES_PAGE_SIZE = 10
 
-/** Powers the admin nav's reply-notification bell. Only ever grows via the
- *  inbound webhook and only ever shrinks via listOrderEmailMessages's
- *  mark-as-read above — never call anything here to change read_at. */
-export const listUnreadCustomerReplies = createServerFn({
-  method: 'GET',
-}).handler(async (): Promise<{
-    count: number
-    items: UnreadCustomerReply[]
+/** Full history of customer replies (not just unread) for the admin nav
+ *  bell's dropdown, newest first — a read reply stays visible here even
+ *  after listOrderEmailMessages marks it read, it just renders muted
+ *  instead of disappearing. */
+export const listCustomerReplies = createServerFn({ method: 'GET' })
+  .validator(z.object({ page: z.number().int().min(1).default(1) }))
+  .handler(async ({ data }): Promise<{
+    items: CustomerReply[]
+    total: number
   }> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
+    const offset = (data.page - 1) * CUSTOMER_REPLIES_PAGE_SIZE
 
     const [{ count, error: countError }, { data: rows, error: rowsError }] =
       await Promise.all([
         admin
           .from('order_email_messages')
           .select('id', { count: 'exact', head: true })
-          .eq('direction', 'inbound')
-          .is('read_at', null),
+          .eq('direction', 'inbound'),
         admin
           .from('order_email_messages')
-          .select('id, order_id, body_text, created_at, order:orders(order_number)')
+          .select(
+            'id, order_id, body_text, created_at, read_at, order:orders(order_number)',
+          )
           .eq('direction', 'inbound')
-          .is('read_at', null)
           .order('created_at', { ascending: false })
-          .limit(UNREAD_REPLIES_PREVIEW_LIMIT),
+          .range(offset, offset + CUSTOMER_REPLIES_PAGE_SIZE - 1),
       ])
     if (countError) throw countError
     if (rowsError) throw rowsError
 
     return {
-      count: count ?? 0,
+      total: count ?? 0,
       items: rows.map((row) => ({
         id: row.id,
         orderId: row.order_id,
         orderNumber: row.order.order_number,
         bodyText: row.body_text,
         createdAt: row.created_at,
+        read: row.read_at !== null,
       })),
     }
   })

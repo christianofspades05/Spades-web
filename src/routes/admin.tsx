@@ -8,12 +8,12 @@ import {
 import { Menu, X } from 'lucide-react'
 import { getStaffSession } from '#/server/admin/auth'
 import { AdminNav } from '#/components/admin/AdminNav'
-import { listUnreadCustomerReplies } from '#/server/admin/order-emails'
-import type { UnreadCustomerReply } from '#/server/admin/order-emails'
+import { getUnreadCustomerReplyCount } from '#/server/admin/order-emails'
 
 // Polled (rather than pushed) since this app has no realtime/websocket
-// infra elsewhere — cheap enough (one count + up to 10 rows) to run this
-// often without needing one.
+// infra elsewhere — cheap enough (a single COUNT query) to run this often
+// without needing one. The dropdown's actual reply list is fetched
+// separately by AdminNav itself, only when it's opened.
 const UNREAD_REPLIES_POLL_MS = 30_000
 
 export const Route = createFileRoute('/admin')({
@@ -28,10 +28,7 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [unreadReplies, setUnreadReplies] = useState<{
-    count: number
-    items: UnreadCustomerReply[]
-  }>({ count: 0, items: [] })
+  const [unreadCount, setUnreadCount] = useState(0)
   // Refetches on every navigation too, not just the interval — visiting the
   // order an unread reply points to marks it read server-side
   // (listOrderEmailMessages), so the badge should clear right away rather
@@ -42,8 +39,8 @@ function AdminLayout() {
     let cancelled = false
     async function poll() {
       try {
-        const result = await listUnreadCustomerReplies()
-        if (!cancelled) setUnreadReplies(result)
+        const count = await getUnreadCustomerReplyCount()
+        if (!cancelled) setUnreadCount(count)
       } catch {
         // Transient failure — next poll retries; the bell just won't
         // update this cycle.
@@ -61,7 +58,7 @@ function AdminLayout() {
     <div className="flex min-h-screen">
       <AdminNav
         staffRole={staff.role}
-        unreadReplies={unreadReplies}
+        unreadCount={unreadCount}
         className="hidden w-60 shrink-0 border-r lg:flex"
       />
 
@@ -76,7 +73,7 @@ function AdminLayout() {
         />
         <AdminNav
           staffRole={staff.role}
-          unreadReplies={unreadReplies}
+          unreadCount={unreadCount}
           onNavigate={() => setMobileNavOpen(false)}
           className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r shadow-xl transition-transform duration-200 ${
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

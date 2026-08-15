@@ -22,8 +22,8 @@ import {
   Users,
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { listCustomerReplies } from '#/server/admin/order-emails'
 import type { StaffRole } from '#/types/entities'
-import type { UnreadCustomerReply } from '#/server/admin/order-emails'
 
 const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
@@ -41,11 +41,13 @@ const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
 ] as const
 
+const CUSTOMER_REPLIES_PAGE_SIZE = 10
+
 export function AdminNav({
   className = '',
   onNavigate,
   staffRole,
-  unreadReplies,
+  unreadCount,
 }: {
   className?: string
   onNavigate?: () => void
@@ -55,11 +57,11 @@ export function AdminNav({
    *  crashing to a raw "something went wrong" for any staff member who
    *  clicked it. */
   staffRole: StaffRole
-  /** Customer replies to the per-order Emails thread (see
-   *  order-emails.ts) not yet seen by any staff — polled from admin.tsx
-   *  and shared by both AdminNav mounts (desktop sidebar + mobile drawer)
-   *  so it's only fetched once. */
-  unreadReplies: { count: number; items: UnreadCustomerReply[] }
+  /** Unread count for the bell's badge — polled from admin.tsx and shared
+   *  by both AdminNav mounts (desktop sidebar + mobile drawer) so it's only
+   *  fetched once. The dropdown's own full reply list below is fetched
+   *  independently by whichever mount actually gets opened. */
+  unreadCount: number
 }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -67,6 +69,32 @@ export function AdminNav({
   const [ordersExpanded, setOrdersExpanded] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
+  const [repliesPage, setRepliesPage] = useState(1)
+  const [replies, setReplies] = useState<{
+    items: Awaited<ReturnType<typeof listCustomerReplies>>['items']
+    total: number
+  } | null>(null)
+  const [repliesLoading, setRepliesLoading] = useState(false)
+
+  useEffect(() => {
+    if (!notifOpen) return
+    let cancelled = false
+    setRepliesLoading(true)
+    listCustomerReplies({ data: { page: repliesPage } })
+      .then((result) => {
+        if (!cancelled) setReplies(result)
+      })
+      .catch(() => {
+        // Left as-is — the dropdown just keeps showing whatever it last had
+        // (or the empty state) rather than a broken error UI.
+      })
+      .finally(() => {
+        if (!cancelled) setRepliesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [notifOpen, repliesPage])
 
   useEffect(() => {
     if (!notifOpen) return
@@ -110,9 +138,9 @@ export function AdminNav({
             className="relative flex size-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
           >
             <Bell size={18} strokeWidth={2} />
-            {unreadReplies.count > 0 && (
+            {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
-                {unreadReplies.count > 9 ? '9+' : unreadReplies.count}
+                {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
           </button>
@@ -122,13 +150,13 @@ export function AdminNav({
               <p className="px-3 py-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
                 Customer replies
               </p>
-              {unreadReplies.items.length === 0 ? (
+              {!replies || replies.items.length === 0 ? (
                 <p className="px-3 py-3 text-sm text-neutral-400">
-                  No new replies.
+                  {repliesLoading ? 'Loading…' : 'No replies yet.'}
                 </p>
               ) : (
                 <ul className="max-h-80 overflow-y-auto">
-                  {unreadReplies.items.map((reply) => (
+                  {replies.items.map((reply) => (
                     <li key={reply.id}>
                       <Link
                         to="/admin/orders/$orderId"
@@ -137,18 +165,53 @@ export function AdminNav({
                           setNotifOpen(false)
                           onNavigate?.()
                         }}
-                        className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                        className="flex items-start gap-2 px-3 py-2 text-sm hover:bg-neutral-50"
                       >
-                        <p className="font-medium text-neutral-900">
-                          Order {reply.orderNumber}
-                        </p>
-                        <p className="mt-0.5 truncate text-neutral-500">
-                          {reply.bodyText ?? '(no message)'}
-                        </p>
+                        {!reply.read && (
+                          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-red-500" />
+                        )}
+                        <div className={`min-w-0 flex-1 ${reply.read ? 'pl-3.5' : ''}`}>
+                          <p
+                            className={`${reply.read ? 'font-normal text-neutral-600' : 'font-medium text-neutral-900'}`}
+                          >
+                            Order {reply.orderNumber}
+                          </p>
+                          <p className="mt-0.5 truncate text-neutral-500">
+                            {reply.bodyText ?? '(no message)'}
+                          </p>
+                        </div>
                       </Link>
                     </li>
                   ))}
                 </ul>
+              )}
+
+              {replies && replies.total > CUSTOMER_REPLIES_PAGE_SIZE && (
+                <div className="flex items-center justify-between border-t border-neutral-100 px-3 py-2 text-xs text-neutral-500">
+                  <button
+                    type="button"
+                    disabled={repliesPage <= 1}
+                    onClick={() => setRepliesPage((p) => Math.max(1, p - 1))}
+                    className="font-medium hover:text-neutral-900 disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page {repliesPage} of{' '}
+                    {Math.ceil(replies.total / CUSTOMER_REPLIES_PAGE_SIZE)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={
+                      repliesPage >=
+                      Math.ceil(replies.total / CUSTOMER_REPLIES_PAGE_SIZE)
+                    }
+                    onClick={() => setRepliesPage((p) => p + 1)}
+                    className="font-medium hover:text-neutral-900 disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    Next
+                  </button>
+                </div>
               )}
             </div>
           )}
