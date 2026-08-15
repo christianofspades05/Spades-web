@@ -43,6 +43,7 @@ import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import { LalamoveAddressPicker } from '#/components/storefront/LalamoveAddressPicker'
 import {
   buttonPrimaryClassName,
+  buttonSecondaryClassName,
   inputClassName,
   labelClassName,
 } from '#/components/storefront/ui'
@@ -165,10 +166,15 @@ function CheckoutPage() {
     subtotalCents: rawSubtotalCents,
     discountCents,
     isLoading,
+    applyDiscountCode,
+    removeDiscountCode,
   } = useCart()
   const { info, setInfo } = useCheckout()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
+  const [discountInput, setDiscountInput] = useState('')
+  const [discountError, setDiscountError] = useState<string | null>(null)
+  const [applyingDiscount, setApplyingDiscount] = useState(false)
 
   const firedInitiateCheckout = useRef(false)
   useEffect(() => {
@@ -262,6 +268,40 @@ function CheckoutPage() {
       ? (info.lalamoveEstimatedFeeCents ?? 0) + LALAMOVE_FEE_BUFFER_CENTS
       : (shippingCents ?? 0)
   const totalCents = subtotalCents - discountCents + chargedShippingCents
+
+  const discount = cart.discount
+  function formatDiscountRate(type: string, value: number): string {
+    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
+  }
+  const discountLabel = discount
+    ? discount.type === 'free_shipping'
+      ? t.cart.freeShippingLabel
+      : formatDiscountRate(discount.type, discount.value)
+    : null
+
+  async function handleApplyDiscount(event: React.FormEvent) {
+    event.preventDefault()
+    if (!discountInput.trim()) return
+    setDiscountError(null)
+    setApplyingDiscount(true)
+    try {
+      await applyDiscountCode(discountInput)
+      setDiscountInput('')
+    } catch (err) {
+      setDiscountError(getErrorMessage(err))
+    } finally {
+      setApplyingDiscount(false)
+    }
+  }
+
+  async function handleRemoveDiscount() {
+    setDiscountError(null)
+    try {
+      await removeDiscountCode()
+    } catch (err) {
+      setDiscountError(getErrorMessage(err))
+    }
+  }
 
   function handleCountryChange(country: string) {
     setInfo({
@@ -669,7 +709,63 @@ function CheckoutPage() {
             })}
           </ul>
 
-          <div className="mt-6 space-y-2 border-t border-neutral-200 pt-4 text-sm dark:border-neutral-800">
+          {/* Same code-apply UI as the cart page — a customer who skipped
+              applying a code there (or came here straight from a product
+              page) can still enter one before paying. Only a real
+              customer-entered code gets the "applied [Remove]" banner; an
+              automatic store-wide/collection sale just shows up in the
+              price breakdown below with nothing to remove. */}
+          <div className="mt-6 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+            {discount?.code ? (
+              <div className="mb-4 flex items-center justify-between rounded-md bg-green-50 px-4 py-3 dark:bg-green-950/30">
+                <div>
+                  <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                    {t.cart.applied(discount.code)}
+                  </p>
+                  <p className="text-xs text-green-700 dark:text-green-400">
+                    {discountLabel}
+                    {discount.stackedWith.map((stacked) => (
+                      <span key={stacked.title}>
+                        {' '}
+                        {t.cart.stackedWithSale(stacked.title)} (
+                        {formatDiscountRate(stacked.type, stacked.value)})
+                      </span>
+                    ))}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveDiscount}
+                  className="text-sm text-green-700 underline hover:text-green-900 dark:text-green-400 dark:hover:text-green-200"
+                >
+                  {t.cart.remove}
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleApplyDiscount} className="mb-4 flex gap-2">
+                <input
+                  value={discountInput}
+                  onChange={(e) => setDiscountInput(e.target.value)}
+                  placeholder={t.cart.discountCodePlaceholder}
+                  className={`${inputClassName} flex-1`}
+                />
+                <button
+                  type="submit"
+                  disabled={applyingDiscount}
+                  className={buttonSecondaryClassName}
+                >
+                  {applyingDiscount ? t.cart.applying : t.cart.apply}
+                </button>
+              </form>
+            )}
+            {discountError && (
+              <p className="mb-4 text-sm text-red-700 dark:text-red-400">
+                {discountError}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-neutral-600 dark:text-neutral-400">
                 {t.payment.subtotal}
