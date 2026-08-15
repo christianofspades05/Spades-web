@@ -111,7 +111,7 @@ export function EmailCapturePopup({ enabled }: { enabled: boolean }) {
           </p>
         ) : (
           <>
-            <h2 className="pr-6 text-lg font-semibold text-neutral-900 dark:text-white">
+            <h2 className="pr-6 text-center text-lg font-semibold text-neutral-900 sm:text-left dark:text-white">
               {t.emailCapture.title}
             </h2>
             <p className="mt-2 text-center text-sm text-neutral-600 sm:text-left sm:whitespace-nowrap dark:text-neutral-400">
