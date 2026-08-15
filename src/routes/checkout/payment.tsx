@@ -61,12 +61,15 @@ function PaymentPage() {
   const isLalamove = info.shippingMethod === 'lalamove'
   // Shown next to a disabled (not hidden) COD option so the customer knows
   // why, rather than it just silently not being there.
-  const codDisabledReason = isLalamove
-    ? 'Not available for Lalamove delivery — online payment only.'
-    : !codAvailable
-      ? (codUnavailableReason ??
-        'Cash on Delivery is not available for items in your cart.')
-      : null
+  const codDisabledReason =
+    info.country !== 'PH'
+      ? 'Cash on Delivery is only available for Philippine addresses — please pay online.'
+      : isLalamove
+        ? 'Not available for Lalamove delivery — online payment only.'
+        : !codAvailable
+          ? (codUnavailableReason ??
+            'Cash on Delivery is not available for items in your cart.')
+          : null
 
   useEffect(() => {
     // Lalamove is online-payment-only, same as any other COD restriction —

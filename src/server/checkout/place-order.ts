@@ -103,6 +103,14 @@ export const placeOrder = createServerFn({ method: 'POST' })
         )
       }
 
+      // COD is a domestic (Philippines) courier arrangement — international
+      // market addresses (Singapore, Japan, etc.) must pay online.
+      if (data.paymentProvider === 'cod' && data.contact.country !== 'PH') {
+        throw new Error(
+          'Cash on Delivery is only available for Philippine addresses. Please pay online instead.',
+        )
+      }
+
       // Lalamove is Spades/Metro-Manila-only, unavailable Saturday from 4PM
       // onwards or on Sundays, and online-payment-only — same
       // never-trust-the-client principle as the COD check above.

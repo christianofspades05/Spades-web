@@ -68,8 +68,8 @@ export function EmailCapturePopup({ enabled }: { enabled: boolean }) {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 px-4">
-      <div className="relative w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900">
+    <div className="fixed inset-0 z-100 flex h-dvh items-center justify-center overflow-y-auto bg-black/50 px-4 py-8">
+      <div className="relative my-auto w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900">
         <button
           type="button"
           onClick={close}
