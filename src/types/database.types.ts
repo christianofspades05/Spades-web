@@ -935,6 +935,49 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['staff_users']['Row']>
         Relationships: []
       }
+      order_email_messages: {
+        Row: {
+          id: string
+          order_id: string
+          direction: 'outbound' | 'inbound'
+          subject: string
+          body_html: string | null
+          body_text: string | null
+          from_address: string
+          to_address: string
+          resend_email_id: string | null
+          staff_user_id: string | null
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['order_email_messages']['Row']
+        > & {
+          order_id: string
+          direction: 'outbound' | 'inbound'
+          subject: string
+          from_address: string
+          to_address: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['order_email_messages']['Row']
+        >
+        Relationships: [
+          {
+            foreignKeyName: 'order_email_messages_order_id_fkey'
+            columns: ['order_id']
+            isOneToOne: false
+            referencedRelation: 'orders'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'order_email_messages_staff_user_id_fkey'
+            columns: ['staff_user_id']
+            isOneToOne: false
+            referencedRelation: 'staff_users'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       activity_logs: {
         Row: {
           id: string

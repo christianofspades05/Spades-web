@@ -51,9 +51,17 @@ export interface SendEmailInput {
    *  undefined (this function's own RESEND_FROM_EMAIL default) when that
    *  category has no override configured. */
   from?: string
+  /** Sets the Reply-To header — used by the order-emails thread
+   *  (src/server/admin/order-emails.ts) to route a customer's reply back
+   *  through Resend's inbound webhook to the right order, rather than to
+   *  `from`'s inbox. Every other caller omits this and gets Resend's
+   *  default (replies go to `from`). */
+  replyTo?: string
 }
 
-export async function sendEmail(input: SendEmailInput): Promise<void> {
+export async function sendEmail(
+  input: SendEmailInput,
+): Promise<{ id: string }> {
   if (typeof window !== 'undefined') {
     throw new Error(
       'sendEmail() was called from a browser context. The Resend API key must never run client-side.',
@@ -74,6 +82,7 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
       to: input.to,
       subject: input.subject,
       html: input.html,
+      ...(input.replyTo ? { reply_to: input.replyTo } : {}),
     }),
   })
 
@@ -81,4 +90,6 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
     const body = await res.text()
     throw new Error(`Resend send failed (${res.status}): ${body}`)
   }
+
+  return (await res.json()) as { id: string }
 }

@@ -16,6 +16,11 @@ import {
   upsertShipment,
 } from '#/server/admin/orders'
 import type { AdjacentOrderIds, OrderWithDetails } from '#/server/admin/orders'
+import {
+  listOrderEmailMessages,
+  sendOrderEmail,
+} from '#/server/admin/order-emails'
+import type { OrderEmailMessage } from '#/server/admin/order-emails'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
@@ -129,12 +134,13 @@ const CARRIER_OPTIONS = ['J&T', 'SPX', 'DHL']
 
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
-    const [order, adjacent] = await Promise.all([
+    const [order, adjacent, emails] = await Promise.all([
       getOrderById({ data: { id: params.orderId } }),
       getAdjacentOrderIds({ data: { id: params.orderId } }),
+      listOrderEmailMessages({ data: { orderId: params.orderId } }),
     ])
     if (!order) throw notFound()
-    return { order, adjacent }
+    return { order, adjacent, emails }
   },
   component: OrderDetailPage,
 })
@@ -148,8 +154,12 @@ function OrderDetailPage() {
   const {
     order,
     adjacent,
-  }: { order: OrderWithDetails; adjacent: AdjacentOrderIds } =
-    Route.useLoaderData()
+    emails,
+  }: {
+    order: OrderWithDetails
+    adjacent: AdjacentOrderIds
+    emails: OrderEmailMessage[]
+  } = Route.useLoaderData()
   const router = useRouter()
   const navigate = useNavigate()
   const address = order.shipping_address as unknown as OrderShippingAddress
@@ -606,6 +616,13 @@ function OrderDetailPage() {
               </div>
             </div>
           </Card>
+
+          <OrderEmailsCard
+            orderId={order.id}
+            source={order.source}
+            messages={emails}
+            onSent={() => router.invalidate()}
+          />
         </div>
       </div>
     </div>
@@ -624,6 +641,142 @@ function Row({
       <span>{label}</span>
       {children}
     </div>
+  )
+}
+
+const MARKETPLACE_EMAIL_SOURCES: OrderSource[] = [
+  'tiktok_shop',
+  'shopee',
+  'lazada',
+]
+
+/** Ad-hoc per-order email thread — staff can message the customer about
+ *  this specific order (e.g. a shipping delay) and see their replies,
+ *  which route back here via the Resend inbound webhook once that's
+ *  configured (see order-emails.ts / resend-inbound.ts). Renders every
+ *  message's plain-text body only, never bodyHtml — an inbound reply's
+ *  HTML comes straight from the customer's mail client and must never be
+ *  rendered unsanitized in the admin UI. */
+function OrderEmailsCard({
+  orderId,
+  source,
+  messages,
+  onSent,
+}: {
+  orderId: string
+  source: OrderSource
+  messages: OrderEmailMessage[]
+  onSent: () => void
+}) {
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const disabled = MARKETPLACE_EMAIL_SOURCES.includes(source)
+
+  async function handleSend(event: React.FormEvent) {
+    event.preventDefault()
+    setSending(true)
+    setError(null)
+    try {
+      await sendOrderEmail({ data: { orderId, subject, message } })
+      setSubject('')
+      setMessage('')
+      onSent()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+        Emails
+      </h2>
+
+      {disabled ? (
+        <p className="mb-4 rounded-md bg-neutral-50 p-3 text-sm text-neutral-500">
+          This order's contact is a {SOURCE_LABELS[source]} relay address,
+          not the customer's real inbox — message them through the
+          marketplace's own chat instead.
+        </p>
+      ) : (
+        <>
+          {messages.length > 0 && (
+            <ul className="mb-4 flex flex-col gap-3">
+              {messages.map((msg) => (
+                <li
+                  key={msg.id}
+                  className={`rounded-md border p-3 text-sm ${
+                    msg.direction === 'inbound'
+                      ? 'border-blue-200 bg-blue-50'
+                      : 'border-neutral-200 bg-neutral-50'
+                  }`}
+                >
+                  <div className="mb-1 flex items-center justify-between gap-2 text-xs text-neutral-500">
+                    <span className="font-medium text-neutral-700">
+                      {msg.direction === 'inbound'
+                        ? 'Customer'
+                        : (msg.staffName ?? 'Staff')}
+                    </span>
+                    <span>
+                      {new Date(msg.createdAt).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <p className="font-medium text-neutral-900">
+                    {msg.subject}
+                  </p>
+                  <p className="mt-1 whitespace-pre-line text-neutral-700">
+                    {msg.bodyText ?? '(no plain-text body)'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form onSubmit={handleSend} className="flex flex-col gap-3">
+            <label className={labelClassName}>
+              Subject
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                required
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Message
+              <textarea
+                rows={4}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                required
+                placeholder="e.g. Your order will be delayed about 7 days due to a typhoon — sorry for the inconvenience."
+                className={inputClassName}
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={sending}
+                className={buttonPrimaryClassName}
+              >
+                {sending ? 'Sending…' : 'Send email'}
+              </button>
+              {error && <span className="text-sm text-red-600">{error}</span>}
+            </div>
+          </form>
+        </>
+      )}
+    </Card>
   )
 }
 

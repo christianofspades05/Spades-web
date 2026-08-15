@@ -49,6 +49,7 @@ import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collec
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
+import { Route as ApiWebhooksResendInboundRouteImport } from './routes/api/webhooks/resend-inbound'
 import { Route as ApiCronSyncExchangeRatesRouteImport } from './routes/api/cron/sync-exchange-rates'
 import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
@@ -282,6 +283,12 @@ const ApiWebhooksXenditRoute = ApiWebhooksXenditRouteImport.update({
   path: '/api/webhooks/xendit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksResendInboundRoute =
+  ApiWebhooksResendInboundRouteImport.update({
+    id: '/api/webhooks/resend-inbound',
+    path: '/api/webhooks/resend-inbound',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCronSyncExchangeRatesRoute =
   ApiCronSyncExchangeRatesRouteImport.update({
     id: '/api/cron/sync-exchange-rates',
@@ -508,6 +515,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
@@ -580,6 +588,7 @@ export interface FileRoutesByTo {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
@@ -655,6 +664,7 @@ export interface FileRoutesById {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
@@ -731,6 +741,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
@@ -803,6 +814,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels'
@@ -877,6 +889,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
@@ -928,6 +941,7 @@ export interface RootRouteChildren {
   ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
   ApiCronSyncExchangeRatesRoute: typeof ApiCronSyncExchangeRatesRoute
+  ApiWebhooksResendInboundRoute: typeof ApiWebhooksResendInboundRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   CartResumeTokenRoute: typeof CartResumeTokenRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
@@ -1217,6 +1231,13 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/xendit'
       fullPath: '/api/webhooks/xendit'
       preLoaderRoute: typeof ApiWebhooksXenditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/resend-inbound': {
+      id: '/api/webhooks/resend-inbound'
+      path: '/api/webhooks/resend-inbound'
+      fullPath: '/api/webhooks/resend-inbound'
+      preLoaderRoute: typeof ApiWebhooksResendInboundRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/sync-exchange-rates': {
@@ -1567,6 +1588,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
   ApiCronSyncExchangeRatesRoute: ApiCronSyncExchangeRatesRoute,
+  ApiWebhooksResendInboundRoute: ApiWebhooksResendInboundRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   CartResumeTokenRoute: CartResumeTokenRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
