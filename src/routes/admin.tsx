@@ -1,8 +1,20 @@
-import { useState } from 'react'
-import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useRouterState,
+} from '@tanstack/react-router'
 import { Menu, X } from 'lucide-react'
 import { getStaffSession } from '#/server/admin/auth'
 import { AdminNav } from '#/components/admin/AdminNav'
+import { listUnreadCustomerReplies } from '#/server/admin/order-emails'
+import type { UnreadCustomerReply } from '#/server/admin/order-emails'
+
+// Polled (rather than pushed) since this app has no realtime/websocket
+// infra elsewhere — cheap enough (one count + up to 10 rows) to run this
+// often without needing one.
+const UNREAD_REPLIES_POLL_MS = 30_000
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async () => {
@@ -16,11 +28,40 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [unreadReplies, setUnreadReplies] = useState<{
+    count: number
+    items: UnreadCustomerReply[]
+  }>({ count: 0, items: [] })
+  // Refetches on every navigation too, not just the interval — visiting the
+  // order an unread reply points to marks it read server-side
+  // (listOrderEmailMessages), so the badge should clear right away rather
+  // than up to UNREAD_REPLIES_POLL_MS late.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  useEffect(() => {
+    let cancelled = false
+    async function poll() {
+      try {
+        const result = await listUnreadCustomerReplies()
+        if (!cancelled) setUnreadReplies(result)
+      } catch {
+        // Transient failure — next poll retries; the bell just won't
+        // update this cycle.
+      }
+    }
+    void poll()
+    const interval = setInterval(poll, UNREAD_REPLIES_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [pathname])
 
   return (
     <div className="flex min-h-screen">
       <AdminNav
         staffRole={staff.role}
+        unreadReplies={unreadReplies}
         className="hidden w-60 shrink-0 border-r lg:flex"
       />
 
@@ -35,6 +76,7 @@ function AdminLayout() {
         />
         <AdminNav
           staffRole={staff.role}
+          unreadReplies={unreadReplies}
           onNavigate={() => setMobileNavOpen(false)}
           className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r shadow-xl transition-transform duration-200 ${
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

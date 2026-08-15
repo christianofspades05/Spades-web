@@ -947,6 +947,7 @@ export interface Database {
           to_address: string
           resend_email_id: string | null
           staff_user_id: string | null
+          read_at: string | null
           created_at: string
         }
         Insert: Partial<

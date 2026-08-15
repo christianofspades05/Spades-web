@@ -10,7 +10,7 @@ import { createPromiseCache } from '#/lib/utils/cache'
 // 15s, shared across however many visitors load a page in that window."
 // See createPromiseCache's doc comment for why this caches the promise, not
 // just the resolved value.
-const MAINTENANCE_MODE_CACHE_TTL_MS = 15_000
+const MAINTENANCE_MODE_CACHE_TTL_MS = 30_000
 const maintenanceModeCache = createPromiseCache<boolean>(
   MAINTENANCE_MODE_CACHE_TTL_MS,
 )

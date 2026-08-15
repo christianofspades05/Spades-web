@@ -50,6 +50,15 @@ export const listOrderEmailMessages = createServerFn({ method: 'GET' })
       .order('created_at', { ascending: true })
     if (error) throw error
 
+    // Viewing this order's thread is what "reads" its replies — clears the
+    // nav bell's badge for them.
+    await admin
+      .from('order_email_messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('order_id', data.orderId)
+      .eq('direction', 'inbound')
+      .is('read_at', null)
+
     return rows.map((row) => ({
       id: row.id,
       direction: row.direction,
@@ -61,6 +70,58 @@ export const listOrderEmailMessages = createServerFn({ method: 'GET' })
       staffName: row.staff?.full_name ?? null,
       createdAt: row.created_at,
     }))
+  })
+
+export interface UnreadCustomerReply {
+  id: string
+  orderId: string
+  orderNumber: string
+  bodyText: string | null
+  createdAt: string
+}
+
+const UNREAD_REPLIES_PREVIEW_LIMIT = 10
+
+/** Powers the admin nav's reply-notification bell. Only ever grows via the
+ *  inbound webhook and only ever shrinks via listOrderEmailMessages's
+ *  mark-as-read above — never call anything here to change read_at. */
+export const listUnreadCustomerReplies = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<{
+    count: number
+    items: UnreadCustomerReply[]
+  }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const [{ count, error: countError }, { data: rows, error: rowsError }] =
+      await Promise.all([
+        admin
+          .from('order_email_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('direction', 'inbound')
+          .is('read_at', null),
+        admin
+          .from('order_email_messages')
+          .select('id, order_id, body_text, created_at, order:orders(order_number)')
+          .eq('direction', 'inbound')
+          .is('read_at', null)
+          .order('created_at', { ascending: false })
+          .limit(UNREAD_REPLIES_PREVIEW_LIMIT),
+      ])
+    if (countError) throw countError
+    if (rowsError) throw rowsError
+
+    return {
+      count: count ?? 0,
+      items: rows.map((row) => ({
+        id: row.id,
+        orderId: row.order_id,
+        orderNumber: row.order.order_number,
+        bodyText: row.body_text,
+        createdAt: row.created_at,
+      })),
+    }
   })
 
 /** Null until ORDER_EMAIL_INBOUND_DOMAIN is configured (see

@@ -33,7 +33,7 @@ import appCss from '../styles.css?url'
 /** A Supabase/Cloudflare edge blip can hang far longer than it's worth
  *  waiting on a best-effort, already-has-a-fallback value for — see
  *  withTimeout's doc comment. */
-const BEFORE_LOAD_IO_TIMEOUT_MS = 3000
+const BEFORE_LOAD_IO_TIMEOUT_MS = 6000
 
 /**
  * Runs before hydration so a returning visitor never sees a flash of the

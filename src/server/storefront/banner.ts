@@ -12,7 +12,7 @@ export interface StorefrontBannerMessage {
 
 // Same rationale as maintenance.ts's cache — checked on every page load,
 // rarely changes.
-const BANNER_CACHE_TTL_MS = 15_000
+const BANNER_CACHE_TTL_MS = 30_000
 const bannerCache = createPromiseCache<StorefrontBannerMessage[]>(
   BANNER_CACHE_TTL_MS,
 )

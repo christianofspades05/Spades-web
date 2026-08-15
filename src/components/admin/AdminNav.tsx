@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   BadgePercent,
   BarChart3,
+  Bell,
   ChevronDown,
   ChevronRight,
   EyeOff,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import type { StaffRole } from '#/types/entities'
+import type { UnreadCustomerReply } from '#/server/admin/order-emails'
 
 const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
@@ -43,6 +45,7 @@ export function AdminNav({
   className = '',
   onNavigate,
   staffRole,
+  unreadReplies,
 }: {
   className?: string
   onNavigate?: () => void
@@ -52,11 +55,29 @@ export function AdminNav({
    *  crashing to a raw "something went wrong" for any staff member who
    *  clicked it. */
   staffRole: StaffRole
+  /** Customer replies to the per-order Emails thread (see
+   *  order-emails.ts) not yet seen by any staff — polled from admin.tsx
+   *  and shared by both AdminNav mounts (desktop sidebar + mobile drawer)
+   *  so it's only fetched once. */
+  unreadReplies: { count: number; items: UnreadCustomerReply[] }
 }) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [expanded, setExpanded] = useState(false)
   const [ordersExpanded, setOrdersExpanded] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!notifOpen) return
+    function handleClick(event: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setNotifOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [notifOpen])
 
   const underProducts =
     pathname.startsWith('/admin/products') ||
@@ -75,9 +96,63 @@ export function AdminNav({
 
   return (
     <aside className={`flex flex-col border-neutral-200 bg-white ${className}`}>
-      <div className="px-4 py-5">
-        <img src="/logo-black.png" alt="Spades" className="h-5 w-auto" />
-        <p className="mt-1 text-xs text-neutral-500">Admin</p>
+      <div className="flex items-start justify-between px-4 py-5">
+        <div>
+          <img src="/logo-black.png" alt="Spades" className="h-5 w-auto" />
+          <p className="mt-1 text-xs text-neutral-500">Admin</p>
+        </div>
+
+        <div ref={notifRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setNotifOpen((v) => !v)}
+            aria-label="Customer reply notifications"
+            className="relative flex size-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+          >
+            <Bell size={18} strokeWidth={2} />
+            {unreadReplies.count > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
+                {unreadReplies.count > 9 ? '9+' : unreadReplies.count}
+              </span>
+            )}
+          </button>
+
+          {notifOpen && (
+            <div className="absolute top-full left-0 z-50 mt-1 w-72 max-w-[min(18rem,calc(100vw-2rem))] rounded-md border border-neutral-200 bg-white py-1 shadow-lg">
+              <p className="px-3 py-2 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+                Customer replies
+              </p>
+              {unreadReplies.items.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-neutral-400">
+                  No new replies.
+                </p>
+              ) : (
+                <ul className="max-h-80 overflow-y-auto">
+                  {unreadReplies.items.map((reply) => (
+                    <li key={reply.id}>
+                      <Link
+                        to="/admin/orders/$orderId"
+                        params={{ orderId: reply.orderId }}
+                        onClick={() => {
+                          setNotifOpen(false)
+                          onNavigate?.()
+                        }}
+                        className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                      >
+                        <p className="font-medium text-neutral-900">
+                          Order {reply.orderNumber}
+                        </p>
+                        <p className="mt-0.5 truncate text-neutral-500">
+                          {reply.bodyText ?? '(no message)'}
+                        </p>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">

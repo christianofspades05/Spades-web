@@ -24,7 +24,7 @@ const POPUP_CODE_EXPIRY_DAYS = 1
 
 // Same rationale as storefront/maintenance.ts's cache — checked on every
 // page load, rarely changes. Not brand-scoped, so a single fixed key.
-const EMAIL_CAPTURE_POPUP_CACHE_TTL_MS = 15_000
+const EMAIL_CAPTURE_POPUP_CACHE_TTL_MS = 30_000
 const emailCapturePopupCache = createPromiseCache<boolean>(
   EMAIL_CAPTURE_POPUP_CACHE_TTL_MS,
 )
