@@ -24,6 +24,7 @@ import {
   pushPriceForAllProducts,
   pushPriceForProducts,
   revalidateAllMappedProducts,
+  revalidateMapping,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
   AutoConnectByTitleResult,
@@ -502,6 +503,33 @@ export const revalidateMappings = createServerFn({ method: 'POST' })
       'channel.revalidate_mappings',
       'marketplace_connections',
       null,
+      {
+        marketplace: data.marketplace,
+        checked: result.checked,
+        fixed: result.fixed.length,
+        failed: result.failed.length,
+      },
+    )
+    return result
+  })
+
+/**
+ * Same repair as revalidateMappings, scoped to one product — for staff who
+ * only want to fix a single drifted connection without re-checking (and
+ * re-pushing stock/price for) the entire catalog.
+ */
+export const revalidateProductMapping = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({ marketplace: marketplaceSchema, productId: z.string().uuid() }),
+  )
+  .handler(async ({ data }): Promise<RevalidateMappingsResult> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const result = await revalidateMapping(data.marketplace, data.productId)
+    await logStaffActivity(
+      staff,
+      'channel.revalidate_mapping',
+      'products',
+      data.productId,
       {
         marketplace: data.marketplace,
         checked: result.checked,

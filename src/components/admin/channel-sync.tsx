@@ -13,6 +13,7 @@ import {
   pullOrdersNow,
   pushProductToMarketplace,
   revalidateMappings,
+  revalidateProductMapping,
   setCategoryDefault,
   setInventorySyncEnabled,
   setPriceMarkupPercent,
@@ -855,6 +856,7 @@ export function ProductSyncSection({
             {visibleProducts.map((product) => (
               <ProductGroupRow
                 key={product.productId}
+                marketplace={marketplace}
                 marketplaceLabel={marketplaceLabel}
                 product={product}
                 connected={connected}
@@ -922,6 +924,7 @@ export function ProductSyncSection({
 }
 
 function ProductGroupRow({
+  marketplace,
   marketplaceLabel,
   product,
   connected,
@@ -930,6 +933,7 @@ function ProductGroupRow({
   onPush,
   onConnect,
 }: {
+  marketplace: SyncableMarketplace
   marketplaceLabel: string
   product: GroupedProduct
   connected: boolean
@@ -939,6 +943,7 @@ function ProductGroupRow({
   onConnect: () => void
 }) {
   const [submitting, setSubmitting] = useState(false)
+  const [revalidating, setRevalidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const mappedVariants = product.variants.filter((v) => v.mapping)
@@ -958,6 +963,24 @@ function ProductGroupRow({
       setError(getErrorMessage(err))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleRevalidateOne() {
+    setRevalidating(true)
+    setError(null)
+    try {
+      const result = await revalidateProductMapping({
+        data: { marketplace, productId: product.productId },
+      })
+      if (result.failed.length > 0) {
+        setError(result.failed[0].reason)
+      }
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setRevalidating(false)
     }
   }
 
@@ -1037,6 +1060,15 @@ function ProductGroupRow({
               className="text-xs font-medium text-neutral-900 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
             >
               {submitting ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button
+              type="button"
+              disabled={!connected || revalidating}
+              onClick={handleRevalidateOne}
+              title={`Re-checks this product against ${marketplaceLabel}'s current listing data and repairs its variant id(s) if they've drifted, then pushes fresh stock and price — the same repair "Revalidate connections" does, scoped to just this one product.`}
+              className="text-xs font-medium text-neutral-600 underline disabled:cursor-not-allowed disabled:text-neutral-400 disabled:no-underline"
+            >
+              {revalidating ? 'Checking…' : 'Revalidate'}
             </button>
             <button
               type="button"

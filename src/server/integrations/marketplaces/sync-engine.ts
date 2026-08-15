@@ -1778,6 +1778,93 @@ export async function revalidateAllMappedProducts(
   return result
 }
 
+/**
+ * Same repair as revalidateAllMappedProducts, scoped to one already-linked
+ * product — for staff who only want to fix (and re-price/re-stock) a single
+ * drifted product without re-checking the entire catalog. No-ops (returns
+ * an empty result) for a product that isn't mapped at all yet — that's a
+ * "Connect existing"/"Push to marketplace" case, not a revalidate one.
+ */
+export async function revalidateMapping(
+  marketplace: MarketplaceName,
+  productId: string,
+): Promise<RevalidateMappingsResult> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const { data: product, error: productError } = await admin
+    .from('products')
+    .select('id, name')
+    .eq('id', productId)
+    .single()
+  if (productError) throw productError
+
+  const { data: variants, error: variantsError } = await admin
+    .from('product_variants')
+    .select('id')
+    .eq('product_id', productId)
+  if (variantsError) throw variantsError
+  const variantIds = variants.map((v) => v.id)
+
+  const result: RevalidateMappingsResult = { checked: 0, fixed: [], failed: [] }
+  if (variantIds.length === 0) return result
+
+  const { data: mappings, error: mappingsError } = await admin
+    .from('marketplace_product_mappings')
+    .select('external_product_id')
+    .eq('marketplace_connection_id', connection.id)
+    .in('variant_id', variantIds)
+  if (mappingsError) throw mappingsError
+
+  const externalProductIds = Array.from(
+    new Set(
+      mappings
+        .map((m) => m.external_product_id)
+        .filter((id): id is string => id !== null),
+    ),
+  )
+  result.checked = externalProductIds.length
+  if (externalProductIds.length === 0) return result
+
+  for (const externalProductId of externalProductIds) {
+    try {
+      const connectResult = await connectExistingProductToMarketplace(
+        marketplace,
+        productId,
+        externalProductId,
+      )
+      result.fixed.push({
+        productId,
+        productName: product.name,
+        externalProductId,
+        connectedVariants: connectResult.connectedVariants,
+        unmatchedVariants: connectResult.unmatchedVariants,
+      })
+    } catch (err) {
+      result.failed.push({
+        productId,
+        productName: product.name,
+        reason: getErrorMessage(err),
+      })
+    }
+  }
+
+  if (result.fixed.length > 0) {
+    await pushInventoryForProducts([productId])
+    await pushPriceForProducts(marketplace, [productId])
+  }
+
+  await logSync(marketplace, 'revalidate_mapping', 'success', {
+    productId,
+    checked: result.checked,
+    fixed: result.fixed.length,
+    failed: result.failed.length,
+  })
+
+  return result
+}
+
 export interface AutoConnectByTitleResult {
   connected: {
     productId: string
