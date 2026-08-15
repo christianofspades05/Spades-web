@@ -368,6 +368,27 @@ export interface CancelledReturnsResult {
     totalRefundCents: number
     byChannel: { source: OrderSource; count: number }[]
   }
+  /** Full row-level detail behind byReason/byChannel/byChannelAndReason,
+   *  for the admin page's click-a-bar-to-see-its-orders drill-down —
+   *  filtered client-side rather than round-tripping per click. */
+  cancelledOrdersList: {
+    id: string
+    orderNumber: string
+    source: OrderSource
+    reason: OrderCancellationReason | 'unspecified'
+    cancelledAt: string | null
+    totalCents: number
+    customerName: string
+  }[]
+  returnsList: {
+    id: string
+    orderId: string
+    orderNumber: string
+    source: OrderSource | null
+    refundAmountCents: number
+    requestedAt: string
+    customerName: string
+  }[]
 }
 
 async function computeCancelledAndReturns(
@@ -384,7 +405,9 @@ async function computeCancelledAndReturns(
     fetchAllRows((offset) => {
       let query = admin
         .from('orders')
-        .select('id, source, cancellation_reason, cancelled_at, total_cents')
+        .select(
+          'id, order_number, source, cancellation_reason, cancelled_at, total_cents, customer:customers(full_name, email)',
+        )
         .eq('status', 'cancelled')
         .gte('cancelled_at', rangeStart)
         .lte('cancelled_at', rangeEnd)
@@ -456,12 +479,15 @@ async function computeCancelledAndReturns(
       ? await fetchAllRows((offset) =>
           admin
             .from('orders')
-            .select('id, source')
+            .select(
+              'id, order_number, source, customer:customers(full_name, email)',
+            )
             .in('id', returnOrderIds)
             .range(offset, offset + 999),
         )
       : []
   const sourceByOrderId = new Map(returnOrders.map((o) => [o.id, o.source]))
+  const returnOrderById = new Map(returnOrders.map((o) => [o.id, o]))
 
   // Returns aren't tied to `orders.source` directly (see the join above),
   // so the channel filter has to be applied after that lookup rather than
@@ -496,6 +522,30 @@ async function computeCancelledAndReturns(
   const marketplaceReturnsCount =
     (returnsByChannelMap.get('tiktok_shop') ?? 0) +
     (returnsByChannelMap.get('shopee') ?? 0)
+
+  const cancelledOrdersList = cancelledOrders.map((order) => ({
+    id: order.id,
+    orderNumber: order.order_number,
+    source: order.source,
+    reason: order.cancellation_reason ?? ('unspecified' as const),
+    cancelledAt: order.cancelled_at,
+    totalCents: order.total_cents,
+    customerName: order.customer.full_name ?? order.customer.email,
+  }))
+
+  const returnsList = returns.map((ret) => {
+    const order = returnOrderById.get(ret.order_id)
+    return {
+      id: ret.id,
+      orderId: ret.order_id,
+      orderNumber: order?.order_number ?? '—',
+      source: order?.source ?? null,
+      refundAmountCents: ret.refund_amount_cents ?? 0,
+      requestedAt: ret.requested_at,
+      customerName:
+        order?.customer.full_name ?? order?.customer.email ?? 'Guest',
+    }
+  })
 
   return {
     range: { from, to },
@@ -540,6 +590,8 @@ async function computeCancelledAndReturns(
         .map(([source, count]) => ({ source, count }))
         .sort((a, b) => b.count - a.count),
     },
+    cancelledOrdersList,
+    returnsList,
   }
 }
 

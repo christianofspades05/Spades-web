@@ -585,7 +585,15 @@ export interface Database {
           shipping_address: Record<string, unknown>
         }
         Update: Partial<Database['public']['Tables']['orders']['Row']>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'orders_customer_id_fkey'
+            columns: ['customer_id']
+            isOneToOne: false
+            referencedRelation: 'customers'
+            referencedColumns: ['id']
+          },
+        ]
       }
       order_items: {
         Row: {
