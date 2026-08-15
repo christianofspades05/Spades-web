@@ -11,11 +11,17 @@
  *      with real business email on spades-official.com's own MX) and add
  *      the MX record it gives you to that subdomain in your DNS provider.
  *   2. In Resend > Webhooks, add an endpoint pointing at this route's full
- *      URL, subscribed to the `email.received` event, and copy its signing
- *      secret into Vercel as RESEND_WEBHOOK_SECRET.
+ *      URL (must be the canonical www. domain — the bare apex 308-redirects
+ *      to it on Vercel, and Resend doesn't follow that redirect), subscribed
+ *      to the `email.received` event, and copy its signing secret into
+ *      Vercel as RESEND_WEBHOOK_SECRET.
  *   3. Set ORDER_EMAIL_INBOUND_DOMAIN in Vercel to that same subdomain —
  *      sendOrderEmail() won't set a Reply-To (so replies just go to the
  *      normal from-address) until this is set.
+ *   4. Create a new Resend API key with Full access (Sending-only keys
+ *      can't read received emails) and set it as RESEND_RECEIVING_API_KEY
+ *      in Vercel — kept separate from RESEND_API_KEY so the key used for
+ *      every outbound send elsewhere stays scoped to Sending only.
  *
  * Verifies Resend's Svix-signed webhook (svix-id/svix-timestamp/
  * svix-signature headers against RESEND_WEBHOOK_SECRET) before trusting
@@ -130,9 +136,15 @@ export const Route = createFileRoute('/api/webhooks/resend-inbound')({
           return Response.json({ received: true })
         }
 
-        const apiKey = process.env.RESEND_API_KEY
+        // Deliberately a separate key from RESEND_API_KEY (used for every
+        // send elsewhere in the app) — reading a received email needs a
+        // Full access key, while the sending key stays scoped to Sending
+        // only. Keeps the widely-shared sending key at least privilege.
+        const apiKey = process.env.RESEND_RECEIVING_API_KEY
         if (!apiKey) {
-          return new Response('Missing RESEND_API_KEY', { status: 500 })
+          return new Response('Missing RESEND_RECEIVING_API_KEY', {
+            status: 500,
+          })
         }
         const detailRes = await fetch(
           `https://api.resend.com/emails/receiving/${payload.data.email_id}`,
