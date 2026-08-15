@@ -91,7 +91,8 @@ export const disconnectChannel = createServerFn({ method: 'POST' })
       staff,
       'channel.disconnect',
       'marketplace_connections',
-      data.marketplace,
+      null,
+      { marketplace: data.marketplace },
     )
     return { ok: true }
   })
@@ -118,8 +119,8 @@ export const setInventorySyncEnabled = createServerFn({ method: 'POST' })
       staff,
       'channel.set_inventory_sync_enabled',
       'marketplace_connections',
-      data.marketplace,
-      { enabled: data.enabled },
+      null,
+      { marketplace: data.marketplace, enabled: data.enabled },
     )
 
     if (data.enabled) {
@@ -150,8 +151,8 @@ export const setPriceSyncEnabled = createServerFn({ method: 'POST' })
       staff,
       'channel.set_price_sync_enabled',
       'marketplace_connections',
-      data.marketplace,
-      { enabled: data.enabled },
+      null,
+      { marketplace: data.marketplace, enabled: data.enabled },
     )
 
     if (data.enabled) {
@@ -189,8 +190,8 @@ export const setPriceMarkupPercent = createServerFn({ method: 'POST' })
       staff,
       'channel.set_price_markup_percent',
       'marketplace_connections',
-      data.marketplace,
-      { markupPercent: data.markupPercent },
+      null,
+      { marketplace: data.marketplace, markupPercent: data.markupPercent },
     )
 
     if (connection.price_sync_enabled) {
@@ -438,8 +439,12 @@ export const autoConnectProducts = createServerFn({ method: 'POST' })
       staff,
       'channel.auto_connect_products',
       'marketplace_connections',
-      data.marketplace,
-      { connected: result.connected.length, skipped: result.skipped.length },
+      null,
+      {
+        marketplace: data.marketplace,
+        connected: result.connected.length,
+        skipped: result.skipped.length,
+      },
     )
     return result
   })
@@ -458,8 +463,12 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
       staff,
       'channel.auto_connect_products_by_sku',
       'marketplace_connections',
-      data.marketplace,
-      { connected: result.connected.length, skipped: result.skipped.length },
+      null,
+      {
+        marketplace: data.marketplace,
+        connected: result.connected.length,
+        skipped: result.skipped.length,
+      },
     )
     return result
   })
@@ -486,8 +495,9 @@ export const revalidateMappings = createServerFn({ method: 'POST' })
       staff,
       'channel.revalidate_mappings',
       'marketplace_connections',
-      data.marketplace,
+      null,
       {
+        marketplace: data.marketplace,
         checked: result.checked,
         fixed: result.fixed.length,
         failed: result.failed.length,
@@ -527,8 +537,8 @@ export const bulkSyncChannel = createServerFn({ method: 'POST' })
       staff,
       'channel.bulk_sync',
       'marketplace_connections',
-      data.marketplace,
-      { attempted: result.attempted },
+      null,
+      { marketplace: data.marketplace, attempted: result.attempted },
     )
     return result
   })
@@ -567,8 +577,8 @@ export const pullOrdersNow = createServerFn({ method: 'POST' })
         staff,
         'channel.pull_orders',
         'marketplace_connections',
-        data.marketplace,
-        result,
+        null,
+        { marketplace: data.marketplace, ...result },
       )
       return result
     },
