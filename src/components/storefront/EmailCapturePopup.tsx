@@ -30,6 +30,27 @@ export function EmailCapturePopup({ enabled }: { enabled: boolean }) {
   )
   const [error, setError] = useState<string | null>(null)
 
+  // `100dvh` isn't enough on its own for some mobile browsers (their
+  // dynamic address-bar transitions can leave it briefly out of sync with
+  // the real visible area) — visualViewport.height tracks the actual
+  // on-screen viewport live, so the backdrop's height (and therefore the
+  // popup's centering within it) stays exactly correct through address-bar
+  // show/hide and keyboard open/close. Falls back to innerHeight when
+  // visualViewport isn't available (very old browsers).
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null)
+  useEffect(() => {
+    function updateHeight() {
+      setViewportHeight(window.visualViewport?.height ?? window.innerHeight)
+    }
+    updateHeight()
+    window.visualViewport?.addEventListener('resize', updateHeight)
+    window.addEventListener('resize', updateHeight)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateHeight)
+      window.removeEventListener('resize', updateHeight)
+    }
+  }, [])
+
   useEffect(() => {
     if (!enabled) return
     setDismissed(Boolean(localStorage.getItem(STORAGE_KEY)))
@@ -68,7 +89,10 @@ export function EmailCapturePopup({ enabled }: { enabled: boolean }) {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-100 flex h-dvh items-center justify-center overflow-y-auto bg-black/50 px-4 py-8">
+    <div
+      className="fixed inset-0 z-100 flex items-center justify-center overflow-y-auto bg-black/50 px-4 py-8"
+      style={viewportHeight ? { height: viewportHeight } : undefined}
+    >
       <div className="relative my-auto w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900">
         <button
           type="button"
