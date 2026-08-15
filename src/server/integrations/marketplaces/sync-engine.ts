@@ -334,9 +334,15 @@ export async function pushInventoryForAllProducts(
 // Price push
 // ---------------------------------------------------------------------------
 
+// Same shape as MappingRow, plus variant_id — every price-push query below
+// selects it (needed to look up the variant's own price_cents/product_id),
+// unlike the inventory mappings query, which already gets variant_id from
+// its caller instead.
+type PriceMappingRow = MappingRow & { variant_id: string }
+
 async function pushOnePriceMapping(
   connection: MarketplaceConnection,
-  mapping: MappingRow,
+  mapping: PriceMappingRow,
   priceCents: number,
   options?: { force?: boolean },
 ): Promise<void> {
@@ -403,6 +409,36 @@ async function pushOnePriceMapping(
  * Mirrors pushInventoryForAllProducts exactly, including the concurrency
  * reasoning.
  */
+async function repriceOneMapping(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  connection: MarketplaceConnection,
+  activeDiscounts: Awaited<ReturnType<typeof getActiveAutomaticDiscountsFresh>>,
+  mapping: PriceMappingRow,
+  options?: { force?: boolean },
+): Promise<void> {
+  const { data: variant } = await admin
+    .from('product_variants')
+    .select('price_cents, product_id')
+    .eq('id', mapping.variant_id)
+    .maybeSingle()
+  if (!variant) return
+
+  const markedUpPriceCents = Math.round(
+    variant.price_cents * (1 + connection.price_markup_percent / 100),
+  )
+  const sales = await resolveSalePrices(admin, activeDiscounts, [
+    {
+      id: mapping.variant_id,
+      productId: variant.product_id,
+      priceCents: markedUpPriceCents,
+    },
+  ])
+  const priceCents =
+    sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+
+  await pushOnePriceMapping(connection, mapping, priceCents, options)
+}
+
 export async function pushPriceForAllProducts(
   marketplace: MarketplaceName,
   options?: { force?: boolean },
@@ -424,32 +460,68 @@ export async function pushPriceForAllProducts(
 
   const activeDiscounts = await getActiveAutomaticDiscountsFresh(admin)
 
-  await mapWithConcurrency(
-    mappings,
-    DETAIL_FETCH_CONCURRENCY,
-    async (mapping) => {
-      const { data: variant } = await admin
-        .from('product_variants')
-        .select('price_cents, product_id')
-        .eq('id', mapping.variant_id)
-        .maybeSingle()
-      if (!variant) return
+  await mapWithConcurrency(mappings, DETAIL_FETCH_CONCURRENCY, (mapping) =>
+    repriceOneMapping(admin, connection, activeDiscounts, mapping, options),
+  )
 
-      const markedUpPriceCents = Math.round(
-        variant.price_cents * (1 + connection.price_markup_percent / 100),
+  return { attempted: mappings.length }
+}
+
+/**
+ * Forced, scoped re-price for a specific set of local products on one
+ * marketplace — used after revalidateAllMappedProducts repairs a drifted
+ * mapping (e.g. Shopee regenerating a variant's model_id), so the
+ * newly-corrected mapping gets the right *price* immediately too, not just
+ * the stock pushInventoryForProducts already handles. Without this, a
+ * repaired product's price stayed stale until someone manually toggled
+ * price sync off/on to force a full-catalog re-push.
+ */
+export async function pushPriceForProducts(
+  marketplace: MarketplaceName,
+  productIds: string[],
+): Promise<{ attempted: number }> {
+  if (productIds.length === 0) return { attempted: 0 }
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) return { attempted: 0 }
+
+  const adapter = getAdapter(marketplace)
+  if (!adapter.updatePrice) return { attempted: 0 }
+
+  // Chunked for the same reason as pushInventoryForProducts — see its
+  // comment on Supabase's edge rejecting an over-length `.in()` filter URL.
+  const CHUNK_SIZE = 200
+  const variantIds: string[] = []
+  for (let i = 0; i < productIds.length; i += CHUNK_SIZE) {
+    const { data: batch, error } = await admin
+      .from('product_variants')
+      .select('id')
+      .in('product_id', productIds.slice(i, i + CHUNK_SIZE))
+    if (error) throw error
+    variantIds.push(...batch.map((v) => v.id))
+  }
+  if (variantIds.length === 0) return { attempted: 0 }
+
+  const mappings: PriceMappingRow[] = []
+  for (let i = 0; i < variantIds.length; i += CHUNK_SIZE) {
+    const { data: batch, error } = await admin
+      .from('marketplace_product_mappings')
+      .select(
+        'id, marketplace_connection_id, external_variant_id, external_product_id, variant_id',
       )
-      const sales = await resolveSalePrices(admin, activeDiscounts, [
-        {
-          id: mapping.variant_id,
-          productId: variant.product_id,
-          priceCents: markedUpPriceCents,
-        },
-      ])
-      const priceCents =
-        sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+      .eq('marketplace_connection_id', connection.id)
+      .in('variant_id', variantIds.slice(i, i + CHUNK_SIZE))
+    if (error) throw error
+    mappings.push(...batch)
+  }
+  if (mappings.length === 0) return { attempted: 0 }
 
-      await pushOnePriceMapping(connection, mapping, priceCents, options)
-    },
+  const activeDiscounts = await getActiveAutomaticDiscountsFresh(admin)
+
+  await mapWithConcurrency(mappings, DETAIL_FETCH_CONCURRENCY, (mapping) =>
+    repriceOneMapping(admin, connection, activeDiscounts, mapping, {
+      force: true,
+    }),
   )
 
   return { attempted: mappings.length }

@@ -22,6 +22,7 @@ import {
   pushInventoryForVariant,
   pushNewProductToMarketplace,
   pushPriceForAllProducts,
+  pushPriceForProducts,
   revalidateAllMappedProducts,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
@@ -482,15 +483,20 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
  * with a forced push scoped to just the repaired products (not the whole
  * catalog — pushInventoryForAllProducts on top of a full revalidation pass
  * in the same request risks running past a serverless function's time
- * limit), so those specific products carry the right stock number
- * immediately rather than waiting on the next scheduled sync.
+ * limit), so those specific products carry the right stock number and price
+ * immediately rather than waiting on the next scheduled sync or a manual
+ * price-sync toggle off/on (discovered live: a drifted mapping's stock came
+ * back correct after revalidating, but its price stayed stale until sync
+ * was force-repushed by hand, since only inventory was re-pushed here).
  */
 export const revalidateMappings = createServerFn({ method: 'POST' })
   .validator(z.object({ marketplace: marketplaceSchema }))
   .handler(async ({ data }): Promise<RevalidateMappingsResult> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const result = await revalidateAllMappedProducts(data.marketplace)
-    await pushInventoryForProducts(result.fixed.map((f) => f.productId))
+    const fixedProductIds = result.fixed.map((f) => f.productId)
+    await pushInventoryForProducts(fixedProductIds)
+    await pushPriceForProducts(data.marketplace, fixedProductIds)
     await logStaffActivity(
       staff,
       'channel.revalidate_mappings',
