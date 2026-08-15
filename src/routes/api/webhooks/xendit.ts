@@ -313,7 +313,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                     shippingCents: reservation.shipping_cents,
                     discountCents: reservation.discount_cents,
                     totalCents: reservation.total_cents,
-                    accountUrl: `${siteUrl}/account`,
+                    trackingUrl: `${siteUrl}/track/${order.id}`,
                   }),
                 })
               } catch (err) {

@@ -620,7 +620,15 @@ export interface Database {
           line_total_cents: number
         }
         Update: Partial<Database['public']['Tables']['order_items']['Row']>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'order_items_order_id_fkey'
+            columns: ['order_id']
+            isOneToOne: false
+            referencedRelation: 'orders'
+            referencedColumns: ['id']
+          },
+        ]
       }
       checkout_reservations: {
         Row: {

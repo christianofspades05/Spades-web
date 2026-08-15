@@ -22,6 +22,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AccountIndexRouteImport } from './routes/account/index'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
+import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as ReviewTokenRouteImport } from './routes/review/$token'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
@@ -146,6 +147,11 @@ const AboutIndexRoute = AboutIndexRouteImport.update({
 const UnsubscribeTokenRoute = UnsubscribeTokenRouteImport.update({
   id: '/unsubscribe/$token',
   path: '/unsubscribe/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrackOrderIdRoute = TrackOrderIdRouteImport.update({
+  id: '/track/$orderId',
+  path: '/track/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReviewTokenRoute = ReviewTokenRouteImport.update({
@@ -478,6 +484,7 @@ export interface FileRoutesByFullPath {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about/': typeof AboutIndexRoute
   '/account/': typeof AccountIndexRoute
@@ -551,6 +558,7 @@ export interface FileRoutesByTo {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about': typeof AboutIndexRoute
   '/account': typeof AccountIndexRoute
@@ -627,6 +635,7 @@ export interface FileRoutesById {
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
+  '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
   '/about/': typeof AboutIndexRoute
   '/account/': typeof AccountIndexRoute
@@ -704,6 +713,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/track/$orderId'
     | '/unsubscribe/$token'
     | '/about/'
     | '/account/'
@@ -777,6 +787,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/track/$orderId'
     | '/unsubscribe/$token'
     | '/about'
     | '/account'
@@ -852,6 +863,7 @@ export interface FileRouteTypes {
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
+    | '/track/$orderId'
     | '/unsubscribe/$token'
     | '/about/'
     | '/account/'
@@ -926,6 +938,7 @@ export interface RootRouteChildren {
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
   ReviewTokenRoute: typeof ReviewTokenRoute
+  TrackOrderIdRoute: typeof TrackOrderIdRoute
   UnsubscribeTokenRoute: typeof UnsubscribeTokenRoute
   AboutIndexRoute: typeof AboutIndexRoute
   AccountIndexRoute: typeof AccountIndexRoute
@@ -1042,6 +1055,13 @@ declare module '@tanstack/react-router' {
       path: '/unsubscribe/$token'
       fullPath: '/unsubscribe/$token'
       preLoaderRoute: typeof UnsubscribeTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/track/$orderId': {
+      id: '/track/$orderId'
+      path: '/track/$orderId'
+      fullPath: '/track/$orderId'
+      preLoaderRoute: typeof TrackOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/review/$token': {
@@ -1573,6 +1593,7 @@ const rootRouteChildren: RootRouteChildren = {
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
   ReviewTokenRoute: ReviewTokenRoute,
+  TrackOrderIdRoute: TrackOrderIdRoute,
   UnsubscribeTokenRoute: UnsubscribeTokenRoute,
   AboutIndexRoute: AboutIndexRoute,
   AccountIndexRoute: AccountIndexRoute,

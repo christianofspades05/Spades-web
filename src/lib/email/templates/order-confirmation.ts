@@ -29,7 +29,9 @@ export interface OrderConfirmationEmailInput {
   /** 0 when no discount applied — the breakdown row is left out entirely rather than shown as ₱0.00. */
   discountCents: number
   totalCents: number
-  accountUrl: string
+  /** Public, no-login tracking page for this specific order — see
+   *  server/storefront/order-tracking.ts. */
+  trackingUrl: string
 }
 
 export function orderConfirmationEmailSubject(orderNumber: string): string {
@@ -92,7 +94,7 @@ export function orderConfirmationEmailHtml(
         ${breakdownRow('Total', formatPHP(input.totalCents), true)}
       </table>
 
-      <a href="${escapeHtml(input.accountUrl)}" style="display: inline-block; background: #0a0a0a; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 999px; margin-top: 16px;">
+      <a href="${escapeHtml(input.trackingUrl)}" style="display: inline-block; background: #0a0a0a; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 999px; margin-top: 16px;">
         View order
       </a>
       <p style="margin-top: 10px; font-size: 12px; line-height: 1.5; color: #a3a3a3;">

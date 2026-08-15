@@ -498,7 +498,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             shippingCents,
             discountCents,
             totalCents,
-            accountUrl: `${origin}/account`,
+            trackingUrl: `${origin}/track/${order.id}`,
           }),
         }).catch((err: unknown) => {
           console.error('Failed to send order confirmation email:', err)
