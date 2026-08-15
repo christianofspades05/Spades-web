@@ -26,6 +26,7 @@ import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { formatOrderItemsForCopy } from '#/lib/utils/order-items-text'
+import { stripQuotedReply } from '#/lib/utils/email-reply'
 import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
@@ -735,7 +736,11 @@ function OrderEmailsCard({
                     {msg.subject}
                   </p>
                   <p className="mt-1 whitespace-pre-line text-neutral-700">
-                    {msg.bodyText ?? '(no plain-text body)'}
+                    {msg.bodyText
+                      ? msg.direction === 'inbound'
+                        ? stripQuotedReply(msg.bodyText)
+                        : msg.bodyText
+                      : '(no plain-text body)'}
                   </p>
                 </li>
               ))}
