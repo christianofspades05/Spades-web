@@ -7,6 +7,10 @@
  */
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { getErrorMessage } from '#/lib/utils/errors'
+import {
+  getActiveAutomaticDiscountsFresh,
+  resolveSalePrices,
+} from '#/server/storefront/automatic-sales'
 import { getAdapter, IMPLEMENTED_MARKETPLACES } from './registry'
 import type {
   MarketplaceCategory,
@@ -320,6 +324,131 @@ export async function pushInventoryForAllProducts(
         inventoryRow?.quantity_available ?? 0,
         options,
       )
+    },
+  )
+
+  return { attempted: mappings.length }
+}
+
+// ---------------------------------------------------------------------------
+// Price push
+// ---------------------------------------------------------------------------
+
+async function pushOnePriceMapping(
+  connection: MarketplaceConnection,
+  mapping: MappingRow,
+  priceCents: number,
+  options?: { force?: boolean },
+): Promise<void> {
+  // Same opt-in reasoning as pushOneMapping's inventory gate — a channel's
+  // price may be managed by another tool, so this only ever runs uninvited
+  // once staff explicitly turn it on (or force a manual sync).
+  if (!connection.price_sync_enabled && !options?.force) return
+
+  const adapter = getAdapter(connection.marketplace)
+  // Not every marketplace has a price-update endpoint wired up yet (see
+  // MarketplaceAdapter.updatePrice's doc comment) — silently skip rather
+  // than logging a failure for something that was never expected to work.
+  if (!adapter.updatePrice) return
+
+  if (!mapping.external_product_id) {
+    await logSync(
+      connection.marketplace,
+      'push_price',
+      'failed',
+      { mappingId: mapping.id },
+      'No external product id on file for this mapping — reconnect this product to fix price sync.',
+    )
+    return
+  }
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const fresh = await ensureFreshConnection(connection)
+      await adapter.updatePrice(
+        fresh,
+        mapping.external_product_id,
+        mapping.external_variant_id,
+        priceCents,
+      )
+      await logSync(connection.marketplace, 'push_price', 'success', {
+        mappingId: mapping.id,
+        priceCents,
+        attempt,
+      })
+      return
+    } catch (err) {
+      await logSync(
+        connection.marketplace,
+        'push_price',
+        'failed',
+        { mappingId: mapping.id, priceCents, attempt },
+        getErrorMessage(err),
+      )
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(BASE_RETRY_DELAY_MS * 2 ** (attempt - 1))
+      }
+    }
+  }
+}
+
+/**
+ * Re-prices every mapping for a marketplace to whatever it should currently
+ * show: the connection's marked-up regular price (price_cents inflated by
+ * price_markup_percent — e.g. Shopee lists 10% above the website), further
+ * discounted by whatever active storefront sale applies, or just the
+ * marked-up regular price if none does. Discounts are read fresh (bypassing
+ * getActiveAutomaticDiscounts' 15s cache) since this can run synchronously
+ * right after an admin discount save and must reflect it immediately.
+ * Mirrors pushInventoryForAllProducts exactly, including the concurrency
+ * reasoning.
+ */
+export async function pushPriceForAllProducts(
+  marketplace: MarketplaceName,
+  options?: { force?: boolean },
+): Promise<{ attempted: number }> {
+  const admin = getSupabaseAdminClient()
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+
+  const adapter = getAdapter(marketplace)
+  if (!adapter.updatePrice) return { attempted: 0 }
+
+  const { data: mappings, error } = await admin
+    .from('marketplace_product_mappings')
+    .select(
+      'id, marketplace_connection_id, external_variant_id, external_product_id, variant_id',
+    )
+    .eq('marketplace_connection_id', connection.id)
+  if (error) throw error
+
+  const activeDiscounts = await getActiveAutomaticDiscountsFresh(admin)
+
+  await mapWithConcurrency(
+    mappings,
+    DETAIL_FETCH_CONCURRENCY,
+    async (mapping) => {
+      const { data: variant } = await admin
+        .from('product_variants')
+        .select('price_cents, product_id')
+        .eq('id', mapping.variant_id)
+        .maybeSingle()
+      if (!variant) return
+
+      const markedUpPriceCents = Math.round(
+        variant.price_cents * (1 + connection.price_markup_percent / 100),
+      )
+      const sales = await resolveSalePrices(admin, activeDiscounts, [
+        {
+          id: mapping.variant_id,
+          productId: variant.product_id,
+          priceCents: markedUpPriceCents,
+        },
+      ])
+      const priceCents =
+        sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+
+      await pushOnePriceMapping(connection, mapping, priceCents, options)
     },
   )
 

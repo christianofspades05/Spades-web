@@ -224,6 +224,18 @@ export interface MarketplaceAdapter {
     quantity: number,
   ) => Promise<void>
 
+  /** Sets a variant's live selling price on the platform — used to mirror
+   *  an active storefront sale (see sync-engine.ts's pushPriceForAllProducts).
+   *  Optional: only implemented where a platform's API actually supports a
+   *  direct price update (Shopee, so far — TikTok/Lazada don't have one
+   *  wired up yet). */
+  updatePrice?: (
+    connection: MarketplaceConnection,
+    externalProductId: string,
+    externalVariantId: string,
+    priceCents: number,
+  ) => Promise<void>
+
   /** Fetches raw order objects created/updated on the platform since `since`. */
   pullOrders: (
     connection: MarketplaceConnection,

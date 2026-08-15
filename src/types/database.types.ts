@@ -961,6 +961,8 @@ export interface Database {
           token_expires_at: string | null
           status: MarketplaceConnectionStatus
           inventory_sync_enabled: boolean
+          price_sync_enabled: boolean
+          price_markup_percent: number
           connected_by: string | null
           created_at: string
           updated_at: string

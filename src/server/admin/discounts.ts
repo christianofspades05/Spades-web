@@ -10,10 +10,28 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { storeLocalDateTimeToUtcIso } from '#/lib/utils/date-range'
+import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/implemented'
+import { pushPriceForAllProducts } from '#/server/integrations/marketplaces/sync-engine'
 import { logStaffActivity } from './activity-log'
 import type { Discount } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
+
+/** An automatic (store-wide/collection) discount changing means every
+ *  price-synced marketplace product may need repricing — see
+ *  sync-engine.ts's pushPriceForAllProducts (internally a no-op for any
+ *  connection that hasn't opted into price_sync_enabled). Discount codes
+ *  never affect marketplace pricing, only automatic sales, so this is
+ *  skipped entirely for those. Best-effort: a marketplace push failing
+ *  shouldn't fail the discount save itself. */
+async function syncMarketplacePricesIfAutomatic(kind: string): Promise<void> {
+  if (kind !== 'automatic') return
+  await Promise.all(
+    IMPLEMENTED_MARKETPLACES.map((marketplace) =>
+      pushPriceForAllProducts(marketplace).catch(() => {}),
+    ),
+  )
+}
 
 function toRow(data: DiscountInput) {
   return {
@@ -165,6 +183,7 @@ export const createDiscount = createServerFn({ method: 'POST' })
       kind: data.kind,
       title: data.title,
     })
+    await syncMarketplacePricesIfAutomatic(discount.kind)
     return discount
   })
 
@@ -189,6 +208,7 @@ export const updateDiscount = createServerFn({ method: 'POST' })
       discount.id,
       {},
     )
+    await syncMarketplacePricesIfAutomatic(discount.kind)
     return discount
   })
 
@@ -198,13 +218,16 @@ export const setDiscountActive = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
-    const { error } = await admin
+    const { data: discount, error } = await admin
       .from('discounts')
       .update({ is_active: data.isActive })
       .eq('id', data.id)
+      .select('kind')
+      .single()
     if (error) throw error
 
     await logStaffActivity(staff, 'discount.set_active', 'discounts', data.id, {
       isActive: data.isActive,
     })
+    await syncMarketplacePricesIfAutomatic(discount.kind)
   })

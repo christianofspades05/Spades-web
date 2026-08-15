@@ -1,10 +1,15 @@
 /**
  * Daily channel sync: pulls new/updated orders from every connected
- * marketplace, then re-pushes current stock for every linked product.
- * Combined into one cron job because the Vercel plan this project runs on
- * caps projects at 2 cron jobs, each at most once a day (see the other
- * existing cron, review-requests.ts) — a separate 30-minute order-pull job
- * isn't allowed, so this trades sync latency for staying on that plan.
+ * marketplace, then re-pushes current stock and price for every linked
+ * product. Combined into one cron job because the Vercel plan this project
+ * runs on caps projects at 2 cron jobs, each at most once a day (see the
+ * other existing cron, review-requests.ts) — a separate 30-minute order-pull
+ * job isn't allowed, so this trades sync latency for staying on that plan.
+ * This is also the only thing that catches a *scheduled* (starts_at/ends_at)
+ * discount transition with no admin click at that exact moment — see
+ * sync-engine.ts's pushPriceForAllProducts — so a purely time-scheduled sale
+ * can take up to ~24h to reflect on a marketplace; an admin manually
+ * creating/editing/toggling one syncs immediately instead (discounts.ts).
  *
  * The lookback window is wider than the 24h interval so a single missed/
  * failed run doesn't lose orders; pulling the same order twice is a no-op
@@ -45,6 +50,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           pullOrdersForMarketplace,
           pullReturnsForMarketplace,
           pushInventoryForAllProducts,
+          pushPriceForAllProducts,
           reconcileNonTerminalOrders,
         } = await import('#/server/integrations/marketplaces/sync-engine')
 
@@ -59,6 +65,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
         const pullResults: Record<string, unknown> = {}
         const returnResults: Record<string, unknown> = {}
         const reconcileResults: Record<string, unknown> = {}
+        const priceResults: Record<string, unknown> = {}
         const staleOrderResults: Record<string, unknown> = {}
 
         for (const connection of connections) {
@@ -90,6 +97,14 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
             }
           }
           try {
+            priceResults[connection.marketplace] =
+              await pushPriceForAllProducts(connection.marketplace)
+          } catch (err) {
+            priceResults[connection.marketplace] = {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          try {
             staleOrderResults[connection.marketplace] =
               await reconcileNonTerminalOrders(connection.marketplace)
           } catch (err) {
@@ -104,6 +119,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           pullResults,
           returnResults,
           reconcileResults,
+          priceResults,
           staleOrderResults,
         })
       },

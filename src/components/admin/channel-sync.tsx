@@ -15,6 +15,8 @@ import {
   revalidateMappings,
   setCategoryDefault,
   setInventorySyncEnabled,
+  setPriceMarkupPercent,
+  setPriceSyncEnabled,
   syncProductNow,
 } from '#/server/admin/channels'
 import type {
@@ -117,9 +119,16 @@ export function ConnectionCard({
 }) {
   const [submitting, setSubmitting] = useState(false)
   const [togglingSync, setTogglingSync] = useState(false)
+  const [togglingPriceSync, setTogglingPriceSync] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const status = info.connection?.status ?? 'revoked'
   const inventorySyncEnabled = info.connection?.inventory_sync_enabled ?? false
+  const priceSyncEnabled = info.connection?.price_sync_enabled ?? false
+
+  const originalMarkupPercent = info.connection?.price_markup_percent ?? 0
+  const [markupPercent, setMarkupPercent] = useState(originalMarkupPercent)
+  const [savingMarkup, setSavingMarkup] = useState(false)
+  const markupDirty = markupPercent !== originalMarkupPercent
 
   async function handleDisconnect() {
     setSubmitting(true)
@@ -151,6 +160,42 @@ export function ConnectionCard({
       setError(getErrorMessage(err))
     } finally {
       setTogglingSync(false)
+    }
+  }
+
+  async function handleTogglePriceSync() {
+    setTogglingPriceSync(true)
+    setError(null)
+    try {
+      await setPriceSyncEnabled({
+        data: {
+          marketplace: info.marketplace as SyncableMarketplace,
+          enabled: !priceSyncEnabled,
+        },
+      })
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setTogglingPriceSync(false)
+    }
+  }
+
+  async function handleSaveMarkup() {
+    setSavingMarkup(true)
+    setError(null)
+    try {
+      await setPriceMarkupPercent({
+        data: {
+          marketplace: info.marketplace as SyncableMarketplace,
+          markupPercent,
+        },
+      })
+      onChanged()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSavingMarkup(false)
     }
   }
 
@@ -209,6 +254,60 @@ export function ConnectionCard({
           </span>
         </label>
       )}
+
+      {/* Price sync (updatePrice) is only implemented for Shopee so far —
+          see MarketplaceAdapter.updatePrice's doc comment. */}
+      {(status === 'active' || status === 'expired') &&
+        info.marketplace === 'shopee' && (
+          <div className="mt-3">
+            <label className="flex items-center gap-2 text-xs text-neutral-600">
+              <span>Price markup %</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={markupPercent}
+                onChange={(e) => setMarkupPercent(Number(e.target.value))}
+                className={`${inputClassName} w-20`}
+              />
+              {markupDirty && (
+                <button
+                  type="button"
+                  onClick={handleSaveMarkup}
+                  disabled={savingMarkup}
+                  className={`${buttonPrimaryClassName} px-2 py-1 text-xs`}
+                >
+                  {savingMarkup ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </label>
+            <p className="mt-0.5 text-xs text-neutral-400">
+              How much higher Shopee's regular price sits above the
+              website's — e.g. 10 means Shopee lists 10% above the website.
+            </p>
+
+            <label className="mt-2 flex items-start gap-2 text-xs text-neutral-600">
+              <input
+                type="checkbox"
+                checked={priceSyncEnabled}
+                disabled={togglingPriceSync}
+                onChange={handleTogglePriceSync}
+                className="mt-0.5"
+              />
+              <span>
+                Automatically sync sale prices to this channel
+                {!priceSyncEnabled && (
+                  <span className="block text-neutral-400">
+                    Off by default — Shopee's price = website price + markup
+                    above, discounted the same % as the website whenever a
+                    sale is active. Turning this on immediately pushes the
+                    current price for every connected product.
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+        )}
 
       <div className="mt-4 flex flex-col gap-2">
         {!info.implemented ? (

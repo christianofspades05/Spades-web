@@ -21,6 +21,7 @@ import {
   pushInventoryForProducts,
   pushInventoryForVariant,
   pushNewProductToMarketplace,
+  pushPriceForAllProducts,
   revalidateAllMappedProducts,
 } from '#/server/integrations/marketplaces/sync-engine'
 import type {
@@ -123,6 +124,77 @@ export const setInventorySyncEnabled = createServerFn({ method: 'POST' })
 
     if (data.enabled) {
       await pushInventoryForAllProducts(data.marketplace)
+    }
+
+    return { ok: true }
+  })
+
+/**
+ * Price sync is off by default, same reasoning as inventory sync above —
+ * turning it on immediately pushes every currently-connected product's
+ * price once too.
+ */
+export const setPriceSyncEnabled = createServerFn({ method: 'POST' })
+  .validator(z.object({ marketplace: marketplaceSchema, enabled: z.boolean() }))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('marketplace_connections')
+      .update({ price_sync_enabled: data.enabled })
+      .eq('marketplace', data.marketplace)
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'channel.set_price_sync_enabled',
+      'marketplace_connections',
+      data.marketplace,
+      { enabled: data.enabled },
+    )
+
+    if (data.enabled) {
+      await pushPriceForAllProducts(data.marketplace)
+    }
+
+    return { ok: true }
+  })
+
+/**
+ * How much higher this channel's regular (non-sale) price sits above the
+ * website's own base price — e.g. Shopee listings run 10% above the
+ * website. Used by pushPriceForAllProducts to compute what a storefront
+ * sale should push as this channel's price, since the raw website price
+ * would undercut by the markup amount. Re-pushes prices immediately if sync
+ * is already enabled, same "not a silent no-op" reasoning as the toggle.
+ */
+export const setPriceMarkupPercent = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({ marketplace: marketplaceSchema, markupPercent: z.number().min(0) }),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: connection, error } = await admin
+      .from('marketplace_connections')
+      .update({ price_markup_percent: data.markupPercent })
+      .eq('marketplace', data.marketplace)
+      .select('price_sync_enabled')
+      .single()
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'channel.set_price_markup_percent',
+      'marketplace_connections',
+      data.marketplace,
+      { markupPercent: data.markupPercent },
+    )
+
+    if (connection.price_sync_enabled) {
+      await pushPriceForAllProducts(data.marketplace)
     }
 
     return { ok: true }

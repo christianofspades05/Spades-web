@@ -372,6 +372,35 @@ export const shopeeAdapter: MarketplaceAdapter = {
     })
   },
 
+  /** Same item_id + model_id keying as pushInventory above — UNVERIFIED
+   *  against a live shop yet (no price-update call had been made from this
+   *  codebase before this was written); check sync_logs for the raw response
+   *  body if the first real call fails and adjust the body shape from there,
+   *  same as pushInventory/createProduct were previously debugged. */
+  async updatePrice(
+    connection: MarketplaceConnection,
+    externalProductId: string,
+    externalVariantId: string,
+    priceCents: number,
+  ) {
+    const { accessToken, shopId } = requireCredentials(connection)
+    await callShopeeApi({
+      method: 'POST',
+      path: '/api/v2/product/update_price',
+      accessToken,
+      shopId,
+      body: {
+        item_id: Number(externalProductId),
+        price_list: [
+          {
+            model_id: Number(externalVariantId),
+            original_price: priceCents / 100,
+          },
+        ],
+      },
+    })
+  },
+
   async pullOrders(connection: MarketplaceConnection, since: Date) {
     const { accessToken, shopId } = requireCredentials(connection)
     const sinceSeconds = Math.floor(since.getTime() / 1000)

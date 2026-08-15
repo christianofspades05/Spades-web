@@ -48,27 +48,44 @@ const activeAutomaticDiscountsCache = createPromiseCache<AutomaticDiscount[]>(
   ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_MS,
 )
 
+async function fetchActiveAutomaticDiscounts(
+  admin: Admin,
+): Promise<AutomaticDiscount[]> {
+  const { data, error } = await admin
+    .from('discounts')
+    .select(
+      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, stacks_with_sale, starts_at, ends_at',
+    )
+    .eq('kind', 'automatic')
+    .eq('is_active', true)
+  if (error) throw error
+
+  const now = Date.now()
+  return data.filter((d) => {
+    if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
+    if (d.ends_at && new Date(d.ends_at).getTime() < now) return false
+    return true
+  })
+}
+
 /** Every currently-active automatic discount (Store sale or Collection sale) — active meaning is_active, and within its starts_at/ends_at window if either is set. */
 export async function getActiveAutomaticDiscounts(
   admin: Admin,
 ): Promise<AutomaticDiscount[]> {
-  return activeAutomaticDiscountsCache.get('default', async () => {
-    const { data, error } = await admin
-      .from('discounts')
-      .select(
-        'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, stacks_with_sale, starts_at, ends_at',
-      )
-      .eq('kind', 'automatic')
-      .eq('is_active', true)
-    if (error) throw error
+  return activeAutomaticDiscountsCache.get('default', () =>
+    fetchActiveAutomaticDiscounts(admin),
+  )
+}
 
-    const now = Date.now()
-    return data.filter((d) => {
-      if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
-      if (d.ends_at && new Date(d.ends_at).getTime() < now) return false
-      return true
-    })
-  })
+/** Same as getActiveAutomaticDiscounts but bypasses the 15s cache — for
+ *  callers where staleness right after a discount write would be wrong
+ *  (the marketplace price-sync job in sync-engine.ts runs synchronously
+ *  right after an admin discount save and must reflect it immediately,
+ *  not whatever was cached up to 15s ago). */
+export async function getActiveAutomaticDiscountsFresh(
+  admin: Admin,
+): Promise<AutomaticDiscount[]> {
+  return fetchActiveAutomaticDiscounts(admin)
 }
 
 /** Splits active automatic discounts into "additive" (a store-wide sale,
