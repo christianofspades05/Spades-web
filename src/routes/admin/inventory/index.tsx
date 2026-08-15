@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { z } from 'zod'
 import {
   createFileRoute,
@@ -9,6 +9,8 @@ import {
 import { Package, Search } from 'lucide-react'
 import { listInventory } from '#/server/admin/inventory'
 import type { InventoryRow } from '#/server/admin/inventory'
+import { listAllCollections } from '#/server/admin/collections'
+import type { Collection } from '#/types/entities'
 import { updateVariantQuickEdit } from '#/server/admin/products'
 import { centsToPesos } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -24,10 +26,28 @@ import {
   tableWrapperClassName,
 } from '#/components/admin/ui'
 
+const SORT_FIELDS = ['sku', 'created', 'qty'] as const
+const SORT_LABELS: Record<(typeof SORT_FIELDS)[number], string> = {
+  sku: 'SKU',
+  created: 'Date added',
+  qty: 'Available qty',
+}
+
 export const Route = createFileRoute('/admin/inventory/')({
-  validateSearch: z.object({ q: z.string().optional() }),
+  validateSearch: z.object({
+    q: z.string().optional(),
+    collectionId: z.string().uuid().optional(),
+    sort: z.enum(SORT_FIELDS).catch('sku'),
+    dir: z.enum(['asc', 'desc']).catch('asc'),
+  }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => listInventory({ data: { q: deps.q } }),
+  loader: async ({ deps }) => {
+    const [rows, collections] = await Promise.all([
+      listInventory({ data: { q: deps.q, collectionId: deps.collectionId } }),
+      listAllCollections(),
+    ])
+    return { rows, collections }
+  },
   component: InventoryPage,
 })
 
@@ -42,7 +62,8 @@ function variantLabel(row: {
 }
 
 function InventoryPage() {
-  const rows = Route.useLoaderData()
+  const { rows, collections }: { rows: InventoryRow[]; collections: Collection[] } =
+    Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [searchInput, setSearchInput] = useState(search.q ?? '')
@@ -50,8 +71,26 @@ function InventoryPage() {
 
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
-    navigate({ search: { q: searchInput || undefined } })
+    navigate({ search: (prev) => ({ ...prev, q: searchInput || undefined }) })
   }
+
+  const sortedRows = useMemo(() => {
+    const dir = search.dir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      switch (search.sort) {
+        case 'qty':
+          return dir * (a.quantityAvailable - b.quantityAvailable)
+        case 'created':
+          return (
+            dir *
+            (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          )
+        case 'sku':
+        default:
+          return dir * (a.sku ?? '').localeCompare(b.sku ?? '')
+      }
+    })
+  }, [rows, search.sort, search.dir])
 
   const totalAvailable = rows.reduce((sum, r) => sum + r.quantityAvailable, 0)
   const lowStockCount = rows.filter(
@@ -65,30 +104,86 @@ function InventoryPage() {
         subtitle={`${rows.length} ${rows.length === 1 ? 'variant' : 'variants'} · ${totalAvailable} available · ${lowStockCount} low stock`}
       />
 
-      <form onSubmit={handleSearchSubmit} className="mb-4 max-w-xs">
-        <div className="relative">
-          <Search
-            size={15}
-            className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-neutral-400"
-          />
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by SKU or product"
-            className={`${inputClassName} w-full pl-8`}
-          />
-        </div>
-      </form>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <form onSubmit={handleSearchSubmit} className="w-full max-w-xs">
+          <div className="relative">
+            <Search
+              size={15}
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-neutral-400"
+            />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by SKU or product"
+              className={`${inputClassName} w-full pl-8`}
+            />
+          </div>
+        </form>
 
-      {rows.length === 0 && (
+        <select
+          value={search.collectionId ?? ''}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                collectionId: e.target.value || undefined,
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          <option value="">All collections</option>
+          {collections.map((collection) => (
+            <option key={collection.id} value={collection.id}>
+              {collection.name}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={search.sort}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                sort: e.target.value as (typeof SORT_FIELDS)[number],
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          {SORT_FIELDS.map((field) => (
+            <option key={field} value={field}>
+              Sort: {SORT_LABELS[field]}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          onClick={() =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                dir: prev.dir === 'asc' ? 'desc' : 'asc',
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          {search.dir === 'asc' ? 'Ascending' : 'Descending'}
+        </button>
+      </div>
+
+      {sortedRows.length === 0 && (
         <p className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
           No inventory found.
         </p>
       )}
 
-      {rows.length > 0 && (
+      {sortedRows.length > 0 && (
         <div className="md:hidden">
-          {rows.map((row) => (
+          {sortedRows.map((row) => (
             <InventoryCard
               key={row.variantId}
               row={row}
@@ -99,7 +194,7 @@ function InventoryPage() {
       )}
 
       <div className={`${tableWrapperClassName} hidden md:block`}>
-        {rows.length === 0 ? (
+        {sortedRows.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">No inventory found.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -111,10 +206,12 @@ function InventoryPage() {
                   <th className={tableHeadClassName}>SKU</th>
                   <th className={tableHeadClassName}>Cost</th>
                   <th className={tableHeadClassName}>Available</th>
+                  <th className={tableHeadClassName}>Shopee qty</th>
+                  <th className={tableHeadClassName}>TikTok qty</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {sortedRows.map((row) => (
                   <InventoryTableRow
                     key={row.variantId}
                     row={row}
@@ -243,6 +340,18 @@ function InventoryTableRow({
             />
           )}
         </div>
+      </td>
+      <td
+        className={`${tableCellClassName} text-neutral-500`}
+        title="Last quantity pushed to Shopee — view only"
+      >
+        {row.shopeeQuantity ?? '—'}
+      </td>
+      <td
+        className={`${tableCellClassName} text-neutral-500`}
+        title="Last quantity pushed to TikTok Shop — view only"
+      >
+        {row.tiktokQuantity ?? '—'}
       </td>
     </tr>
   )

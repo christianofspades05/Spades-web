@@ -43,6 +43,12 @@ export function InventoryCard({
           <p className="text-sm text-neutral-500">{variantLabel}</p>
         )}
         <p className="text-xs text-neutral-400">SKU: {row.sku}</p>
+        {(row.shopeeQuantity !== null || row.tiktokQuantity !== null) && (
+          <p className="text-xs text-neutral-400">
+            Shopee: {row.shopeeQuantity ?? '—'} · TikTok:{' '}
+            {row.tiktokQuantity ?? '—'}
+          </p>
+        )}
       </div>
 
       <QuantityEditor

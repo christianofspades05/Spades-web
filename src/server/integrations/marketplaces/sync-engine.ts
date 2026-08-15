@@ -205,6 +205,7 @@ async function pushOneMapping(
         .update({
           sync_status: 'synced',
           last_synced_at: new Date().toISOString(),
+          last_pushed_quantity: quantity,
         })
         .eq('id', mapping.id)
       await logSync(connection.marketplace, 'push_inventory', 'success', {

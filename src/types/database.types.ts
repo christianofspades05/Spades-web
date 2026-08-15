@@ -995,6 +995,7 @@ export interface Database {
           external_variant_id: string
           sync_status: MarketplaceSyncStatus
           last_synced_at: string | null
+          last_pushed_quantity: number | null
           created_at: string
           updated_at: string
         }
