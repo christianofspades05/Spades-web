@@ -436,6 +436,39 @@ export interface Database {
           },
         ]
       }
+      variant_stock_recounts: {
+        Row: {
+          variant_id: string
+          recounted_quantity_available: number
+          recounted_at: string
+          staff_user_id: string | null
+        }
+        Insert: Partial<
+          Database['public']['Tables']['variant_stock_recounts']['Row']
+        > & {
+          variant_id: string
+          recounted_quantity_available: number
+        }
+        Update: Partial<
+          Database['public']['Tables']['variant_stock_recounts']['Row']
+        >
+        Relationships: [
+          {
+            foreignKeyName: 'variant_stock_recounts_variant_id_fkey'
+            columns: ['variant_id']
+            isOneToOne: true
+            referencedRelation: 'product_variants'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'variant_stock_recounts_staff_user_id_fkey'
+            columns: ['staff_user_id']
+            isOneToOne: false
+            referencedRelation: 'staff_users'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       inventory_movements: {
         Row: {
           id: string

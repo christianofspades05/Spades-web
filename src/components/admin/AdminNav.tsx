@@ -28,6 +28,7 @@ import type { StaffRole } from '#/types/entities'
 const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
   { to: '/admin/inventory', label: 'Inventory' },
+  { to: '/admin/stock-audit', label: 'Stock Audit' },
 ] as const
 
 const ORDERS_SUB_LINKS = [

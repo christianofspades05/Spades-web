@@ -36,6 +36,7 @@ import { Route as AccountResetPasswordRouteImport } from './routes/account/reset
 import { Route as AccountLoginRouteImport } from './routes/account/login'
 import { Route as AccountForgotPasswordRouteImport } from './routes/account/forgot-password'
 import { Route as AdminStorefrontIndexRouteImport } from './routes/admin/storefront/index'
+import { Route as AdminStockAuditIndexRouteImport } from './routes/admin/stock-audit/index'
 import { Route as AdminSettingsIndexRouteImport } from './routes/admin/settings/index'
 import { Route as AdminReviewsIndexRouteImport } from './routes/admin/reviews/index'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
@@ -217,6 +218,11 @@ const AccountForgotPasswordRoute = AccountForgotPasswordRouteImport.update({
 const AdminStorefrontIndexRoute = AdminStorefrontIndexRouteImport.update({
   id: '/storefront/',
   path: '/storefront/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminStockAuditIndexRoute = AdminStockAuditIndexRouteImport.update({
+  id: '/stock-audit/',
+  path: '/stock-audit/',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminSettingsIndexRoute = AdminSettingsIndexRouteImport.update({
@@ -537,6 +543,7 @@ export interface FileRoutesByFullPath {
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
+  '/admin/stock-audit/': typeof AdminStockAuditIndexRoute
   '/admin/storefront/': typeof AdminStorefrontIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
   '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
@@ -611,6 +618,7 @@ export interface FileRoutesByTo {
   '/admin/products': typeof AdminProductsIndexRoute
   '/admin/reviews': typeof AdminReviewsIndexRoute
   '/admin/settings': typeof AdminSettingsIndexRoute
+  '/admin/stock-audit': typeof AdminStockAuditIndexRoute
   '/admin/storefront': typeof AdminStorefrontIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
   '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
@@ -688,6 +696,7 @@ export interface FileRoutesById {
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
+  '/admin/stock-audit/': typeof AdminStockAuditIndexRoute
   '/admin/storefront/': typeof AdminStorefrontIndexRoute
   '/account/orders/$orderId/review': typeof AccountOrdersOrderIdReviewRoute
   '/api/oauth/shopee/callback': typeof ApiOauthShopeeCallbackRoute
@@ -766,6 +775,7 @@ export interface FileRouteTypes {
     | '/admin/products/'
     | '/admin/reviews/'
     | '/admin/settings/'
+    | '/admin/stock-audit/'
     | '/admin/storefront/'
     | '/account/orders/$orderId/review'
     | '/api/oauth/shopee/callback'
@@ -840,6 +850,7 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/admin/reviews'
     | '/admin/settings'
+    | '/admin/stock-audit'
     | '/admin/storefront'
     | '/account/orders/$orderId/review'
     | '/api/oauth/shopee/callback'
@@ -916,6 +927,7 @@ export interface FileRouteTypes {
     | '/admin/products/'
     | '/admin/reviews/'
     | '/admin/settings/'
+    | '/admin/stock-audit/'
     | '/admin/storefront/'
     | '/account/orders/$orderId/review'
     | '/api/oauth/shopee/callback'
@@ -1153,6 +1165,13 @@ declare module '@tanstack/react-router' {
       path: '/storefront'
       fullPath: '/admin/storefront/'
       preLoaderRoute: typeof AdminStorefrontIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/stock-audit/': {
+      id: '/admin/stock-audit/'
+      path: '/stock-audit'
+      fullPath: '/admin/stock-audit/'
+      preLoaderRoute: typeof AdminStockAuditIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/settings/': {
@@ -1521,6 +1540,7 @@ interface AdminRouteChildren {
   AdminProductsIndexRoute: typeof AdminProductsIndexRoute
   AdminReviewsIndexRoute: typeof AdminReviewsIndexRoute
   AdminSettingsIndexRoute: typeof AdminSettingsIndexRoute
+  AdminStockAuditIndexRoute: typeof AdminStockAuditIndexRoute
   AdminStorefrontIndexRoute: typeof AdminStorefrontIndexRoute
 }
 
@@ -1558,6 +1578,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsIndexRoute: AdminProductsIndexRoute,
   AdminReviewsIndexRoute: AdminReviewsIndexRoute,
   AdminSettingsIndexRoute: AdminSettingsIndexRoute,
+  AdminStockAuditIndexRoute: AdminStockAuditIndexRoute,
   AdminStorefrontIndexRoute: AdminStorefrontIndexRoute,
 }
 
