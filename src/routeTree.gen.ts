@@ -75,6 +75,7 @@ import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/dis
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
+import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
 import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
 import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
 import { Route as AdminAnalyticsProductAnalyticsRouteImport } from './routes/admin/analytics/product-analytics'
@@ -425,6 +426,11 @@ const AdminChannelsMarketplaceRoute =
     path: '/channels/$marketplace',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminAnalyticsVisitorsRoute = AdminAnalyticsVisitorsRouteImport.update({
+  id: '/analytics/visitors',
+  path: '/analytics/visitors',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminAnalyticsSalesRoute = AdminAnalyticsSalesRouteImport.update({
   id: '/analytics/sales',
   path: '/analytics/sales',
@@ -505,6 +511,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
@@ -580,6 +587,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
@@ -658,6 +666,7 @@ export interface FileRoutesById {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
@@ -737,6 +746,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
@@ -812,6 +822,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
@@ -889,6 +900,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/customers/$customerId'
@@ -1440,6 +1452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminChannelsMarketplaceRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/analytics/visitors': {
+      id: '/admin/analytics/visitors'
+      path: '/analytics/visitors'
+      fullPath: '/admin/analytics/visitors'
+      preLoaderRoute: typeof AdminAnalyticsVisitorsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/analytics/sales': {
       id: '/admin/analytics/sales'
       path: '/analytics/sales'
@@ -1512,6 +1531,7 @@ interface AdminRouteChildren {
   AdminAnalyticsProductAnalyticsRoute: typeof AdminAnalyticsProductAnalyticsRoute
   AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
   AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
+  AdminAnalyticsVisitorsRoute: typeof AdminAnalyticsVisitorsRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
   AdminCustomersCustomerIdRoute: typeof AdminCustomersCustomerIdRoute
@@ -1550,6 +1570,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsProductAnalyticsRoute: AdminAnalyticsProductAnalyticsRoute,
   AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,
   AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
+  AdminAnalyticsVisitorsRoute: AdminAnalyticsVisitorsRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
   AdminCustomersCustomerIdRoute: AdminCustomersCustomerIdRoute,

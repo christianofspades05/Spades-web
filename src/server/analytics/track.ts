@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { getRequestHeader } from '@tanstack/react-start/server'
 import { recordVisitSchema, recordPresenceSchema } from '#/lib/validation/analytics'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 
@@ -12,6 +13,14 @@ export const recordVisit = createServerFn({ method: 'POST' })
   .validator(recordVisitSchema)
   .handler(async ({ data }) => {
     const admin = getSupabaseAdminClient()
+    // Best-effort — real headers in production, absent in local dev (see
+    // server/currency/geo.ts's identical read of the country header).
+    // x-vercel-ip-city is URL-encoded (it's a raw header value, and city
+    // names can contain spaces/non-ASCII), so it needs decoding.
+    const country = getRequestHeader('x-vercel-ip-country') ?? null
+    const rawCity = getRequestHeader('x-vercel-ip-city')
+    const city = rawCity ? decodeURIComponent(rawCity) : null
+
     const { error } = await admin.from('storefront_visits').insert({
       visitor_id: data.visitorId,
       path: data.path,
@@ -19,6 +28,8 @@ export const recordVisit = createServerFn({ method: 'POST' })
       product_id: data.productId,
       metadata: data.metadata,
       brand: data.brand,
+      country,
+      city,
     })
     if (error) throw error
     return { ok: true as const }

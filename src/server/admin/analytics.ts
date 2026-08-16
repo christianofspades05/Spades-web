@@ -1860,3 +1860,176 @@ export const getSalesByLocation = createServerFn({ method: 'GET' })
     locationSalesCache.set(cacheKey, result)
     return result
   })
+
+export interface VisitorCountryRow {
+  /** ISO country code (e.g. "SG"), null for visits with no geo header
+   *  (always the case in local dev; rare in production). */
+  country: string | null
+  countryName: string
+  uniqueVisitors: number
+  pageViews: number
+}
+
+export interface VisitorCityRow {
+  city: string
+  /** Vercel's city header can arrive without a country in rare cases —
+   *  kept nullable rather than assumed present, same as VisitorCountryRow. */
+  country: string | null
+  countryName: string
+  uniqueVisitors: number
+  pageViews: number
+}
+
+export interface VisitorAnalytics {
+  uniqueVisitors: number
+  pageViews: number
+  previousUniqueVisitors: number
+  previousPageViews: number
+  countries: VisitorCountryRow[]
+  /** City-level breakdown — visits with no detected city are skipped
+   *  rather than lumped into a fake "Unknown" city (city detection is
+   *  less reliable than country, so that bucket would dominate and add
+   *  little), same precedent as getSalesByLocation's city skip above. */
+  cities: VisitorCityRow[]
+}
+
+const visitorAnalyticsCache = createTtlCache<VisitorAnalytics>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+const countryDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' })
+
+function countryName(code: string | null): string {
+  if (!code) return 'Unknown'
+  try {
+    return countryDisplayNames.of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+/**
+ * Online Store traffic only, by construction — storefront_visits is only
+ * ever written by the storefront's own page loads (see
+ * server/analytics/track.ts); Shopee/TikTok/Lazada shoppers never load our
+ * pages, so no channel filter is needed here the way sales analytics needs
+ * one.
+ */
+export const getVisitorAnalytics = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<VisitorAnalytics> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}`
+    const cached = visitorAnalyticsCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+    const prev = previousPeriod(data.from, data.to)
+    const { start: prevStart, end: prevEnd } = storeRangeToUtcBounds(
+      prev.from,
+      prev.to,
+    )
+
+    const [currentVisits, previousVisits] = await Promise.all([
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('storefront_visits')
+          .select('visitor_id, country, city')
+          .eq('event_type', 'page_view')
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
+          .range(offset, offset + 999)
+        if (data.brand) query = query.eq('brand', data.brand)
+        return query
+      }),
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('storefront_visits')
+          .select('visitor_id')
+          .eq('event_type', 'page_view')
+          .gte('created_at', prevStart)
+          .lte('created_at', prevEnd)
+          .range(offset, offset + 999)
+        if (data.brand) query = query.eq('brand', data.brand)
+        return query
+      }),
+    ])
+
+    const countryBuckets = new Map<
+      string,
+      { visitorIds: Set<string>; pageViews: number }
+    >()
+    const cityBuckets = new Map<
+      string,
+      { city: string; country: string | null; visitorIds: Set<string>; pageViews: number }
+    >()
+    for (const visit of currentVisits) {
+      const countryKey = visit.country ?? 'UNKNOWN'
+      const countryBucket = countryBuckets.get(countryKey) ?? {
+        visitorIds: new Set<string>(),
+        pageViews: 0,
+      }
+      countryBucket.visitorIds.add(visit.visitor_id)
+      countryBucket.pageViews += 1
+      countryBuckets.set(countryKey, countryBucket)
+
+      const city = visit.city?.trim()
+      if (city) {
+        const cityKey = `${city}|${visit.country ?? ''}`
+        const cityBucket = cityBuckets.get(cityKey) ?? {
+          city,
+          country: visit.country,
+          visitorIds: new Set<string>(),
+          pageViews: 0,
+        }
+        cityBucket.visitorIds.add(visit.visitor_id)
+        cityBucket.pageViews += 1
+        cityBuckets.set(cityKey, cityBucket)
+      }
+    }
+
+    const countries: VisitorCountryRow[] = Array.from(countryBuckets.entries())
+      .map(([key, bucket]) => {
+        const country = key === 'UNKNOWN' ? null : key
+        return {
+          country,
+          countryName: countryName(country),
+          uniqueVisitors: bucket.visitorIds.size,
+          pageViews: bucket.pageViews,
+        }
+      })
+      .sort((a, b) => b.uniqueVisitors - a.uniqueVisitors)
+
+    const cities: VisitorCityRow[] = Array.from(cityBuckets.values())
+      .map((bucket) => ({
+        city: bucket.city,
+        country: bucket.country,
+        countryName: countryName(bucket.country),
+        uniqueVisitors: bucket.visitorIds.size,
+        pageViews: bucket.pageViews,
+      }))
+      .sort((a, b) => b.uniqueVisitors - a.uniqueVisitors)
+
+    const result: VisitorAnalytics = {
+      uniqueVisitors: new Set(currentVisits.map((v) => v.visitor_id)).size,
+      pageViews: currentVisits.length,
+      previousUniqueVisitors: new Set(previousVisits.map((v) => v.visitor_id))
+        .size,
+      previousPageViews: previousVisits.length,
+      countries,
+      cities,
+    }
+    visitorAnalyticsCache.set(cacheKey, result)
+    return result
+  })

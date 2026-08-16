@@ -1169,6 +1169,8 @@ export interface Database {
           product_id: string | null
           metadata: Record<string, unknown>
           brand: string
+          country: string | null
+          city: string | null
           created_at: string
         }
         Insert: Partial<

@@ -40,6 +40,7 @@ const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/profit', label: 'Profit' },
   { to: '/admin/analytics/product-analytics', label: 'Product Analytics' },
   { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
+  { to: '/admin/analytics/visitors', label: 'Visitors' },
 ] as const
 
 const CUSTOMER_REPLIES_PAGE_SIZE = 10
