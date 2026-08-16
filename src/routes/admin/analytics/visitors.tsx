@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Building2, Globe } from 'lucide-react'
+import { Building2, ChevronLeft, ChevronRight, Globe } from 'lucide-react'
 import { getVisitorAnalytics } from '#/server/admin/analytics'
 import type {
   VisitorCityRow,
@@ -19,6 +20,7 @@ import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { BarChart } from '#/components/admin/BarChart'
 import {
+  buttonSecondaryClassName,
   tableCellClassName,
   tableHeadClassName,
   tableRowClassName,
@@ -31,6 +33,7 @@ const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
 }))
 
 const TOP_LOCATIONS_CHART_COUNT = 10
+const TABLE_PAGE_SIZE = 10
 
 export const Route = createFileRoute('/admin/analytics/visitors')({
   validateSearch: z.object({
@@ -89,7 +92,14 @@ function LocationBreakdownCard({
   rows: BreakdownRow[]
   emptyMessage: string
 }) {
+  const [page, setPage] = useState(1)
   const totalVisitors = rows.reduce((sum, r) => sum + r.uniqueVisitors, 0)
+  const totalPages = Math.max(1, Math.ceil(rows.length / TABLE_PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageRows = rows.slice(
+    (currentPage - 1) * TABLE_PAGE_SIZE,
+    currentPage * TABLE_PAGE_SIZE,
+  )
 
   return (
     <Card className="p-5">
@@ -106,51 +116,86 @@ function LocationBreakdownCard({
       </div>
 
       {rows.length > 0 ? (
-        <div className={`${tableWrapperClassName} mt-5`}>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className={tableHeadClassName}>Location</th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Visitors
-                  </th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Page views
-                  </th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Share
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.key} className={tableRowClassName}>
-                    <td className={`${tableCellClassName} font-medium`}>
-                      <div className="flex items-center gap-2">
-                        {icon}
-                        {row.label}
-                      </div>
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.uniqueVisitors.toLocaleString()}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.pageViews.toLocaleString()}
-                    </td>
-                    <td
-                      className={`${tableCellClassName} text-right text-neutral-500`}
-                    >
-                      {totalVisitors > 0
-                        ? `${((row.uniqueVisitors / totalVisitors) * 100).toFixed(1)}%`
-                        : '—'}
-                    </td>
+        <>
+          <div className={`${tableWrapperClassName} mt-5`}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Location</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Visitors
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Page views
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Share
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pageRows.map((row) => (
+                    <tr key={row.key} className={tableRowClassName}>
+                      <td className={`${tableCellClassName} font-medium`}>
+                        <div className="flex items-center gap-2">
+                          {icon}
+                          {row.label}
+                        </div>
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.uniqueVisitors.toLocaleString()}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.pageViews.toLocaleString()}
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right text-neutral-500`}
+                      >
+                        {totalVisitors > 0
+                          ? `${((row.uniqueVisitors / totalVisitors) * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Showing {(currentPage - 1) * TABLE_PAGE_SIZE + 1}–
+                {Math.min(currentPage * TABLE_PAGE_SIZE, rows.length)} of{' '}
+                {rows.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${currentPage <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  <ChevronLeft size={14} />
+                  Previous
+                </button>
+                <span className="text-xs text-neutral-400">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className={`${buttonSecondaryClassName} inline-flex items-center gap-1 ${currentPage >= totalPages ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  Next
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <p className="mt-5 text-sm text-neutral-400">{emptyMessage}</p>
       )}
@@ -251,6 +296,7 @@ function VisitorsPage() {
 
       <div className="mt-4">
         <LocationBreakdownCard
+          key={`cities-${search.range}-${search.from}-${search.to}-${search.brand}`}
           title="Top Locations"
           subtitle="Visitors by city — best-effort from IP geolocation. Visits with no detected city are left out of this breakdown."
           icon={<Building2 size={14} className="text-neutral-300" />}
@@ -261,6 +307,7 @@ function VisitorsPage() {
 
       <div className="mt-4">
         <LocationBreakdownCard
+          key={`countries-${search.range}-${search.from}-${search.to}-${search.brand}`}
           title="Top Countries"
           subtitle="Visitors by country — best-effort from IP geolocation, so a visit with no detected location shows as Unknown."
           icon={<Globe size={14} className="text-neutral-300" />}
