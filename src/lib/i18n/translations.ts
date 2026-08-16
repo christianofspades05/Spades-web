@@ -104,6 +104,10 @@ export interface Translations {
     email: string
     delivery: string
     country: string
+    /** Shown under the country field when the selected country carries a
+     *  Markets price markup (see server/storefront/market-pricing.ts) —
+     *  explains why the subtotal is higher than the PH price. */
+    internationalMarkupNotice: string
     recipientName: string
     phone: string
     city: string
@@ -368,6 +372,8 @@ export const translations: Record<Language, Translations> = {
       email: 'Email',
       delivery: 'Delivery',
       country: 'Country',
+      internationalMarkupNotice:
+        'Ships internationally — additional import fee will apply upon receiving the item.',
       recipientName: 'Recipient name',
       phone: 'Phone',
       city: 'City',
@@ -646,6 +652,8 @@ export const translations: Record<Language, Translations> = {
       email: 'メールアドレス',
       delivery: 'お届け先',
       country: '国',
+      internationalMarkupNotice:
+        '海外配送 — 商品受け取り時に別途輸入関税がかかる場合があります。',
       recipientName: 'お名前',
       phone: '電話番号',
       city: '市区町村',
@@ -923,6 +931,8 @@ export const translations: Record<Language, Translations> = {
       email: '이메일',
       delivery: '배송지',
       country: '국가',
+      internationalMarkupNotice:
+        '해외 배송 — 상품 수령 시 별도의 수입 관세가 부과될 수 있습니다.',
       recipientName: '받는 사람',
       phone: '전화번호',
       city: '도시',

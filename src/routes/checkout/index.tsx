@@ -373,6 +373,11 @@ function CheckoutPage() {
                   onChange={handleCountryChange}
                   countryCodes={['PH', ...Object.keys(marketMarkups)]}
                 />
+                {marketMarkups[info.country] && (
+                  <p className="mt-1 text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                    {t.checkout.internationalMarkupNotice}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
