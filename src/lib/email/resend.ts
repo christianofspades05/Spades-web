@@ -59,6 +59,18 @@ export interface SendEmailInput {
   replyTo?: string
 }
 
+/** Builds the per-order Reply-To address that routes a customer's reply
+ *  back through the Resend inbound webhook into that order's Emails thread
+ *  (src/routes/api/webhooks/resend-inbound.ts) — shared by the ad-hoc
+ *  order-emails send (src/server/admin/order-emails.ts) and the automatic
+ *  order-confirmation email, so replies to either land in the same place.
+ *  Null until ORDER_EMAIL_INBOUND_DOMAIN is configured; sendEmail() still
+ *  sends fine without it, just without a Reply-To. */
+export function inboundReplyToAddress(orderId: string): string | undefined {
+  const domain = process.env.ORDER_EMAIL_INBOUND_DOMAIN
+  return domain ? `order-${orderId}@${domain}` : undefined
+}
+
 export async function sendEmail(
   input: SendEmailInput,
 ): Promise<{ id: string }> {

@@ -10,7 +10,11 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { sendEmail, withDisplayName } from '#/lib/email/resend'
+import {
+  inboundReplyToAddress,
+  sendEmail,
+  withDisplayName,
+} from '#/lib/email/resend'
 import { orderMessageEmailHtml } from '#/lib/email/templates/order-message'
 import { logStaffActivity } from './activity-log'
 import type { OrderSource, StaffRole } from '#/types/entities'
@@ -145,15 +149,6 @@ export const listCustomerReplies = createServerFn({ method: 'GET' })
       })),
     }
   })
-
-/** Null until ORDER_EMAIL_INBOUND_DOMAIN is configured (see
- *  resend-inbound.ts's setup steps) — sendOrderEmail() still sends fine
- *  without it, just without a Reply-To, so a reply goes to the plain
- *  from-address instead of back into this thread. */
-function inboundReplyToAddress(orderId: string): string | undefined {
-  const domain = process.env.ORDER_EMAIL_INBOUND_DOMAIN
-  return domain ? `order-${orderId}@${domain}` : undefined
-}
 
 export const sendOrderEmail = createServerFn({ method: 'POST' })
   .validator(

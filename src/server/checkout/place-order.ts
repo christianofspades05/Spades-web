@@ -40,7 +40,11 @@ import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
-import { sendEmail, withDisplayName } from '#/lib/email/resend'
+import {
+  inboundReplyToAddress,
+  sendEmail,
+  withDisplayName,
+} from '#/lib/email/resend'
 import {
   newOrderEmailHtml,
   newOrderEmailSubject,
@@ -500,6 +504,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             totalCents,
             trackingUrl: `${origin}/track/${order.id}`,
           }),
+          replyTo: inboundReplyToAddress(order.id),
         }).catch((err: unknown) => {
           console.error('Failed to send order confirmation email:', err)
         })

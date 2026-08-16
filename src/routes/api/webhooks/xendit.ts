@@ -269,7 +269,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 const address =
                   reservation.shipping_address as unknown as ReservationShippingAddress
                 const siteUrl = process.env.SITE_URL ?? ''
-                const { sendEmail, withDisplayName } =
+                const { inboundReplyToAddress, sendEmail, withDisplayName } =
                   await import('#/lib/email/resend')
 
                 const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
@@ -315,6 +315,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                     totalCents: reservation.total_cents,
                     trackingUrl: `${siteUrl}/track/${order.id}`,
                   }),
+                  replyTo: inboundReplyToAddress(order.id),
                 })
               } catch (err) {
                 console.error(
