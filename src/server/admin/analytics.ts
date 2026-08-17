@@ -185,15 +185,20 @@ async function computeChannelSales(
       items.map((i) => i.variant_id).filter((v): v is string => v !== null),
     ),
   )
-  const { data: variants, error: variantsError } =
-    variantIds.length > 0
-      ? await admin
-          .from('product_variants')
-          .select('id, cost_cents')
-          .in('id', variantIds)
-      : { data: [], error: null }
-  if (variantsError) throw variantsError
-  const costByVariantId = new Map(variants.map((v) => [v.id, v.cost_cents]))
+  // Chunked for the same reason as orderIds above — a wide date range can
+  // pull in enough distinct variant ids that a single .in('id', variantIds)
+  // query string exceeds Node's ~16KB HTTP header limit outright.
+  const variantChunks = await Promise.all(
+    chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+      admin.from('product_variants').select('id, cost_cents').in('id', ids),
+    ),
+  )
+  for (const chunk of variantChunks) {
+    if (chunk.error) throw chunk.error
+  }
+  const costByVariantId = new Map(
+    variantChunks.flatMap((chunk) => chunk.data ?? []).map((v) => [v.id, v.cost_cents]),
+  )
 
   const cogsByOrderId = new Map<string, number>()
   for (const item of items) {
@@ -1940,93 +1945,67 @@ export const getVisitorAnalytics = createServerFn({ method: 'GET' })
       prev.from,
       prev.to,
     )
+    const brand = data.brand ?? null
 
-    const [currentVisits, previousVisits] = await Promise.all([
-      fetchAllRows((offset) => {
-        let query = admin
-          .from('storefront_visits')
-          .select('visitor_id, country, city')
-          .eq('event_type', 'page_view')
-          .gte('created_at', rangeStart)
-          .lte('created_at', rangeEnd)
-          .range(offset, offset + 999)
-        if (data.brand) query = query.eq('brand', data.brand)
-        return query
-      }),
-      fetchAllRows((offset) => {
-        let query = admin
-          .from('storefront_visits')
-          .select('visitor_id')
-          .eq('event_type', 'page_view')
-          .gte('created_at', prevStart)
-          .lte('created_at', prevEnd)
-          .range(offset, offset + 999)
-        if (data.brand) query = query.eq('brand', data.brand)
-        return query
-      }),
-    ])
+    // Aggregated in Postgres (see get_visitor_totals/countries/cities in
+    // migrations) rather than pulling every matching storefront_visits row
+    // into Node — at real traffic volume (hundreds of thousands of rows)
+    // paging through them all here to count in memory was the page's main
+    // slowness; a GROUP BY over the same (event_type, created_at)-indexed
+    // rows is a single fast round trip instead.
+    const [totals, previousTotals, countryRows, cityRows] = await Promise.all(
+      [
+        admin.rpc('get_visitor_totals', {
+          p_from: rangeStart,
+          p_to: rangeEnd,
+          p_brand: brand,
+        }),
+        admin.rpc('get_visitor_totals', {
+          p_from: prevStart,
+          p_to: prevEnd,
+          p_brand: brand,
+        }),
+        admin.rpc('get_visitor_countries', {
+          p_from: rangeStart,
+          p_to: rangeEnd,
+          p_brand: brand,
+        }),
+        admin.rpc('get_visitor_cities', {
+          p_from: rangeStart,
+          p_to: rangeEnd,
+          p_brand: brand,
+        }),
+      ],
+    )
+    if (totals.error) throw totals.error
+    if (previousTotals.error) throw previousTotals.error
+    if (countryRows.error) throw countryRows.error
+    if (cityRows.error) throw cityRows.error
 
-    const countryBuckets = new Map<
-      string,
-      { visitorIds: Set<string>; pageViews: number }
-    >()
-    const cityBuckets = new Map<
-      string,
-      { city: string; country: string | null; visitorIds: Set<string>; pageViews: number }
-    >()
-    for (const visit of currentVisits) {
-      const countryKey = visit.country ?? 'UNKNOWN'
-      const countryBucket = countryBuckets.get(countryKey) ?? {
-        visitorIds: new Set<string>(),
-        pageViews: 0,
-      }
-      countryBucket.visitorIds.add(visit.visitor_id)
-      countryBucket.pageViews += 1
-      countryBuckets.set(countryKey, countryBucket)
-
-      const city = visit.city?.trim()
-      if (city) {
-        const cityKey = `${city}|${visit.country ?? ''}`
-        const cityBucket = cityBuckets.get(cityKey) ?? {
-          city,
-          country: visit.country,
-          visitorIds: new Set<string>(),
-          pageViews: 0,
-        }
-        cityBucket.visitorIds.add(visit.visitor_id)
-        cityBucket.pageViews += 1
-        cityBuckets.set(cityKey, cityBucket)
-      }
-    }
-
-    const countries: VisitorCountryRow[] = Array.from(countryBuckets.entries())
-      .map(([key, bucket]) => {
-        const country = key === 'UNKNOWN' ? null : key
-        return {
-          country,
-          countryName: countryName(country),
-          uniqueVisitors: bucket.visitorIds.size,
-          pageViews: bucket.pageViews,
-        }
-      })
+    const countries: VisitorCountryRow[] = countryRows.data
+      .map((row) => ({
+        country: row.country,
+        countryName: countryName(row.country),
+        uniqueVisitors: row.unique_visitors,
+        pageViews: row.page_views,
+      }))
       .sort((a, b) => b.uniqueVisitors - a.uniqueVisitors)
 
-    const cities: VisitorCityRow[] = Array.from(cityBuckets.values())
-      .map((bucket) => ({
-        city: bucket.city,
-        country: bucket.country,
-        countryName: countryName(bucket.country),
-        uniqueVisitors: bucket.visitorIds.size,
-        pageViews: bucket.pageViews,
+    const cities: VisitorCityRow[] = cityRows.data
+      .map((row) => ({
+        city: row.city,
+        country: row.country,
+        countryName: countryName(row.country),
+        uniqueVisitors: row.unique_visitors,
+        pageViews: row.page_views,
       }))
       .sort((a, b) => b.uniqueVisitors - a.uniqueVisitors)
 
     const result: VisitorAnalytics = {
-      uniqueVisitors: new Set(currentVisits.map((v) => v.visitor_id)).size,
-      pageViews: currentVisits.length,
-      previousUniqueVisitors: new Set(previousVisits.map((v) => v.visitor_id))
-        .size,
-      previousPageViews: previousVisits.length,
+      uniqueVisitors: totals.data[0]?.unique_visitors ?? 0,
+      pageViews: totals.data[0]?.page_views ?? 0,
+      previousUniqueVisitors: previousTotals.data[0]?.unique_visitors ?? 0,
+      previousPageViews: previousTotals.data[0]?.page_views ?? 0,
       countries,
       cities,
     }

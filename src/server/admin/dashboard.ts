@@ -36,7 +36,11 @@ function bucketPeriod(
     status: string
     source: string
   }[],
-  visits: { visitor_id: string; created_at: string }[],
+  // Per-bucket unique-visitor counts, already aggregated in Postgres (see
+  // get_visitor_bucket_counts) — keyed the same way bucketKeyOf below
+  // computes a key from a raw timestamp, so a plain lookup replaces what
+  // used to be an in-memory per-bucket Set built by scanning every row.
+  visitorCountsByKey: Map<string, number>,
   // Narrows orders/salesCents to one channel (see getDashboardAnalytics's
   // `channel` param) — storefrontOrders stays unfiltered by this: it's
   // already its own deliberately storefront-only figure for conversion
@@ -71,14 +75,13 @@ function bucketPeriod(
   }
 
   const indexByKey = new Map(keys.map((key, i) => [key, i]))
-  const points: BucketPoint[] = keys.map((_, i) => ({
+  const points: BucketPoint[] = keys.map((key, i) => ({
     label: labels[i],
     orders: 0,
     salesCents: 0,
-    visitors: 0,
+    visitors: visitorCountsByKey.get(key) ?? 0,
     storefrontOrders: 0,
   }))
-  const visitorSets = points.map(() => new Set<string>())
 
   for (const order of orders) {
     const idx = indexByKey.get(bucketKeyOf(order.placed_at))
@@ -93,15 +96,6 @@ function bucketPeriod(
       if (order.source === 'storefront') point.storefrontOrders += 1
     }
   }
-
-  for (const visit of visits) {
-    const idx = indexByKey.get(bucketKeyOf(visit.created_at))
-    if (idx === undefined) continue
-    visitorSets[idx].add(visit.visitor_id)
-  }
-  points.forEach((point, i) => {
-    point.visitors = visitorSets[i].size
-  })
 
   return points
 }
@@ -167,63 +161,89 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       prev.to,
     )
 
-    const [currentOrders, previousOrders, currentVisits, previousVisits] =
-      await Promise.all([
-        fetchAllRows((offset) => {
-          let query = admin
-            .from('orders')
-            .select('placed_at, total_cents, status, source, is_cod')
-            .gte('placed_at', rangeStart)
-            .lte('placed_at', rangeEnd)
-            .range(offset, offset + 999)
-          if (data.brand) query = query.eq('brand', data.brand)
-          return query
-        }),
-        fetchAllRows((offset) => {
-          let query = admin
-            .from('orders')
-            .select('placed_at, total_cents, status, source')
-            .gte('placed_at', prevStart)
-            .lte('placed_at', prevEnd)
-            .range(offset, offset + 999)
-          if (data.brand) query = query.eq('brand', data.brand)
-          return query
-        }),
-        fetchAllRows((offset) => {
-          let query = admin
-            .from('storefront_visits')
-            .select('visitor_id, created_at')
-            .eq('event_type', 'page_view')
-            .gte('created_at', rangeStart)
-            .lte('created_at', rangeEnd)
-            .range(offset, offset + 999)
-          if (data.brand) query = query.eq('brand', data.brand)
-          return query
-        }),
-        fetchAllRows((offset) => {
-          let query = admin
-            .from('storefront_visits')
-            .select('visitor_id, created_at')
-            .eq('event_type', 'page_view')
-            .gte('created_at', prevStart)
-            .lte('created_at', prevEnd)
-            .range(offset, offset + 999)
-          if (data.brand) query = query.eq('brand', data.brand)
-          return query
-        }),
-      ])
-
     // A single-day range (e.g. "Today") gets bucketed by hour instead of by
     // day — one data point for the whole day would be a flat, useless
     // chart. Anything wider stays bucketed by day, same as before.
     const isSingleDay = data.from === data.to
+    const brand = data.brand ?? null
+
+    // Visitor counts are aggregated in Postgres (get_visitor_totals/
+    // get_visitor_bucket_counts) rather than pulled row-by-row into Node —
+    // storefront_visits can run into the hundreds of thousands of rows for
+    // a "this month"-wide range, which used to mean 300+ sequential paged
+    // fetches here and was the direct cause of this page's "fetch failed"
+    // on anything wider than a single day (Today's small row count masked
+    // it). Orders stays a plain row fetch — order volume is a couple
+    // orders of magnitude smaller, not worth the same treatment.
+    const [
+      currentOrders,
+      previousOrders,
+      currentVisitorTotals,
+      previousVisitorTotals,
+      currentVisitorBuckets,
+      previousVisitorBuckets,
+    ] = await Promise.all([
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('orders')
+          .select('placed_at, total_cents, status, source, is_cod')
+          .gte('placed_at', rangeStart)
+          .lte('placed_at', rangeEnd)
+          .range(offset, offset + 999)
+        if (data.brand) query = query.eq('brand', data.brand)
+        return query
+      }),
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('orders')
+          .select('placed_at, total_cents, status, source')
+          .gte('placed_at', prevStart)
+          .lte('placed_at', prevEnd)
+          .range(offset, offset + 999)
+        if (data.brand) query = query.eq('brand', data.brand)
+        return query
+      }),
+      admin.rpc('get_visitor_totals', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_totals', {
+        p_from: prevStart,
+        p_to: prevEnd,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_bucket_counts', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_hourly: isSingleDay,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_bucket_counts', {
+        p_from: prevStart,
+        p_to: prevEnd,
+        p_hourly: isSingleDay,
+        p_brand: brand,
+      }),
+    ])
+    if (currentVisitorTotals.error) throw currentVisitorTotals.error
+    if (previousVisitorTotals.error) throw previousVisitorTotals.error
+    if (currentVisitorBuckets.error) throw currentVisitorBuckets.error
+    if (previousVisitorBuckets.error) throw previousVisitorBuckets.error
+
+    const currentVisitorCountsByKey = new Map(
+      currentVisitorBuckets.data.map((r) => [r.bucket_key, r.unique_visitors]),
+    )
+    const previousVisitorCountsByKey = new Map(
+      previousVisitorBuckets.data.map((r) => [r.bucket_key, r.unique_visitors]),
+    )
 
     const currentBuckets = bucketPeriod(
       data.from,
       data.to,
       isSingleDay,
       currentOrders,
-      currentVisits,
+      currentVisitorCountsByKey,
       data.channel,
     )
     const previousBuckets = bucketPeriod(
@@ -231,7 +251,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       prev.to,
       isSingleDay,
       previousOrders,
-      previousVisits,
+      previousVisitorCountsByKey,
       data.channel,
     )
 
@@ -276,10 +296,9 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       .filter((o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source))
       .reduce((sum, o) => sum + o.total_cents, 0)
 
-    const uniqueVisitors = new Set(currentVisits.map((v) => v.visitor_id))
-    const previousUniqueVisitors = new Set(
-      previousVisits.map((v) => v.visitor_id),
-    )
+    const uniqueVisitors = currentVisitorTotals.data[0]?.unique_visitors ?? 0
+    const previousUniqueVisitors =
+      previousVisitorTotals.data[0]?.unique_visitors ?? 0
 
     // Excludes cancelled/failed orders — an abandoned online-payment
     // checkout (never actually paid; see api/cron/expire-unpaid-orders.ts)
@@ -303,12 +322,12 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
     ).length
     const conversionRate =
-      uniqueVisitors.size > 0
-        ? (storefrontOrdersCount / uniqueVisitors.size) * 100
+      uniqueVisitors > 0
+        ? (storefrontOrdersCount / uniqueVisitors) * 100
         : null
     const previousConversionRate =
-      previousUniqueVisitors.size > 0
-        ? (previousStorefrontOrdersCount / previousUniqueVisitors.size) * 100
+      previousUniqueVisitors > 0
+        ? (previousStorefrontOrdersCount / previousUniqueVisitors) * 100
         : null
 
     const aovCents = ordersCount > 0 ? Math.round(salesCents / ordersCount) : null
@@ -343,8 +362,8 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       sales: { cents: salesCents, previousCents: previousSalesCents },
       orders: { count: ordersCount, previousCount: previousOrdersCount },
       visitors: {
-        count: uniqueVisitors.size,
-        previousCount: previousUniqueVisitors.size,
+        count: uniqueVisitors,
+        previousCount: previousUniqueVisitors,
       },
       conversionRate: {
         rate: conversionRate,

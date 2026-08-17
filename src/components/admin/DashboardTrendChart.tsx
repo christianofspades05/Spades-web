@@ -17,10 +17,12 @@ function TrendTooltip({
   active,
   payload,
   formatValue,
+  color,
 }: {
   active?: boolean
   payload?: { payload: TrendChartPoint }[]
   formatValue: (value: number) => string
+  color: string
 }) {
   if (!active || !payload?.[0]) return null
   const point = payload[0].payload
@@ -29,13 +31,22 @@ function TrendTooltip({
   return (
     <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs shadow-md">
       <p className="font-medium text-neutral-900">{point.label}</p>
-      <p className="mt-0.5 text-neutral-700">{formatValue(point.current)}</p>
+      <div className="mt-1 flex items-center gap-1.5">
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: color }} />
+        <span className="text-neutral-700">{formatValue(point.current)}</span>
+      </div>
+      <div className="mt-0.5 flex items-center gap-1.5">
+        <span className="size-1.5 rounded-full bg-neutral-300" />
+        <span className="text-neutral-500">
+          {formatValue(point.previous)} previous period
+        </span>
+      </div>
       {change !== null && (
         <p
-          className={`mt-0.5 ${change >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+          className={`mt-1 font-medium ${change >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
         >
           {change >= 0 ? '+' : ''}
-          {change}% vs previous period
+          {change}%
         </p>
       )}
     </div>
@@ -68,7 +79,7 @@ export function TrendLineChart({
         margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
       >
         <CartesianGrid stroke="#f0f0f0" vertical={false} />
-        <Tooltip content={<TrendTooltip formatValue={formatValue} />} />
+        <Tooltip content={<TrendTooltip formatValue={formatValue} color={color} />} />
         <Line
           type="monotone"
           dataKey="previous"

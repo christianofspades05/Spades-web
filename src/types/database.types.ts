@@ -1281,6 +1281,48 @@ export interface Database {
         }
         Returns: undefined
       }
+      get_visitor_totals: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_brand?: string | null
+        }
+        Returns: { unique_visitors: number; page_views: number }[]
+      }
+      get_visitor_countries: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_brand?: string | null
+        }
+        Returns: {
+          country: string | null
+          unique_visitors: number
+          page_views: number
+        }[]
+      }
+      get_visitor_cities: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_brand?: string | null
+        }
+        Returns: {
+          city: string
+          country: string | null
+          unique_visitors: number
+          page_views: number
+        }[]
+      }
+      get_visitor_bucket_counts: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_hourly: boolean
+          p_brand?: string | null
+        }
+        Returns: { bucket_key: string; unique_visitors: number }[]
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
