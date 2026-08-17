@@ -41,6 +41,7 @@ const ANALYTICS_SUB_LINKS = [
   { to: '/admin/analytics/product-analytics', label: 'Product Analytics' },
   { to: '/admin/analytics/cancelled-returns', label: 'Cancelled and Returns' },
   { to: '/admin/analytics/visitors', label: 'Visitors' },
+  { to: '/admin/analytics/inventory-value', label: 'Inventory Value' },
 ] as const
 
 const CUSTOMER_REPLIES_PAGE_SIZE = 10
@@ -101,7 +102,10 @@ export function AdminNav({
   useEffect(() => {
     if (!notifOpen) return
     function handleClick(event: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+      if (
+        notifRef.current &&
+        !notifRef.current.contains(event.target as Node)
+      ) {
         setNotifOpen(false)
       }
     }
@@ -172,7 +176,9 @@ export function AdminNav({
                         {!reply.read && (
                           <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-red-500" />
                         )}
-                        <div className={`min-w-0 flex-1 ${reply.read ? 'pl-3.5' : ''}`}>
+                        <div
+                          className={`min-w-0 flex-1 ${reply.read ? 'pl-3.5' : ''}`}
+                        >
                           <p
                             className={`${reply.read ? 'font-normal text-neutral-600' : 'font-medium text-neutral-900'}`}
                           >

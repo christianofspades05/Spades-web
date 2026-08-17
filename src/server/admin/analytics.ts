@@ -197,7 +197,9 @@ async function computeChannelSales(
     if (chunk.error) throw chunk.error
   }
   const costByVariantId = new Map(
-    variantChunks.flatMap((chunk) => chunk.data ?? []).map((v) => [v.id, v.cost_cents]),
+    variantChunks
+      .flatMap((chunk) => chunk.data ?? [])
+      .map((v) => [v.id, v.cost_cents]),
   )
 
   const cogsByOrderId = new Map<string, number>()
@@ -1029,7 +1031,13 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
     // the other when comparePrevious is on — halving the wall-clock time
     // for that case.
     const [current, prevResult] = await Promise.all([
-      computeSalesAnalytics(admin, data.from, data.to, data.channel, data.brand),
+      computeSalesAnalytics(
+        admin,
+        data.from,
+        data.to,
+        data.channel,
+        data.brand,
+      ),
       data.comparePrevious
         ? (() => {
             const prev = previousPeriod(data.from, data.to)
@@ -1044,7 +1052,8 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
         : null,
     ])
 
-    const previousTotals: SalesAnalyticsTotals | null = prevResult?.totals ?? null
+    const previousTotals: SalesAnalyticsTotals | null =
+      prevResult?.totals ?? null
     const previousDaily: SalesAnalyticsDailyPoint[] = prevResult?.daily ?? []
 
     const daily = current.daily.map((point, i) => ({
@@ -1309,7 +1318,8 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         grossSalesCents: 0,
         costOfGoodsCents: 0,
         srpCents: variant?.price_cents ?? fallbackSrpCents,
-        costCents: variant?.cost_cents ?? (productId ? fallbackCostCents : null),
+        costCents:
+          variant?.cost_cents ?? (productId ? fallbackCostCents : null),
       }
       bucket.unitsSold += item.quantity
       bucket.grossSalesCents += item.line_total_cents
@@ -1953,30 +1963,28 @@ export const getVisitorAnalytics = createServerFn({ method: 'GET' })
     // paging through them all here to count in memory was the page's main
     // slowness; a GROUP BY over the same (event_type, created_at)-indexed
     // rows is a single fast round trip instead.
-    const [totals, previousTotals, countryRows, cityRows] = await Promise.all(
-      [
-        admin.rpc('get_visitor_totals', {
-          p_from: rangeStart,
-          p_to: rangeEnd,
-          p_brand: brand,
-        }),
-        admin.rpc('get_visitor_totals', {
-          p_from: prevStart,
-          p_to: prevEnd,
-          p_brand: brand,
-        }),
-        admin.rpc('get_visitor_countries', {
-          p_from: rangeStart,
-          p_to: rangeEnd,
-          p_brand: brand,
-        }),
-        admin.rpc('get_visitor_cities', {
-          p_from: rangeStart,
-          p_to: rangeEnd,
-          p_brand: brand,
-        }),
-      ],
-    )
+    const [totals, previousTotals, countryRows, cityRows] = await Promise.all([
+      admin.rpc('get_visitor_totals', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_totals', {
+        p_from: prevStart,
+        p_to: prevEnd,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_countries', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: brand,
+      }),
+      admin.rpc('get_visitor_cities', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: brand,
+      }),
+    ])
     if (totals.error) throw totals.error
     if (previousTotals.error) throw previousTotals.error
     if (countryRows.error) throw countryRows.error
@@ -2011,4 +2019,96 @@ export const getVisitorAnalytics = createServerFn({ method: 'GET' })
     }
     visitorAnalyticsCache.set(cacheKey, result)
     return result
+  })
+
+export interface InventoryValueRow {
+  productId: string
+  productName: string
+  productImage: string | null
+  quantityOnHand: number
+  inventoryValueCents: number
+  retailValueCents: number
+  /** True if at least one of this product's variants has no cost_cents set
+   *  — its inventoryValueCents is understated (that variant's units
+   *  contribute to quantityOnHand/retailValueCents but count as 0 cost). */
+  hasMissingCost: boolean
+}
+
+export interface InventoryValueReport {
+  rows: InventoryValueRow[]
+  totalUnits: number
+  totalInventoryValueCents: number
+  totalRetailValueCents: number
+  /** Count of rows in `rows` with hasMissingCost — surfaced so the page can
+   *  warn that the total is a floor, not the true figure, when non-zero. */
+  productsMissingCost: number
+}
+
+/**
+ * Total value of physical stock on hand, grouped by product — "inventory
+ * value" uses each variant's cost_cents (what it cost to acquire), "retail
+ * value" uses price_cents (what it'd sell for at full price). Deliberately
+ * counts quantity_on_hand, not quantity_available — stock reserved against
+ * a pending order is still physically yours and still has value; only
+ * quantity actually shipped out (via commit_variant_stock) stops counting.
+ * Zero-stock products are dropped rather than shown as a 0-value row.
+ */
+export const getInventoryValueReport = createServerFn({ method: 'GET' })
+  .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS).optional() }))
+  .handler(async ({ data }): Promise<InventoryValueReport> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const variants = await fetchAllRows((offset) => {
+      let query = admin
+        .from('product_variants')
+        .select(
+          'cost_cents, price_cents, product:products!inner(id, name, images, brand), inventory(quantity_on_hand)',
+        )
+        .range(offset, offset + 999)
+      if (data.brand) query = query.eq('product.brand', data.brand)
+      return query
+    })
+
+    const byProduct = new Map<string, InventoryValueRow>()
+    for (const v of variants) {
+      const qty = v.inventory.reduce((sum, i) => sum + i.quantity_on_hand, 0)
+      if (qty === 0) continue
+
+      const row = byProduct.get(v.product.id) ?? {
+        productId: v.product.id,
+        productName: v.product.name,
+        productImage: v.product.images[0] ?? null,
+        quantityOnHand: 0,
+        inventoryValueCents: 0,
+        retailValueCents: 0,
+        hasMissingCost: false,
+      }
+      row.quantityOnHand += qty
+      row.retailValueCents += qty * v.price_cents
+      if (v.cost_cents !== null) {
+        row.inventoryValueCents += qty * v.cost_cents
+      } else {
+        row.hasMissingCost = true
+      }
+      byProduct.set(v.product.id, row)
+    }
+
+    const rows = Array.from(byProduct.values()).sort(
+      (a, b) => b.inventoryValueCents - a.inventoryValueCents,
+    )
+
+    return {
+      rows,
+      totalUnits: rows.reduce((sum, r) => sum + r.quantityOnHand, 0),
+      totalInventoryValueCents: rows.reduce(
+        (sum, r) => sum + r.inventoryValueCents,
+        0,
+      ),
+      totalRetailValueCents: rows.reduce(
+        (sum, r) => sum + r.retailValueCents,
+        0,
+      ),
+      productsMissingCost: rows.filter((r) => r.hasMissingCost).length,
+    }
   })
