@@ -71,7 +71,11 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
 
         const callbackToken = request.headers.get('x-callback-token')
-        if (!isValidXenditWebhookToken(callbackToken)) {
+        // Which Xendit account this came from doesn't matter beyond
+        // verification — order-minting below is entirely driven by the
+        // checkout_reservations row (external_id), not by which account
+        // charged the customer.
+        if (isValidXenditWebhookToken(callbackToken) === null) {
           return new Response('Invalid callback token', { status: 401 })
         }
 

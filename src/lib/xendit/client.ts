@@ -1,7 +1,14 @@
 /**
- * Server-only Xendit API client. Two separate secret keys are used, scoped
- * by permission (least-privilege — see .env.example): WRITE for creating
- * invoices, READ for checking their status.
+ * Server-only Xendit API client. Two separate secret keys are used per
+ * account, scoped by permission (least-privilege — see .env.example): WRITE
+ * for creating invoices, READ for checking their status.
+ *
+ * Multiple Xendit *accounts* (not just keys) are supported — a stopgap
+ * while the main account's multi-currency approval is still pending (see
+ * place-order.ts). The main account only has PHP enabled; a country whose
+ * customers need a different settlement currency can be routed to a
+ * separate Xendit account that has that currency enabled instead. See
+ * XENDIT_ACCOUNTS/resolveXenditAccountId below.
  *
  * Never import this from a route component or anything that could end up
  * in the browser bundle. Each exported function guards itself at call time
@@ -18,6 +25,45 @@ function assertServerOnly() {
 }
 
 const XENDIT_API_BASE = 'https://api.xendit.co'
+
+export type XenditAccountId = 'default' | 'sgd'
+
+interface XenditAccountConfig {
+  currency: string
+  writeKeyEnv: string
+  readKeyEnv: string
+  webhookTokenEnv: string
+}
+
+const XENDIT_ACCOUNTS: Record<XenditAccountId, XenditAccountConfig> = {
+  default: {
+    currency: 'PHP',
+    writeKeyEnv: 'XENDIT_SECRET_KEY_WRITE',
+    readKeyEnv: 'XENDIT_SECRET_KEY_READ',
+    webhookTokenEnv: 'XENDIT_WEBHOOK_VERIFICATION_TOKEN',
+  },
+  sgd: {
+    currency: 'SGD',
+    writeKeyEnv: 'XENDIT_SECRET_KEY_WRITE_SGD',
+    readKeyEnv: 'XENDIT_SECRET_KEY_READ_SGD',
+    webhookTokenEnv: 'XENDIT_WEBHOOK_VERIFICATION_TOKEN_SGD',
+  },
+}
+
+/** Checkout country -> which Xendit account actually charges the
+ *  customer. Anything not listed here uses 'default' (PHP) — the same
+ *  behavior as before this account-routing existed. */
+const COUNTRY_XENDIT_ACCOUNT: Partial<Record<string, XenditAccountId>> = {
+  SG: 'sgd',
+}
+
+export function resolveXenditAccountId(country: string): XenditAccountId {
+  return COUNTRY_XENDIT_ACCOUNT[country] ?? 'default'
+}
+
+export function xenditAccountCurrency(account: XenditAccountId): string {
+  return XENDIT_ACCOUNTS[account].currency
+}
 
 export interface XenditInvoice {
   id: string
@@ -72,10 +118,11 @@ export interface CreateInvoiceInput {
 }
 
 export async function createXenditInvoice(
+  account: XenditAccountId,
   input: CreateInvoiceInput,
 ): Promise<XenditInvoice> {
   assertServerOnly()
-  const secretKey = requireEnv('XENDIT_SECRET_KEY_WRITE')
+  const secretKey = requireEnv(XENDIT_ACCOUNTS[account].writeKeyEnv)
 
   const res = await fetch(`${XENDIT_API_BASE}/v2/invoices`, {
     method: 'POST',
@@ -107,10 +154,11 @@ export async function createXenditInvoice(
 }
 
 export async function getXenditInvoice(
+  account: XenditAccountId,
   invoiceId: string,
 ): Promise<XenditInvoice> {
   assertServerOnly()
-  const secretKey = requireEnv('XENDIT_SECRET_KEY_READ')
+  const secretKey = requireEnv(XENDIT_ACCOUNTS[account].readKeyEnv)
 
   const res = await fetch(`${XENDIT_API_BASE}/v2/invoices/${invoiceId}`, {
     headers: { Authorization: basicAuthHeader(secretKey) },
@@ -124,15 +172,32 @@ export async function getXenditInvoice(
   return res.json()
 }
 
-/** Compares the x-callback-token header Xendit sends on every webhook against our configured verification token. */
-export function isValidXenditWebhookToken(headerToken: string | null): boolean {
+/** Compares the x-callback-token header Xendit sends on every webhook
+ *  against every configured account's verification token — each Xendit
+ *  account issues its own distinct token, so a single fixed comparison
+ *  would reject every account but one. Returns which account the webhook
+ *  came from (null if it matches none, i.e. invalid/forged). An account
+ *  whose webhook token isn't configured (e.g. the SGD account not yet set
+ *  up in a given environment) is simply never matched, not an error —
+ *  only the default account's token is required to exist. */
+export function isValidXenditWebhookToken(
+  headerToken: string | null,
+): XenditAccountId | null {
   assertServerOnly()
-  const expected = process.env.XENDIT_WEBHOOK_VERIFICATION_TOKEN
-  if (!expected) {
+  if (!headerToken) return null
+
+  for (const [id, config] of Object.entries(XENDIT_ACCOUNTS) as [
+    XenditAccountId,
+    XenditAccountConfig,
+  ][]) {
+    const expected = process.env[config.webhookTokenEnv]
+    if (expected && headerToken === expected) return id
+  }
+
+  if (!process.env[XENDIT_ACCOUNTS.default.webhookTokenEnv]) {
     console.error(
       'XENDIT_WEBHOOK_VERIFICATION_TOKEN is not set — rejecting all Xendit webhooks. Set it in .env (see .env.example).',
     )
-    return false
   }
-  return headerToken === expected
+  return null
 }

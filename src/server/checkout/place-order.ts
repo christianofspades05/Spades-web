@@ -38,7 +38,11 @@ import { getLalamoveQuotation } from '#/lib/lalamove/client'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
-import { createXenditInvoice } from '#/lib/xendit/client'
+import {
+  createXenditInvoice,
+  resolveXenditAccountId,
+  xenditAccountCurrency,
+} from '#/lib/xendit/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import {
   inboundReplyToAddress,
@@ -551,23 +555,46 @@ export const placeOrder = createServerFn({ method: 'POST' })
       try {
         // Xendit's legacy Invoice API (used here) rejects any currency the
         // merchant hasn't had explicitly enabled on their account — live-
-        // tested and confirmed for this account (only PHP is enabled;
+        // tested and confirmed for the main account (only PHP is enabled;
         // trying SGD returned "currency SGD is not configured in your
-        // settings yet"). So online payment always actually charges PHP
-        // regardless of the customer's selected display currency —
-        // browsing/checkout/payment-summary still show their chosen
-        // currency (see CurrencyContext.tsx), this is only about what
-        // Xendit itself is told to charge. If more currencies get enabled
-        // on the Xendit side later, this is the one place to start passing
-        // data.currency through again (see git history for the previous
-        // per-currency attempt).
-        const invoice = await createXenditInvoice({
+        // settings yet"). So online payment normally always actually
+        // charges PHP regardless of the customer's selected display
+        // currency (browsing/checkout/payment-summary still show their
+        // chosen currency — see CurrencyContext.tsx) — EXCEPT for a
+        // checkout country explicitly routed to a separate Xendit account
+        // that has a different currency enabled (see
+        // resolveXenditAccountId), a stopgap while the main account's own
+        // multi-currency approval is still pending. If more currencies get
+        // enabled on the main account later, this per-country routing can
+        // shrink back down to nothing.
+        const xenditAccount = resolveXenditAccountId(data.contact.country)
+        const chargeCurrency = xenditAccountCurrency(xenditAccount)
+
+        // totalCents is always PHP cents up to this point (see subtotal/
+        // shipping computation above) — converted to the charging
+        // account's own currency here using the same exchange_rates table
+        // (currency per 1 PHP) already fetched above for shipping. Never
+        // fall back to charging PHP silently on a missing rate — that
+        // would tell the customer they paid one amount while actually
+        // being charged a wildly different one.
+        let chargeAmount = totalCents / 100
+        if (chargeCurrency !== 'PHP') {
+          const rateToPhp = exchangeRates[chargeCurrency]
+          if (!rateToPhp) {
+            throw new Error(
+              `Missing exchange rate for ${chargeCurrency} — cannot charge via the ${xenditAccount} Xendit account.`,
+            )
+          }
+          chargeAmount = Math.round(totalCents * rateToPhp) / 100
+        }
+
+        const invoice = await createXenditInvoice(xenditAccount, {
           externalId: reservation.id,
-          amount: totalCents / 100,
-          currency: 'PHP',
+          amount: chargeAmount,
+          currency: chargeCurrency,
           payerEmail: email,
           description: `${scope.name} order`,
-          successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
+          successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${chargeAmount.toFixed(2)}&currency=${chargeCurrency}`,
           failureRedirectUrl: `${origin}/checkout/payment?paymentFailed=true`,
           // Abandoned payments shouldn't leave stock reserved indefinitely —
           // Xendit pushes an EXPIRED webhook event at this point, which
