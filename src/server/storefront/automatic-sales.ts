@@ -162,35 +162,40 @@ export async function resolveSalePrices(
 
   // One collection-membership resolution per discount (not per product) —
   // real usage is a handful of active sales at a time, so this stays cheap
-  // regardless of how many products are being priced.
+  // regardless of how many products are being priced. Run concurrently
+  // rather than one discount after another — each was its own DB round
+  // trip, and on a cold serverless instance those added up into a real,
+  // avoidable chunk of a product page's slow first hit.
   const eligibleProductIdsByDiscount = new Map<string, Set<string>>()
-  for (const discount of activeDiscounts) {
-    if (discount.scope === 'all') {
-      const excludedIds =
-        discount.excluded_collection_ids.length > 0
-          ? await resolveCollectionScopedProductIds(
-              admin,
-              discount.excluded_collection_ids,
-              productIds,
-            )
-          : new Set<string>()
-      eligibleProductIdsByDiscount.set(
-        discount.id,
-        new Set(productIds.filter((id) => !excludedIds.has(id))),
-      )
-    } else if (discount.scope === 'collection') {
-      const included = await resolveCollectionScopedProductIds(
-        admin,
-        discount.scope_ids,
-        productIds,
-      )
-      eligibleProductIdsByDiscount.set(discount.id, included)
-    }
-    // scope 'product'/'variant': not offered by the admin UI yet (only
-    // 'all'/'collection' are), so nothing to resolve here — the cart's own
-    // checkout-time discount code logic (src/server/cart/discount.ts)
-    // still handles those scopes independently for discount codes.
-  }
+  await Promise.all(
+    activeDiscounts.map(async (discount) => {
+      if (discount.scope === 'all') {
+        const excludedIds =
+          discount.excluded_collection_ids.length > 0
+            ? await resolveCollectionScopedProductIds(
+                admin,
+                discount.excluded_collection_ids,
+                productIds,
+              )
+            : new Set<string>()
+        eligibleProductIdsByDiscount.set(
+          discount.id,
+          new Set(productIds.filter((id) => !excludedIds.has(id))),
+        )
+      } else if (discount.scope === 'collection') {
+        const included = await resolveCollectionScopedProductIds(
+          admin,
+          discount.scope_ids,
+          productIds,
+        )
+        eligibleProductIdsByDiscount.set(discount.id, included)
+      }
+      // scope 'product'/'variant': not offered by the admin UI yet (only
+      // 'all'/'collection' are), so nothing to resolve here — the cart's
+      // own checkout-time discount code logic (src/server/cart/discount.ts)
+      // still handles those scopes independently for discount codes.
+    }),
+  )
 
   const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(activeDiscounts)
 

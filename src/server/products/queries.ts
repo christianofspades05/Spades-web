@@ -333,17 +333,25 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
       | null
     > => {
       const supabase = getSupabaseServerClient()
+      const admin = getSupabaseAdminClient()
 
-      const { data: product, error } = await supabase
-        .from('products')
-        .select(
-          '*, variants:product_variants(*, inventory(quantity_available))',
-        )
-        .eq('slug', data.slug)
-        .eq('status', 'active')
-        .eq('brand', data.brand)
-        .order('sort_order', { foreignTable: 'variants' })
-        .maybeSingle()
+      // getActiveAutomaticDiscounts doesn't depend on the product row at
+      // all, so it runs alongside the product fetch instead of after it —
+      // on a cold serverless instance (empty caches, fresh DB connections)
+      // this was a real, avoidable chunk of this page's slow first hit.
+      const [{ data: product, error }, activeDiscounts] = await Promise.all([
+        supabase
+          .from('products')
+          .select(
+            '*, variants:product_variants(*, inventory(quantity_available))',
+          )
+          .eq('slug', data.slug)
+          .eq('status', 'active')
+          .eq('brand', data.brand)
+          .order('sort_order', { foreignTable: 'variants' })
+          .maybeSingle(),
+        getActiveAutomaticDiscounts(admin),
+      ])
 
       if (error) throw error
       if (!product) return null
@@ -352,8 +360,6 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
       // its own price is what a shopper who picks that size/color actually
       // pays, and collection membership is checked against the shared
       // product id regardless (see resolveSalePrices' productId param).
-      const admin = getSupabaseAdminClient()
-      const activeDiscounts = await getActiveAutomaticDiscounts(admin)
       const sales = await resolveSalePrices(
         admin,
         activeDiscounts,
