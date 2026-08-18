@@ -52,10 +52,15 @@ const XENDIT_ACCOUNTS: Record<XenditAccountId, XenditAccountConfig> = {
 
 /** Checkout country -> which Xendit account actually charges the
  *  customer. Anything not listed here uses 'default' (PHP) — the same
- *  behavior as before this account-routing existed. */
-const COUNTRY_XENDIT_ACCOUNT: Partial<Record<string, XenditAccountId>> = {
-  SG: 'sgd',
-}
+ *  behavior as before this account-routing existed.
+ *
+ * Empty for now: the SGD account is set up (see .env.example) but Xendit
+ * hasn't actually enabled SGD for Invoices on it yet — live-tested and
+ * confirmed rejected with the same "currency SGD is not configured in
+ * your settings yet" error the main account gives. Singapore checkouts
+ * fall back to charging PHP (the pre-existing behavior) until that's
+ * sorted out on Xendit's side — add `SG: 'sgd'` back here once it is. */
+const COUNTRY_XENDIT_ACCOUNT: Partial<Record<string, XenditAccountId>> = {}
 
 export function resolveXenditAccountId(country: string): XenditAccountId {
   return COUNTRY_XENDIT_ACCOUNT[country] ?? 'default'
