@@ -153,3 +153,31 @@ export function centsToMajorUnits(cents: number, currency: string): number {
 export function majorUnitsToCents(amount: number, currency: string): number {
   return Math.round(amount * minorUnitsPerMajor(currency))
 }
+
+/** Order/reservation rows are always PHP-denominated internally regardless
+ *  of what the customer was actually charged (see
+ *  server/checkout/place-order.ts) — only PayPal orders carry a real
+ *  charged-currency amount (payments.charged_currency/charged_amount_cents),
+ *  known only as a single final total, never a per-line breakdown. Every
+ *  caller that needs to show a customer-facing breakdown (order-
+ *  confirmation/new-order emails, the checkout confirmation page) scales
+ *  each PHP component by the same ratio so subtotal + shipping - discount
+ *  still reconciles to the shown total, while the total line itself uses
+ *  the exact captured amount rather than a scaled-and-rounded approximation
+ *  of it. Returns a no-op converter (PHP unchanged) when nothing was
+ *  charged in a different currency, e.g. Xendit/COD orders. */
+export function chargedCurrencyConversion(
+  totalPhpCents: number,
+  chargedCurrency: string | null | undefined,
+  chargedAmountCents: number | null | undefined,
+): { currency: string; convert: (phpCents: number) => number; totalCents: number } {
+  if (!chargedCurrency || chargedAmountCents == null) {
+    return { currency: 'PHP', convert: (phpCents) => phpCents, totalCents: totalPhpCents }
+  }
+  const ratio = totalPhpCents > 0 ? chargedAmountCents / totalPhpCents : 1
+  return {
+    currency: chargedCurrency,
+    convert: (phpCents) => Math.round(phpCents * ratio),
+    totalCents: chargedAmountCents,
+  }
+}

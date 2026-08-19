@@ -11,6 +11,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { chargedCurrencyConversion } from '#/lib/utils/money'
 
 /** Mirrors the same helper in src/server/admin/orders.ts and src/server/account/queries.ts. */
 async function getProductImagesByVariantId(
@@ -46,6 +47,11 @@ export interface OrderConfirmation {
   discountCents: number
   shippingCents: number
   totalCents: number
+  /** ISO 4217 code every *Cents field above is denominated in — the
+   *  currency actually charged (PayPal orders) or PHP (Xendit/COD, which
+   *  only ever charge PHP regardless of the customer's display currency).
+   *  See lib/utils/money.ts's chargedCurrencyConversion. */
+  currency: string
 }
 
 export const getOrderConfirmation = createServerFn({ method: 'GET' })
@@ -71,6 +77,21 @@ export const getOrderConfirmation = createServerFn({ method: 'GET' })
     )
     const imageMap = await getProductImagesByVariantId(admin, variantIds)
 
+    // A separate query rather than embedding payments(...) in the select
+    // above — this table's Relationships metadata in database.types.ts is
+    // empty (hand-maintained, see that file's header), which breaks the
+    // typed client's embed inference for this join.
+    const { data: payment } = await admin
+      .from('payments')
+      .select('charged_currency, charged_amount_cents')
+      .eq('order_id', order.id)
+      .maybeSingle()
+    const { currency, convert, totalCents } = chargedCurrencyConversion(
+      order.total_cents,
+      payment?.charged_currency,
+      payment?.charged_amount_cents,
+    )
+
     return {
       items: order.order_items.map((item) => ({
         id: item.id,
@@ -81,10 +102,11 @@ export const getOrderConfirmation = createServerFn({ method: 'GET' })
           ? (imageMap.get(item.variant_id) ?? null)
           : null,
       })),
-      subtotalCents: order.subtotal_cents,
-      discountCents: order.discount_cents,
-      shippingCents: order.shipping_cents,
-      totalCents: order.total_cents,
+      subtotalCents: convert(order.subtotal_cents),
+      discountCents: convert(order.discount_cents),
+      shippingCents: convert(order.shipping_cents),
+      totalCents,
+      currency,
     }
   })
 

@@ -63,7 +63,7 @@ function PaymentPage() {
   // why, rather than it just silently not being there.
   const codDisabledReason =
     info.country !== 'PH'
-      ? 'Cash on Delivery is only available for Philippine addresses — please pay online.'
+      ? 'Cash on Delivery is not available — please pay online.'
       : isLalamove
         ? 'Not available for Lalamove delivery — online payment only.'
         : !codAvailable

@@ -10,7 +10,7 @@ import {
   getOrderConfirmationByReservation,
 } from '#/server/checkout/confirmation'
 import type { OrderConfirmation } from '#/server/checkout/confirmation'
-import { formatCentsAsPHP } from '#/lib/utils/money'
+import { formatCents } from '#/lib/utils/money'
 
 export const Route = createFileRoute('/checkout/confirmation')({
   validateSearch: z.object({
@@ -212,12 +212,16 @@ function ConfirmationPage() {
             <div className="flex flex-col gap-1.5 border-t border-neutral-200 pt-3 text-sm dark:border-neutral-800">
               <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                 <span>{t.payment.subtotal}</span>
-                <span>{formatCentsAsPHP(confirmation.subtotalCents)}</span>
+                <span>
+                  {formatCents(confirmation.subtotalCents, confirmation.currency)}
+                </span>
               </div>
               {confirmation.discountCents > 0 && (
                 <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                   <span>{t.payment.discount}</span>
-                  <span>−{formatCentsAsPHP(confirmation.discountCents)}</span>
+                  <span>
+                    −{formatCents(confirmation.discountCents, confirmation.currency)}
+                  </span>
                 </div>
               )}
               <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
@@ -225,12 +229,12 @@ function ConfirmationPage() {
                 <span>
                   {confirmation.shippingCents === 0
                     ? t.checkout.free
-                    : formatCentsAsPHP(confirmation.shippingCents)}
+                    : formatCents(confirmation.shippingCents, confirmation.currency)}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between border-t border-neutral-200 pt-1.5 font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
                 <span>{t.payment.total}</span>
-                <span>{formatCentsAsPHP(confirmation.totalCents)}</span>
+                <span>{formatCents(confirmation.totalCents, confirmation.currency)}</span>
               </div>
             </div>
           )}

@@ -116,10 +116,13 @@ export const placeOrder = createServerFn({ method: 'POST' })
       }
 
       // COD is a domestic (Philippines) courier arrangement — international
-      // market addresses (Singapore, Japan, etc.) must pay online.
+      // market addresses (Singapore, Japan, etc.) must pay online. Message
+      // deliberately doesn't name the Philippines — this is a customer-
+      // facing string on an international checkout, not a place to
+      // reference a country that isn't theirs.
       if (data.paymentProvider === 'cod' && data.contact.country !== 'PH') {
         throw new Error(
-          'Cash on Delivery is only available for Philippine addresses. Please pay online instead.',
+          'Cash on Delivery is not available. Please pay online instead.',
         )
       }
 

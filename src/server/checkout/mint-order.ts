@@ -15,6 +15,7 @@
  */
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CheckoutReservationItem, Database, PaymentProvider } from '#/types/database.types'
+import { chargedCurrencyConversion } from '#/lib/utils/money'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 type ReservationRow =
@@ -155,26 +156,12 @@ export async function mintOrderFromReservation(
     const imageByVariantId = new Map(
       (variants ?? []).map((v) => [v.id, v.product.images[0] ?? null]),
     )
-    // Order rows (and reservation.*_cents) are always PHP-denominated
-    // internally regardless of what the customer was actually charged (see
-    // place-order.ts) — only PayPal orders carry a real charged-currency
-    // amount (payments.charged_currency/charged_amount_cents), known only
-    // as a single final total. Every PHP component here is scaled by the
-    // same ratio so subtotal + shipping - discount still reconciles to the
-    // shown total, and the total line itself uses the exact captured
-    // amount rather than a scaled-and-rounded approximation of it.
-    const emailCurrency = payment.chargedCurrency ?? 'PHP'
-    const conversionRatio =
-      payment.chargedCurrency &&
-      payment.chargedAmountCents != null &&
-      reservation.total_cents > 0
-        ? payment.chargedAmountCents / reservation.total_cents
-        : 1
-    const toEmailCurrency = (phpCents: number): number =>
-      payment.chargedCurrency ? Math.round(phpCents * conversionRatio) : phpCents
-    const emailTotalCents = payment.chargedCurrency
-      ? (payment.chargedAmountCents ?? reservation.total_cents)
-      : reservation.total_cents
+    const { currency: emailCurrency, convert: toEmailCurrency, totalCents: emailTotalCents } =
+      chargedCurrencyConversion(
+        reservation.total_cents,
+        payment.chargedCurrency,
+        payment.chargedAmountCents,
+      )
 
     const emailItems = items.map((item) => ({
       name: item.productNameSnapshot,
