@@ -34,15 +34,37 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    getCart()
-      .then((result) => {
-        if (!cancelled) setCart(result)
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
+    function refetch() {
+      getCart()
+        .then((result) => {
+          if (!cancelled) setCart(result)
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false)
+        })
+    }
+    refetch()
+
+    // Online-payment checkout navigates away with a real page load
+    // (window.location.href = invoiceUrl — has to be, Xendit/PayPal are a
+    // different origin), converting this cart server-side the moment it
+    // succeeds. If the customer then taps the browser Back button instead
+    // of finishing payment, the browser can restore this exact page from
+    // bfcache rather than reloading it — the mount effect above never
+    // reruns, so the stale pre-navigation cart (subtotal, items, an
+    // enabled "Continue to pay" button) stays on screen even though the
+    // cart behind it is already gone, so submitting it fails with a
+    // confusing "Your cart is empty" error next to totals that still show.
+    // Refetching on a persisted pageshow catches that restore and gets the
+    // real current cart, so a stale page corrects itself instead.
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) refetch()
+    }
+    window.addEventListener('pageshow', handlePageShow)
+
     return () => {
       cancelled = true
+      window.removeEventListener('pageshow', handlePageShow)
     }
   }, [])
 

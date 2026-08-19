@@ -18,6 +18,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { requireCustomer } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { chargedCurrencyConversion } from '#/lib/utils/money'
 import type {
   Customer,
   CustomerAddress,
@@ -74,7 +75,13 @@ export interface AccountOrderItem extends Pick<
 
 export interface AccountOrder extends Pick<
   Order,
-  'id' | 'order_number' | 'status' | 'total_cents' | 'placed_at' | 'is_cod'
+  | 'id'
+  | 'order_number'
+  | 'status'
+  | 'total_cents'
+  | 'currency'
+  | 'placed_at'
+  | 'is_cod'
 > {
   /** COD, not yet fulfilled, not already in a terminal state — see cancelMyOrder for the same rule enforced server-side. */
   canCancel: boolean
@@ -104,7 +111,7 @@ export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
       admin
         .from('orders')
         .select(
-          'id, order_number, status, total_cents, placed_at, is_cod, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
+          'id, order_number, status, total_cents, currency, placed_at, is_cod, order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
         )
         .eq('customer_id', customer.id)
         .order('placed_at', { ascending: false }),
@@ -141,6 +148,21 @@ export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
     )
     const shipmentByOrderId = new Map(shipments.map((s) => [s.order_id, s]))
 
+    // total_cents is always PHP-internal (see server/checkout/place-
+    // order.ts) — for a PayPal order this needs converting to what was
+    // actually charged, same as the confirmation/tracking pages, or a
+    // customer who paid in e.g. SGD would see their own order history
+    // showing the raw PHP figure under an SGD label.
+    const { data: payments, error: paymentsError } =
+      orderIds.length > 0
+        ? await admin
+            .from('payments')
+            .select('order_id, charged_currency, charged_amount_cents')
+            .in('order_id', orderIds)
+        : { data: [], error: null }
+    if (paymentsError) throw paymentsError
+    const paymentByOrderId = new Map(payments.map((p) => [p.order_id, p]))
+
     const variantIds = Array.from(
       new Set(
         orders.flatMap((o) =>
@@ -154,25 +176,35 @@ export const getAccountOverview = createServerFn({ method: 'GET' }).handler(
 
     return {
       customer,
-      orders: orders.map((order) => ({
-        ...order,
-        canCancel:
-          order.is_cod &&
-          !TERMINAL_ORDER_STATUSES.has(order.status) &&
-          !fulfilledOrderIds.has(order.id),
-        canReview:
-          order.status === 'delivered' || deliveredOrderIds.has(order.id),
-        items: order.order_items.map((item) => ({
-          ...item,
-          image_url: item.variant_id
-            ? (imageMap.get(item.variant_id) ?? null)
-            : null,
-        })),
-        isFulfilled: fulfilledOrderIds.has(order.id),
-        trackingNumber:
-          shipmentByOrderId.get(order.id)?.tracking_number ?? null,
-        trackingUrl: shipmentByOrderId.get(order.id)?.tracking_url ?? null,
-      })),
+      orders: orders.map((order) => {
+        const payment = paymentByOrderId.get(order.id)
+        const { currency, totalCents } = chargedCurrencyConversion(
+          order.total_cents,
+          payment?.charged_currency,
+          payment?.charged_amount_cents,
+        )
+        return {
+          ...order,
+          total_cents: totalCents,
+          currency,
+          canCancel:
+            order.is_cod &&
+            !TERMINAL_ORDER_STATUSES.has(order.status) &&
+            !fulfilledOrderIds.has(order.id),
+          canReview:
+            order.status === 'delivered' || deliveredOrderIds.has(order.id),
+          items: order.order_items.map((item) => ({
+            ...item,
+            image_url: item.variant_id
+              ? (imageMap.get(item.variant_id) ?? null)
+              : null,
+          })),
+          isFulfilled: fulfilledOrderIds.has(order.id),
+          trackingNumber:
+            shipmentByOrderId.get(order.id)?.tracking_number ?? null,
+          trackingUrl: shipmentByOrderId.get(order.id)?.tracking_url ?? null,
+        }
+      }),
       addresses,
     }
   },

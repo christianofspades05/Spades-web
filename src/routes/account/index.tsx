@@ -10,8 +10,8 @@ import { getCustomerSession } from '#/server/account/auth'
 import { getAccountOverview } from '#/server/account/queries'
 import { cancelMyOrder } from '#/server/account/orders'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
-import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { formatCents } from '#/lib/utils/money'
 import { formatRegionLabel } from '#/lib/utils/ph-region'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { AddAddressForm } from '#/components/storefront/AddAddressForm'
@@ -40,7 +40,6 @@ export const Route = createFileRoute('/account/')({
 })
 
 function AccountPage() {
-  const { formatPrice } = useCurrency()
   const { t } = useLanguage()
   const { customer, orders, addresses } = Route.useLoaderData()
   const navigate = useNavigate()
@@ -162,7 +161,7 @@ function AccountPage() {
 
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <p className="font-medium text-neutral-900 dark:text-white">
-                        {formatPrice(order.total_cents)}
+                        {formatCents(order.total_cents, order.currency)}
                       </p>
                       <p className="text-neutral-500 capitalize dark:text-neutral-400">
                         {order.status.replace(/_/g, ' ')}

@@ -15,6 +15,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { chargedCurrencyConversion } from '#/lib/utils/money'
 
 const FULFILLED_SHIPMENT_STATUSES = new Set([
   'packed',
@@ -98,12 +99,30 @@ export const getOrderForTracking = createServerFn({ method: 'GET' })
       !TERMINAL_ORDER_STATUSES.has(order.status) &&
       !isFulfilled
 
+    // total_cents is always PHP-internal (see server/checkout/place-
+    // order.ts) — orders.currency alone isn't enough to display it
+    // correctly for a PayPal order, since pairing the PHP figure with a
+    // non-PHP currency code (e.g. SGD) would show a wildly wrong number
+    // under the right symbol. The payments row's charged_amount_cents is
+    // the actual captured figure; same conversion the confirmation page
+    // and order emails already use.
+    const { data: payment } = await admin
+      .from('payments')
+      .select('charged_currency, charged_amount_cents')
+      .eq('order_id', data.orderId)
+      .maybeSingle()
+    const { currency, totalCents } = chargedCurrencyConversion(
+      order.total_cents,
+      payment?.charged_currency,
+      payment?.charged_amount_cents,
+    )
+
     return {
       orderNumber: order.order_number,
       status: order.status,
       placedAt: order.placed_at,
-      totalCents: order.total_cents,
-      currency: order.currency,
+      totalCents,
+      currency,
       items: order.order_items.map((item) => ({
         id: item.id,
         name: item.product_name_snapshot,

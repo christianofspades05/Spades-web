@@ -14,7 +14,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { capturePayPalOrder } from '#/lib/paypal/client'
-import { majorUnitsToCents } from '#/lib/utils/money'
+import { centsToMajorUnits, majorUnitsToCents } from '#/lib/utils/money'
 import { mintOrderFromReservation } from '#/server/checkout/mint-order'
 import type {
   CheckoutReservationItem,
@@ -52,17 +52,33 @@ export const capturePayPalCheckout = createServerFn({ method: 'GET' })
 
     const { data: existingOrder, error: existingOrderError } = await admin
       .from('orders')
-      .select('order_number, total_cents, currency')
+      .select('id, order_number, total_cents, currency')
       .eq('source', 'storefront')
       .eq('external_order_id', data.reservationId)
       .maybeSingle()
     if (existingOrderError) throw existingOrderError
     if (existingOrder) {
+      // Reached when the webhook safety net (or an earlier call to this
+      // same route — a double-tapped or bfcache-restored return link) beat
+      // this call to minting the order. total_cents is always PHP-
+      // internal (see place-order.ts) — using it directly here would
+      // report the PHP figure mislabeled with the real charged currency
+      // (e.g. "SGD 700.25" when SGD 26.00 was actually charged), silently
+      // corrupting the Meta Pixel Purchase value this feeds. The payments
+      // row's charged_amount_cents is the actual captured figure.
+      const { data: payment } = await admin
+        .from('payments')
+        .select('charged_currency, charged_amount_cents')
+        .eq('order_id', existingOrder.id)
+        .maybeSingle()
+      const currency = payment?.charged_currency ?? existingOrder.currency
+      const amountCents =
+        payment?.charged_amount_cents ?? existingOrder.total_cents
       return {
         status: 'paid',
         orderNumber: existingOrder.order_number,
-        amount: existingOrder.total_cents / 100,
-        currency: existingOrder.currency,
+        amount: centsToMajorUnits(amountCents, currency),
+        currency,
       }
     }
 
