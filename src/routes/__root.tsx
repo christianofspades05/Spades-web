@@ -19,21 +19,8 @@ import { CartProvider } from '#/lib/cart/CartContext'
 import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
 import { LanguageProvider } from '#/lib/i18n/LanguageContext'
-import { getGeoCountry, getGeoDefaultCurrency } from '#/server/currency/geo'
-import {
-  getStorefrontScope,
-  redirectNonCanonicalVercelHost,
-} from '#/server/storefront/domain'
-import { getMaintenanceMode } from '#/server/storefront/maintenance'
-import { getStorefrontBanner } from '#/server/storefront/banner'
-import { getEmailCapturePopupEnabled } from '#/server/storefront/email-capture'
-import { withTimeout } from '#/lib/utils/timeout'
+import { getRootLoaderData } from '#/server/storefront/root-loader'
 import appCss from '../styles.css?url'
-
-/** A Supabase/Cloudflare edge blip can hang far longer than it's worth
- *  waiting on a best-effort, already-has-a-fallback value for — see
- *  withTimeout's doc comment. */
-const BEFORE_LOAD_IO_TIMEOUT_MS = 6000
 
 /**
  * Runs before hydration so a returning visitor never sees a flash of the
@@ -62,71 +49,11 @@ export const Route = createRootRoute({
   // via Vercel's runtime logs, ~1,000 of these over 7 days, almost all bots
   // hitting old Shopify-convention endpoints that don't exist in this app.
   notFoundComponent: NotFoundComponent,
-  beforeLoad: async () => {
-    // See redirectNonCanonicalVercelHost's doc comment — bounces a visitor
-    // away from Vercel's own *.vercel.app hosts before anything else runs.
-    await redirectNonCanonicalVercelHost()
-
-    // storefrontScope resolves synchronously from the request's Host
-    // header (no I/O — see server/storefront/domain.ts), so it's awaited
-    // first to know which brand's maintenance flag to check, then the rest
-    // run in parallel as before.
-    const storefrontScope = await getStorefrontScope()
-    // Every one of these is caught individually with a safe fallback rather
-    // than left to reject the whole Promise.all, which would throw
-    // beforeLoad itself and 500 every route on this app for every visitor
-    // over what's otherwise just a cosmetic/best-effort feature. A
-    // transient Supabase (or Vercel geo-header) blip should degrade these,
-    // not take down the entire site — this is what actually happened during
-    // the 2026-08-03 ~11:20pm PST incident (Supabase-side connectivity
-    // issues briefly 500'd the homepage before geoCountry/geoDefaultCurrency
-    // were wrapped the same way banner/maintenance already were).
-    const [
-      geoDefaultCurrency,
-      geoCountry,
-      maintenanceMode,
-      banner,
-      emailCapturePopupEnabled,
-    ] = await Promise.all([
-      getGeoDefaultCurrency().catch((err: unknown) => {
-        console.error('getGeoDefaultCurrency failed:', err)
-        return null
-      }),
-      getGeoCountry().catch((err: unknown) => {
-        console.error('getGeoCountry failed:', err)
-        return null
-      }),
-      withTimeout(
-        getMaintenanceMode({ data: { brand: storefrontScope.brand } }),
-        BEFORE_LOAD_IO_TIMEOUT_MS,
-      ).catch((err: unknown) => {
-        console.error('getMaintenanceMode failed:', err)
-        return false
-      }),
-      withTimeout(
-        getStorefrontBanner({ data: { brand: storefrontScope.brand } }),
-        BEFORE_LOAD_IO_TIMEOUT_MS,
-      ).catch((err: unknown) => {
-        console.error('getStorefrontBanner failed:', err)
-        return []
-      }),
-      withTimeout(
-        getEmailCapturePopupEnabled(),
-        BEFORE_LOAD_IO_TIMEOUT_MS,
-      ).catch((err: unknown) => {
-        console.error('getEmailCapturePopupEnabled failed:', err)
-        return false
-      }),
-    ])
-    return {
-      geoDefaultCurrency,
-      geoCountry,
-      storefrontScope,
-      maintenanceMode,
-      banner,
-      emailCapturePopupEnabled,
-    }
-  },
+  // A single createServerFn call instead of 7 separate ones (see
+  // server/storefront/root-loader.ts for why that's a real reduction in
+  // Vercel requests, not just code shape, and for the individual-fallback
+  // behavior this preserves unchanged).
+  beforeLoad: () => getRootLoaderData(),
   head: ({ match }) => ({
     meta: [
       {

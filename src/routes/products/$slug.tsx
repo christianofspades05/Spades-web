@@ -4,11 +4,7 @@ import {
   notFound,
   useRouterState,
 } from '@tanstack/react-router'
-import {
-  getProductBySlug,
-  listRelatedProducts,
-} from '#/server/products/queries'
-import { getProductReviews } from '#/server/reviews/queries'
+import { getProductPageData } from '#/server/products/product-page'
 import { recordVisit } from '#/server/analytics/track'
 import { getOrCreateVisitorId } from '#/lib/analytics/visitor-id'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
@@ -58,25 +54,13 @@ function formatVariantLabel(
 export const Route = createFileRoute('/products/$slug')({
   headers: () => STOREFRONT_CACHE_HEADERS,
   loader: async ({ params, context }) => {
-    const product = await getProductBySlug({
-      data: {
-        slug: params.slug,
-        brand: context.storefrontScope.brand,
-      },
+    // A single createServerFn call instead of 3 separate ones — see
+    // server/products/product-page.ts for why that's a real reduction in
+    // Vercel requests, not just code shape.
+    const { product, related, reviews } = await getProductPageData({
+      data: { slug: params.slug, brand: context.storefrontScope.brand },
     })
     if (!product) throw notFound()
-
-    const [related, reviews] = await Promise.all([
-      listRelatedProducts({
-        data: {
-          productType: product.product_type,
-          excludeProductId: product.id,
-          limit: 4,
-          brand: context.storefrontScope.brand,
-        },
-      }),
-      getProductReviews({ data: { productId: product.id } }),
-    ])
 
     return { product, related, reviews }
   },
@@ -316,7 +300,7 @@ function ProductPage() {
         <div className="md:col-span-1">
           <div ref={rightHeaderRef}>
             <VariantSelector
-              variants={product.variants as VariantWithStock[]}
+              variants={product.variants}
               onVariantChange={setSelectedVariant}
             />
 
