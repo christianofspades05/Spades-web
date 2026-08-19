@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
@@ -18,20 +18,34 @@ const maintenanceModeCache = createPromiseCache<boolean>(
 /**
  * Whether `brand`'s storefront should currently show the maintenance page
  * instead of its normal site — checked on every page load from
- * routes/__root.tsx (see beforeLoad). Public/anon read, same as
- * exchange_rates — there's nothing sensitive in a maintenance flag.
+ * routes/__root.tsx (see beforeLoad, via root-loader.ts). Public/anon
+ * read, same as exchange_rates — there's nothing sensitive in a
+ * maintenance flag.
+ *
+ * Wrapped in createServerOnlyFn, not just a plain function — see
+ * domain.ts's checkNonCanonicalVercelHostRedirect doc comment for the full
+ * reasoning (a nested createServerFn call isn't reliably resolved
+ * in-process by the production build, and a plain function touching a
+ * server-only import, even transitively via getSupabaseServerClient,
+ * needs this wrapper or the build's import-protection plugin correctly
+ * refuses to bundle it into any client-rendered page that imports this
+ * file).
  */
-export const getMaintenanceMode = createServerFn({ method: 'GET' })
-  .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS) }))
-  .handler(async ({ data }): Promise<boolean> => {
-    return maintenanceModeCache.get(data.brand, async () => {
+export const resolveMaintenanceMode = createServerOnlyFn(
+  async (brand: (typeof STOREFRONT_BRANDS)[number]): Promise<boolean> => {
+    return maintenanceModeCache.get(brand, async () => {
       const supabase = getSupabaseServerClient()
       const { data: row, error } = await supabase
         .from('storefront_maintenance_mode')
         .select('is_active')
-        .eq('brand', data.brand)
+        .eq('brand', brand)
         .maybeSingle()
       if (error) throw error
       return row?.is_active ?? false
     })
-  })
+  },
+)
+
+export const getMaintenanceMode = createServerFn({ method: 'GET' })
+  .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS) }))
+  .handler(async ({ data }): Promise<boolean> => resolveMaintenanceMode(data.brand))

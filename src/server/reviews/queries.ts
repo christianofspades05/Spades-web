@@ -4,7 +4,7 @@
  * the "public read approved reviews" RLS policy (see
  * supabase/migrations/0014_reviews.sql), same convention as products/collections.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import type { Review } from '#/types/entities'
@@ -15,15 +15,20 @@ export interface ProductReviews {
   reviewCount: number
 }
 
-export const getProductReviews = createServerFn({ method: 'GET' })
-  .validator(z.object({ productId: z.string().uuid() }))
-  .handler(async ({ data }): Promise<ProductReviews> => {
+/**
+ * Wrapped in createServerOnlyFn, not just a plain function, so
+ * server/products/product-page.ts can call it directly — see
+ * server/storefront/domain.ts's checkNonCanonicalVercelHostRedirect doc
+ * comment for the full reasoning.
+ */
+export const resolveProductReviews = createServerOnlyFn(
+  async (productId: string): Promise<ProductReviews> => {
     const supabase = getSupabaseServerClient()
 
     const { data: reviews, error } = await supabase
       .from('reviews')
       .select('*')
-      .eq('product_id', data.productId)
+      .eq('product_id', productId)
       .eq('status', 'approved')
       .order('created_at', { ascending: false })
     if (error) throw error
@@ -35,7 +40,14 @@ export const getProductReviews = createServerFn({ method: 'GET' })
         : reviews.reduce((sum, r) => sum + r.rating, 0) / reviewCount
 
     return { reviews, averageRating, reviewCount }
-  })
+  },
+)
+
+export const getProductReviews = createServerFn({ method: 'GET' })
+  .validator(z.object({ productId: z.string().uuid() }))
+  .handler(
+    ({ data }): Promise<ProductReviews> => resolveProductReviews(data.productId),
+  )
 
 export interface StorefrontReview {
   id: string

@@ -8,7 +8,7 @@
  * `product_variants.price_cents` here; nothing in this file accepts a price
  * from the caller.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -313,6 +313,73 @@ export type VariantWithSalePrice = ProductWithVariants['variants'][number] & {
   inventory: { quantity_available: number }[]
 } & WithSalePrice
 
+export type ProductBySlugResult =
+  | (Omit<ProductWithVariants, 'variants'> & {
+      variants: VariantWithSalePrice[]
+    })
+  | null
+
+/**
+ * Wrapped in createServerOnlyFn, not just a plain function, so
+ * server/products/product-page.ts can call it directly — see
+ * server/storefront/domain.ts's checkNonCanonicalVercelHostRedirect doc
+ * comment for the full reasoning.
+ */
+export const resolveProductBySlug = createServerOnlyFn(
+  async (
+    slug: string,
+    brand: (typeof STOREFRONT_BRANDS)[number],
+  ): Promise<ProductBySlugResult> => {
+    const supabase = getSupabaseServerClient()
+    const admin = getSupabaseAdminClient()
+
+    // getActiveAutomaticDiscounts doesn't depend on the product row at all,
+    // so it runs alongside the product fetch instead of after it — on a
+    // cold serverless instance (empty caches, fresh DB connections) this was
+    // a real, avoidable chunk of this page's slow first hit.
+    const [{ data: product, error }, activeDiscounts] = await Promise.all([
+      supabase
+        .from('products')
+        .select('*, variants:product_variants(*, inventory(quantity_available))')
+        .eq('slug', slug)
+        .eq('status', 'active')
+        .eq('brand', brand)
+        .order('sort_order', { foreignTable: 'variants' })
+        .maybeSingle(),
+      getActiveAutomaticDiscounts(admin),
+    ])
+
+    if (error) throw error
+    if (!product) return null
+
+    // Each variant priced (and its best discount picked) individually — its
+    // own price is what a shopper who picks that size/color actually pays,
+    // and collection membership is checked against the shared product id
+    // regardless (see resolveSalePrices' productId param).
+    const sales = await resolveSalePrices(
+      admin,
+      activeDiscounts,
+      product.variants.map((v) => ({
+        id: v.id,
+        productId: product.id,
+        priceCents: v.price_cents,
+      })),
+    )
+
+    return {
+      ...product,
+      variants: product.variants.map((v) => {
+        const sale = sales.get(v.id)
+        return {
+          ...v,
+          salePriceCents: sale?.salePriceCents ?? null,
+          saleTitle: sale?.discountTitle ?? null,
+        }
+      }),
+    }
+  },
+)
+
 export const getProductBySlug = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -324,64 +391,8 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
     }),
   )
   .handler(
-    async ({
-      data,
-    }): Promise<
-      | (Omit<ProductWithVariants, 'variants'> & {
-          variants: VariantWithSalePrice[]
-        })
-      | null
-    > => {
-      const supabase = getSupabaseServerClient()
-      const admin = getSupabaseAdminClient()
-
-      // getActiveAutomaticDiscounts doesn't depend on the product row at
-      // all, so it runs alongside the product fetch instead of after it —
-      // on a cold serverless instance (empty caches, fresh DB connections)
-      // this was a real, avoidable chunk of this page's slow first hit.
-      const [{ data: product, error }, activeDiscounts] = await Promise.all([
-        supabase
-          .from('products')
-          .select(
-            '*, variants:product_variants(*, inventory(quantity_available))',
-          )
-          .eq('slug', data.slug)
-          .eq('status', 'active')
-          .eq('brand', data.brand)
-          .order('sort_order', { foreignTable: 'variants' })
-          .maybeSingle(),
-        getActiveAutomaticDiscounts(admin),
-      ])
-
-      if (error) throw error
-      if (!product) return null
-
-      // Each variant priced (and its best discount picked) individually —
-      // its own price is what a shopper who picks that size/color actually
-      // pays, and collection membership is checked against the shared
-      // product id regardless (see resolveSalePrices' productId param).
-      const sales = await resolveSalePrices(
-        admin,
-        activeDiscounts,
-        product.variants.map((v) => ({
-          id: v.id,
-          productId: product.id,
-          priceCents: v.price_cents,
-        })),
-      )
-
-      return {
-        ...product,
-        variants: product.variants.map((v) => {
-          const sale = sales.get(v.id)
-          return {
-            ...v,
-            salePriceCents: sale?.salePriceCents ?? null,
-            saleTitle: sale?.discountTitle ?? null,
-          }
-        }),
-      }
-    },
+    ({ data }): Promise<ProductBySlugResult> =>
+      resolveProductBySlug(data.slug, data.brand),
   )
 
 /**
@@ -493,6 +504,40 @@ export const quickSearchProducts = createServerFn({ method: 'GET' })
     },
   )
 
+export interface ListRelatedProductsInput {
+  productType: (typeof PRODUCT_TYPES)[number]
+  excludeProductId: string
+  limit?: number
+  brand: (typeof STOREFRONT_BRANDS)[number]
+}
+
+/** createServerOnlyFn, not just a plain function — same reasoning as resolveProductBySlug above. */
+export const resolveRelatedProducts = createServerOnlyFn(
+  async (
+    input: ListRelatedProductsInput,
+  ): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
+    const supabase = getSupabaseServerClient()
+
+    const query = supabase
+      .from('storefront_product_listing')
+      .select('*')
+      .eq('brand', input.brand)
+      .eq('product_type', input.productType)
+      .neq('id', input.excludeProductId)
+      .gt('total_stock', 0)
+    const { data: products, error } = await query.limit(input.limit ?? 4)
+
+    if (error) throw error
+    const sales = await attachSalePrices(
+      products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
+    )
+    return products.map((p) => ({
+      ...p,
+      ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
+    }))
+  },
+)
+
 /** Active products sharing a product_type, for a detail page's "related products" section. */
 export const listRelatedProducts = createServerFn({ method: 'GET' })
   .validator(
@@ -507,27 +552,8 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
     }),
   )
   .handler(
-    async ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> => {
-      const supabase = getSupabaseServerClient()
-
-      const query = supabase
-        .from('storefront_product_listing')
-        .select('*')
-        .eq('brand', data.brand)
-        .eq('product_type', data.productType)
-        .neq('id', data.excludeProductId)
-        .gt('total_stock', 0)
-      const { data: products, error } = await query.limit(data.limit)
-
-      if (error) throw error
-      const sales = await attachSalePrices(
-        products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
-      )
-      return products.map((p) => ({
-        ...p,
-        ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
-      }))
-    },
+    ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> =>
+      resolveRelatedProducts(data),
   )
 
 /** Distinct product_type values among active products, for the home page category nav. */

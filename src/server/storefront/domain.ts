@@ -14,7 +14,7 @@
  * Aspire 365's real assets (under public/brands/<brand>/) and brand colors
  * once supplied; nothing here is load-bearing for Spades itself.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getRequestHeader, getRequestUrl } from '@tanstack/react-start/server'
 import { redirect } from '@tanstack/react-router'
 
@@ -249,38 +249,53 @@ export function getCrossBrandLinks(currentBrand: Brand): CrossBrandLink[] {
  * the access wall instead of the real site. Bounces them to the canonical
  * domain, preserving whatever page they were trying to reach.
  *
- * A dedicated createServerFn (called from __root.tsx's beforeLoad) rather
- * than folded into getStorefrontScope itself: that function is also called
- * directly from checkout server functions (place-order.ts, lalamove.ts),
- * where throwing a redirect wouldn't be handled the same way it is when
- * thrown from a route's beforeLoad. Being its own createServerFn (rather
- * than raw getRequestHeader/redirect calls inline in beforeLoad) is what
- * makes it safe to call from client-side navigations too — the handler
- * body, and the request-header access it does, only ever actually runs
- * server-side.
+ * Wrapped in createServerOnlyFn, not just a plain function — this file also
+ * has client-safe exports (BRANDS, getCrossBrandLinks, etc.) used by
+ * client-rendered admin pages, and a plain function using getRequestHeader
+ * would otherwise get pulled into the client bundle alongside them, which
+ * TanStack Start's build correctly refuses (getRequestHeader doesn't exist
+ * client-side). createServerOnlyFn is a no-op at runtime (just identity —
+ * see @tanstack/start-fn-stubs) but is what its build-time import-
+ * protection plugin recognizes as "safe to strip from the client bundle."
+ * Unlike createServerFn, calling it doesn't go through the server-function
+ * RPC/registry — it's a normal in-process call either way, which is also
+ * what fixes the "Server function info not found" errors a first version
+ * of this hardening hit: nested createServerFn-to-createServerFn calls
+ * aren't reliably resolved in-process by the production build the way
+ * local `vite dev` suggested (see root-loader.ts's history).
+ *
+ * A separate function from getStorefrontScope below (not folded into it)
+ * because that one is also called directly from checkout server functions
+ * (place-order.ts, lalamove.ts), where throwing a redirect wouldn't be
+ * handled the same way it is from a route's beforeLoad.
  */
+export const checkNonCanonicalVercelHostRedirect = createServerOnlyFn(
+  (): void => {
+    if (import.meta.env.DEV) return
+    const hostname = (getRequestHeader('host') ?? '').split(':')[0]
+    if (!hostname.endsWith('.vercel.app')) return
+
+    // The bare apex, not primaryHostnameFor('spades')'s www — that helper
+    // deliberately prefers www for admin preview/cross-brand links in case
+    // the apex is still mid-DNS-cutover, but the apex has been confirmed
+    // live for a while now, and the bare domain is what's meant to be
+    // customer-facing here.
+    const canonicalHost = 'spades-official.com'
+
+    const url = getRequestUrl()
+    throw redirect({
+      href: `https://${canonicalHost}${url.pathname}${url.search}`,
+      statusCode: 301,
+    })
+  },
+)
+
 export const redirectNonCanonicalVercelHost = createServerFn({
   method: 'GET',
-}).handler((): void => {
-  if (import.meta.env.DEV) return
-  const hostname = (getRequestHeader('host') ?? '').split(':')[0]
-  if (!hostname.endsWith('.vercel.app')) return
+}).handler((): void => checkNonCanonicalVercelHostRedirect())
 
-  // The bare apex, not primaryHostnameFor('spades')'s www — that helper
-  // deliberately prefers www for admin preview/cross-brand links in case
-  // the apex is still mid-DNS-cutover, but the apex has been confirmed
-  // live for a while now, and the bare domain is what's meant to be
-  // customer-facing here.
-  const canonicalHost = 'spades-official.com'
-
-  const url = getRequestUrl()
-  throw redirect({
-    href: `https://${canonicalHost}${url.pathname}${url.search}`,
-    statusCode: 301,
-  })
-})
-
-export const getStorefrontScope = createServerFn({ method: 'GET' }).handler(
+/** Same createServerOnlyFn reasoning as checkNonCanonicalVercelHostRedirect above. */
+export const resolveStorefrontScope = createServerOnlyFn(
   (): StorefrontScope => {
     // Dev-only convenience: previewing Ysrael/Aspire 365 for real requires
     // hitting their actual domain, which local dev can't do without editing
@@ -300,4 +315,8 @@ export const getStorefrontScope = createServerFn({ method: 'GET' }).handler(
     const hostname = host.split(':')[0]
     return SCOPES[brandForHostname(hostname)]
   },
+)
+
+export const getStorefrontScope = createServerFn({ method: 'GET' }).handler(
+  (): StorefrontScope => resolveStorefrontScope(),
 )

@@ -8,17 +8,28 @@
  * three from inside this one resolves in-process instead of costing a
  * real network request per call on every client-side navigation to a
  * product page.
+ *
+ * Calls each function's plain (non-createServerFn) implementation
+ * directly — resolveProductBySlug, resolveRelatedProducts,
+ * resolveProductReviews — rather than the createServerFn-wrapped exports,
+ * same fix as root-loader.ts's history: a nested createServerFn-to-
+ * createServerFn call isn't reliably resolved in-process by the
+ * production build, only by local `vite dev`.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
-import { getProductBySlug, listRelatedProducts } from '#/server/products/queries'
-import { getProductReviews } from '#/server/reviews/queries'
+import {
+  resolveProductBySlug,
+  resolveRelatedProducts,
+} from '#/server/products/queries'
+import type { ProductBySlugResult } from '#/server/products/queries'
+import { resolveProductReviews } from '#/server/reviews/queries'
 import type { ProductReviews } from '#/server/reviews/queries'
 
 export interface ProductPageData {
-  product: Awaited<ReturnType<typeof getProductBySlug>>
-  related: Awaited<ReturnType<typeof listRelatedProducts>>
+  product: ProductBySlugResult
+  related: Awaited<ReturnType<typeof resolveRelatedProducts>>
   reviews: ProductReviews
 }
 
@@ -36,21 +47,17 @@ export const getProductPageData = createServerFn({ method: 'GET' })
     }),
   )
   .handler(async ({ data }): Promise<ProductPageData> => {
-    const product = await getProductBySlug({
-      data: { slug: data.slug, brand: data.brand },
-    })
+    const product = await resolveProductBySlug(data.slug, data.brand)
     if (!product) return { product: null, related: [], reviews: EMPTY_REVIEWS }
 
     const [related, reviews] = await Promise.all([
-      listRelatedProducts({
-        data: {
-          productType: product.product_type,
-          excludeProductId: product.id,
-          limit: 4,
-          brand: data.brand,
-        },
+      resolveRelatedProducts({
+        productType: product.product_type,
+        excludeProductId: product.id,
+        limit: 4,
+        brand: data.brand,
       }),
-      getProductReviews({ data: { productId: product.id } }),
+      resolveProductReviews(product.id),
     ])
 
     return { product, related, reviews }

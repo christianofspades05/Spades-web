@@ -11,7 +11,7 @@
  *     handle_new_auth_user's existing guest-row lookup merges into this
  *     same row instead of double-sending the welcome email/discount.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { sendEmail, withDisplayName } from '#/lib/email/resend'
@@ -29,22 +29,32 @@ const emailCapturePopupCache = createPromiseCache<boolean>(
   EMAIL_CAPTURE_POPUP_CACHE_TTL_MS,
 )
 
-/** Whether the popup should even render — the admin hasn't necessarily
- *  turned the welcome automation on or attached a discount template yet. */
+/**
+ * Whether the popup should even render — the admin hasn't necessarily
+ * turned the welcome automation on or attached a discount template yet.
+ *
+ * Wrapped in createServerOnlyFn, not just a plain function — see
+ * domain.ts's checkNonCanonicalVercelHostRedirect doc comment for the full
+ * reasoning.
+ */
+export const resolveEmailCapturePopupEnabled = createServerOnlyFn(
+  async (): Promise<boolean> => {
+    return emailCapturePopupCache.get('default', async () => {
+      const admin = getSupabaseAdminClient()
+      const { data: automation, error } = await admin
+        .from('email_automations')
+        .select('is_active, discount_id')
+        .eq('event_type', 'welcome')
+        .maybeSingle()
+      if (error) throw error
+      return Boolean(automation?.is_active && automation.discount_id)
+    })
+  },
+)
+
 export const getEmailCapturePopupEnabled = createServerFn({
   method: 'GET',
-}).handler(async (): Promise<boolean> => {
-  return emailCapturePopupCache.get('default', async () => {
-    const admin = getSupabaseAdminClient()
-    const { data: automation, error } = await admin
-      .from('email_automations')
-      .select('is_active, discount_id')
-      .eq('event_type', 'welcome')
-      .maybeSingle()
-    if (error) throw error
-    return Boolean(automation?.is_active && automation.discount_id)
-  })
-})
+}).handler((): Promise<boolean> => resolveEmailCapturePopupEnabled())
 
 export type EmailCaptureResult =
   | { status: 'sent' }
