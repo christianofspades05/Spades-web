@@ -9,6 +9,7 @@ import { Menu, X } from 'lucide-react'
 import { getStaffSession } from '#/server/admin/auth'
 import { AdminNav } from '#/components/admin/AdminNav'
 import { getUnreadCustomerReplyCount } from '#/server/admin/order-emails'
+import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
 
 // Polled (rather than pushed) since this app has no realtime/websocket
 // infra elsewhere — cheap enough (a single COUNT query) to run this often
@@ -35,24 +36,20 @@ function AdminLayout() {
   // than up to UNREAD_REPLIES_POLL_MS late.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
+  async function pollUnreadCount() {
+    try {
+      const count = await getUnreadCustomerReplyCount()
+      setUnreadCount(count)
+    } catch {
+      // Transient failure — next poll retries; the bell just won't
+      // update this cycle.
+    }
+  }
+
   useEffect(() => {
-    let cancelled = false
-    async function poll() {
-      try {
-        const count = await getUnreadCustomerReplyCount()
-        if (!cancelled) setUnreadCount(count)
-      } catch {
-        // Transient failure — next poll retries; the bell just won't
-        // update this cycle.
-      }
-    }
-    void poll()
-    const interval = setInterval(poll, UNREAD_REPLIES_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
+    void pollUnreadCount()
   }, [pathname])
+  useVisibleInterval(pollUnreadCount, UNREAD_REPLIES_POLL_MS)
 
   return (
     <div className="flex min-h-screen">

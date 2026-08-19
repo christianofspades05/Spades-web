@@ -23,6 +23,7 @@ import {
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
 import type { OrderSource } from '#/types/entities'
+import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
@@ -91,20 +92,12 @@ const LIVE_POLL_MS = 15_000
 function useLiveViewerCount(brand: string | undefined) {
   const [count, setCount] = useState<number | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    const poll = () =>
-      getLiveViewerCount({ data: { brand } }).then((r) => {
-        if (!cancelled) setCount(r.count)
-      })
+  function poll() {
+    void getLiveViewerCount({ data: { brand } }).then((r) => setCount(r.count))
+  }
 
-    poll()
-    const id = setInterval(poll, LIVE_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [brand])
+  useEffect(poll, [brand])
+  useVisibleInterval(poll, LIVE_POLL_MS)
 
   return count
 }
