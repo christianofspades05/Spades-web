@@ -6,10 +6,10 @@
  *
  * `payload.external_id` is a `checkout_reservations.id` (see
  * server/checkout/place-order.ts — online-payment checkouts never create an
- * `orders` row up front). PAID mints the real order right here — this is
- * the only place an online-payment order number gets minted. EXPIRED/FAILED
- * just releases the reservation's stock and deletes it; nothing ever
- * touches `orders` for an abandoned/failed payment.
+ * `orders` row up front). PAID mints the real order right here (via
+ * server/checkout/mint-order.ts, shared with PayPal's own confirmation
+ * paths). EXPIRED/FAILED just releases the reservation's stock and deletes
+ * it; nothing ever touches `orders` for an abandoned/failed payment.
  *
  * Idempotent by design: webhook_events is upserted on (source,
  * external_event_id), and — since a reservation is deleted once resolved —
@@ -18,10 +18,7 @@
  * `orders.external_order_id` and no-ops.
  */
 import { createFileRoute } from '@tanstack/react-router'
-import type {
-  CheckoutReservationItem,
-  PaymentProvider,
-} from '#/types/database.types'
+import type { CheckoutReservationItem, PaymentProvider } from '#/types/database.types'
 
 // Dynamic imports (not top-level) are deliberate: routeTree.gen.ts imports
 // every route file — including this one — eagerly so the client can build
@@ -54,12 +51,6 @@ function mapPaymentProvider(
   if (method.includes('BANK') || method.includes('VIRTUAL_ACCOUNT'))
     return 'bank_transfer'
   return 'other'
-}
-
-interface ReservationShippingAddress {
-  email: string
-  recipientName: string
-  [key: string]: unknown
 }
 
 export const Route = createFileRoute('/api/webhooks/xendit')({
@@ -119,210 +110,29 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
             const items = reservation.items
 
             if (payload.status === 'PAID') {
-              const { data: order, error: orderError } = await admin
-                .from('orders')
-                .insert({
-                  customer_id: reservation.customer_id,
-                  status: 'paid',
-                  source: 'storefront',
-                  external_order_id: reservation.id,
-                  subtotal_cents: reservation.subtotal_cents,
-                  discount_cents: reservation.discount_cents,
-                  shipping_cents: reservation.shipping_cents,
-                  total_cents: reservation.total_cents,
-                  discount_id: reservation.discount_id,
-                  shipping_address: reservation.shipping_address,
-                  is_cod: false,
-                  currency: reservation.currency,
-                  brand: reservation.brand,
-                  market_markup_percent: reservation.market_markup_percent,
-                  shipping_method: reservation.shipping_method,
-                  lalamove_info: reservation.lalamove_info,
-                  customer_notes: reservation.customer_notes,
-                })
-                .select('id, order_number')
-                .single()
-              if (orderError) throw orderError
-
-              const { error: itemsError } = await admin
-                .from('order_items')
-                .insert(
-                  items.map((item) => ({
-                    order_id: order.id,
-                    variant_id: item.variantId,
-                    product_name_snapshot: item.productNameSnapshot,
-                    variant_label_snapshot: item.variantLabelSnapshot,
-                    sku_snapshot: item.skuSnapshot,
-                    unit_price_cents: item.unitPriceCents,
-                    quantity: item.quantity,
-                    line_subtotal_cents: item.lineSubtotalCents,
-                    line_discount_cents: item.lineDiscountCents,
-                    line_total_cents: item.lineTotalCents,
-                  })),
-                )
-              if (itemsError) throw itemsError
-
-              await Promise.all(
-                items
-                  .filter(
-                    (
-                      item,
-                    ): item is CheckoutReservationItem & {
-                      variantId: string
-                    } => item.variantId !== null,
-                  )
-                  .map((item) =>
-                    admin.rpc('commit_variant_stock', {
-                      p_variant_id: item.variantId,
-                      p_quantity: item.quantity,
-                    }),
-                  ),
+              const { majorUnitsToCents } = await import('#/lib/utils/money')
+              const { mintOrderFromReservation } = await import(
+                '#/server/checkout/mint-order'
               )
 
-              const { majorUnitsToCents } = await import('#/lib/utils/money')
               // Xendit's payload is the authoritative record of what was
               // actually charged — overwrite our upfront (request-time)
               // estimate with it whenever present, in case the confirmed
               // amount ever differs (e.g. an FX rate that moved between
               // invoice creation and payment).
-              const chargedFields =
-                payload.currency &&
-                payload.currency !== 'PHP' &&
-                typeof payload.amount === 'number'
-                  ? {
-                      charged_currency: payload.currency,
-                      charged_amount_cents: majorUnitsToCents(
-                        payload.amount,
-                        payload.currency,
-                      ),
-                    }
-                  : {}
-              const { error: paymentError } = await admin
-                .from('payments')
-                .insert({
-                  order_id: order.id,
-                  provider: mapPaymentProvider(payload),
-                  provider_reference: payload.id,
-                  status: 'captured',
-                  amount_cents: reservation.total_cents,
-                  idempotency_key: crypto.randomUUID(),
-                  captured_at: new Date().toISOString(),
-                  ...chargedFields,
-                })
-              if (paymentError) throw paymentError
-
-              if (reservation.discount_id) {
-                const { data: discount } = await admin
-                  .from('discounts')
-                  .select('times_used')
-                  .eq('id', reservation.discount_id)
-                  .maybeSingle()
-                if (discount) {
-                  await admin
-                    .from('discounts')
-                    .update({ times_used: discount.times_used + 1 })
-                    .eq('id', reservation.discount_id)
-                }
-              }
-
-              await admin
-                .from('checkout_reservations')
-                .delete()
-                .eq('id', reservation.id)
-
-              // Both emails fire only now — an online order isn't real
-              // until Xendit reports it PAID (see place-order.ts). The
-              // equivalent immediate sends for COD happen right in
-              // place-order.ts, since a COD order is real the moment it's
-              // placed.
-              try {
-                const variantIds = Array.from(
-                  new Set(
-                    items
-                      .map((item) => item.variantId)
-                      .filter((id): id is string => id !== null),
-                  ),
-                )
-                const { data: variants } =
-                  variantIds.length > 0
-                    ? await admin
-                        .from('product_variants')
-                        .select('id, product:products(images)')
-                        .in('id', variantIds)
-                    : { data: [] }
-                const imageByVariantId = new Map(
-                  (variants ?? []).map((v) => [
-                    v.id,
-                    v.product.images[0] ?? null,
-                  ]),
-                )
-                const emailItems = items.map((item) => ({
-                  name: item.productNameSnapshot,
-                  variantLabel: item.variantLabelSnapshot,
-                  quantity: item.quantity,
-                  imageUrl: item.variantId
-                    ? (imageByVariantId.get(item.variantId) ?? null)
+              const chargedCurrency =
+                payload.currency && payload.currency !== 'PHP'
+                  ? payload.currency
+                  : null
+              await mintOrderFromReservation(admin, reservation, {
+                provider: mapPaymentProvider(payload),
+                providerReference: payload.id,
+                chargedCurrency,
+                chargedAmountCents:
+                  chargedCurrency && typeof payload.amount === 'number'
+                    ? majorUnitsToCents(payload.amount, chargedCurrency)
                     : null,
-                  lineTotalCents: item.lineTotalCents,
-                }))
-
-                const address =
-                  reservation.shipping_address as unknown as ReservationShippingAddress
-                const siteUrl = process.env.SITE_URL ?? ''
-                const { inboundReplyToAddress, sendEmail, withDisplayName } =
-                  await import('#/lib/email/resend')
-
-                const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
-                if (storeOwnerEmail) {
-                  const { newOrderEmailHtml, newOrderEmailSubject } =
-                    await import('#/lib/email/templates/new-order')
-                  await sendEmail({
-                    to: storeOwnerEmail,
-                    subject: newOrderEmailSubject(order.order_number),
-                    from: withDisplayName(
-                      'Spades Official Orders',
-                      process.env.RESEND_FROM_EMAIL_ORDERS,
-                    ),
-                    html: newOrderEmailHtml({
-                      orderNumber: order.order_number,
-                      customerName: address.recipientName,
-                      customerEmail: address.email,
-                      totalCents: reservation.total_cents,
-                      isCod: false,
-                      items: emailItems,
-                      orderUrl: `${siteUrl}/admin/orders/${order.id}`,
-                    }),
-                  })
-                }
-
-                const {
-                  orderConfirmationEmailHtml,
-                  orderConfirmationEmailSubject,
-                } = await import('#/lib/email/templates/order-confirmation')
-                await sendEmail({
-                  to: address.email,
-                  subject: orderConfirmationEmailSubject(order.order_number),
-                  from: withDisplayName(
-                    'Spades Official Orders',
-                    process.env.RESEND_FROM_EMAIL_ORDERS,
-                  ),
-                  html: orderConfirmationEmailHtml({
-                    orderNumber: order.order_number,
-                    items: emailItems,
-                    subtotalCents: reservation.subtotal_cents,
-                    shippingCents: reservation.shipping_cents,
-                    discountCents: reservation.discount_cents,
-                    totalCents: reservation.total_cents,
-                    trackingUrl: `${siteUrl}/track/${order.id}`,
-                  }),
-                  replyTo: inboundReplyToAddress(order.id),
-                })
-              } catch (err) {
-                console.error(
-                  'Failed to send order emails (Xendit webhook):',
-                  err,
-                )
-              }
+              })
             } else if (
               payload.status === 'EXPIRED' ||
               payload.status === 'FAILED'

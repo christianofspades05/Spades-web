@@ -26,6 +26,8 @@ import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as ReviewTokenRouteImport } from './routes/review/$token'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
+import { Route as CheckoutPaypalReturnRouteImport } from './routes/checkout/paypal-return'
+import { Route as CheckoutPaypalCancelRouteImport } from './routes/checkout/paypal-cancel'
 import { Route as CheckoutPaymentRouteImport } from './routes/checkout/payment'
 import { Route as CheckoutConfirmationRouteImport } from './routes/checkout/confirmation'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
@@ -52,6 +54,7 @@ import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
 import { Route as ApiWebhooksResendInboundRouteImport } from './routes/api/webhooks/resend-inbound'
+import { Route as ApiWebhooksPaypalRouteImport } from './routes/api/webhooks/paypal'
 import { Route as ApiCronSyncExchangeRatesRouteImport } from './routes/api/cron/sync-exchange-rates'
 import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/cron/sync-channels-pull-orders'
 import { Route as ApiCronSyncChannelsDailyRouteImport } from './routes/api/cron/sync-channels-daily'
@@ -171,6 +174,16 @@ const CollectionsSlugRoute = CollectionsSlugRouteImport.update({
   id: '/collections/$slug',
   path: '/collections/$slug',
   getParentRoute: () => rootRouteImport,
+} as any)
+const CheckoutPaypalReturnRoute = CheckoutPaypalReturnRouteImport.update({
+  id: '/paypal-return',
+  path: '/paypal-return',
+  getParentRoute: () => CheckoutRoute,
+} as any)
+const CheckoutPaypalCancelRoute = CheckoutPaypalCancelRouteImport.update({
+  id: '/paypal-cancel',
+  path: '/paypal-cancel',
+  getParentRoute: () => CheckoutRoute,
 } as any)
 const CheckoutPaymentRoute = CheckoutPaymentRouteImport.update({
   id: '/payment',
@@ -303,6 +316,11 @@ const ApiWebhooksResendInboundRoute =
     path: '/api/webhooks/resend-inbound',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWebhooksPaypalRoute = ApiWebhooksPaypalRouteImport.update({
+  id: '/api/webhooks/paypal',
+  path: '/api/webhooks/paypal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronSyncExchangeRatesRoute =
   ApiCronSyncExchangeRatesRouteImport.update({
     id: '/api/cron/sync-exchange-rates',
@@ -500,6 +518,8 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
   '/checkout/payment': typeof CheckoutPaymentRoute
+  '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
+  '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
@@ -543,6 +563,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
@@ -577,6 +598,8 @@ export interface FileRoutesByTo {
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
   '/checkout/payment': typeof CheckoutPaymentRoute
+  '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
+  '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
@@ -620,6 +643,7 @@ export interface FileRoutesByTo {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
@@ -657,6 +681,8 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
   '/checkout/payment': typeof CheckoutPaymentRoute
+  '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
+  '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/review/$token': typeof ReviewTokenRoute
@@ -700,6 +726,7 @@ export interface FileRoutesById {
   '/api/cron/sync-channels-daily': typeof ApiCronSyncChannelsDailyRoute
   '/api/cron/sync-channels-pull-orders': typeof ApiCronSyncChannelsPullOrdersRoute
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
+  '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
@@ -738,6 +765,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/checkout/confirmation'
     | '/checkout/payment'
+    | '/checkout/paypal-cancel'
+    | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
@@ -781,6 +810,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
@@ -815,6 +845,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/checkout/confirmation'
     | '/checkout/payment'
+    | '/checkout/paypal-cancel'
+    | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
@@ -858,6 +890,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
@@ -894,6 +927,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/checkout/confirmation'
     | '/checkout/payment'
+    | '/checkout/paypal-cancel'
+    | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
     | '/review/$token'
@@ -937,6 +972,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-channels-daily'
     | '/api/cron/sync-channels-pull-orders'
     | '/api/cron/sync-exchange-rates'
+    | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
@@ -991,6 +1027,7 @@ export interface RootRouteChildren {
   ApiCronSyncChannelsDailyRoute: typeof ApiCronSyncChannelsDailyRoute
   ApiCronSyncChannelsPullOrdersRoute: typeof ApiCronSyncChannelsPullOrdersRoute
   ApiCronSyncExchangeRatesRoute: typeof ApiCronSyncExchangeRatesRoute
+  ApiWebhooksPaypalRoute: typeof ApiWebhooksPaypalRoute
   ApiWebhooksResendInboundRoute: typeof ApiWebhooksResendInboundRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   CartResumeTokenRoute: typeof CartResumeTokenRoute
@@ -1121,6 +1158,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/collections/$slug'
       preLoaderRoute: typeof CollectionsSlugRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/checkout/paypal-return': {
+      id: '/checkout/paypal-return'
+      path: '/paypal-return'
+      fullPath: '/checkout/paypal-return'
+      preLoaderRoute: typeof CheckoutPaypalReturnRouteImport
+      parentRoute: typeof CheckoutRoute
+    }
+    '/checkout/paypal-cancel': {
+      id: '/checkout/paypal-cancel'
+      path: '/paypal-cancel'
+      fullPath: '/checkout/paypal-cancel'
+      preLoaderRoute: typeof CheckoutPaypalCancelRouteImport
+      parentRoute: typeof CheckoutRoute
     }
     '/checkout/payment': {
       id: '/checkout/payment'
@@ -1302,6 +1353,13 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/resend-inbound'
       fullPath: '/api/webhooks/resend-inbound'
       preLoaderRoute: typeof ApiWebhooksResendInboundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/paypal': {
+      id: '/api/webhooks/paypal'
+      path: '/api/webhooks/paypal'
+      fullPath: '/api/webhooks/paypal'
+      preLoaderRoute: typeof ApiWebhooksPaypalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/sync-exchange-rates': {
@@ -1630,12 +1688,16 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 interface CheckoutRouteChildren {
   CheckoutConfirmationRoute: typeof CheckoutConfirmationRoute
   CheckoutPaymentRoute: typeof CheckoutPaymentRoute
+  CheckoutPaypalCancelRoute: typeof CheckoutPaypalCancelRoute
+  CheckoutPaypalReturnRoute: typeof CheckoutPaypalReturnRoute
   CheckoutIndexRoute: typeof CheckoutIndexRoute
 }
 
 const CheckoutRouteChildren: CheckoutRouteChildren = {
   CheckoutConfirmationRoute: CheckoutConfirmationRoute,
   CheckoutPaymentRoute: CheckoutPaymentRoute,
+  CheckoutPaypalCancelRoute: CheckoutPaypalCancelRoute,
+  CheckoutPaypalReturnRoute: CheckoutPaypalReturnRoute,
   CheckoutIndexRoute: CheckoutIndexRoute,
 }
 
@@ -1673,6 +1735,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronSyncChannelsDailyRoute: ApiCronSyncChannelsDailyRoute,
   ApiCronSyncChannelsPullOrdersRoute: ApiCronSyncChannelsPullOrdersRoute,
   ApiCronSyncExchangeRatesRoute: ApiCronSyncExchangeRatesRoute,
+  ApiWebhooksPaypalRoute: ApiWebhooksPaypalRoute,
   ApiWebhooksResendInboundRoute: ApiWebhooksResendInboundRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   CartResumeTokenRoute: CartResumeTokenRoute,

@@ -79,7 +79,7 @@ export interface LalamoveInfo {
 export type SyncLogStatus = 'success' | 'failed'
 
 export type PaymentProvider =
-  'cod' | 'gcash' | 'paymaya' | 'card' | 'bank_transfer' | 'other'
+  'cod' | 'gcash' | 'paymaya' | 'card' | 'bank_transfer' | 'paypal' | 'other'
 export type PaymentStatus =
   | 'pending'
   | 'authorized'
@@ -682,6 +682,7 @@ export interface Database {
           lalamove_info: LalamoveInfo | null
           customer_notes: string | null
           xendit_invoice_id: string | null
+          paypal_order_id: string | null
           created_at: string
         }
         Insert: Partial<

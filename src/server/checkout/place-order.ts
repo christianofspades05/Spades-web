@@ -10,13 +10,19 @@
  *   - 'online': NO order is created here. Stock is reserved the same way,
  *     but the checkout snapshot (customer, pricing, address, item lines) is
  *     held in a `checkout_reservations` row instead of `orders` — no order
- *     number, no order row, no "new order" email — while a Xendit invoice
- *     is created and its URL returned so the caller can redirect the
- *     customer to pay. Only once Xendit confirms PAID does
- *     src/routes/api/webhooks/xendit.ts mint the real order (order number
- *     included), commit stock, and send both emails. If the customer
- *     abandons or fails payment, the reservation row is just deleted and
- *     stock released — nothing about the attempt ever touches `orders`.
+ *     number, no order row, no "new order" email — while a payment-provider
+ *     order/invoice is created and its URL returned so the caller can
+ *     redirect the customer to pay. Which provider depends on the checkout
+ *     country: Philippine addresses go through Xendit (GCash/Maya/cards/
+ *     bank transfer), everyone else through PayPal — Xendit's account here
+ *     only has PHP enabled, while PayPal genuinely settles in the
+ *     customer's real currency (see lib/paypal/client.ts). Only once
+ *     payment is confirmed — Xendit's webhook, or PayPal's capture-on-
+ *     return — does server/checkout/mint-order.ts mint the real order
+ *     (order number included), commit stock, and send both emails. If the
+ *     customer abandons or fails payment, the reservation row is just
+ *     deleted and stock released — nothing about the attempt ever touches
+ *     `orders`.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestUrl } from '@tanstack/react-start/server'
@@ -35,10 +41,12 @@ import {
   isLalamoveEligible,
 } from '#/lib/checkout/lalamove-eligibility'
 import { getLalamoveQuotation } from '#/lib/lalamove/client'
+import { minorUnitsPerMajor } from '#/lib/utils/money'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
+import { createPayPalOrder } from '#/lib/paypal/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import {
   inboundReplyToAddress,
@@ -549,36 +557,69 @@ export const placeOrder = createServerFn({ method: 'POST' })
 
       let invoiceUrl: string
       try {
-        // Xendit's legacy Invoice API (used here) rejects any currency the
-        // merchant hasn't had explicitly enabled on their account — live-
-        // tested and confirmed for this account (only PHP is enabled;
-        // trying SGD returned "currency SGD is not configured in your
-        // settings yet"). So online payment always actually charges PHP
-        // regardless of the customer's selected display currency —
-        // browsing/checkout/payment-summary still show their chosen
-        // currency (see CurrencyContext.tsx), this is only about what
-        // Xendit itself is told to charge. If more currencies get enabled
-        // on the Xendit side later, this is the one place to start passing
-        // data.currency through again (see git history for the previous
-        // per-currency attempt).
-        const invoice = await createXenditInvoice({
-          externalId: reservation.id,
-          amount: totalCents / 100,
-          currency: 'PHP',
-          payerEmail: email,
-          description: `${scope.name} order`,
-          successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
-          failureRedirectUrl: `${origin}/checkout/payment?paymentFailed=true`,
-          // Abandoned payments shouldn't leave stock reserved indefinitely —
-          // Xendit pushes an EXPIRED webhook event at this point, which
-          // releases the reservation (xendit.ts).
-          invoiceDuration: 300,
-        })
-        invoiceUrl = invoice.invoice_url
-        await admin
-          .from('checkout_reservations')
-          .update({ xendit_invoice_id: invoice.id })
-          .eq('id', reservation.id)
+        if (data.contact.country === 'PH') {
+          // Xendit's legacy Invoice API (used here) rejects any currency
+          // the merchant hasn't had explicitly enabled on their account —
+          // live-tested and confirmed for this account (only PHP is
+          // enabled; trying SGD returned "currency SGD is not configured
+          // in your settings yet"). So Philippine online payment always
+          // actually charges PHP regardless of the customer's selected
+          // display currency — browsing/checkout/payment-summary still
+          // show their chosen currency (see CurrencyContext.tsx), this is
+          // only about what Xendit itself is told to charge.
+          const invoice = await createXenditInvoice({
+            externalId: reservation.id,
+            amount: totalCents / 100,
+            currency: 'PHP',
+            payerEmail: email,
+            description: `${scope.name} order`,
+            successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
+            failureRedirectUrl: `${origin}/checkout/payment?paymentFailed=true`,
+            // Abandoned payments shouldn't leave stock reserved
+            // indefinitely — Xendit pushes an EXPIRED webhook event at
+            // this point, which releases the reservation (xendit.ts).
+            invoiceDuration: 300,
+          })
+          invoiceUrl = invoice.invoice_url
+          await admin
+            .from('checkout_reservations')
+            .update({ xendit_invoice_id: invoice.id })
+            .eq('id', reservation.id)
+        } else {
+          // Non-Philippines checkouts go through PayPal instead — it
+          // genuinely settles in the customer's real currency, unlike
+          // Xendit's PHP-only-enabled account. totalCents is always PHP
+          // cents up to this point (see subtotal/shipping computation
+          // above), converted here to data.currency using the same
+          // exchange_rates table (currency per 1 PHP) already fetched for
+          // this non-PH checkout. Never fall back to charging PHP
+          // silently on a missing rate — that would tell the customer
+          // they paid one amount while actually being charged another.
+          const rate =
+            data.currency === 'PHP' ? 1 : exchangeRates[data.currency]
+          if (!rate) {
+            throw new Error(
+              `Missing exchange rate for ${data.currency} — cannot charge via PayPal.`,
+            )
+          }
+          const decimals = minorUnitsPerMajor(data.currency) === 1 ? 0 : 2
+          const chargeAmount = ((totalCents / 100) * rate).toFixed(decimals)
+
+          const paypalOrder = await createPayPalOrder({
+            referenceId: reservation.id,
+            amount: chargeAmount,
+            currencyCode: data.currency,
+            description: `${scope.name} order`,
+            returnUrl: `${origin}/checkout/paypal-return?reservation=${reservation.id}`,
+            cancelUrl: `${origin}/checkout/paypal-cancel?reservation=${reservation.id}`,
+            brandName: scope.name,
+          })
+          invoiceUrl = paypalOrder.approveUrl
+          await admin
+            .from('checkout_reservations')
+            .update({ paypal_order_id: paypalOrder.id })
+            .eq('id', reservation.id)
+        }
       } catch (err) {
         await releaseAllReserved()
         await admin
