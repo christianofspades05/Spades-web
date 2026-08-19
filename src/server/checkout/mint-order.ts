@@ -155,6 +155,27 @@ export async function mintOrderFromReservation(
     const imageByVariantId = new Map(
       (variants ?? []).map((v) => [v.id, v.product.images[0] ?? null]),
     )
+    // Order rows (and reservation.*_cents) are always PHP-denominated
+    // internally regardless of what the customer was actually charged (see
+    // place-order.ts) — only PayPal orders carry a real charged-currency
+    // amount (payments.charged_currency/charged_amount_cents), known only
+    // as a single final total. Every PHP component here is scaled by the
+    // same ratio so subtotal + shipping - discount still reconciles to the
+    // shown total, and the total line itself uses the exact captured
+    // amount rather than a scaled-and-rounded approximation of it.
+    const emailCurrency = payment.chargedCurrency ?? 'PHP'
+    const conversionRatio =
+      payment.chargedCurrency &&
+      payment.chargedAmountCents != null &&
+      reservation.total_cents > 0
+        ? payment.chargedAmountCents / reservation.total_cents
+        : 1
+    const toEmailCurrency = (phpCents: number): number =>
+      payment.chargedCurrency ? Math.round(phpCents * conversionRatio) : phpCents
+    const emailTotalCents = payment.chargedCurrency
+      ? (payment.chargedAmountCents ?? reservation.total_cents)
+      : reservation.total_cents
+
     const emailItems = items.map((item) => ({
       name: item.productNameSnapshot,
       variantLabel: item.variantLabelSnapshot,
@@ -162,7 +183,7 @@ export async function mintOrderFromReservation(
       imageUrl: item.variantId
         ? (imageByVariantId.get(item.variantId) ?? null)
         : null,
-      lineTotalCents: item.lineTotalCents,
+      lineTotalCents: toEmailCurrency(item.lineTotalCents),
     }))
 
     const address =
@@ -187,7 +208,8 @@ export async function mintOrderFromReservation(
           orderNumber: order.order_number,
           customerName: address.recipientName,
           customerEmail: address.email,
-          totalCents: reservation.total_cents,
+          totalCents: emailTotalCents,
+          currency: emailCurrency,
           isCod: false,
           items: emailItems,
           orderUrl: `${siteUrl}/admin/orders/${order.id}`,
@@ -207,10 +229,11 @@ export async function mintOrderFromReservation(
       html: orderConfirmationEmailHtml({
         orderNumber: order.order_number,
         items: emailItems,
-        subtotalCents: reservation.subtotal_cents,
-        shippingCents: reservation.shipping_cents,
-        discountCents: reservation.discount_cents,
-        totalCents: reservation.total_cents,
+        subtotalCents: toEmailCurrency(reservation.subtotal_cents),
+        shippingCents: toEmailCurrency(reservation.shipping_cents),
+        discountCents: toEmailCurrency(reservation.discount_cents),
+        totalCents: emailTotalCents,
+        currency: emailCurrency,
         trackingUrl: `${siteUrl}/track/${order.id}`,
       }),
       replyTo: inboundReplyToAddress(order.id),

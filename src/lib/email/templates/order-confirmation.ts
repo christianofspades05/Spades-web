@@ -1,16 +1,11 @@
+import { formatCents } from '#/lib/utils/money'
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-function formatPHP(cents: number): string {
-  return (cents / 100).toLocaleString('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-  })
 }
 
 export interface OrderConfirmationEmailItem {
@@ -29,6 +24,11 @@ export interface OrderConfirmationEmailInput {
   /** 0 when no discount applied — the breakdown row is left out entirely rather than shown as ₱0.00. */
   discountCents: number
   totalCents: number
+  /** ISO 4217 code every *Cents field above is already denominated in — the
+   *  currency actually charged (PayPal orders) or PHP (Xendit/COD, which
+   *  only ever charge PHP regardless of the customer's display currency).
+   *  Never hardcode PHP here; see server/checkout/mint-order.ts. */
+  currency: string
   /** Public, no-login tracking page for this specific order — see
    *  server/storefront/order-tracking.ts. */
   trackingUrl: string
@@ -57,7 +57,7 @@ export function orderConfirmationEmailHtml(
             <div style="margin-top: 2px; font-size: 12px; color: #a3a3a3;">×${item.quantity}</div>
           </td>
           <td style="padding: 8px 0; font-size: 14px; color: #404040; text-align: right; white-space: nowrap; vertical-align: top;">
-            ${formatPHP(item.lineTotalCents)}
+            ${formatCents(item.lineTotalCents, input.currency)}
           </td>
         </tr>
       `,
@@ -88,10 +88,10 @@ export function orderConfirmationEmailHtml(
       </table>
 
       <table style="width: 100%; border-collapse: collapse; border-top: 1px solid #e5e5e5; padding-top: 8px; margin-top: 4px;">
-        ${breakdownRow('Subtotal', formatPHP(input.subtotalCents))}
-        ${breakdownRow('Shipping', formatPHP(input.shippingCents))}
-        ${input.discountCents > 0 ? breakdownRow('Discount', `-${formatPHP(input.discountCents)}`) : ''}
-        ${breakdownRow('Total', formatPHP(input.totalCents), true)}
+        ${breakdownRow('Subtotal', formatCents(input.subtotalCents, input.currency))}
+        ${breakdownRow('Shipping', formatCents(input.shippingCents, input.currency))}
+        ${input.discountCents > 0 ? breakdownRow('Discount', `-${formatCents(input.discountCents, input.currency)}`) : ''}
+        ${breakdownRow('Total', formatCents(input.totalCents, input.currency), true)}
       </table>
 
       <a href="${escapeHtml(input.trackingUrl)}" style="display: inline-block; background: #0a0a0a; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 999px; margin-top: 16px;">

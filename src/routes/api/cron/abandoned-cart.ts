@@ -21,6 +21,8 @@ import { renderEmailBlocks } from '#/lib/email/blocks'
 import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
 import type { MintedDiscount } from '#/lib/email/mint-discount'
 import { logEmailSend } from '#/lib/email/log-send'
+import { convertCents, effectiveCurrency, formatCents } from '#/lib/utils/money'
+import type { ExchangeRates } from '#/lib/utils/money'
 
 // getSupabaseAdminClient and sendEmail are imported dynamically inside the
 // handler below, not at the top level — see review-requests.ts's identical
@@ -58,6 +60,7 @@ function renderItemsTable(
     quantity: number
     lineTotalCents: number
   }[],
+  currency: string,
 ): string {
   const rows = items
     .map(
@@ -74,7 +77,7 @@ function renderItemsTable(
             </span>
           </td>
           <td style="padding: 8px 0; font-size: 14px; color: #404040; text-align: right;">
-            ${(item.lineTotalCents / 100).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+            ${formatCents(item.lineTotalCents, currency)}
           </td>
         </tr>
       `,
@@ -84,7 +87,7 @@ function renderItemsTable(
   return `
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">${rows}</table>
     <p style="font-size: 15px; font-weight: 600; text-align: right; margin: 0 0 20px;">
-      Subtotal: ${(subtotalCents / 100).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+      Subtotal: ${formatCents(subtotalCents, currency)}
     </p>
   `
 }
@@ -130,6 +133,20 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
 
         const unsubscribed = new Set(unsubs.map((u) => u.email))
 
+        // Fetched once up front, not per cart — carts.currency holds
+        // whatever display currency the customer was actually shopping in
+        // (set from the same CurrencyContext selection checkout uses), but
+        // cart_items.price_cents_snapshot is always plain PHP
+        // product_variants.price_cents (see server/cart/internal.ts) —
+        // needs converting before display, same as checkout's own summary.
+        const { data: rateRows, error: ratesError } = await admin
+          .from('exchange_rates')
+          .select('currency, rate_to_php')
+        if (ratesError) throw ratesError
+        const exchangeRates: ExchangeRates = Object.fromEntries(
+          rateRows.map((r) => [r.currency, r.rate_to_php]),
+        )
+
         const steps: {
           automationId: string
           name: string
@@ -155,7 +172,7 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
           const { data: carts, error: cartsError } = await admin
             .from('carts')
             .select(
-              'id, session_token, email, updated_at, recovery_token, unsubscribe_token, abandoned_cart_discount_id',
+              'id, session_token, email, currency, updated_at, recovery_token, unsubscribe_token, abandoned_cart_discount_id',
             )
             .eq('status', 'active')
             .not('email', 'is', null)
@@ -235,6 +252,12 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
                 .in('id', variantIds)
               if (variantsError) throw variantsError
 
+              // Falls back to PHP (rather than mislabeling a
+              // still-in-PHP-cents amount with e.g. an SGD symbol) if no
+              // rate happens to be loaded for this cart's currency — same
+              // never-lie-about-the-amount fallback the storefront itself
+              // uses (CurrencyContext.tsx, checkout/index.tsx).
+              const cartCurrency = effectiveCurrency(cart.currency, exchangeRates)
               const variantsById = new Map(variants.map((v) => [v.id, v]))
               const lineItems = items.map((item) => {
                 const v = variantsById.get(item.variant_id)
@@ -247,7 +270,11 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
                   variantLabel,
                   image: v?.product.images[0] ?? null,
                   quantity: item.quantity,
-                  lineTotalCents: item.quantity * item.price_cents_snapshot,
+                  lineTotalCents: convertCents(
+                    item.quantity * item.price_cents_snapshot,
+                    cartCurrency,
+                    exchangeRates,
+                  ),
                 }
               })
 
@@ -312,7 +339,7 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
                   process.env.RESEND_FROM_EMAIL_ABANDONED_CART,
                 ),
                 html: renderEmailBlocks(automation.blocks, {
-                  itemsHtml: renderItemsTable(lineItems),
+                  itemsHtml: renderItemsTable(lineItems, cartCurrency),
                   placeholders: {
                     resumeUrl: `${siteUrl}/cart/resume/${recoveryToken}`,
                   },

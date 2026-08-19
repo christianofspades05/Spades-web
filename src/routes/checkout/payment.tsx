@@ -270,8 +270,16 @@ function PaymentPage() {
               onChange={() => setMethod('online')}
             />
             <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
-              {t.payment.payOnline}
-              {currency !== 'PHP' && (
+              {info.country === 'PH'
+                ? t.payment.payOnline
+                : t.payment.payOnlinePayPal}
+              {/* Only Xendit (Philippine addresses) actually forces PHP
+                  regardless of display currency — PayPal (every other
+                  country) genuinely charges the customer's own selected
+                  currency, so this "you'll be charged the PHP equivalent"
+                  notice would be actively wrong there. See
+                  server/checkout/place-order.ts's provider routing. */}
+              {info.country === 'PH' && currency !== 'PHP' && (
                 <span className="mt-0.5 block text-xs font-normal text-neutral-500 dark:text-neutral-400">
                   {t.payment.pricesShownIn(currency)},{' '}
                   {formatCentsAsPHP(totalCents)}.

@@ -487,6 +487,10 @@ export const placeOrder = createServerFn({ method: 'POST' })
               customerName: data.contact.recipientName,
               customerEmail: email,
               totalCents,
+              // COD is a domestic cash arrangement (blocked for non-PH
+              // addresses above) — genuinely collected in PHP regardless of
+              // the customer's browsing display currency.
+              currency: 'PHP',
               isCod: true,
               items: emailItems,
               orderUrl: `${origin}/admin/orders/${order.id}`,
@@ -510,6 +514,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             shippingCents,
             discountCents,
             totalCents,
+            currency: 'PHP',
             trackingUrl: `${origin}/track/${order.id}`,
           }),
           replyTo: inboundReplyToAddress(order.id),

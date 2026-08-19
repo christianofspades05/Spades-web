@@ -131,6 +131,11 @@ export interface Translations {
     paymentMethod: string
     cod: string
     payOnline: string
+    /** Non-Philippines checkouts (PayPal) — no "PHP equivalent" subtext
+     *  applies here, unlike payOnline/pricesShownIn: PayPal genuinely
+     *  charges the customer's own selected currency (see
+     *  server/checkout/place-order.ts's country-based provider routing). */
+    payOnlinePayPal: string
     pricesShownIn: (currency: string) => string
     subtotal: string
     discount: string
@@ -397,6 +402,7 @@ export const translations: Record<Language, Translations> = {
       paymentMethod: 'Payment method',
       cod: 'Cash on Delivery (COD)',
       payOnline: 'Pay Online — GCash, Maya, Cards, Bank Transfer',
+      payOnlinePayPal: 'Pay Online - PayPal Checkout',
       pricesShownIn: (currency) =>
         `Prices are shown in ${currency} for reference — you'll be charged the PHP equivalent`,
       subtotal: 'Subtotal',
@@ -677,6 +683,7 @@ export const translations: Record<Language, Translations> = {
       paymentMethod: 'お支払い方法',
       cod: '代金引換 (COD)',
       payOnline: 'オンライン決済 — GCash、Maya、カード、銀行振込',
+      payOnlinePayPal: 'オンライン決済 — PayPalチェックアウト',
       pricesShownIn: (currency) =>
         `参考として${currency}で表示しています — 実際にはPHP相当額が請求されます`,
       subtotal: '小計',
@@ -956,6 +963,7 @@ export const translations: Record<Language, Translations> = {
       paymentMethod: '결제 방법',
       cod: '착불 (COD)',
       payOnline: '온라인 결제 — GCash, Maya, 카드, 계좌이체',
+      payOnlinePayPal: '온라인 결제 — PayPal 체크아웃',
       pricesShownIn: (currency) =>
         `참고용으로 ${currency}로 표시되며, 실제로는 PHP 상당액이 청구됩니다`,
       subtotal: '소계',

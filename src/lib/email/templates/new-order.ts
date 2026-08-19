@@ -1,3 +1,5 @@
+import { formatCents } from '#/lib/utils/money'
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -13,6 +15,9 @@ export interface NewOrderEmailInput {
   customerName: string | null
   customerEmail: string
   totalCents: number
+  /** ISO 4217 code totalCents is denominated in — see the matching field on
+   *  OrderConfirmationEmailInput. */
+  currency: string
   isCod: boolean
   items: { name: string; variantLabel: string | null; quantity: number }[]
   orderUrl: string
@@ -43,7 +48,7 @@ export function newOrderEmailHtml(input: NewOrderEmailInput): string {
       <p style="font-size: 16px;">You've got a new order.</p>
       <p style="font-size: 15px; line-height: 1.6; color: #404040;">
         <strong>${escapeHtml(input.orderNumber)}</strong> from ${escapeHtml(input.customerName ?? input.customerEmail)}
-        — ${(input.totalCents / 100).toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+        — ${formatCents(input.totalCents, input.currency)}
         (${input.isCod ? 'Cash on Delivery' : 'Paid online'})
       </p>
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
