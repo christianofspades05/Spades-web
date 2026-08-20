@@ -57,14 +57,14 @@ export function ImageGallery({ images, alt }: ImageGalleryProps) {
         )}
       </div>
       {images.length > 1 && (
-        <div className="mt-3 flex gap-3">
+        <div className="mt-3 flex gap-3 overflow-x-auto">
           {images.map((image, index) => (
             <button
               key={image}
               type="button"
               onClick={() => setActiveIndex(index)}
               className={cn(
-                'h-16 w-16 overflow-hidden rounded-lg border-2',
+                'h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2',
                 index === activeIndex
                   ? 'border-neutral-900 dark:border-white'
                   : 'border-transparent',
