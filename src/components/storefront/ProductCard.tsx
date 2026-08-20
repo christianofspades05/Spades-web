@@ -20,9 +20,18 @@ export function ProductCard({ product }: ProductCardProps) {
     product.salePriceCents < product.min_price_cents
 
   return (
+    // preload={false} overrides the router's site-wide `intent` default —
+    // this is the one link type dense enough (a grid can show 24+ at once)
+    // that hover/touch-intent preloading turns into real cost: measured
+    // live, hovering 5 product cards with zero clicks fired 10 full
+    // backend loads (root + product data, the latter alone ~6 Supabase
+    // queries) for products nobody selected. Every other link on the site
+    // (nav, footer, a handful of related-product cards) stays low-density
+    // enough that intent preloading is still worth it there.
     <Link
       to="/products/$slug"
       params={{ slug: product.slug }}
+      preload={false}
       className="group block"
     >
       <div className="relative aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-900">
