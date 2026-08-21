@@ -716,7 +716,25 @@ function OrdersPage() {
                         )}
                       </td>
                       <td className={tableCellClassName}>
-                        {shipment?.tracking_number ?? (
+                        {shipment?.tracking_number ? (
+                          <div
+                            className="max-w-[140px] truncate"
+                            title={shipment.tracking_number}
+                          >
+                            {shipment.tracking_number.startsWith('http') ? (
+                              <a
+                                href={shipment.tracking_number}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline"
+                              >
+                                {shipment.tracking_number}
+                              </a>
+                            ) : (
+                              shipment.tracking_number
+                            )}
+                          </div>
+                        ) : (
                           <span className="text-neutral-400">—</span>
                         )}
                       </td>
