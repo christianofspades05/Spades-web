@@ -24,6 +24,7 @@ import {
   getActiveAutomaticDiscounts,
   resolveSalePrices,
 } from '#/server/storefront/automatic-sales'
+import { createPromiseCache } from '#/lib/utils/cache'
 import type { ProductWithVariants } from '#/types/entities'
 import type { Database, ProductBrand } from '#/types/database.types'
 
@@ -201,6 +202,68 @@ function sortProducts(
 // for that one URL-blocking check.
 export const OTHER_BRAND_COLLECTION_SLUGS = ['ysrael', 'aspire-365']
 
+interface CollectionMetadata {
+  id: string
+  brand: ProductBrand
+  match_type: 'all' | 'any'
+  rules: unknown
+  sort_by: string
+  hide_out_of_stock_products: boolean
+  max_products: number | null
+}
+
+interface CollectionListingScope {
+  collection: CollectionMetadata | null
+  memberships: { product_id: string; sort_order: number }[]
+}
+
+// listActiveProducts' own collection-slug lookup + membership list — called
+// once per product_grid section on every homepage load (13x on Spades' Home
+// alone, via loadStorefrontSections), independent of and uncovered by
+// resolveCollectionScopedProductIds' own cache (that one only covers the
+// active-discount scoping done later in this same function, via
+// withSalePrices). Same 15s TTL/promise-caching pattern as
+// getActiveProductsForBrand right below: collection metadata/membership
+// barely ever changes (a staff edit in admin), so every concurrent section
+// resolving the same collection slug within the TTL window shares one real
+// Supabase round trip instead of firing its own pair. Keyed by
+// collectionSlug alone — `collections.slug` has a database-level global
+// UNIQUE constraint (collections_slug_key), not scoped per brand, so a
+// Spades and a Ysrael/Aspire365 collection can never share a slug; no brand
+// needs to be added to the key.
+const COLLECTION_LISTING_SCOPE_CACHE_TTL_MS = 15_000
+const collectionListingScopeCache = createPromiseCache<CollectionListingScope>(
+  COLLECTION_LISTING_SCOPE_CACHE_TTL_MS,
+)
+
+async function fetchCollectionListingScope(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+  collectionSlug: string,
+): Promise<CollectionListingScope> {
+  const { data: collection } = await supabase
+    .from('collections')
+    .select(
+      'id, brand, match_type, rules, sort_by, hide_out_of_stock_products, max_products',
+    )
+    .eq('slug', collectionSlug)
+    .eq('is_active', true)
+    .maybeSingle<CollectionMetadata>()
+  if (!collection) return { collection: null, memberships: [] }
+
+  const { data: memberships, error } = await supabase
+    .from('product_collections')
+    .select('product_id, sort_order')
+    .eq('collection_id', collection.id)
+    .order('sort_order', { ascending: true })
+    .overrideTypes<
+      { product_id: string; sort_order: number }[],
+      { merge: false }
+    >()
+  if (error) throw error
+
+  return { collection, memberships }
+}
+
 export const listActiveProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -221,44 +284,21 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
         if (error) throw error
         return withSalePrices(products)
       }
+      const collectionSlug = data.collectionSlug
 
-      const { data: collection } = await supabase
-        .from('collections')
-        .select(
-          'id, brand, match_type, rules, sort_by, hide_out_of_stock_products, max_products',
-        )
-        .eq('slug', data.collectionSlug)
-        .eq('is_active', true)
-        .maybeSingle<{
-          id: string
-          brand: ProductBrand
-          match_type: 'all' | 'any'
-          rules: unknown
-          sort_by: string
-          hide_out_of_stock_products: boolean
-          max_products: number | null
-        }>()
+      const { collection, memberships } = await collectionListingScopeCache.get(
+        collectionSlug,
+        () => fetchCollectionListingScope(supabase, collectionSlug),
+      )
       if (!collection) return []
 
-      const [products, { data: memberships, error }] = await Promise.all([
-        getActiveProductsForBrand(supabase, collection.brand),
-        supabase
-          .from('product_collections')
-          .select('product_id, sort_order')
-          .eq('collection_id', collection.id)
-          .order('sort_order', { ascending: true })
-          .overrideTypes<
-            { product_id: string; sort_order: number }[],
-            { merge: false }
-          >(),
-      ])
-      if (error) throw error
+      const products = await getActiveProductsForBrand(supabase, collection.brand)
 
       // Manually pinned products always stay in, regardless of `rules` — they
       // lead the list in their drag order, then rule-matched products fill in
       // after (deduped), sorted by `sort_by`.
       const orderById = new Map(
-        (memberships ?? []).map((m) => [m.product_id, m.sort_order]),
+        memberships.map((m) => [m.product_id, m.sort_order]),
       )
       const manual = products
         .filter((p) => orderById.has(p.id))
