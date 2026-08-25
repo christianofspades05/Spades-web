@@ -282,9 +282,11 @@ export interface Database {
           title: string | null
           title_ja: string | null
           title_ko: string | null
+          title_zh: string | null
           subtitle: string | null
           subtitle_ja: string | null
           subtitle_ko: string | null
+          subtitle_zh: string | null
           media_url: string | null
           link_url: string | null
           collection_id: string | null
@@ -324,6 +326,7 @@ export interface Database {
           text: string
           text_ja: string | null
           text_ko: string | null
+          text_zh: string | null
           is_active: boolean
           sort_order: number
           updated_at: string
@@ -347,6 +350,7 @@ export interface Database {
           description: string | null
           description_ja: string | null
           description_ko: string | null
+          description_zh: string | null
           product_type: ProductType
           status: ProductStatus
           brand: ProductBrand

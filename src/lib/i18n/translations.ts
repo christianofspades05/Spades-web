@@ -3,7 +3,8 @@
  * buttons, cart, checkout, common messages) — never product names/titles
  * or brand names, which the owner explicitly wants left untranslated.
  * Product *descriptions* are translated separately, per-product, via
- * products.description_ja/description_ko (see server/products/queries.ts).
+ * products.description_ja/description_ko/description_zh (see
+ * server/products/queries.ts).
  *
  * Deliberately flat + hand-written rather than a full i18n library — the
  * UI surface this covers is small and fixed, so a typed object with one
@@ -11,22 +12,27 @@
  * place instead of scattered across dozens of component-level lookups.
  */
 
-export const SUPPORTED_LANGUAGES = ['en', 'ja', 'ko'] as const
+export const SUPPORTED_LANGUAGES = ['en', 'ja', 'ko', 'zh'] as const
 export type Language = (typeof SUPPORTED_LANGUAGES)[number]
 
 export const LANGUAGE_LABELS: Record<Language, string> = {
   en: 'English',
   ja: '日本語',
   ko: '한국어',
+  zh: '繁體中文',
 }
 
 /** Default language for a first-time visitor, keyed by geo-detected
  *  country — every other country (including PH) defaults to English by
- *  simply never showing the popup at all (see LanguageContext.tsx). */
+ *  simply never showing the popup at all (see LanguageContext.tsx).
+ *  HK/MO/TW use Traditional Chinese (zh here means zh-Hant, never
+ *  Simplified); SG stays English rather than Chinese since that's the
+ *  common online-shopping language there. */
 export const COUNTRY_DEFAULT_LANGUAGE: Record<string, Language> = {
   SG: 'en',
-  HK: 'en',
-  MO: 'en',
+  HK: 'zh',
+  MO: 'zh',
+  TW: 'zh',
   JP: 'ja',
   KR: 'ko',
 }
@@ -1143,6 +1149,284 @@ export const translations: Record<Language, Translations> = {
       alreadyCustomerMessage:
         '이미 저희 고객이신 것 같아요! 이번엔 새 코드는 없지만, 방문해 주셔서 감사합니다.',
       closeAriaLabel: '닫기',
+    },
+  },
+  zh: {
+    nav: {
+      homeStore: '首頁',
+      aboutUs: '關於我們',
+      reviews: '評價',
+      contactUs: '聯絡我們',
+    },
+    header: {
+      searchAriaLabel: '搜尋商品',
+      accountAriaLabel: '帳戶',
+      cartAriaLabel: '購物車',
+      openMenu: '開啟選單',
+      closeMenu: '關閉選單',
+    },
+    footer: {
+      shopHeading: '購物',
+      allProducts: '所有商品',
+      collections: '系列',
+      cart: '購物車',
+      helpHeading: '幫助',
+      account: '帳戶',
+      shippingAndReturns: '運送與退貨',
+      contactUs: '聯絡我們',
+      stayUpdatedHeading: '掌握最新消息',
+      stayUpdatedBody: '搶先掌握新品上市與補貨資訊。',
+      emailPlaceholder: '電子郵件地址',
+      join: '加入',
+      rightsReserved: 'All rights reserved.',
+    },
+    countrySelect: {
+      searchCountry: '搜尋國家',
+      selectCountry: '選擇國家',
+      noCountriesFound: '找不到符合的國家',
+    },
+    addedToCart: {
+      itemAdded: '商品已加入購物車',
+      viewMyCart: (count) => `查看購物車 (${count})`,
+      checkOut: '前往結帳',
+      continueShopping: '繼續購物',
+    },
+    freeShipping: {
+      addMoreAmount: (amount) => `再加購 ${amount} 即可享免運`,
+      addMoreItems: (count) => `再加購 ${count} 件商品即可享免運`,
+    },
+    cart: {
+      title: '購物車',
+      loading: '購物車載入中...',
+      empty: '購物車是空的',
+      continueShopping: '繼續購物',
+      remove: '移除',
+      discountCodePlaceholder: '折扣碼',
+      apply: '套用',
+      applying: '套用中...',
+      applied: (codeOrTitle) => `已套用 ${codeOrTitle}`,
+      freeShippingLabel: '免運費',
+      subtotal: '小計',
+      discount: '折扣',
+      discountAppliesTo: (discounted, total) =>
+        `折扣適用於${total}件中的${discounted}件`,
+      stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      total: '合計',
+      checkout: '結帳',
+    },
+    checkout: {
+      title: '結帳',
+      contact: '聯絡資訊',
+      email: '電子郵件',
+      delivery: '收件資訊',
+      country: '國家',
+      internationalMarkupNotice:
+        '此訂單為國際配送 — 收件時可能需另行支付進口關稅。',
+      recipientName: '收件人姓名',
+      phone: '電話',
+      city: '城市',
+      stateProvince: '州 / 省',
+      addressLine1: '地址第一行',
+      addressLine1Placeholder: '門牌號碼、街道名稱',
+      addressLine2Optional: '地址第二行（選填）',
+      landmarkOptional: '地標（選填）',
+      postalCode: '郵遞區號',
+      shippingMethod: '運送方式',
+      selectRegionPrompt: '請先選擇上方地區以顯示運送選項。',
+      standardShipping: '標準運送',
+      free: '免費',
+      continueToPayment: '前往付款',
+      enterDeliveryRegion: '請輸入配送地區',
+    },
+    payment: {
+      title: '付款',
+      deliverTo: '送達地址',
+      edit: '編輯',
+      paymentMethod: '付款方式',
+      cod: '貨到付款 (COD)',
+      payOnline: '線上付款 — GCash、Maya、信用卡、銀行轉帳',
+      payOnlinePayPal: '線上付款 — PayPal 結帳',
+      pricesShownIn: (currency) =>
+        `價格僅供參考，以${currency}顯示 — 實際將以等值PHP計費`,
+      subtotal: '小計',
+      discount: '折扣',
+      shipping: '運費',
+      total: '合計',
+      redirecting: '正在前往付款頁面...',
+      placingOrder: '訂單處理中...',
+      continueToPay: (amount) => `前往付款 — ${amount}`,
+      placeOrder: (amount) => `送出訂單 — ${amount}`,
+      missingDeliveryTitle: '缺少收件資訊',
+      missingDeliveryBody: '請先填寫聯絡資訊與收件資訊。',
+      backToCheckout: '返回結帳',
+      paymentFailedError:
+        '線上付款未完成。您可以重新嘗試，或改選貨到付款。',
+    },
+    confirmation: {
+      orderPlaced: '訂單已送出！',
+      order: '訂單編號',
+      thanksMessage:
+        '感謝您的訂購 — 商品包裝與出貨時，我們將以簡訊與電子郵件通知您。',
+      continueShopping: '繼續購物',
+      confirmingPayment: '正在確認您的付款…',
+      stillConfirmingPayment:
+        '付款確認時間較平常稍長，一經確認我們將立即以電子郵件通知您。',
+    },
+    product: {
+      size: '尺寸',
+      color: '顏色',
+      style: '款式',
+      outOfStock: '缺貨中',
+      selectOptions: '選擇規格',
+      adding: '加入中...',
+      addToCart: '加入購物車',
+    },
+    languagePopup: {
+      title: '請選擇語言',
+      body: '請選擇您瀏覽網站時要使用的語言。',
+      continueButton: '繼續',
+    },
+    collections: {
+      pageTitle: '系列',
+      allCollections: '所有系列',
+      viewAll: '查看全部',
+      noProductsYet: '目前尚無商品。',
+      noProductsInCollection: '此系列目前尚無商品。',
+      graphicTees: '印花T恤',
+      muscleTees: '無袖背心',
+      poloShirts: 'POLO衫',
+      hoodiesJackets: '連帽外套與夾克',
+      meshShorts: '網布短褲',
+      jorts: '牛仔短褲',
+      bottoms: '下著',
+      jerseyTee: '運動球衣',
+      essentials: '基本款',
+      blanks: '素面款',
+    },
+    reviews: {
+      feedbackHeading:
+        '有什麼建議嗎？歡迎分享您的想法，幫助我們做得更好',
+      feedbackThanks: '謝謝您 — 我們非常感謝您的意見！',
+      name: '姓名',
+      email: '電子郵件 *',
+      phoneNumber: '電話號碼',
+      comment: '意見',
+      sending: '傳送中…',
+      send: '傳送',
+      customersHeading: '顧客怎麼說',
+      fromReviews: (count) => `來自${count}則評價`,
+      noReviewsYet:
+        '目前尚無評價 — 收到商品後，歡迎成為第一位留下評價的人。',
+      verifiedBuyer: '已驗證買家',
+      goToReviewPage: (page) => `前往評價第${page}頁`,
+    },
+    contact: {
+      body: '歡迎透過我們的社群媒體管道找到我們並與我們聯繫。',
+    },
+    account: {
+      yourAccount: '我的帳戶',
+      logOut: '登出',
+      orderHistory: '訂單紀錄',
+      noOrdersYet: '您尚未有任何訂單。',
+      orderColumn: '訂單',
+      itemsColumn: '商品',
+      trackingNumberColumn: '追蹤號碼',
+      trackingColumn: '物流追蹤',
+      paymentColumn: '付款',
+      unfulfilled: '尚未出貨',
+      trackPackage: '追蹤包裹',
+      noTracking: '尚無追蹤資訊',
+      savedAddresses: '已儲存地址',
+      addAddress: '+ 新增地址',
+      noSavedAddresses: '尚無已儲存的地址。',
+      cancelOrder: '取消訂單',
+      writeReview: '撰寫評價',
+      cancelOrderTitle: '確定要取消此訂單嗎？',
+      cancelOrderBody: '請告訴我們原因 — 有助於我們在需要時進行後續處理。',
+      cancelReasonPlaceholder:
+        '例如：不小心下錯單、在別處找到更便宜的價格…',
+      cancelReasonRequired: '請告訴我們您想取消此訂單的原因。',
+      neverMind: '不用了',
+      confirmCancellation: '確認取消',
+      cancelling: '取消中…',
+      noAccountHeading: '還沒有帳戶嗎？',
+      noAccountBody:
+        '建立帳戶即可追蹤訂單、儲存地址，並在下次結帳時更快完成付款。',
+      createAccount: '建立帳戶',
+      signIn: '登入',
+      alreadyHaveAccount: '已經有帳戶了嗎？請在下方登入。',
+      or: '或',
+      password: '密碼',
+      signingIn: '登入中…',
+      continueWithGoogle: '使用 Google 繼續',
+      alreadyHaveOne: '已經有帳戶了嗎？',
+      dateOfBirth: '出生日期',
+      dobImmutable: '帳戶建立後即無法更改。',
+      creatingAccount: '建立帳戶中…',
+      signUpWithGoogle: '使用 Google 註冊',
+      checkYourEmail: '請查看您的電子郵件',
+      codeSentPrefix: '我們已將8位數驗證碼傳送至：',
+      codeSentSuffix: '請在下方輸入以驗證您的帳戶。',
+      verificationCode: '驗證碼',
+      verifying: '驗證中…',
+      verify: '驗證',
+      resendCode: '重新傳送驗證碼',
+      resendCodeWithTimer: (seconds) => `重新傳送驗證碼（${seconds}秒）`,
+      codeResent: '新的驗證碼已傳送。',
+      forgotPassword: '忘記密碼？',
+      forgotPasswordHeading: '重設您的密碼',
+      forgotPasswordBody:
+        '請輸入您的電子郵件，我們將傳送重設密碼的連結給您。',
+      sendResetLink: '傳送重設連結',
+      sendingResetLink: '傳送中…',
+      resetLinkSentBody:
+        '若該電子郵件對應的帳戶存在，我們已傳送重設密碼的連結給您。',
+      backToLogin: '返回登入',
+      setNewPasswordHeading: '設定新密碼',
+      setNewPasswordBody: '請為您的帳戶設定新密碼。',
+      newPassword: '新密碼',
+      confirmNewPassword: '確認新密碼',
+      passwordsDontMatch: '密碼不一致',
+      updatingPassword: '更新中…',
+      updatePassword: '更新密碼',
+      resetLinkExpired: '此重設連結無效或已過期，請重新申請。',
+      thanksForReview: '感謝您的評價！',
+      reviewAppreciation:
+        '感謝您撥出時間 — 審核通過後將顯示於商品頁面。',
+      backToAccount: '返回我的帳戶',
+      allDone: '全部完成！',
+      alreadyReviewed: (orderNumber) =>
+        `您已評價過訂單${orderNumber}中的所有商品，謝謝您！`,
+      howWasIt: '您的使用心得如何？',
+      rateReviewBody: (orderNumber) =>
+        `請為訂單${orderNumber}中的商品評分並撰寫評價，僅會送出您有評分的商品。`,
+      reviewPlaceholder: '分享您的想法（選填）',
+      photoTooLarge: '照片檔案需小於8MB。',
+      ratingRequired: '送出前請至少為一項商品評分。',
+      submitting: '送出中…',
+      submitReview: '送出評價',
+      labelOptional: '標籤（選填）',
+      labelPlaceholder: '住家、辦公室…',
+      postalCodeOptional: '郵遞區號（選填）',
+      defaultShipping: '預設收件地址',
+      defaultBilling: '預設帳單地址',
+      saveAddress: '儲存地址',
+      cancel: '取消',
+      saving: '儲存中…',
+      hidePassword: '隱藏密碼',
+      showPassword: '顯示密碼',
+    },
+    emailCapture: {
+      title: '首次購物享10%折扣',
+      body: '輸入您的電子郵件，我們將傳送限時24小時的一次性折扣碼給您。',
+      emailPlaceholder: '電子郵件地址',
+      getCode: '取得折扣碼',
+      sending: '傳送中…',
+      alreadyCustomer: '已經是會員',
+      successMessage: '請查看您的收件匣 — 折扣碼即將寄達！',
+      alreadyCustomerMessage:
+        '看來您已經是我們的會員了！這次沒有新的折扣碼，但仍感謝您的光臨。',
+      closeAriaLabel: '關閉',
     },
   },
 }

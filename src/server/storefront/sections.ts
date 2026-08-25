@@ -18,6 +18,7 @@ export interface RenderedProductGridSection {
   title: string | null
   titleJa: string | null
   titleKo: string | null
+  titleZh: string | null
   linkUrl: string | null
   collectionSlug: string
   products: (StorefrontListingProduct & WithSalePrice)[]
@@ -84,6 +85,7 @@ export const loadStorefrontSections = createServerFn({
             title: section.title,
             titleJa: section.title_ja,
             titleKo: section.title_ko,
+            titleZh: section.title_zh,
             linkUrl: section.link_url,
             collectionSlug: '',
             products: [],
@@ -98,6 +100,7 @@ export const loadStorefrontSections = createServerFn({
           title: section.title,
           titleJa: section.title_ja,
           titleKo: section.title_ko,
+          titleZh: section.title_zh,
           linkUrl: section.link_url,
           collectionSlug,
           products: products.map(toListingProduct),

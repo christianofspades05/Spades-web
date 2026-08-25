@@ -8,6 +8,7 @@ export interface StorefrontBannerMessage {
   text: string
   textJa: string | null
   textKo: string | null
+  textZh: string | null
 }
 
 // Same rationale as maintenance.ts's cache — checked on every page load,
@@ -37,7 +38,7 @@ export const resolveStorefrontBanner = createServerOnlyFn(
       const supabase = getSupabaseServerClient()
       const { data: rows, error } = await supabase
         .from('storefront_banner')
-        .select('text, text_ja, text_ko')
+        .select('text, text_ja, text_ko, text_zh')
         .eq('brand', brand)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
@@ -46,11 +47,20 @@ export const resolveStorefrontBanner = createServerOnlyFn(
         text: row.text,
         textJa: row.text_ja,
         textKo: row.text_ko,
+        textZh: row.text_zh,
       }))
     })
   },
 )
 
+/**
+ * LEGACY COMPATIBILITY ENDPOINT — see getMaintenanceMode's identical doc
+ * comment in server/storefront/maintenance.ts. Not called from anywhere
+ * in this codebase anymore; kept only so a stale cached HTML/JS bundle
+ * from before root-loader.ts switched to resolveStorefrontBanner doesn't
+ * hit a hard 404/500 for the few minutes it can still be served. Revisit
+ * deleting once several deployments pass without that error recurring.
+ */
 export const getStorefrontBanner = createServerFn({ method: 'GET' })
   .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS) }))
   .handler(

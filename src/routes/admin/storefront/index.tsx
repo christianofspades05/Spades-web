@@ -132,6 +132,7 @@ function StorefrontSectionsPage() {
           text: row.text,
           textJa: row.text_ja ?? undefined,
           textKo: row.text_ko ?? undefined,
+          textZh: row.text_zh ?? undefined,
           isActive: row.is_active,
         },
       })
@@ -373,6 +374,16 @@ function StorefrontSectionsPage() {
                               })
                             }
                             placeholder="Banner text (Korean, optional)…"
+                            className={inputClassName}
+                          />
+                          <input
+                            value={row.text_zh ?? ''}
+                            onChange={(e) =>
+                              updateBannerField(row.id, {
+                                text_zh: e.target.value,
+                              })
+                            }
+                            placeholder="Banner text (Traditional Chinese, optional)…"
                             className={inputClassName}
                           />
                         </div>
@@ -637,9 +648,11 @@ function SectionForm({
   const [title, setTitle] = useState(initial?.title ?? '')
   const [titleJa, setTitleJa] = useState(initial?.title_ja ?? '')
   const [titleKo, setTitleKo] = useState(initial?.title_ko ?? '')
+  const [titleZh, setTitleZh] = useState(initial?.title_zh ?? '')
   const [subtitle, setSubtitle] = useState(initial?.subtitle ?? '')
   const [subtitleJa, setSubtitleJa] = useState(initial?.subtitle_ja ?? '')
   const [subtitleKo, setSubtitleKo] = useState(initial?.subtitle_ko ?? '')
+  const [subtitleZh, setSubtitleZh] = useState(initial?.subtitle_zh ?? '')
   const [mediaUrl, setMediaUrl] = useState(initial?.media_url ?? '')
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? '')
   const [collectionId, setCollectionId] = useState(initial?.collection_id ?? '')
@@ -683,9 +696,11 @@ function SectionForm({
       title: title || undefined,
       titleJa: titleJa || undefined,
       titleKo: titleKo || undefined,
+      titleZh: titleZh || undefined,
       subtitle: subtitle || undefined,
       subtitleJa: subtitleJa || undefined,
       subtitleKo: subtitleKo || undefined,
+      subtitleZh: subtitleZh || undefined,
       mediaUrl: mediaUrl || undefined,
       linkUrl: linkUrl || undefined,
       collectionId: collectionId || undefined,
@@ -769,6 +784,14 @@ function SectionForm({
                 className={inputClassName}
               />
             </label>
+            <label className={labelClassName}>
+              Heading (Traditional Chinese, optional)
+              <input
+                value={titleZh}
+                onChange={(e) => setTitleZh(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
           </>
         )}
 
@@ -797,6 +820,15 @@ function SectionForm({
               <textarea
                 value={subtitleKo}
                 onChange={(e) => setSubtitleKo(e.target.value)}
+                rows={3}
+                className={inputClassName}
+              />
+            </label>
+            <label className={labelClassName}>
+              Body text (Traditional Chinese, optional)
+              <textarea
+                value={subtitleZh}
+                onChange={(e) => setSubtitleZh(e.target.value)}
                 rows={3}
                 className={inputClassName}
               />

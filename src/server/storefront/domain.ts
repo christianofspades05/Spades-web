@@ -35,6 +35,7 @@ export interface StorefrontScope {
   tagline: string
   taglineJa: string
   taglineKo: string
+  taglineZh: string
   logoLight: string
   logoDark: string
   /** Browser-tab icon and iOS home-screen icon — falls back to the brand's
@@ -104,6 +105,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: 'Streetwear for those who bet on themselves.',
     taglineJa: '自分自身に賭ける者たちのためのストリートウェア。',
     taglineKo: '스스로에게 베팅하는 이들을 위한 스트리트웨어.',
+    taglineZh: '獻給敢於相信自己的人的街頭服飾。',
     logoLight: '/logo-black.png',
     logoDark: '/logo-white.png',
     faviconUrl: '/favicon-32.png',
@@ -131,6 +133,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: '',
     taglineJa: '',
     taglineKo: '',
+    taglineZh: '',
     logoLight: '/ysrael-logo-black.png',
     logoDark: '/ysrael-logo-white.png',
     faviconUrl: '/ysrael-logo-black.png',
@@ -157,6 +160,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     tagline: '',
     taglineJa: '',
     taglineKo: '',
+    taglineZh: '',
     logoLight: '/aspire365-logo-black.png',
     logoDark: '/aspire365-logo-white.png',
     faviconUrl: '/aspire365-logo-black.png',

@@ -19,6 +19,7 @@ export interface StorefrontBannerRow {
   text: string
   text_ja: string | null
   text_ko: string | null
+  text_zh: string | null
   is_active: boolean
   sort_order: number
 }
@@ -29,7 +30,7 @@ export const listStorefrontBanners = createServerFn({ method: 'GET' }).handler(
     const admin = getSupabaseAdminClient()
     const { data, error } = await admin
       .from('storefront_banner')
-      .select('id, brand, text, text_ja, text_ko, is_active, sort_order')
+      .select('id, brand, text, text_ja, text_ko, text_zh, is_active, sort_order')
       .order('brand', { ascending: true })
       .order('sort_order', { ascending: true })
     if (error) throw error
@@ -63,7 +64,7 @@ export const createStorefrontBanner = createServerFn({ method: 'POST' })
         is_active: true,
         sort_order: nextSortOrder,
       })
-      .select('id, brand, text, text_ja, text_ko, is_active, sort_order')
+      .select('id, brand, text, text_ja, text_ko, text_zh, is_active, sort_order')
       .single()
     if (error) throw error
 
@@ -89,6 +90,7 @@ export const setStorefrontBanner = createServerFn({ method: 'POST' })
         text: data.text,
         text_ja: data.textJa ?? null,
         text_ko: data.textKo ?? null,
+        text_zh: data.textZh ?? null,
         is_active: data.isActive,
         updated_at: new Date().toISOString(),
       })

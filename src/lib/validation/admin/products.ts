@@ -27,6 +27,7 @@ export const productInputSchema = z.object({
   description: z.string().trim().max(5000).optional(),
   descriptionJa: z.string().trim().max(5000).optional(),
   descriptionKo: z.string().trim().max(5000).optional(),
+  descriptionZh: z.string().trim().max(5000).optional(),
   productType: z.enum(PRODUCT_TYPES),
   status: z.enum(PRODUCT_STATUSES),
   brand: z.enum(STOREFRONT_BRANDS).default('spades'),

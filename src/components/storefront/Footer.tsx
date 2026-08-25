@@ -40,7 +40,9 @@ export function Footer({ scope }: FooterProps) {
       ? scope.taglineJa
       : language === 'ko'
         ? scope.taglineKo
-        : null) || scope.tagline
+        : language === 'zh'
+          ? scope.taglineZh
+          : null) || scope.tagline
   return (
     <footer className="bg-neutral-950 text-neutral-300">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-10 px-6 py-14 sm:grid-cols-4">

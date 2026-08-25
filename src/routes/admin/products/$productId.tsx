@@ -85,6 +85,7 @@ interface ProductFormState {
   description: string
   descriptionJa: string
   descriptionKo: string
+  descriptionZh: string
   productType: ProductType
   status: ProductStatus
   brand: ProductBrand
@@ -111,6 +112,7 @@ function EditProductPage() {
     description: product.description ?? '',
     descriptionJa: product.description_ja ?? '',
     descriptionKo: product.description_ko ?? '',
+    descriptionZh: product.description_zh ?? '',
     productType: product.product_type,
     status: product.status,
     brand: product.brand,
@@ -240,6 +242,7 @@ function EditProductPage() {
           description: form.description || undefined,
           descriptionJa: form.descriptionJa || undefined,
           descriptionKo: form.descriptionKo || undefined,
+          descriptionZh: form.descriptionZh || undefined,
           productType: form.productType,
           status: form.status,
           brand: form.brand,
@@ -343,13 +346,13 @@ function EditProductPage() {
                     className={inputClassName}
                   />
                 </label>
-                {/* Japanese/Korean description fields hidden from this page
-                    per staff request — form.descriptionJa/descriptionKo are
-                    still loaded from and submitted back to
-                    products.description_ja/description_ko unchanged below,
-                    so existing translations are preserved and still served
-                    to JP/KR storefront visitors; only the editing UI here is
-                    hidden. */}
+                {/* Japanese/Korean/Chinese description fields hidden from
+                    this page per staff request — form.descriptionJa/
+                    descriptionKo/descriptionZh are still loaded from and
+                    submitted back to products.description_ja/description_ko/
+                    description_zh unchanged below, so existing translations
+                    are preserved and still served to JP/KR/TW-HK-MO
+                    storefront visitors; only the editing UI here is hidden. */}
               </div>
             </Card>
 

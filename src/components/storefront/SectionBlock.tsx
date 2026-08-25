@@ -32,13 +32,17 @@ export function SectionBlock({
           ? section.title_ja
           : language === 'ko'
             ? section.title_ko
-            : null) || section.title
+            : language === 'zh'
+              ? section.title_zh
+              : null) || section.title
       const taglineSubtitle =
         (language === 'ja'
           ? section.subtitle_ja
           : language === 'ko'
             ? section.subtitle_ko
-            : null) || section.subtitle
+            : language === 'zh'
+              ? section.subtitle_zh
+              : null) || section.subtitle
       return (
         <section className="bg-neutral-950 py-12 text-center text-white sm:py-16">
           <div className="mx-auto max-w-2xl px-6">
@@ -97,7 +101,9 @@ export function SectionBlock({
           ? section.titleJa
           : language === 'ko'
             ? section.titleKo
-            : null) || section.title
+            : language === 'zh'
+              ? section.titleZh
+              : null) || section.title
       return (
         <section className="mx-auto max-w-6xl px-6 py-14 sm:py-20">
           {gridTitle && (

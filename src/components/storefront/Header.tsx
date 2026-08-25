@@ -53,7 +53,9 @@ export function Header({ scope, banner }: HeaderProps) {
           ? message.textJa
           : language === 'ko'
             ? message.textKo
-            : null) || message.text,
+            : language === 'zh'
+              ? message.textZh
+              : null) || message.text,
     )
     .filter((text) => text.trim() !== '')
 

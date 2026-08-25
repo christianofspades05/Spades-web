@@ -142,8 +142,8 @@ function ProductPage() {
     return () => window.removeEventListener('resize', measure)
   }, [])
 
-  // Hand-translated per product (products.description_ja/description_ko —
-  // see admin/products/$productId.tsx) — falls back to the English
+  // Hand-translated per product (products.description_ja/description_ko/
+  // description_zh — see admin/products/$productId.tsx) — falls back to the English
   // description whenever a product hasn't had its translation filled in
   // yet, rather than showing nothing.
   const localizedDescription =
@@ -151,7 +151,9 @@ function ProductPage() {
       ? product.description_ja
       : language === 'ko'
         ? product.description_ko
-        : null) || product.description
+        : language === 'zh'
+          ? product.description_zh
+          : null) || product.description
 
   // Shown next to the title so a price is always visible, even before the
   // shopper has picked a variant — falls back to the cheapest active

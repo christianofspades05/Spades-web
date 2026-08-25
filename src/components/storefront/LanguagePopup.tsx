@@ -8,10 +8,11 @@ import {
 import type { Language } from '#/lib/i18n/translations'
 
 /** Shown once to a first-time visitor whose geo-detected country is one of
- *  the five this targets (Singapore/Hong Kong/Macau/Japan/South Korea) —
- *  see LanguageContext.tsx for exactly when. Pre-selects that country's
- *  default language, but the visitor can pick any of the three before
- *  confirming (e.g. a Japan visitor who'd rather browse in English). */
+ *  the six this targets (Singapore/Hong Kong/Macau/Taiwan/Japan/South
+ *  Korea) — see LanguageContext.tsx for exactly when. Pre-selects that
+ *  country's default language, but the visitor can pick any supported
+ *  language before confirming (e.g. a Japan visitor who'd rather browse in
+ *  English). */
 export function LanguagePopup() {
   const { showPopup, suggestedLanguage, confirmLanguage } = useLanguage()
   const [selected, setSelected] = useState<Language>(suggestedLanguage)

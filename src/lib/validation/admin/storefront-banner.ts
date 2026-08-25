@@ -6,6 +6,7 @@ export const setStorefrontBannerSchema = z.object({
   text: z.string().trim().max(300),
   textJa: z.string().trim().max(300).optional(),
   textKo: z.string().trim().max(300).optional(),
+  textZh: z.string().trim().max(300).optional(),
   isActive: z.boolean(),
 })
 
