@@ -1,6 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeader } from '@tanstack/react-start/server'
-import { recordVisitSchema, recordPresenceSchema } from '#/lib/validation/analytics'
+import {
+  recordVisitSchema,
+  recordPresenceSchema,
+  isValidStorefrontPath,
+} from '#/lib/validation/analytics'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 
 /**
@@ -8,10 +12,21 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
  * the admin Home dashboard can show real visitor/conversion-rate numbers.
  * No session, no PII: `visitorId` is a random id the browser generates and
  * keeps in localStorage, not tied to any customer account.
+ *
+ * A `path` that doesn't look like a real storefront page (see
+ * isValidStorefrontPath's own doc comment) is silently dropped rather than
+ * inserted — same response shape either way, so this gives a direct-POST
+ * script nothing to distinguish "rejected" from "recorded" and iterate
+ * against. Confirmed live: without this, a script hitting this endpoint
+ * directly (no real page load at all) can insert arbitrary junk — this is
+ * exactly how thousands/day of fabricated Shopify CDN image paths ended up
+ * in storefront_visits, corrupting the visitor/geography dashboards.
  */
 export const recordVisit = createServerFn({ method: 'POST' })
   .validator(recordVisitSchema)
   .handler(async ({ data }) => {
+    if (!isValidStorefrontPath(data.path)) return { ok: true as const }
+
     const admin = getSupabaseAdminClient()
     // Best-effort — real headers in production, absent in local dev (see
     // server/currency/geo.ts's identical read of the country header).
