@@ -55,10 +55,20 @@ export const recordVisit = createServerFn({ method: 'POST' })
  * storefront tab is open so the admin Home dashboard can show a live
  * viewer count. Upserts (not inserts): storefront_presence holds current
  * state, one row per visitor, not a history log like storefront_visits.
+ *
+ * Same isValidStorefrontPath() check and same silent-drop behavior as
+ * recordVisit above, for the same reason: confirmed live, the identical
+ * script abusing recordVisit with fabricated Shopify CDN paths
+ * ("/cdn/shop/products/....png") was reaching this endpoint too — 7,727 of
+ * storefront_presence's rows had that exact fake path, each a distinct,
+ * never-repeated visitor id, on the same day-by-day timeline as the
+ * recordVisit abuse.
  */
 export const recordPresence = createServerFn({ method: 'POST' })
   .validator(recordPresenceSchema)
   .handler(async ({ data }) => {
+    if (!isValidStorefrontPath(data.path)) return { ok: true as const }
+
     const admin = getSupabaseAdminClient()
     const { error } = await admin.from('storefront_presence').upsert(
       {
