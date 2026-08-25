@@ -138,6 +138,13 @@ export async function createPayPalOrder(
         // redundant and could disagree with what we already have.
         shipping_preference: 'NO_SHIPPING',
         user_action: 'PAY_NOW',
+        // Lands the customer directly on PayPal's guest card-entry form
+        // instead of the login form — international customers were being
+        // pushed to log in first even with "PayPal Account Optional"
+        // enabled on the account. 'LOGIN' would force the opposite; the
+        // default (omitting this) is 'NO_PREFERENCE', which is what was
+        // producing the login-first behavior in practice.
+        landing_page: 'BILLING',
         return_url: input.returnUrl,
         cancel_url: input.cancelUrl,
       },
