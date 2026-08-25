@@ -116,9 +116,13 @@ function LalamoveOrdersPage() {
               <thead>
                 <tr>
                   <th className={tableHeadClassName}>Order</th>
+                  <th className={tableHeadClassName}>Date</th>
                   <th className={tableHeadClassName}>Customer</th>
                   <th className={tableHeadClassName}>Items</th>
                   <th className={tableHeadClassName}>Delivery address</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Amount
+                  </th>
                   <th className={`${tableHeadClassName} text-right`}>
                     Est. fee
                   </th>
@@ -143,6 +147,22 @@ function LalamoveOrdersPage() {
                             {order.orderNumber}
                           </Link>
                         </td>
+                        <td
+                          className={`${tableCellClassName} text-neutral-500 whitespace-nowrap`}
+                        >
+                          <p>
+                            {new Date(order.placedAt).toLocaleDateString(
+                              'en-US',
+                              { month: 'short', day: 'numeric' },
+                            )}
+                          </p>
+                          <p className="text-xs text-neutral-400">
+                            {new Date(order.placedAt).toLocaleTimeString(
+                              'en-US',
+                              { hour: 'numeric', minute: '2-digit' },
+                            )}
+                          </p>
+                        </td>
                         <td className={tableCellClassName}>
                           <p>{order.recipientName}</p>
                           <p className="text-xs text-neutral-400">
@@ -156,6 +176,9 @@ function LalamoveOrdersPage() {
                           className={`${tableCellClassName} max-w-xs truncate text-neutral-500`}
                         >
                           {order.lalamoveInfo?.dropoffAddress ?? '—'}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {formatCentsAsPHP(order.totalCents)}
                         </td>
                         <td className={`${tableCellClassName} text-right`}>
                           {order.lalamoveInfo
@@ -188,7 +211,7 @@ function LalamoveOrdersPage() {
                       {isExpanded && order.lalamoveInfo && (
                         <tr>
                           <td
-                            colSpan={7}
+                            colSpan={9}
                             className="border-t border-neutral-100 bg-neutral-50 p-4"
                           >
                             <div className="flex flex-col gap-4">
@@ -230,8 +253,12 @@ function LalamoveOrdersPage() {
               <thead>
                 <tr>
                   <th className={tableHeadClassName}>Order</th>
+                  <th className={tableHeadClassName}>Date</th>
                   <th className={tableHeadClassName}>Customer</th>
                   <th className={tableHeadClassName}>Items</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Amount
+                  </th>
                   <th className={tableHeadClassName}>Tracking</th>
                   <th className={tableHeadClassName}>Status</th>
                   <th className={tableHeadClassName} />
@@ -249,11 +276,30 @@ function LalamoveOrdersPage() {
                         {order.orderNumber}
                       </Link>
                     </td>
+                    <td
+                      className={`${tableCellClassName} text-neutral-500 whitespace-nowrap`}
+                    >
+                      <p>
+                        {new Date(order.placedAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </p>
+                      <p className="text-xs text-neutral-400">
+                        {new Date(order.placedAt).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </td>
                     <td className={tableCellClassName}>
                       {order.recipientName}
                     </td>
                     <td className={tableCellClassName}>
                       <ItemsCell items={order.items} />
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(order.totalCents)}
                     </td>
                     <td className={tableCellClassName}>
                       {order.shipment?.trackingUrl ? (

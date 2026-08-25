@@ -1444,6 +1444,7 @@ export interface LalamoveOrderRow {
   orderNumber: string
   status: OrderStatus
   placedAt: string
+  totalCents: number
   recipientName: string
   recipientEmail: string
   lalamoveInfo: LalamoveInfo | null
@@ -1468,7 +1469,7 @@ export const getLalamoveOrders = createServerFn({ method: 'GET' }).handler(
     const { data, error } = await admin
       .from('orders')
       .select(
-        'id, order_number, status, placed_at, shipping_address, lalamove_info, shipments(tracking_number, tracking_url, status), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
+        'id, order_number, status, placed_at, total_cents, shipping_address, lalamove_info, shipments(tracking_number, tracking_url, status), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id)',
       )
       .eq('shipping_method', 'lalamove')
       .order('placed_at', { ascending: false })
@@ -1483,6 +1484,7 @@ export const getLalamoveOrders = createServerFn({ method: 'GET' }).handler(
       order_number: string
       status: OrderStatus
       placed_at: string
+      total_cents: number
       shipping_address: Record<string, unknown>
       lalamove_info: LalamoveInfo | null
       shipments: Pick<Shipment, 'tracking_number' | 'tracking_url' | 'status'>[]
@@ -1514,6 +1516,7 @@ export const getLalamoveOrders = createServerFn({ method: 'GET' }).handler(
         orderNumber: order.order_number,
         status: order.status,
         placedAt: order.placed_at,
+        totalCents: order.total_cents,
         recipientName: address.recipientName,
         recipientEmail: address.email,
         lalamoveInfo: order.lalamove_info,
