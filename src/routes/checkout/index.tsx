@@ -289,8 +289,7 @@ function CheckoutPage() {
       : formatDiscountRate(discount.type, discount.value)
     : null
 
-  async function handleApplyDiscount(event: React.FormEvent) {
-    event.preventDefault()
+  async function handleApplyDiscount() {
     if (!discountInput.trim()) return
     setDiscountError(null)
     setApplyingDiscount(true)
@@ -757,21 +756,32 @@ function CheckoutPage() {
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleApplyDiscount} className="mb-4 flex gap-2">
+              // A plain div, not a <form> — this whole page is already one
+              // <form onSubmit={handleSubmit}> (see above), and a <form>
+              // can't nest inside another: the browser silently drops the
+              // inner tag, so its submit button ends up submitting the
+              // OUTER checkout form instead of applying the code.
+              <div className="mb-4 flex gap-2">
                 <input
                   value={discountInput}
                   onChange={(e) => setDiscountInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    void handleApplyDiscount()
+                  }}
                   placeholder={t.cart.discountCodePlaceholder}
                   className={`${inputClassName} flex-1`}
                 />
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => void handleApplyDiscount()}
                   disabled={applyingDiscount}
                   className={buttonSecondaryClassName}
                 >
                   {applyingDiscount ? t.cart.applying : t.cart.apply}
                 </button>
-              </form>
+              </div>
             )}
             {discountError && (
               <p className="mb-4 text-sm text-red-700 dark:text-red-400">
