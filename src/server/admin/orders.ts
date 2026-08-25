@@ -15,7 +15,7 @@ import {
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
-import { fetchAllRows } from '#/lib/utils/paginate'
+import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import {
   shipmentTrackingEmailHtml,
@@ -218,8 +218,23 @@ async function resolveFulfillmentOrderIds(
  *  the result set. */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Resolves the free-text search filter into a PostgREST `.or()` condition list, shared by `listOrders` and `getOrdersCount`. */
-async function resolveSearchOrConditions(
+// A search term that matches many order_items/customers (e.g. a common
+// product name like "denim") used to blow this straight into a single
+// PostgREST `.or('id.in.(...)')` filter with hundreds of ids — a request
+// URL well past Supabase's length limit, failing with a bare "Bad Request"
+// on any popular search term. Same class of bug already hit and fixed once
+// for the fulfillment filter below (see resolveFulfillmentOrderIds' own
+// comment) — same fix here: chunk any id list before it ever reaches a
+// `.in()`/`.or()` filter.
+const SEARCH_ID_CHUNK_SIZE = 200
+
+/** Every order id matching any part of the free-text search — product
+ *  name/SKU, tracking number, customer name/email, order number, a
+ *  marketplace's own order id, or (for a bare YYYY-MM-DD) that day's
+ *  orders. Shared by `listOrders` and `getOrdersCount`, both of which
+ *  apply their own status/source/brand/fulfillment filters on top of
+ *  this id set rather than folding everything into one filter string. */
+async function resolveSearchMatchedOrderIds(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   search: string,
 ): Promise<string[]> {
@@ -234,11 +249,40 @@ async function resolveSearchOrConditions(
       ? `and(${nameTokens.map((t) => `full_name.ilike.%${t}%`).join(',')})`
       : `full_name.ilike.%${search}%`
 
+  // order_number/external_order_id/date matches are resolved as their own
+  // id-fetching query — a plain ilike/range condition, never an id list,
+  // so this one is never at risk of the URL-length problem.
+  const directOrConditions = [`order_number.ilike.%${search}%`]
+  // external_order_id is a raw UUID for every storefront order (the
+  // checkout_reservations id — never shown to anyone, never worth
+  // searching), so an ilike substring match against it was matching
+  // unrelated orders purely by hex-digit coincidence (e.g. searching a
+  // plain order-number digit string like "5320" turns up hits inside
+  // random UUIDs), burying the real order-number match under noise.
+  // Marketplace orders' external_order_id is the platform's real,
+  // human-meaningful order id, so it stays searchable there — gated to
+  // longer queries since a short digit run (e.g. "5320") still turns up
+  // coincidental hits inside marketplaces' 15+ digit numeric order ids.
+  if (search.length >= 6) {
+    directOrConditions.push(
+      `and(source.neq.storefront,external_order_id.ilike.%${search}%)`,
+    )
+  }
+  if (ISO_DATE_RE.test(search)) {
+    // Store-local day boundaries, not the host's local time — matches the
+    // same PH (UTC+8) treatment used everywhere else `placed_at` gets
+    // compared against a calendar date.
+    const { start, end } = storeRangeToUtcBounds(search, search)
+    directOrConditions.push(`and(placed_at.gte.${start},placed_at.lte.${end})`)
+  }
+
   const [
+    { data: directMatches },
     { data: matchingCustomers },
     { data: matchingItems },
     { data: matchingShipments },
   ] = await Promise.all([
+    admin.from('orders').select('id').or(directOrConditions.join(',')),
     admin
       .from('customers')
       .select('id')
@@ -254,43 +298,35 @@ async function resolveSearchOrConditions(
       .select('order_id')
       .ilike('tracking_number', `%${search}%`),
   ])
+  const orderIdsFromDirect = (directMatches ?? []).map((o) => o.id)
   const customerIds = (matchingCustomers ?? []).map((c) => c.id)
   const orderIdsFromItems = (matchingItems ?? []).map((i) => i.order_id)
   const orderIdsFromShipments = (matchingShipments ?? []).map((s) => s.order_id)
-  const matchedOrderIds = Array.from(
-    new Set([...orderIdsFromItems, ...orderIdsFromShipments]),
-  )
 
-  const orConditions = [`order_number.ilike.%${search}%`]
-  // external_order_id is a raw UUID for every storefront order (the
-  // checkout_reservations id — never shown to anyone, never worth
-  // searching), so an ilike substring match against it was matching
-  // unrelated orders purely by hex-digit coincidence (e.g. searching a
-  // plain order-number digit string like "5320" turns up hits inside
-  // random UUIDs), burying the real order-number match under noise.
-  // Marketplace orders' external_order_id is the platform's real,
-  // human-meaningful order id, so it stays searchable there — gated to
-  // longer queries since a short digit run (e.g. "5320") still turns up
-  // coincidental hits inside marketplaces' 15+ digit numeric order ids.
-  if (search.length >= 6) {
-    orConditions.push(
-      `and(source.neq.storefront,external_order_id.ilike.%${search}%)`,
-    )
-  }
+  // A matching customer's orders are looked up chunked — a common name
+  // (or, worse, a one-letter/short email fragment) can match hundreds of
+  // customers, and every one of those ids feeding straight into `.in()`
+  // is exactly the same failure mode this function exists to avoid.
+  const orderIdsFromCustomers: string[] = []
   if (customerIds.length > 0) {
-    orConditions.push(`customer_id.in.(${customerIds.join(',')})`)
+    const chunkResults = await Promise.all(
+      chunkArray(customerIds, SEARCH_ID_CHUNK_SIZE).map((chunk) =>
+        admin.from('orders').select('id').in('customer_id', chunk),
+      ),
+    )
+    for (const { data } of chunkResults) {
+      orderIdsFromCustomers.push(...(data ?? []).map((o) => o.id))
+    }
   }
-  if (matchedOrderIds.length > 0) {
-    orConditions.push(`id.in.(${matchedOrderIds.join(',')})`)
-  }
-  if (ISO_DATE_RE.test(search)) {
-    // Store-local day boundaries, not the host's local time — matches the
-    // same PH (UTC+8) treatment used everywhere else `placed_at` gets
-    // compared against a calendar date.
-    const { start, end } = storeRangeToUtcBounds(search, search)
-    orConditions.push(`and(placed_at.gte.${start},placed_at.lte.${end})`)
-  }
-  return orConditions
+
+  return Array.from(
+    new Set([
+      ...orderIdsFromDirect,
+      ...orderIdsFromCustomers,
+      ...orderIdsFromItems,
+      ...orderIdsFromShipments,
+    ]),
+  )
 }
 
 export const listOrders = createServerFn({ method: 'GET' })
@@ -304,49 +340,90 @@ export const listOrders = createServerFn({ method: 'GET' })
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    let query = admin
-      .from('orders')
-      .select(
-        '*, customer:customers(id, email, full_name), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id), payments(status, created_at), shipments(status, carrier, tracking_number)',
-      )
-      .order('placed_at', { ascending: false })
-
-    if (data.status) {
-      query = query.eq('status', data.status)
-    } else {
-      // Cancelled/failed orders are real, permanent records (a customer
-      // request, a failed delivery, a marketplace cancellation) and stay
-      // fully visible via the Payment filter — they're just excluded from
-      // the unfiltered default view so it isn't dominated by void orders.
-      query = query.not('status', 'in', '(cancelled,failed)')
-    }
-    if (data.source) query = query.eq('source', data.source)
-    if (data.brand) query = query.eq('brand', data.brand)
-
     const { excludeIds, includeIds, hasShipment } =
       await resolveFulfillmentOrderIds(admin, data.fulfillment)
-    if (hasShipment !== undefined) {
-      query = query.eq('has_shipment', hasShipment)
-    }
-    if (excludeIds && excludeIds.length > 0) {
-      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
-    }
-    if (includeIds) {
-      if (includeIds.length === 0) return []
-      query = query.in('id', includeIds)
-    }
+    if (includeIds && includeIds.length === 0) return []
 
     const search = data.q?.trim()
-    if (search) {
-      const orConditions = await resolveSearchOrConditions(admin, search)
-      query = query.or(orConditions.join(','))
+    const matchedOrderIds = search
+      ? await resolveSearchMatchedOrderIds(admin, search)
+      : null
+    if (matchedOrderIds && matchedOrderIds.length === 0) return []
+
+    // A fresh builder per call — `.in('id', chunk)` needs its own base query
+    // for each chunk below, rather than accumulating onto one shared
+    // reference (which would just AND every chunk's ids together instead of
+    // querying each chunk independently).
+    function buildQuery(idChunk?: string[]) {
+      let q = admin
+        .from('orders')
+        .select(
+          '*, customer:customers(id, email, full_name), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id), payments(status, created_at), shipments(status, carrier, tracking_number)',
+        )
+        .order('placed_at', { ascending: false })
+
+      if (data.status) {
+        q = q.eq('status', data.status)
+      } else {
+        // Cancelled/failed orders are real, permanent records (a customer
+        // request, a failed delivery, a marketplace cancellation) and stay
+        // fully visible via the Payment filter — they're just excluded from
+        // the unfiltered default view so it isn't dominated by void orders.
+        q = q.not('status', 'in', '(cancelled,failed)')
+      }
+      if (data.source) q = q.eq('source', data.source)
+      if (data.brand) q = q.eq('brand', data.brand)
+      if (hasShipment !== undefined) q = q.eq('has_shipment', hasShipment)
+      if (excludeIds && excludeIds.length > 0) {
+        q = q.not('id', 'in', `(${excludeIds.join(',')})`)
+      }
+      if (includeIds) q = q.in('id', includeIds)
+      if (idChunk) q = q.in('id', idChunk)
+      return q
     }
 
-    const offset = (data.page - 1) * data.pageSize
-    query = query.range(offset, offset + data.pageSize - 1)
+    // The hand-written Database type (types/database.types.ts) has no
+    // Relationships metadata for orders/customers/order_items, so
+    // postgrest-js can't infer this embedded select — cast to the shape it
+    // actually returns, same as getLalamoveOrders below. image_url isn't
+    // part of the raw row; it's attached per item in the final map below.
+    type RawOrderRow = Omit<OrderWithCustomer, 'order_items'> & {
+      order_items: Omit<OrderWithCustomer['order_items'][number], 'image_url'>[]
+    }
 
-    const { data: orders, error } = await query
-    if (error) throw error
+    let orders: RawOrderRow[]
+    if (matchedOrderIds) {
+      // Matches can run into the hundreds for a common search term (a
+      // popular product name, a short customer-name fragment) — chunked to
+      // stay under PostgREST's request-URL length limit (see
+      // resolveSearchMatchedOrderIds' own comment), so pagination happens
+      // in memory afterward rather than via a single SQL-level .range().
+      const chunkResults = await Promise.all(
+        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(
+          async (chunk) => {
+            const { data: rows, error } = await buildQuery(chunk)
+            if (error) throw error
+            return rows as unknown as RawOrderRow[]
+          },
+        ),
+      )
+      const offset = (data.page - 1) * data.pageSize
+      orders = chunkResults
+        .flat()
+        .sort(
+          (a, b) =>
+            new Date(b.placed_at).getTime() - new Date(a.placed_at).getTime(),
+        )
+        .slice(offset, offset + data.pageSize)
+    } else {
+      const offset = (data.page - 1) * data.pageSize
+      const { data: rows, error } = await buildQuery().range(
+        offset,
+        offset + data.pageSize - 1,
+      )
+      if (error) throw error
+      orders = rows as unknown as RawOrderRow[]
+    }
 
     const variantIds = Array.from(
       new Set(
@@ -381,38 +458,51 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    let query = admin
-      .from('orders')
-      .select('id', { count: 'exact', head: true })
-
-    if (data.status) {
-      query = query.eq('status', data.status)
-    } else {
-      query = query.not('status', 'in', '(cancelled,failed)')
-    }
-    if (data.source) query = query.eq('source', data.source)
-    if (data.brand) query = query.eq('brand', data.brand)
-
     const { excludeIds, includeIds, hasShipment } =
       await resolveFulfillmentOrderIds(admin, data.fulfillment)
-    if (hasShipment !== undefined) {
-      query = query.eq('has_shipment', hasShipment)
-    }
-    if (excludeIds && excludeIds.length > 0) {
-      query = query.not('id', 'in', `(${excludeIds.join(',')})`)
-    }
-    if (includeIds) {
-      if (includeIds.length === 0) return { total: 0 }
-      query = query.in('id', includeIds)
-    }
+    if (includeIds && includeIds.length === 0) return { total: 0 }
 
     const search = data.q?.trim()
-    if (search) {
-      const orConditions = await resolveSearchOrConditions(admin, search)
-      query = query.or(orConditions.join(','))
+    const matchedOrderIds = search
+      ? await resolveSearchMatchedOrderIds(admin, search)
+      : null
+    if (matchedOrderIds && matchedOrderIds.length === 0) return { total: 0 }
+
+    function buildQuery(idChunk?: string[]) {
+      let q = admin.from('orders').select('id', { count: 'exact', head: true })
+
+      if (data.status) {
+        q = q.eq('status', data.status)
+      } else {
+        q = q.not('status', 'in', '(cancelled,failed)')
+      }
+      if (data.source) q = q.eq('source', data.source)
+      if (data.brand) q = q.eq('brand', data.brand)
+      if (hasShipment !== undefined) q = q.eq('has_shipment', hasShipment)
+      if (excludeIds && excludeIds.length > 0) {
+        q = q.not('id', 'in', `(${excludeIds.join(',')})`)
+      }
+      if (includeIds) q = q.in('id', includeIds)
+      if (idChunk) q = q.in('id', idChunk)
+      return q
     }
 
-    const { count, error } = await query
+    if (matchedOrderIds) {
+      // Same chunking rationale as listOrders above — each chunk's ids are
+      // disjoint, so summing counts across chunks is exact, not an estimate.
+      const counts = await Promise.all(
+        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(
+          async (chunk) => {
+            const { count, error } = await buildQuery(chunk)
+            if (error) throw error
+            return count ?? 0
+          },
+        ),
+      )
+      return { total: counts.reduce((sum, c) => sum + c, 0) }
+    }
+
+    const { count, error } = await buildQuery()
     if (error) throw error
     return { total: count ?? 0 }
   })
