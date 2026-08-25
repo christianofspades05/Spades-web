@@ -125,11 +125,21 @@ function PaymentPage() {
     rawSubtotalCents,
     marketMarkups[info.country],
   )
+  // The discount amount is computed cart-side against the raw (pre-markup)
+  // subtotal — it has no notion of checkout country. Scaling it by the same
+  // markup here keeps a percentage-off code meaning what it says against
+  // what the customer actually sees below, instead of only discounting the
+  // pre-markup amount and leaving the rest of the markup un-discounted. See
+  // place-order.ts's identical fix for the amount actually charged.
+  const chargedDiscountCents = applyMarketMarkup(
+    discountCents,
+    marketMarkups[info.country],
+  )
 
   const shippingCents = shippingCostCents(
     info.country,
     info.region,
-    subtotalCents - discountCents,
+    subtotalCents - chargedDiscountCents,
     cart.items.reduce((sum, item) => sum + item.quantity, 0),
     rates,
     marketShipping[info.country],
@@ -143,7 +153,7 @@ function PaymentPage() {
     : shippingCents
   const totalCents = Math.max(
     0,
-    subtotalCents - discountCents + chargedShippingCents,
+    subtotalCents - chargedDiscountCents + chargedShippingCents,
   )
   const addressLines =
     info.country === 'PH'
@@ -297,10 +307,10 @@ function PaymentPage() {
           </span>
           <span className="font-medium">{formatPrice(subtotalCents)}</span>
         </div>
-        {discountCents > 0 && (
+        {chargedDiscountCents > 0 && (
           <div className="flex items-center justify-between text-green-700 dark:text-green-400">
             <span>{t.payment.discount}</span>
-            <span>-{formatPrice(discountCents)}</span>
+            <span>-{formatPrice(chargedDiscountCents)}</span>
           </div>
         )}
         <div className="flex items-center justify-between">

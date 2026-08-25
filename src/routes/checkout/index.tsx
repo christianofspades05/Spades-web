@@ -245,13 +245,23 @@ function CheckoutPage() {
     rawSubtotalCents,
     marketMarkups[info.country],
   )
+  // The discount amount is computed cart-side against the raw (pre-markup)
+  // subtotal — it has no notion of checkout country. Scaling it by the same
+  // markup here keeps a percentage-off code meaning what it says against
+  // what the customer actually sees below, instead of only discounting the
+  // pre-markup amount and leaving the rest of the markup un-discounted. See
+  // place-order.ts's identical fix for the amount actually charged.
+  const chargedDiscountCents = applyMarketMarkup(
+    discountCents,
+    marketMarkups[info.country],
+  )
 
   const shippingCents =
     info.country !== 'PH' || info.region
       ? shippingCostCents(
           info.country,
           info.region,
-          subtotalCents - discountCents,
+          subtotalCents - chargedDiscountCents,
           cart.items.reduce((sum, item) => sum + item.quantity, 0),
           rates,
           marketShipping[info.country],
@@ -267,7 +277,7 @@ function CheckoutPage() {
     info.shippingMethod === 'lalamove'
       ? (info.lalamoveEstimatedFeeCents ?? 0) + LALAMOVE_FEE_BUFFER_CENTS
       : (shippingCents ?? 0)
-  const totalCents = subtotalCents - discountCents + chargedShippingCents
+  const totalCents = subtotalCents - chargedDiscountCents + chargedShippingCents
 
   const discount = cart.discount
   function formatDiscountRate(type: string, value: number): string {
@@ -597,7 +607,7 @@ function CheckoutPage() {
               <FreeShippingNudge
                 progress={freeShippingProgress(
                   info.country,
-                  subtotalCents - discountCents,
+                  subtotalCents - chargedDiscountCents,
                   cart.items.reduce((sum, item) => sum + item.quantity, 0),
                   marketShipping[info.country],
                   cart.discount?.excludesFreeShipping ?? false,
@@ -777,10 +787,10 @@ function CheckoutPage() {
               </span>
               <span className="font-medium">{formatPrice(subtotalCents)}</span>
             </div>
-            {discountCents > 0 && (
+            {chargedDiscountCents > 0 && (
               <div className="flex items-center justify-between text-green-700 dark:text-green-400">
                 <span>{t.payment.discount}</span>
-                <span>-{formatPrice(discountCents)}</span>
+                <span>-{formatPrice(chargedDiscountCents)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">

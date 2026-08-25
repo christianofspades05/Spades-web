@@ -218,12 +218,25 @@ export const placeOrder = createServerFn({ method: 'POST' })
         rawSubtotalCents,
         marketMarkupPercent,
       )
+      // discountCents above is computed cart-side against the raw
+      // (pre-markup) subtotal — the cart has no notion of checkout country.
+      // Scaling it by the same markup here keeps a percentage-off code
+      // meaning what it says against what the customer is actually charged,
+      // instead of only discounting the pre-markup amount and leaving the
+      // rest of the markup un-discounted. Everything from here on
+      // (shipping's free-threshold check, totalCents, and the stored
+      // order/reservation discount_cents) uses this charged figure, kept
+      // consistent with subtotal_cents already being the marked-up amount.
+      const chargedDiscountCents = applyMarketMarkup(
+        discountCents,
+        marketMarkupPercent,
+      )
 
       const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0)
       let shippingCents = shippingCostCents(
         data.contact.country,
         data.contact.region ?? '',
-        subtotalCents - discountCents,
+        subtotalCents - chargedDiscountCents,
         itemCount,
         exchangeRates,
         marketShipping,
@@ -265,7 +278,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
 
       const totalCents = Math.max(
         0,
-        subtotalCents - discountCents + shippingCents,
+        subtotalCents - chargedDiscountCents + shippingCents,
       )
 
       const email = data.contact.email.trim().toLowerCase()
@@ -415,7 +428,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             status: 'pending_payment',
             source: 'storefront',
             subtotal_cents: subtotalCents,
-            discount_cents: discountCents,
+            discount_cents: chargedDiscountCents,
             shipping_cents: shippingCents,
             total_cents: totalCents,
             discount_id: cart.discount?.id ?? null,
@@ -515,7 +528,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             items: emailItems,
             subtotalCents,
             shippingCents,
-            discountCents,
+            discountCents: chargedDiscountCents,
             totalCents,
             currency: 'PHP',
             trackingUrl: `${origin}/track/${order.id}`,
@@ -545,7 +558,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           brand: scope.brand,
           currency: data.currency,
           subtotal_cents: subtotalCents,
-          discount_cents: discountCents,
+          discount_cents: chargedDiscountCents,
           shipping_cents: shippingCents,
           total_cents: totalCents,
           discount_id: cart.discount?.id ?? null,
