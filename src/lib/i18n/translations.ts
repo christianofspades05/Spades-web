@@ -25,14 +25,17 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
 /** Default language for a first-time visitor, keyed by geo-detected
  *  country — every other country (including PH) defaults to English by
  *  simply never showing the popup at all (see LanguageContext.tsx).
- *  HK/MO/TW use Traditional Chinese (zh here means zh-Hant, never
- *  Simplified); SG stays English rather than Chinese since that's the
- *  common online-shopping language there. */
+ *  HK/MO/TW/CN all get Traditional Chinese (zh here means zh-Hant, never
+ *  Simplified) — mainland visitors can still read zh-Hant, and the site
+ *  has no Simplified translation to offer instead; SG stays English
+ *  rather than Chinese since that's the common online-shopping language
+ *  there. */
 export const COUNTRY_DEFAULT_LANGUAGE: Record<string, Language> = {
   SG: 'en',
   HK: 'zh',
   MO: 'zh',
   TW: 'zh',
+  CN: 'zh',
   JP: 'ja',
   KR: 'ko',
 }
