@@ -474,6 +474,14 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
       }
       if (data.inStock) query = query.gt('total_stock', 0)
 
+      // Every sort column here ties often (total_stock especially — a small
+      // integer shared by dozens of products) and .range() below runs as a
+      // fresh query per page, so without a deterministic tiebreaker Postgres
+      // is free to order tied rows differently between page requests —
+      // products silently reshuffle, repeat across pages, or get skipped
+      // entirely while paging through "Inventory: High to Low". `id` is
+      // unique per row, so appending it as a secondary sort fully
+      // determines the order regardless of ties on the primary column.
       switch (data.sort) {
         case 'price_asc':
           query = query.order('min_price_cents', { ascending: true })
@@ -489,6 +497,7 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
           query = query.order('total_stock', { ascending: false })
           break
       }
+      query = query.order('id', { ascending: true })
 
       const from = (data.page - 1) * data.pageSize
       const to = from + data.pageSize - 1
