@@ -1244,6 +1244,29 @@ export interface Database {
         }
         Relationships: []
       }
+      admin_product_listing: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          name_search: string
+          description: string | null
+          description_ja: string | null
+          description_ko: string | null
+          description_zh: string | null
+          product_type: ProductType
+          status: ProductStatus
+          brand: ProductBrand
+          images: string[]
+          tags: string[]
+          seo_title: string | null
+          seo_description: string | null
+          created_at: string
+          updated_at: string
+          total_stock: number
+        }
+        Relationships: []
+      }
     }
     Functions: {
       reserve_variant_stock: {

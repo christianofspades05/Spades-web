@@ -221,8 +221,13 @@ function ProductsPage() {
     overview.abc.bRevenueCents +
     overview.abc.cRevenueCents
 
+  // listAllProducts already returns this page in the correct order for
+  // whichever sort/dir is selected (including 'inventory', which it
+  // resolves via a real total_stock aggregate — see server/admin/
+  // products.ts) — no re-sorting needed here, just the per-row display
+  // values.
   const rows = useMemo(() => {
-    const withComputed = products.map((product) => {
+    return products.map((product) => {
       // Available (on-hand minus whatever's already reserved by active
       // carts/checkouts), not raw on-hand — matches what the Inventory page
       // and product detail page now show, and is the number that actually
@@ -243,35 +248,7 @@ function ProductsPage() {
         .join(', ')
       return { product, available, isLowStock, categories }
     })
-
-    const dir = search.dir === 'asc' ? 1 : -1
-    withComputed.sort((a, b) => {
-      switch (search.sort) {
-        case 'title':
-          return dir * a.product.name.localeCompare(b.product.name)
-        case 'inventory':
-          return dir * (a.available - b.available)
-        case 'type':
-          return (
-            dir * a.product.product_type.localeCompare(b.product.product_type)
-          )
-        case 'updated':
-          return (
-            dir *
-            (new Date(a.product.updated_at).getTime() -
-              new Date(b.product.updated_at).getTime())
-          )
-        case 'created':
-        default:
-          return (
-            dir *
-            (new Date(a.product.created_at).getTime() -
-              new Date(b.product.created_at).getTime())
-          )
-      }
-    })
-    return withComputed
-  }, [products, search.sort, search.dir])
+  }, [products])
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">

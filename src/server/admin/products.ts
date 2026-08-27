@@ -26,6 +26,7 @@ import type {
   ProductVariant,
   StaffRole,
 } from '#/types/entities'
+import type { ProductStatus, ProductType } from '#/types/database.types'
 
 // Not `as const` — requireStaff expects a plain mutable StaffRole[].
 const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin', 'manager']
@@ -41,10 +42,10 @@ export interface ProductWithCollectionNames extends ProductWithDetails {
   collections: Array<{ collection_id: string; collection: { name: string } }>
 }
 
-// Maps the list page's sort dropdown to a real column — 'inventory' has no
-// direct column (on-hand stock is aggregated client-side from each row's
-// nested variants/inventory) and so isn't sorted server-side; once
-// paginated, that option only sorts within whichever page is loaded.
+// Maps the list page's sort dropdown to a real column on `products` itself.
+// 'inventory' has no such column — total on-hand stock only exists as an
+// aggregate over each product's variants/inventory rows — so it's handled
+// as its own branch below instead, via admin_product_listing.
 const SORT_COLUMNS = {
   title: 'name',
   type: 'product_type',
@@ -52,30 +53,113 @@ const SORT_COLUMNS = {
   updated: 'updated_at',
 } as const
 
+async function resolveCollectionProductIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  collectionId: string,
+): Promise<string[]> {
+  const { data: memberships, error } = await admin
+    .from('product_collections')
+    .select('product_id')
+    .eq('collection_id', collectionId)
+  if (error) throw error
+  const productIds = memberships.map((m) => m.product_id)
+  // A collection with zero members would otherwise leave `.in('id', [])`
+  // unfiltered (PostgREST treats an empty list as "no restriction"), which
+  // would wrongly return every product instead of none — this placeholder
+  // id can never match a real row.
+  return productIds.length ? productIds : ['00000000-0000-0000-0000-000000000000']
+}
+
+const listAllProductsInputSchema = z.object({
+  status: z.string().optional(),
+  productType: z.string().optional(),
+  q: z.string().optional(),
+  collectionId: z.string().uuid().optional(),
+  brand: z.enum(['spades', 'ysrael', 'aspire365']).optional(),
+  sort: z
+    .enum(['title', 'inventory', 'type', 'created', 'updated'])
+    .default('created'),
+  dir: z.enum(['asc', 'desc']).default('desc'),
+  page: z.number().int().min(1).default(1),
+  pageSize: z.number().int().min(1).max(100).default(50),
+})
+
 export const listAllProducts = createServerFn({ method: 'GET' })
-  .validator(
-    z.object({
-      status: z.string().optional(),
-      productType: z.string().optional(),
-      q: z.string().optional(),
-      collectionId: z.string().uuid().optional(),
-      brand: z.enum(['spades', 'ysrael', 'aspire365']).optional(),
-      sort: z
-        .enum(['title', 'inventory', 'type', 'created', 'updated'])
-        .default('created'),
-      dir: z.enum(['asc', 'desc']).default('desc'),
-      page: z.number().int().min(1).default(1),
-      pageSize: z.number().int().min(1).max(100).default(50),
-    }),
-  )
+  .validator(listAllProductsInputSchema)
   .handler(async ({ data }): Promise<ProductWithCollectionNames[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    const sortColumn =
-      data.sort in SORT_COLUMNS
-        ? SORT_COLUMNS[data.sort as keyof typeof SORT_COLUMNS]
-        : 'created_at'
+    // 'inventory' sort resolves the correctly ordered/paginated id slice
+    // first via admin_product_listing (which has a real total_stock column
+    // to sort by), then fetches full nested rows for exactly those ids —
+    // sorting the already-paginated `products` page client-side (the old
+    // approach) only ever reordered whichever 50 rows happened to be the
+    // 50 most-recently-created, so a high-stock older product could never
+    // surface at all. Confirmed live: "Spades Denim Boxy Crop Tee" (222
+    // in stock, the highest in the catalog) never appeared sorting
+    // "Inventory: High to Low" because it was created 2026-07-14, well
+    // outside the most-recent-50 the old query fetched.
+    if (data.sort === 'inventory') {
+      let stockQuery = admin.from('admin_product_listing').select('id')
+      if (data.status) {
+        stockQuery = stockQuery.eq('status', data.status as ProductStatus)
+      }
+      if (data.productType) {
+        stockQuery = stockQuery.eq(
+          'product_type',
+          data.productType as ProductType,
+        )
+      }
+      if (data.collectionId) {
+        stockQuery = stockQuery.in(
+          'id',
+          await resolveCollectionProductIds(admin, data.collectionId),
+        )
+      }
+      if (data.brand) stockQuery = stockQuery.eq('brand', data.brand)
+      const search = data.q?.trim()
+      if (search) {
+        const normalizedSearch = normalizeSearchTerm(search)
+        stockQuery = stockQuery.or(
+          `name_search.ilike.%${normalizedSearch}%,slug.ilike.%${search}%`,
+        )
+      }
+      stockQuery = stockQuery.order('total_stock', {
+        ascending: data.dir === 'asc',
+      })
+      const offset = (data.page - 1) * data.pageSize
+      const { data: idRows, error: idError } = await stockQuery.range(
+        offset,
+        offset + data.pageSize - 1,
+      )
+      if (idError) throw idError
+      if (idRows.length === 0) return []
+
+      const { data: products, error } = await admin
+        .from('products')
+        .select(
+          '*, variants:product_variants(*, inventory(*)), collections:product_collections(collection_id, collection:collections(name))',
+        )
+        .in(
+          'id',
+          idRows.map((r) => r.id),
+        )
+      if (error) throw error
+
+      // `.in()` doesn't preserve the order of the ids passed to it, so the
+      // stock-based order resolved above has to be reapplied here.
+      const orderById = new Map(idRows.map((r, i) => [r.id, i]))
+      // Same hand-maintained-Database-type cast already needed by every
+      // other `products` query in this file with this exact select shape
+      // (this project's Relationships metadata is empty, so PostgREST's
+      // embedded `collections` select can't be inferred correctly).
+      return (products as unknown as ProductWithCollectionNames[]).sort(
+        (a, b) => orderById.get(a.id)! - orderById.get(b.id)!,
+      )
+    }
+
+    const sortColumn = SORT_COLUMNS[data.sort]
 
     let query = admin
       .from('products')
@@ -92,17 +176,9 @@ export const listAllProducts = createServerFn({ method: 'GET' })
     // every collection a matching product belongs to, not just the one
     // being filtered on.
     if (data.collectionId) {
-      const { data: memberships, error: membershipError } = await admin
-        .from('product_collections')
-        .select('product_id')
-        .eq('collection_id', data.collectionId)
-      if (membershipError) throw membershipError
-      const productIds = memberships.map((m) => m.product_id)
       query = query.in(
         'id',
-        productIds.length
-          ? productIds
-          : ['00000000-0000-0000-0000-000000000000'],
+        await resolveCollectionProductIds(admin, data.collectionId),
       )
     }
 
