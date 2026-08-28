@@ -7,6 +7,8 @@ import {
 } from '@tanstack/react-router'
 import { Copy, GripVertical, Package, Pencil, Upload, X } from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
+import { getProductsLastActivity } from '#/server/admin/last-activity'
+import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
 import {
   createProductImageUploadUrl,
   createVariant,
@@ -68,13 +70,14 @@ const FORM_ID = 'product-edit-form'
 
 export const Route = createFileRoute('/admin/products/$productId')({
   loader: async ({ params }) => {
-    const [product, collections, sales] = await Promise.all([
+    const [product, collections, sales, lastActivity] = await Promise.all([
       getProductById({ data: { id: params.productId } }),
       listAllCollections(),
       getProductSalesSummary({ data: { productId: params.productId } }),
+      getProductsLastActivity({ data: { productIds: [params.productId] } }),
     ])
     if (!product) throw notFound()
-    return { product, collections, sales }
+    return { product, collections, sales, lastActivity: lastActivity[product.id] }
   },
   component: EditProductPage,
 })
@@ -95,7 +98,7 @@ interface ProductFormState {
 }
 
 function EditProductPage() {
-  const { product, collections, sales } = Route.useLoaderData()
+  const { product, collections, sales, lastActivity } = Route.useLoaderData()
   const router = useRouter()
   const navigate = useNavigate()
 
@@ -266,7 +269,12 @@ function EditProductPage() {
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
-        title={product.name}
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            {product.name}
+            <LastUpdatedBadge info={lastActivity} />
+          </span>
+        }
         subtitle={product.slug}
         action={
           <div className="flex items-center gap-3">

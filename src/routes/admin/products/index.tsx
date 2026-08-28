@@ -15,10 +15,13 @@ import {
   listAllProducts,
 } from '#/server/admin/products'
 import { listAllCollections } from '#/server/admin/collections'
+import { getProductsLastActivity } from '#/server/admin/last-activity'
 import type {
   ProductsOverview,
   ProductWithCollectionNames,
 } from '#/server/admin/products'
+import type { LastActivityInfo } from '#/server/admin/last-activity'
+import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
 import type { Collection } from '#/types/entities'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -118,7 +121,10 @@ export const Route = createFileRoute('/admin/products/')({
       getProductsOverview({ data: resolved }),
       listAllCollections(),
     ])
-    return { products, total: total.total, overview, collections }
+    const lastActivity = await getProductsLastActivity({
+      data: { productIds: products.map((p) => p.id) },
+    })
+    return { products, total: total.total, overview, collections, lastActivity }
   },
   component: ProductsPage,
 })
@@ -129,11 +135,13 @@ function ProductsPage() {
     total,
     overview,
     collections,
+    lastActivity,
   }: {
     products: ProductWithCollectionNames[]
     total: number
     overview: ProductsOverview
     collections: Collection[]
+    lastActivity: Record<string, LastActivityInfo>
   } = Route.useLoaderData()
   const search = Route.useSearch()
   const page = search.page
@@ -516,6 +524,7 @@ function ProductsPage() {
               categories={categories}
               variantCount={product.variants.length}
               checked={selected.has(product.id)}
+              lastActivity={lastActivity[product.id]}
               onToggle={() => toggleSelected(product.id)}
               onOpen={() =>
                 navigate({
@@ -573,26 +582,29 @@ function ProductsPage() {
                         />
                       </td>
                       <td className={tableCellClassName}>
-                        <Link
-                          to="/admin/products/$productId"
-                          params={{ productId: product.id }}
-                          className="flex items-center gap-3"
-                        >
-                          {product.images[0] ? (
-                            <img
-                              src={product.images[0]}
-                              alt=""
-                              className="size-10 rounded-md border border-neutral-200 object-cover"
-                            />
-                          ) : (
-                            <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
-                              <Package size={16} className="text-neutral-300" />
-                            </div>
-                          )}
-                          <span className="font-medium text-neutral-900 hover:underline">
-                            {product.name}
-                          </span>
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link
+                            to="/admin/products/$productId"
+                            params={{ productId: product.id }}
+                            className="flex items-center gap-3"
+                          >
+                            {product.images[0] ? (
+                              <img
+                                src={product.images[0]}
+                                alt=""
+                                className="size-10 rounded-md border border-neutral-200 object-cover"
+                              />
+                            ) : (
+                              <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                                <Package size={16} className="text-neutral-300" />
+                              </div>
+                            )}
+                            <span className="font-medium text-neutral-900 hover:underline">
+                              {product.name}
+                            </span>
+                          </Link>
+                          <LastUpdatedBadge info={lastActivity[product.id]} />
+                        </div>
                       </td>
                       <td className={tableCellClassName}>
                         <StatusBadge status={product.status} kind="product" />

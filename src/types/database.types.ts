@@ -1351,6 +1351,14 @@ export interface Database {
         }
         Returns: { bucket_key: string; unique_visitors: number }[]
       }
+      get_product_last_activity: {
+        Args: { product_ids: string[] }
+        Returns: { product_id: string; updated_at: string; staff_name: string | null }[]
+      }
+      get_variant_last_activity: {
+        Args: { variant_ids: string[] }
+        Returns: { variant_id: string; updated_at: string; staff_name: string | null }[]
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>

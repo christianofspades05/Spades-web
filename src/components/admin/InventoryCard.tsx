@@ -1,13 +1,17 @@
 import { Package } from 'lucide-react'
 import { QuantityEditor } from '#/components/admin/QuantityEditor'
+import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
 import type { InventoryRow } from '#/server/admin/inventory'
+import type { LastActivityInfo } from '#/server/admin/last-activity'
 
 /** Mobile row rendering of an inventory-list item — a compact list row (photo, title, variant, SKU, quantity pill), matching Shopify's mobile Inventory list density rather than a padded card. Kept out of inventory/index.tsx to avoid adding to that file's route-type-checking surface (see OrderCard.tsx for the same reasoning). */
 export function InventoryCard({
   row,
+  lastActivity,
   onSaved,
 }: {
   row: InventoryRow
+  lastActivity?: LastActivityInfo
   onSaved: () => void
 }) {
   const isLowStock = row.quantityAvailable <= row.lowStockThreshold
@@ -51,12 +55,15 @@ export function InventoryCard({
         )}
       </div>
 
-      <QuantityEditor
-        variant="pill"
-        variantId={row.variantId}
-        availableQuantity={row.quantityAvailable}
-        onSaved={onSaved}
-      />
+      <div className="flex items-center gap-1">
+        <QuantityEditor
+          variant="pill"
+          variantId={row.variantId}
+          availableQuantity={row.quantityAvailable}
+          onSaved={onSaved}
+        />
+        <LastUpdatedBadge info={lastActivity} />
+      </div>
     </div>
   )
 }

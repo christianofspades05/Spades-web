@@ -12,11 +12,14 @@ import type { InventoryRow } from '#/server/admin/inventory'
 import { listAllCollections } from '#/server/admin/collections'
 import type { Collection } from '#/types/entities'
 import { updateVariantQuickEdit } from '#/server/admin/products'
+import { getVariantsLastActivity } from '#/server/admin/last-activity'
+import type { LastActivityInfo } from '#/server/admin/last-activity'
 import { centsToPesos } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { QuantityEditor } from '#/components/admin/QuantityEditor'
 import { InventoryCard } from '#/components/admin/InventoryCard'
+import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
 import {
   buttonPrimaryClassName,
   inputClassName,
@@ -46,7 +49,10 @@ export const Route = createFileRoute('/admin/inventory/')({
       listInventory({ data: { q: deps.q, collectionId: deps.collectionId } }),
       listAllCollections(),
     ])
-    return { rows, collections }
+    const lastActivity = await getVariantsLastActivity({
+      data: { variantIds: rows.map((r) => r.variantId) },
+    })
+    return { rows, collections, lastActivity }
   },
   component: InventoryPage,
 })
@@ -62,8 +68,15 @@ function variantLabel(row: {
 }
 
 function InventoryPage() {
-  const { rows, collections }: { rows: InventoryRow[]; collections: Collection[] } =
-    Route.useLoaderData()
+  const {
+    rows,
+    collections,
+    lastActivity,
+  }: {
+    rows: InventoryRow[]
+    collections: Collection[]
+    lastActivity: Record<string, LastActivityInfo>
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [searchInput, setSearchInput] = useState(search.q ?? '')
@@ -187,6 +200,7 @@ function InventoryPage() {
             <InventoryCard
               key={row.variantId}
               row={row}
+              lastActivity={lastActivity[row.variantId]}
               onSaved={() => router.invalidate()}
             />
           ))}
@@ -215,6 +229,7 @@ function InventoryPage() {
                   <InventoryTableRow
                     key={row.variantId}
                     row={row}
+                    lastActivity={lastActivity[row.variantId]}
                     onSaved={() => router.invalidate()}
                   />
                 ))}
@@ -229,9 +244,11 @@ function InventoryPage() {
 
 function InventoryTableRow({
   row,
+  lastActivity,
   onSaved,
 }: {
   row: InventoryRow
+  lastActivity: LastActivityInfo | undefined
   onSaved: () => void
 }) {
   const [sku, setSku] = useState(row.sku ?? '')
@@ -339,6 +356,7 @@ function InventoryTableRow({
               className="size-1.5 shrink-0 rounded-full bg-red-500"
             />
           )}
+          <LastUpdatedBadge info={lastActivity} />
         </div>
       </td>
       <td

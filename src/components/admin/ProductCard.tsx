@@ -1,6 +1,8 @@
 import { Package } from 'lucide-react'
 import { StatusBadge } from '#/components/admin/Badge'
+import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
 import type { ProductStatus } from '#/types/entities'
+import type { LastActivityInfo } from '#/server/admin/last-activity'
 
 export interface ProductCardData {
   id: string
@@ -20,6 +22,7 @@ export function ProductCard({
   checked,
   onToggle,
   onOpen,
+  lastActivity,
 }: {
   product: ProductCardData
   available: number
@@ -29,6 +32,7 @@ export function ProductCard({
   checked: boolean
   onToggle: () => void
   onOpen: () => void
+  lastActivity?: LastActivityInfo
 }) {
   return (
     <div
@@ -55,7 +59,14 @@ export function ProductCard({
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-neutral-900">{product.name}</p>
+        <div className="flex items-center gap-1">
+          <p className="truncate font-medium text-neutral-900">
+            {product.name}
+          </p>
+          <div onClick={(e) => e.stopPropagation()}>
+            <LastUpdatedBadge info={lastActivity} />
+          </div>
+        </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <StatusBadge status={product.status} kind="product" />
           <span
