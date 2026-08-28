@@ -61,11 +61,13 @@ const CURRENCY_LOCALE: Record<string, string> = {
 }
 
 // Most of our supported currencies use 2 decimal places (100 minor units
-// per major unit) — VND, JPY, and KRW are exceptions: none has a
-// subdivision in everyday use, and Intl.NumberFormat formats all three with
-// 0 fraction digits by default (confirmed: formatting 423233.955 as VND
-// prints "423,234 ₫", not "4,232.34 ₫"; same for JPY/KRW). "Cents" below
-// always means "minor units," which is 1 for these three, not 100.
+// per major unit) — VND, JPY, KRW, and TWD are exceptions: none has a
+// subdivision in everyday use, even though TWD's ISO 4217 exponent is
+// officially 2 (Intl.NumberFormat defaults to "$810.00", not "$810" —
+// confirmed live — so formatCents below overrides fraction digits
+// explicitly for this group rather than relying on Intl's own default).
+// "Cents" below always means "minor units," which is 1 for these four,
+// not 100.
 const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   PHP: 100,
   USD: 100,
@@ -78,6 +80,7 @@ const MINOR_UNITS_PER_MAJOR: Record<string, number> = {
   JPY: 1,
   MOP: 100,
   KRW: 1,
+  TWD: 1,
 }
 
 export function minorUnitsPerMajor(currency: string): number {
@@ -88,10 +91,31 @@ export function minorUnitsPerMajor(currency: string): number {
  *  assumed to already be in the target currency's own minor units (i.e.
  *  already converted, see convertCents), not PHP cents. */
 export function formatCents(cents: number, currency: string): string {
+  const zeroDecimal = minorUnitsPerMajor(currency) === 1
   return new Intl.NumberFormat(CURRENCY_LOCALE[currency] ?? 'en-US', {
     style: 'currency',
     currency,
+    ...(zeroDecimal
+      ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+      : {}),
   }).format(cents / minorUnitsPerMajor(currency))
+}
+
+/** Coarsens a PHP -> foreign-currency conversion to a "clean" round number
+ *  instead of an arbitrary decimal (e.g. a live rate producing 810.27 TWD
+ *  or 32.56 SGD) — nearest whole unit for currencies with no minor unit in
+ *  everyday use, nearest one-tenth of a major unit otherwise (32.56 -> 32.6).
+ *  Requested so every market's displayed/charged price looks deliberately
+ *  set, not like raw exchange-rate math. Only applied going PHP -> foreign
+ *  (convertCents) — reverse conversions of an already-charged real amount
+ *  (convertCentsToPhp, majorUnitsToCents) parse actual money and must stay
+ *  exact. */
+function roundToCleanDisplayAmount(
+  majorAmount: number,
+  currency: string,
+): number {
+  if (minorUnitsPerMajor(currency) === 1) return Math.round(majorAmount)
+  return Math.round(majorAmount * 10) / 10
 }
 
 /** `currency` if it can actually be converted to right now (it's PHP, which
@@ -120,7 +144,8 @@ export function convertCents(
   if (!rate) return phpCents
   const phpMajor = phpCents / 100
   const targetMajor = phpMajor * rate
-  return Math.round(targetMajor * minorUnitsPerMajor(currency))
+  const cleaned = roundToCleanDisplayAmount(targetMajor, currency)
+  return Math.round(cleaned * minorUnitsPerMajor(currency))
 }
 
 /** Inverse of convertCents — an amount already in `currency`'s own minor

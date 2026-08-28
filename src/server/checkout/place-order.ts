@@ -41,7 +41,7 @@ import {
   isLalamoveEligible,
 } from '#/lib/checkout/lalamove-eligibility'
 import { getLalamoveQuotation } from '#/lib/lalamove/client'
-import { minorUnitsPerMajor } from '#/lib/utils/money'
+import { convertCents, minorUnitsPerMajor } from '#/lib/utils/money'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
 import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
@@ -623,8 +623,16 @@ export const placeOrder = createServerFn({ method: 'POST' })
               `Missing exchange rate for ${data.currency} — cannot charge via PayPal.`,
             )
           }
+          // Routed through convertCents (not a raw rate multiply) so the
+          // amount actually charged matches the clean, rounded price the
+          // customer saw on the checkout/payment pages exactly — see
+          // convertCents' roundToCleanDisplayAmount for why this isn't
+          // simply totalCents * rate.
           const decimals = minorUnitsPerMajor(data.currency) === 1 ? 0 : 2
-          const chargeAmount = ((totalCents / 100) * rate).toFixed(decimals)
+          const chargeAmount = (
+            convertCents(totalCents, data.currency, exchangeRates) /
+            minorUnitsPerMajor(data.currency)
+          ).toFixed(decimals)
 
           const paypalOrder = await createPayPalOrder({
             referenceId: reservation.id,
