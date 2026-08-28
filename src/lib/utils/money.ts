@@ -102,19 +102,22 @@ export function formatCents(cents: number, currency: string): string {
 }
 
 /** Coarsens a PHP -> foreign-currency conversion to a "clean" round number
- *  instead of an arbitrary decimal (e.g. a live rate producing 810.27 TWD
- *  or 32.56 SGD) — nearest whole unit for currencies with no minor unit in
- *  everyday use, nearest one-tenth of a major unit otherwise (32.56 -> 32.6).
- *  Requested so every market's displayed/charged price looks deliberately
- *  set, not like raw exchange-rate math. Only applied going PHP -> foreign
- *  (convertCents) — reverse conversions of an already-charged real amount
- *  (convertCentsToPhp, majorUnitsToCents) parse actual money and must stay
- *  exact. */
+ *  instead of an arbitrary decimal (e.g. a live rate producing 4376 JPY or
+ *  32.56 SGD) — nearest 10 major units for currencies with no minor unit in
+ *  everyday use (4376 -> 4380, confirmed live: JPY was still landing on an
+ *  arbitrary ones digit after only rounding to the nearest 1), nearest
+ *  one-tenth of a major unit otherwise (32.56 -> 32.6). Requested so every
+ *  market's displayed/charged price looks deliberately set, not like raw
+ *  exchange-rate math. Only applied going PHP -> foreign (convertCents) —
+ *  reverse conversions of an already-charged real amount (convertCentsToPhp,
+ *  majorUnitsToCents) parse actual money and must stay exact. */
 function roundToCleanDisplayAmount(
   majorAmount: number,
   currency: string,
 ): number {
-  if (minorUnitsPerMajor(currency) === 1) return Math.round(majorAmount)
+  if (minorUnitsPerMajor(currency) === 1) {
+    return Math.round(majorAmount / 10) * 10
+  }
   return Math.round(majorAmount * 10) / 10
 }
 
