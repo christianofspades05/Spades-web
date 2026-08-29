@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { useRef, useState } from 'react'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import { badgeOutOfStockClassName } from './ui'
@@ -11,9 +12,87 @@ interface ProductCardProps {
   product: StorefrontListingProduct & Partial<WithSalePrice>
 }
 
+/** Horizontally-scrolling image carousel for a product card — swipe on
+ *  touch (native scroll-snap, so a real swipe is consumed by the browser's
+ *  own scroll gesture and never fires a click, while a plain tap still
+ *  falls through to the card's outer Link), dot indicators to jump to a
+ *  specific image on any input (their onClick calls preventDefault so a dot
+ *  click doesn't also navigate). */
+function ProductCardImages({
+  images,
+  name,
+}: {
+  images: string[]
+  name: string
+}) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  if (images.length === 0) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
+        No image
+      </div>
+    )
+  }
+
+  function scrollToIndex(index: number) {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
+    setActiveIndex(index)
+  }
+
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el || el.clientWidth === 0) return
+    setActiveIndex(Math.round(el.scrollLeft / el.clientWidth))
+  }
+
+  return (
+    <>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex h-full w-full snap-x snap-mandatory overflow-x-auto transition duration-300 group-hover:scale-105 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {images.map((url, i) => (
+          <img
+            key={url}
+            src={optimizedImageUrl(url, 640)}
+            alt={i === 0 ? name : ''}
+            loading="lazy"
+            draggable={false}
+            className="h-full w-full flex-none snap-start object-contain"
+          />
+        ))}
+      </div>
+      {images.length > 1 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-1">
+          {images.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Show image ${i + 1} of ${images.length}`}
+              onClick={(e) => {
+                e.preventDefault()
+                scrollToIndex(i)
+              }}
+              className={`pointer-events-auto size-1.5 rounded-full transition ${
+                i === activeIndex
+                  ? 'bg-neutral-900 dark:bg-white'
+                  : 'bg-neutral-900/30 dark:bg-white/50'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function ProductCard({ product }: ProductCardProps) {
   const { formatPriceWithMarkup: formatPrice } = useCurrency()
-  const imageUrl = product.images[0]
   const outOfStock = product.total_stock <= 0
   const onSale =
     product.salePriceCents != null &&
@@ -35,18 +114,7 @@ export function ProductCard({ product }: ProductCardProps) {
       className="group block"
     >
       <div className="relative aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-900">
-        {imageUrl ? (
-          <img
-            src={optimizedImageUrl(imageUrl, 640)}
-            alt={product.name}
-            loading="lazy"
-            className="h-full w-full object-contain transition duration-300 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">
-            No image
-          </div>
-        )}
+        <ProductCardImages images={product.images} name={product.name} />
         {outOfStock && (
           <span className={`absolute left-3 top-3 ${badgeOutOfStockClassName}`}>
             Out of stock
