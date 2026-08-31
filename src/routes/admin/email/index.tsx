@@ -7,9 +7,16 @@ import {
   listEmailContacts,
 } from '#/server/admin/email-automations'
 import { formatCentsAsPHP } from '#/lib/utils/money'
+import {
+  DATE_RANGE_PRESETS,
+  formatDateRangeLabel,
+  resolveDateRange,
+} from '#/lib/utils/date-range'
+import type { DateRangePreset } from '#/lib/utils/date-range'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
+import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import {
   buttonSecondaryClassName,
   tableCellClassName,
@@ -35,6 +42,9 @@ export const Route = createFileRoute('/admin/email/')({
     onlineStoreOnly: z.boolean().catch(false),
     marketingOptInOnly: z.boolean().catch(false),
     page: z.number().int().min(1).catch(1),
+    range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
+    from: z.string().optional(),
+    to: z.string().optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -43,8 +53,12 @@ export const Route = createFileRoute('/admin/email/')({
       onlineStoreOnly: deps.onlineStoreOnly,
       marketingOptInOnly: deps.marketingOptInOnly,
     }
+    const resolved = resolveDateRange(deps.range, {
+      from: deps.from,
+      to: deps.to,
+    })
     const [automations, contacts, { total }] = await Promise.all([
-      listEmailAutomations(),
+      listEmailAutomations({ data: resolved }),
       listEmailContacts({ data: { ...contactFilters, page: deps.page } }),
       getEmailContactsCount({ data: contactFilters }),
     ])
@@ -71,11 +85,38 @@ function EmailMarketingPage() {
     })
   }
 
+  function handleRangeChange(
+    preset: DateRangePreset,
+    custom?: { from: string; to: string },
+  ) {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        range: preset,
+        from: custom?.from,
+        to: custom?.to,
+      }),
+    })
+  }
+
+  const resolvedRange = resolveDateRange(search.range, {
+    from: search.from,
+    to: search.to,
+  })
+
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Email"
         subtitle="Lifecycle automations and marketing contacts"
+        action={
+          <DateRangePicker
+            preset={search.range}
+            from={resolvedRange.from}
+            to={resolvedRange.to}
+            onChange={handleRangeChange}
+          />
+        }
       />
 
       <p className="mb-3 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
@@ -136,7 +177,8 @@ function EmailMarketingPage() {
                     {automation.totalSends > 0 && (
                       <span className="text-neutral-400">
                         {' '}
-                        ({automation.sendsLast30Days} in 30d)
+                        ({automation.sendsInRange} in{' '}
+                        {formatDateRangeLabel(resolvedRange)})
                       </span>
                     )}
                   </td>
@@ -152,14 +194,24 @@ function EmailMarketingPage() {
                             : 'orders'}
                           )
                         </span>
+                        <p className="text-xs text-neutral-400">
+                          {formatCentsAsPHP(
+                            automation.attributedRevenueCentsInRange,
+                          )}{' '}
+                          ({automation.attributedOrderCountInRange}{' '}
+                          {automation.attributedOrderCountInRange === 1
+                            ? 'order'
+                            : 'orders'}
+                          ) in {formatDateRangeLabel(resolvedRange)}
+                        </p>
                       </>
                     ) : (
                       <span className="text-neutral-400">—</span>
                     )}
                   </td>
                   <td className={`${tableCellClassName} text-right`}>
-                    {automation.totalSends > 0 ? (
-                      `${((automation.attributedOrderCount / automation.totalSends) * 100).toFixed(1)}%`
+                    {automation.sendsInRange > 0 ? (
+                      `${((automation.attributedOrderCountInRange / automation.sendsInRange) * 100).toFixed(1)}%`
                     ) : (
                       <span className="text-neutral-400">—</span>
                     )}

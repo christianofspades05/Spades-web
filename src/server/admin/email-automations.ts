@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { updateEmailAutomationSchema } from '#/lib/validation/admin/email-automations'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { logStaffActivity } from './activity-log'
 import type { EmailAutomation } from '#/types/entities'
 
@@ -34,23 +35,33 @@ export interface EmailAutomationWithStats extends EmailAutomation {
    *  codes yet. */
   attributedOrderCount: number
   attributedRevenueCents: number
+  /** Same attribution as attributedOrderCount/attributedRevenueCents above,
+   *  but scoped to whatever date range the admin page's picker is set to
+   *  (matched against orders.placed_at) — this is "sales of email
+   *  marketing" for a chosen month/period, the all-time fields above stay
+   *  as the lifetime total regardless of the picker. */
+  attributedOrderCountInRange: number
+  attributedRevenueCentsInRange: number
   /** From email_sends (0038_email_sends_log.sql) — every successful send
-   *  logged by the 4 cron/server-fn send paths. */
+   *  logged by the cron/server-fn send paths. */
   totalSends: number
-  sendsLast30Days: number
+  sendsInRange: number
 }
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
 // Fixed set seeded by 0035_email_marketing.sql — this list is never
 // created/deleted from the admin UI, only configured, so 'event_type' (a
 // stable sort) reads better here than 'created_at' (all 4 rows were created
 // in the same migration).
-export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<EmailAutomationWithStats[]> => {
+export const listEmailAutomations = createServerFn({ method: 'GET' })
+  .validator(z.object({ from: z.string(), to: z.string() }))
+  .handler(async ({ data }): Promise<EmailAutomationWithStats[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
-    const { data, error } = await admin
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+    const { data: automations, error } = await admin
       .from('email_automations')
       .select('*')
       .order('event_type', { ascending: true })
@@ -59,7 +70,7 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       throw error
     }
 
-    const automationIds = data.map((a) => a.id)
+    const automationIds = automations.map((a) => a.id)
 
     const { data: mintedDiscounts, error: mintedError } = await admin
       .from('discounts')
@@ -83,6 +94,10 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       string,
       { count: number; revenueCents: number }
     >()
+    const statsInRangeByAutomationId = new Map<
+      string,
+      { count: number; revenueCents: number }
+    >()
     if (automationIdByDiscountId.size > 0) {
       // Filtering in memory (below) against automationIdByDiscountId, rather
       // than passing its keys to .in(), because that id list is every
@@ -93,7 +108,7 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
       // discount are a small, safe set to pull in full instead.
       const { data: orders, error: ordersError } = await admin
         .from('orders')
-        .select('discount_id, total_cents')
+        .select('discount_id, total_cents, placed_at')
         .not('discount_id', 'is', null)
         .not('status', 'in', '(cancelled,refunded)')
       if (ordersError) {
@@ -111,6 +126,15 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
         existing.count += 1
         existing.revenueCents += order.total_cents
         statsByAutomationId.set(automationId, existing)
+
+        if (order.placed_at >= rangeStart && order.placed_at <= rangeEnd) {
+          const existingInRange = statsInRangeByAutomationId.get(
+            automationId,
+          ) ?? { count: 0, revenueCents: 0 }
+          existingInRange.count += 1
+          existingInRange.revenueCents += order.total_cents
+          statsInRangeByAutomationId.set(automationId, existingInRange)
+        }
       }
     }
 
@@ -121,14 +145,13 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
     // automation's count except whichever one's rows happened to fill that
     // first page. A COUNT query never returns rows, so it isn't subject to
     // that cap regardless of how large the table grows.
-    const thirtyDaysAgoISO = new Date(Date.now() - THIRTY_DAYS_MS).toISOString()
     const sendStatsByAutomationId = new Map<
       string,
-      { total: number; last30Days: number }
+      { total: number; inRange: number }
     >()
     await Promise.all(
       automationIds.map(async (automationId) => {
-        const [totalResult, last30Result] = await Promise.all([
+        const [totalResult, inRangeResult] = await Promise.all([
           admin
             .from('email_sends')
             .select('id', { count: 'exact', head: true })
@@ -137,7 +160,8 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
             .from('email_sends')
             .select('id', { count: 'exact', head: true })
             .eq('email_automation_id', automationId)
-            .gte('sent_at', thirtyDaysAgoISO),
+            .gte('sent_at', rangeStart)
+            .lte('sent_at', rangeEnd),
         ])
         if (totalResult.error) {
           console.error(
@@ -146,33 +170,35 @@ export const listEmailAutomations = createServerFn({ method: 'GET' }).handler(
           )
           throw totalResult.error
         }
-        if (last30Result.error) {
+        if (inRangeResult.error) {
           console.error(
-            'listEmailAutomations: email_sends 30-day count failed:',
-            last30Result.error,
+            'listEmailAutomations: email_sends in-range count failed:',
+            inRangeResult.error,
           )
-          throw last30Result.error
+          throw inRangeResult.error
         }
         sendStatsByAutomationId.set(automationId, {
           total: totalResult.count ?? 0,
-          last30Days: last30Result.count ?? 0,
+          inRange: inRangeResult.count ?? 0,
         })
       }),
     )
 
-    return data.map((automation) => {
+    return automations.map((automation) => {
       const stats = statsByAutomationId.get(automation.id)
+      const statsInRange = statsInRangeByAutomationId.get(automation.id)
       const sendStats = sendStatsByAutomationId.get(automation.id)
       return {
         ...automation,
         attributedOrderCount: stats?.count ?? 0,
         attributedRevenueCents: stats?.revenueCents ?? 0,
+        attributedOrderCountInRange: statsInRange?.count ?? 0,
+        attributedRevenueCentsInRange: statsInRange?.revenueCents ?? 0,
         totalSends: sendStats?.total ?? 0,
-        sendsLast30Days: sendStats?.last30Days ?? 0,
+        sendsInRange: sendStats?.inRange ?? 0,
       }
     })
-  },
-)
+  })
 
 export const getEmailAutomationById = createServerFn({ method: 'GET' })
   .validator(z.object({ id: z.string().uuid() }))
