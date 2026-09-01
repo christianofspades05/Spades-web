@@ -4,6 +4,7 @@ import { updateEmailAutomationSchema } from '#/lib/validation/admin/email-automa
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
+import { fetchAllRows } from '#/lib/utils/paginate'
 import { logStaffActivity } from './activity-log'
 import type { EmailAutomation } from '#/types/entities'
 
@@ -22,17 +23,19 @@ export interface EmailContact {
 const CONTACTS_PAGE_SIZE = 100
 
 export interface EmailAutomationWithStats extends EmailAutomation {
-  /** Revenue attributed to this automation — every non-cancelled/refunded
-   *  order using any single-use discount minted from this automation's
-   *  template (see lib/email/mint-discount.ts; discounts.email_automation_id
-   *  is how a minted clone is tagged), all-time. The automation's own
-   *  discount_id is a template, never emailed directly, so it's never itself
-   *  used on an order — only its per-recipient clones are. Cheap proxy for
-   *  "did this automation drive sales," not a rigorous last-touch/
-   *  first-touch attribution model: a customer could still have used the
-   *  code without ever having opened this specific email. Zero for
-   *  automations with no discount attached, or that haven't sent any minted
-   *  codes yet. */
+  /** Revenue attributed to this automation — every non-cancelled/failed
+   *  order placed by a recipient within ATTRIBUTION_WINDOW_DAYS of one of
+   *  their sends, all-time. Previously required the order to have actually
+   *  used the discount minted for that send, which badly undercounted real
+   *  conversions: confirmed live that only ~15% of orders placed by
+   *  customers who clicked an abandoned-cart recovery link actually used
+   *  the code shown in the email (most used a different code or none at
+   *  all), even though the cart itself demonstrably came back and
+   *  converted. "Did this recipient buy again soon after" is a much
+   *  truer, if still imperfect, signal — not a rigorous last-touch/
+   *  first-touch attribution model, and a customer who received more than
+   *  one automation's email before buying gets counted under each. Zero
+   *  for automations with no matching purchases (yet). */
   attributedOrderCount: number
   attributedRevenueCents: number
   /** Same attribution as attributedOrderCount/attributedRevenueCents above,
@@ -72,24 +75,75 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
 
     const automationIds = automations.map((a) => a.id)
 
-    const { data: mintedDiscounts, error: mintedError } = await admin
-      .from('discounts')
-      .select('id, email_automation_id')
-      .in('email_automation_id', automationIds)
-    if (mintedError) {
-      console.error('listEmailAutomations: discounts query failed:', mintedError)
-      throw mintedError
-    }
+    const ATTRIBUTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
-    const automationIdByDiscountId = new Map(
-      mintedDiscounts
-        .filter(
-          (d): d is typeof d & { email_automation_id: string } =>
-            d.email_automation_id !== null,
-        )
-        .map((d) => [d.id, d.email_automation_id]),
+    // Every non-void order's customer email + placed_at + total, all-time
+    // — paginated (fetchAllRows), since a plain unbounded select silently
+    // caps at PostgREST's 1000-row default once this crosses that (already
+    // ~6,900 and climbing). In-memory matching below is cheap at this
+    // scale; if it ever becomes a real cost, push this same aggregation
+    // into a Postgres RPC instead (see 0077_visitor_analytics_aggregate_
+    // functions.sql's get_visitor_totals for the precedent).
+    const orders = await fetchAllRows<{
+      shipping_address: unknown
+      placed_at: string
+      total_cents: number
+    }>((offset) =>
+      admin
+        .from('orders')
+        .select('shipping_address, placed_at, total_cents')
+        .not('status', 'in', '(cancelled,failed)')
+        .range(offset, offset + 999),
     )
 
+    const ordersByEmail = new Map<
+      string,
+      { placedAtMs: number; totalCents: number }[]
+    >()
+    for (const order of orders) {
+      const address = order.shipping_address as { email?: string } | null
+      const email = address?.email?.toLowerCase()
+      if (!email) continue
+      const list = ordersByEmail.get(email) ?? []
+      list.push({
+        placedAtMs: new Date(order.placed_at).getTime(),
+        totalCents: order.total_cents,
+      })
+      ordersByEmail.set(email, list)
+    }
+    for (const list of ordersByEmail.values()) {
+      list.sort((a, b) => a.placedAtMs - b.placedAtMs)
+    }
+
+    // Every logged send across these automations, all-time — same
+    // pagination reasoning as orders above (already ~8,700 rows).
+    const sends = await fetchAllRows<{
+      email_automation_id: string
+      recipient_email: string
+      sent_at: string
+    }>((offset) =>
+      admin
+        .from('email_sends')
+        .select('email_automation_id, recipient_email, sent_at')
+        .in('email_automation_id', automationIds)
+        .range(offset, offset + 999),
+    )
+
+    /** First order (if any) this email placed within ATTRIBUTION_WINDOW_MS
+     *  after sentAtMs — see EmailAutomationWithStats' own doc comment for
+     *  why this replaced discount-code matching. */
+    function firstOrderWithin(email: string, sentAtMs: number) {
+      const list = ordersByEmail.get(email.toLowerCase())
+      if (!list) return null
+      const windowEnd = sentAtMs + ATTRIBUTION_WINDOW_MS
+      return (
+        list.find((o) => o.placedAtMs >= sentAtMs && o.placedAtMs <= windowEnd) ??
+        null
+      )
+    }
+
+    const rangeStartMs = new Date(rangeStart).getTime()
+    const rangeEndMs = new Date(rangeEnd).getTime()
     const statsByAutomationId = new Map<
       string,
       { count: number; revenueCents: number }
@@ -98,91 +152,48 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
       string,
       { count: number; revenueCents: number }
     >()
-    if (automationIdByDiscountId.size > 0) {
-      // Filtering in memory (below) against automationIdByDiscountId, rather
-      // than passing its keys to .in(), because that id list is every
-      // per-recipient minted discount ever sent by any automation —
-      // hundreds to low thousands of UUIDs, which blew past PostgREST's
-      // request-size limit ("Bad Request") once the welcome automation's
-      // send volume grew enough. Only orders that actually used *some*
-      // discount are a small, safe set to pull in full instead.
-      const { data: orders, error: ordersError } = await admin
-        .from('orders')
-        .select('discount_id, total_cents, placed_at')
-        .not('discount_id', 'is', null)
-        .not('status', 'in', '(cancelled,refunded)')
-      if (ordersError) {
-        console.error('listEmailAutomations: orders query failed:', ordersError)
-        throw ordersError
-      }
-      for (const order of orders) {
-        if (!order.discount_id) continue
-        const automationId = automationIdByDiscountId.get(order.discount_id)
-        if (!automationId) continue
-        const existing = statsByAutomationId.get(automationId) ?? {
-          count: 0,
-          revenueCents: 0,
-        }
-        existing.count += 1
-        existing.revenueCents += order.total_cents
-        statsByAutomationId.set(automationId, existing)
+    for (const send of sends) {
+      const sentAtMs = new Date(send.sent_at).getTime()
+      const match = firstOrderWithin(send.recipient_email, sentAtMs)
+      if (!match) continue
 
-        if (order.placed_at >= rangeStart && order.placed_at <= rangeEnd) {
-          const existingInRange = statsInRangeByAutomationId.get(
-            automationId,
-          ) ?? { count: 0, revenueCents: 0 }
-          existingInRange.count += 1
-          existingInRange.revenueCents += order.total_cents
-          statsInRangeByAutomationId.set(automationId, existingInRange)
-        }
+      const existing = statsByAutomationId.get(send.email_automation_id) ?? {
+        count: 0,
+        revenueCents: 0,
+      }
+      existing.count += 1
+      existing.revenueCents += match.totalCents
+      statsByAutomationId.set(send.email_automation_id, existing)
+
+      if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
+        const existingInRange = statsInRangeByAutomationId.get(
+          send.email_automation_id,
+        ) ?? { count: 0, revenueCents: 0 }
+        existingInRange.count += 1
+        existingInRange.revenueCents += match.totalCents
+        statsInRangeByAutomationId.set(send.email_automation_id, existingInRange)
       }
     }
 
-    // Per-automation counts, not a bulk row fetch — fetching every
-    // email_sends row to count them in memory silently truncated at
-    // PostgREST's default 1000-row response cap once total sends across
-    // every automation passed that (3,000+ and climbing), starving every
-    // automation's count except whichever one's rows happened to fill that
-    // first page. A COUNT query never returns rows, so it isn't subject to
-    // that cap regardless of how large the table grows.
+    // Counted straight off the `sends` rows already fetched above — no
+    // extra round trip needed now that every send is already in memory
+    // for the attribution matching.
     const sendStatsByAutomationId = new Map<
       string,
       { total: number; inRange: number }
     >()
-    await Promise.all(
-      automationIds.map(async (automationId) => {
-        const [totalResult, inRangeResult] = await Promise.all([
-          admin
-            .from('email_sends')
-            .select('id', { count: 'exact', head: true })
-            .eq('email_automation_id', automationId),
-          admin
-            .from('email_sends')
-            .select('id', { count: 'exact', head: true })
-            .eq('email_automation_id', automationId)
-            .gte('sent_at', rangeStart)
-            .lte('sent_at', rangeEnd),
-        ])
-        if (totalResult.error) {
-          console.error(
-            'listEmailAutomations: email_sends total count failed:',
-            totalResult.error,
-          )
-          throw totalResult.error
-        }
-        if (inRangeResult.error) {
-          console.error(
-            'listEmailAutomations: email_sends in-range count failed:',
-            inRangeResult.error,
-          )
-          throw inRangeResult.error
-        }
-        sendStatsByAutomationId.set(automationId, {
-          total: totalResult.count ?? 0,
-          inRange: inRangeResult.count ?? 0,
-        })
-      }),
-    )
+    for (const send of sends) {
+      const existing = sendStatsByAutomationId.get(send.email_automation_id) ?? {
+        total: 0,
+        inRange: 0,
+      }
+      existing.total += 1
+      const sentAtMs = new Date(send.sent_at).getTime()
+      if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
+        existing.inRange += 1
+      }
+      sendStatsByAutomationId.set(send.email_automation_id, existing)
+    }
 
     return automations.map((automation) => {
       const stats = statsByAutomationId.get(automation.id)
