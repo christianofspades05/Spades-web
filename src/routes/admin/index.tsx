@@ -8,6 +8,7 @@ import {
 } from '#/server/admin/dashboard'
 import type { CustomerEconomicsResult } from '#/server/admin/dashboard'
 import {
+  getConversionRateByCountry,
   getSalesByChannel,
   getSalesByCustomerType,
 } from '#/server/admin/analytics'
@@ -29,6 +30,12 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { DonutChart } from '#/components/admin/DonutChart'
+import {
+  tableCellClassName,
+  tableHeadClassName,
+  tableRowClassName,
+  tableWrapperClassName,
+} from '#/components/admin/ui'
 import {
   MetricSparkline,
   TrendLineChart,
@@ -142,8 +149,8 @@ export const Route = createFileRoute('/admin/')({
       from: deps.from,
       to: deps.to,
     })
-    const [analytics, salesByChannel, salesByCustomerType] = await Promise.all(
-      [
+    const [analytics, salesByChannel, salesByCustomerType, conversionByCountry] =
+      await Promise.all([
         getDashboardAnalytics({
           data: { ...resolved, brand: deps.brand, channel: deps.channel },
         }),
@@ -153,15 +160,17 @@ export const Route = createFileRoute('/admin/')({
         getSalesByCustomerType({
           data: { ...resolved, brand: deps.brand, channel: deps.channel },
         }),
-      ],
-    )
-    return { analytics, salesByChannel, salesByCustomerType }
+        getConversionRateByCountry({
+          data: { ...resolved, brand: deps.brand },
+        }),
+      ])
+    return { analytics, salesByChannel, salesByCustomerType, conversionByCountry }
   },
   component: AdminPage,
 })
 
 function AdminPage() {
-  const { analytics, salesByChannel, salesByCustomerType } =
+  const { analytics, salesByChannel, salesByCustomerType, conversionByCountry } =
     Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
@@ -646,6 +655,67 @@ function AdminPage() {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-4 p-6">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Conversion Rate by Country
+        </h2>
+        <p className="text-xs text-neutral-500">
+          Only countries with at least one real order in this range are
+          shown — a country that only ever sends page views with no orders
+          is almost always non-customer/bot traffic, not a market worth
+          reading a rate for.
+        </p>
+
+        <div className={`${tableWrapperClassName} mt-4`}>
+          {conversionByCountry.length === 0 ? (
+            <p className="p-4 text-sm text-neutral-500">
+              No orders in this range.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Country</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Visitors
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Orders
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Conversion rate
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conversionByCountry.map((row) => (
+                    <tr key={row.country} className={tableRowClassName}>
+                      <td className={tableCellClassName}>
+                        {row.countryName}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.visitors}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.orders}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.conversionRate !== null ? (
+                          `${row.conversionRate.toFixed(1)}%`
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Card>
 
       <p className="mt-3 text-xs text-neutral-400">
         Sales and orders are calculated from real order data; cancelled and

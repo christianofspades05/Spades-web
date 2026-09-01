@@ -2021,6 +2021,92 @@ export const getVisitorAnalytics = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface ConversionRateByCountryRow {
+  country: string
+  countryName: string
+  visitors: number
+  orders: number
+  /** null when a country has orders but zero recorded visits (e.g. an
+   *  order placed before visit tracking existed, or a manual admin order)
+   *  — division by zero has no meaningful rate, not 0% or Infinity. */
+  conversionRate: number | null
+}
+
+/**
+ * Deliberately only returns countries with at least one real order —
+ * unlike getVisitorAnalytics' countries list (every country that sent so
+ * much as one page view), which is dominated by confirmed bot/scraper
+ * traffic that never converts (see the bot-traffic investigation: ~65% of
+ * "visitors" some days are non-PH datacenter IPs with a ~1.0 pages/visitor
+ * ratio). Filtering to orders-only is a cheap, no-config way to get a
+ * conversion-rate-by-country view that isn't swamped by that noise,
+ * without needing bot detection to actually be wired up first.
+ */
+export const getConversionRateByCountry = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.enum(STOREFRONT_BRANDS).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<ConversionRateByCountryRow[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+    const brand = data.brand ?? null
+
+    let ordersQuery = admin
+      .from('orders')
+      .select('shipping_address')
+      .eq('source', 'storefront')
+      .not('status', 'in', '(cancelled,failed)')
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+    if (brand) ordersQuery = ordersQuery.eq('brand', brand)
+
+    const [countryRows, ordersResult] = await Promise.all([
+      admin.rpc('get_visitor_countries', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: brand,
+      }),
+      ordersQuery,
+    ])
+    if (countryRows.error) throw countryRows.error
+    if (ordersResult.error) throw ordersResult.error
+
+    const visitorsByCountry = new Map(
+      countryRows.data.map((row) => [row.country, row.unique_visitors]),
+    )
+
+    // shipping_address.country is absent on orders placed before
+    // international shipping existed — same "treat missing as PH"
+    // convention as OrderShippingAddress's own doc comment.
+    const ordersByCountry = new Map<string, number>()
+    for (const order of ordersResult.data) {
+      const address = order.shipping_address as { country?: string } | null
+      const country = address?.country ?? 'PH'
+      ordersByCountry.set(country, (ordersByCountry.get(country) ?? 0) + 1)
+    }
+
+    return Array.from(ordersByCountry.entries())
+      .map(([country, orders]) => {
+        const visitors = visitorsByCountry.get(country) ?? 0
+        return {
+          country,
+          countryName: countryName(country),
+          visitors,
+          orders,
+          conversionRate: visitors > 0 ? (orders / visitors) * 100 : null,
+        }
+      })
+      .sort((a, b) => b.orders - a.orders)
+  })
+
 export interface InventoryValueRow {
   productId: string
   productName: string
