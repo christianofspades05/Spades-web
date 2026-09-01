@@ -7,6 +7,7 @@ import {
   previousPeriod,
   storeLocalDateKey,
   storeLocalHourKey,
+  storeLocalMonthKey,
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
@@ -396,6 +397,31 @@ export interface CancelledReturnsResult {
     requestedAt: string
     customerName: string
   }[]
+  /** Orders cancelled/returned within the selected range whose original
+   *  placed_at falls in an earlier store-local calendar month than the
+   *  cancellation/return itself — e.g. ordered in August, cancelled in
+   *  September. These are already counted in totalCancelled/returns above
+   *  (both are scoped by cancelled_at/requested_at, not placed_at), this
+   *  is just the subset flagged separately since a month-crossing
+   *  cancellation is easy to miss when reconciling a given month's sales
+   *  against that same month's cancellations alone. */
+  crossPeriod: {
+    cancelledCount: number
+    cancelledAmountCents: number
+    returnsCount: number
+    returnsRefundCents: number
+    orders: {
+      id: string
+      orderId: string
+      orderNumber: string
+      source: OrderSource | null
+      kind: 'cancelled' | 'returned'
+      placedAt: string
+      eventAt: string
+      amountCents: number
+      customerName: string
+    }[]
+  }
 }
 
 async function computeCancelledAndReturns(
@@ -413,7 +439,7 @@ async function computeCancelledAndReturns(
       let query = admin
         .from('orders')
         .select(
-          'id, order_number, source, cancellation_reason, cancelled_at, total_cents, customer:customers(full_name, email)',
+          'id, order_number, source, cancellation_reason, cancelled_at, placed_at, total_cents, customer:customers(full_name, email)',
         )
         .eq('status', 'cancelled')
         .gte('cancelled_at', rangeStart)
@@ -487,7 +513,7 @@ async function computeCancelledAndReturns(
           admin
             .from('orders')
             .select(
-              'id, order_number, source, customer:customers(full_name, email)',
+              'id, order_number, source, placed_at, customer:customers(full_name, email)',
             )
             .in('id', returnOrderIds)
             .range(offset, offset + 999),
@@ -554,6 +580,62 @@ async function computeCancelledAndReturns(
     }
   })
 
+  const crossPeriodCancelled = cancelledOrders.filter(
+    (order) =>
+      order.cancelled_at &&
+      storeLocalMonthKey(order.placed_at) !==
+        storeLocalMonthKey(order.cancelled_at),
+  )
+  const crossPeriodReturns = returns.filter((ret) => {
+    const order = returnOrderById.get(ret.order_id)
+    return (
+      order &&
+      storeLocalMonthKey(order.placed_at) !==
+        storeLocalMonthKey(ret.requested_at)
+    )
+  })
+  const crossPeriod: CancelledReturnsResult['crossPeriod'] = {
+    cancelledCount: crossPeriodCancelled.length,
+    cancelledAmountCents: crossPeriodCancelled.reduce(
+      (sum, o) => sum + o.total_cents,
+      0,
+    ),
+    returnsCount: crossPeriodReturns.length,
+    returnsRefundCents: crossPeriodReturns.reduce(
+      (sum, r) => sum + (r.refund_amount_cents ?? 0),
+      0,
+    ),
+    orders: [
+      ...crossPeriodCancelled.map((order) => ({
+        id: order.id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        source: order.source,
+        kind: 'cancelled' as const,
+        placedAt: order.placed_at,
+        eventAt: order.cancelled_at!,
+        amountCents: order.total_cents,
+        customerName: order.customer.full_name ?? order.customer.email,
+      })),
+      ...crossPeriodReturns.map((ret) => {
+        const order = returnOrderById.get(ret.order_id)!
+        return {
+          id: ret.id,
+          orderId: ret.order_id,
+          orderNumber: order.order_number,
+          source: order.source,
+          kind: 'returned' as const,
+          placedAt: order.placed_at,
+          eventAt: ret.requested_at,
+          amountCents: ret.refund_amount_cents ?? 0,
+          customerName: order.customer.full_name ?? order.customer.email,
+        }
+      }),
+    ].sort(
+      (a, b) => new Date(b.eventAt).getTime() - new Date(a.eventAt).getTime(),
+    ),
+  }
+
   return {
     range: { from, to },
     totalCancelled: cancelledOrders.length,
@@ -599,6 +681,7 @@ async function computeCancelledAndReturns(
     },
     cancelledOrdersList,
     returnsList,
+    crossPeriod,
   }
 }
 

@@ -42,6 +42,15 @@ export function storeLocalHourKey(isoUtc: string): string {
     .slice(0, 13)
 }
 
+/** Converts a UTC timestamp into the store-local YYYY-MM it falls in — used
+ *  to detect a "cross-period" event (e.g. an order placed in one calendar
+ *  month but cancelled/returned in a later one). */
+export function storeLocalMonthKey(isoUtc: string): string {
+  return new Date(new Date(isoUtc).getTime() + STORE_UTC_OFFSET_MS)
+    .toISOString()
+    .slice(0, 7)
+}
+
 /**
  * Converts an `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm, no
  * timezone of its own) into the correct UTC ISO instant, treating it as

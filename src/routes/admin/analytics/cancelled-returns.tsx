@@ -91,6 +91,9 @@ function CancelledReturnsPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null)
+  const [pageTab, setPageTab] = useState<'overview' | 'crossPeriod'>(
+    'overview',
+  )
 
   function handleRangeChange(
     preset: DateRangePreset,
@@ -178,6 +181,40 @@ function CancelledReturnsPage() {
         }
       />
 
+      <div className="mb-4 flex items-center gap-1 border-b border-neutral-200">
+        <button
+          type="button"
+          onClick={() => setPageTab('overview')}
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            pageTab === 'overview'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          onClick={() => setPageTab('crossPeriod')}
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            pageTab === 'crossPeriod'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Cross Period Returns
+          {result.crossPeriod.cancelledCount + result.crossPeriod.returnsCount >
+            0 && (
+            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 normal-case">
+              {result.crossPeriod.cancelledCount +
+                result.crossPeriod.returnsCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {pageTab === 'overview' && (
+        <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-5">
           <p className="text-xs text-neutral-500">Cancelled Orders</p>
@@ -393,6 +430,142 @@ function CancelledReturnsPage() {
           )}
         </Card>
       )}
+        </>
+      )}
+      {pageTab === 'crossPeriod' && (
+        <CrossPeriodTab crossPeriod={result.crossPeriod} />
+      )}
+    </div>
+  )
+}
+
+function CrossPeriodTab({
+  crossPeriod,
+}: {
+  crossPeriod: CancelledReturnsResult['crossPeriod']
+}) {
+  return (
+    <div>
+      <p className="mb-4 text-sm text-neutral-500">
+        Orders placed in one calendar month but cancelled or returned in a
+        later one — easy to miss when a month's sales get reconciled against
+        that same month's cancellations alone, since these show up as a
+        surprise deduction the following month instead.
+      </p>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Cross-Period Cancellations</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {crossPeriod.cancelledCount}
+          </p>
+          <p className="mt-0.5 text-xs text-red-600">
+            {formatCentsAsPHP(crossPeriod.cancelledAmountCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Cross-Period Returns</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {crossPeriod.returnsCount}
+          </p>
+          <p className="mt-0.5 text-xs text-purple-600">
+            {formatCentsAsPHP(crossPeriod.returnsRefundCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Total Cross-Period Impact</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {crossPeriod.cancelledCount + crossPeriod.returnsCount}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {formatCentsAsPHP(
+              crossPeriod.cancelledAmountCents + crossPeriod.returnsRefundCents,
+            )}
+          </p>
+        </Card>
+      </div>
+
+      <Card className="mt-4 p-6">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Cross-Period Orders
+        </h2>
+        <p className="text-xs text-neutral-500">
+          Within the selected range, sorted by most recent event.
+        </p>
+        {crossPeriod.orders.length === 0 ? (
+          <p className="mt-4 text-sm text-neutral-400">
+            No cross-period cancellations or returns in this range.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500">
+                  <th className="py-2 pr-4 font-medium">Order</th>
+                  <th className="py-2 pr-4 font-medium">Customer</th>
+                  <th className="py-2 pr-4 font-medium">Channel</th>
+                  <th className="py-2 pr-4 font-medium">Type</th>
+                  <th className="py-2 pr-4 font-medium">Placed</th>
+                  <th className="py-2 pr-4 font-medium">Event</th>
+                  <th className="py-2 pr-4 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {crossPeriod.orders.map((order) => (
+                  <tr
+                    key={`${order.kind}-${order.id}`}
+                    className="border-b border-neutral-100 last:border-0"
+                  >
+                    <td className="py-2 pr-4">
+                      <Link
+                        to="/admin/orders/$orderId"
+                        params={{ orderId: order.orderId }}
+                        className="font-medium text-neutral-900 hover:underline"
+                      >
+                        {order.orderNumber}
+                      </Link>
+                    </td>
+                    <td className="py-2 pr-4 text-neutral-600">
+                      {order.customerName}
+                    </td>
+                    <td className="py-2 pr-4 text-neutral-600">
+                      {order.source ? SOURCE_LABELS[order.source] : '—'}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          order.kind === 'cancelled'
+                            ? 'bg-red-50 text-red-700'
+                            : 'bg-purple-50 text-purple-700'
+                        }`}
+                      >
+                        {order.kind === 'cancelled' ? 'Cancelled' : 'Returned'}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 whitespace-nowrap text-neutral-500">
+                      {new Date(order.placedAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </td>
+                    <td className="py-2 pr-4 whitespace-nowrap text-neutral-500">
+                      {new Date(order.eventAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </td>
+                    <td className="py-2 pr-4 text-right text-neutral-900">
+                      {formatCentsAsPHP(order.amountCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   )
 }
