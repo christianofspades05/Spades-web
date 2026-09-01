@@ -72,6 +72,19 @@ function EmailMarketingPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [qInput, setQInput] = useState(search.q ?? '')
+  const [automationsTab, setAutomationsTab] = useState<
+    'automations' | 'reviews'
+  >('automations')
+
+  // Post-purchase review request gets its own tab — it's the only
+  // automation with a "did they write a review" number, which doesn't fit
+  // the other automations' columns and made the main table cramped.
+  const mainAutomations = automations.filter(
+    (a) => a.event_type !== 'post_purchase_review',
+  )
+  const reviewAutomation = automations.find(
+    (a) => a.event_type === 'post_purchase_review',
+  )
 
   const page = search.page
   const totalPages = Math.max(1, Math.ceil(total / CONTACTS_PAGE_SIZE))
@@ -119,128 +132,203 @@ function EmailMarketingPage() {
         }
       />
 
-      <p className="mb-3 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
-        Automations
-      </p>
-      <div className={`${tableWrapperClassName} mb-10`}>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className={tableHeadClassName}>Automation</th>
-                <th className={tableHeadClassName}>Status</th>
-                <th className={tableHeadClassName}>Discount</th>
-                <th className={tableHeadClassName}>Schedule</th>
-                <th className={`${tableHeadClassName} text-right`}>Sends</th>
-                <th className={`${tableHeadClassName} text-right`}>
-                  Attributed revenue
-                </th>
-                <th className={`${tableHeadClassName} text-right`}>
-                  Conv. rate
-                </th>
-                <th className={`${tableHeadClassName} text-right`}>
-                  Reviews written
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {automations.map((automation) => (
-                <tr key={automation.id} className={tableRowClassName}>
-                  <td className={tableCellClassName}>
-                    <Link
-                      to="/admin/email/$automationId"
-                      params={{ automationId: automation.id }}
-                      className="font-medium text-neutral-900 hover:underline"
-                    >
-                      {automation.name}
-                    </Link>
-                    <p className="text-xs text-neutral-500">
-                      {EVENT_TYPE_DESCRIPTIONS[automation.event_type]}
-                    </p>
-                  </td>
-                  <td className={tableCellClassName}>
-                    <Badge tone={automation.is_active ? 'success' : 'neutral'}>
-                      {automation.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </td>
-                  <td className={`${tableCellClassName} text-neutral-500`}>
-                    {automation.discount_id ? 'Attached' : '—'}
-                  </td>
-                  <td className={`${tableCellClassName} text-neutral-500`}>
-                    {automation.event_type === 'welcome'
-                      ? 'Immediately'
-                      : automation.event_type === 'birthday'
-                        ? 'On birthday'
-                        : automation.delay_hours % 24 === 0
-                          ? `${automation.delay_hours / 24}d after`
-                          : `${automation.delay_hours}h after`}
-                  </td>
-                  <td className={`${tableCellClassName} text-right`}>
-                    {automation.totalSends}
-                    {automation.totalSends > 0 && (
-                      <span className="text-neutral-400">
-                        {' '}
-                        ({automation.sendsInRange} in{' '}
-                        {formatDateRangeLabel(resolvedRange)})
-                      </span>
-                    )}
-                  </td>
-                  <td className={`${tableCellClassName} text-right`}>
-                    {automation.attributedOrderCount > 0 ? (
-                      <>
-                        {formatCentsAsPHP(automation.attributedRevenueCents)}
-                        <span className="text-neutral-400">
-                          {' '}
-                          ({automation.attributedOrderCount}{' '}
-                          {automation.attributedOrderCount === 1
-                            ? 'order'
-                            : 'orders'}
-                          )
-                        </span>
-                        <p className="text-xs text-neutral-400">
-                          {formatCentsAsPHP(
-                            automation.attributedRevenueCentsInRange,
-                          )}{' '}
-                          ({automation.attributedOrderCountInRange}{' '}
-                          {automation.attributedOrderCountInRange === 1
-                            ? 'order'
-                            : 'orders'}
-                          ) in {formatDateRangeLabel(resolvedRange)}
-                        </p>
-                      </>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                  <td className={`${tableCellClassName} text-right`}>
-                    {automation.sendsInRange > 0 ? (
-                      `${((automation.attributedOrderCountInRange / automation.sendsInRange) * 100).toFixed(1)}%`
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                  <td className={`${tableCellClassName} text-right`}>
-                    {automation.reviewsWritten !== null &&
-                    automation.reviewRequestsSent !== null ? (
-                      <>
-                        {automation.reviewsWritten}
-                        <span className="text-neutral-400">
-                          {' '}
-                          {automation.reviewRequestsSent > 0
-                            ? `(${((automation.reviewsWritten / automation.reviewRequestsSent) * 100).toFixed(1)}% of ${automation.reviewRequestsSent} requested)`
-                            : ''}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="mb-3 flex items-center gap-1 border-b border-neutral-200">
+        <button
+          type="button"
+          onClick={() => setAutomationsTab('automations')}
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            automationsTab === 'automations'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Automations
+        </button>
+        <button
+          type="button"
+          onClick={() => setAutomationsTab('reviews')}
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            automationsTab === 'reviews'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Review Requests
+        </button>
       </div>
+
+      {automationsTab === 'automations' && (
+        <div className={`${tableWrapperClassName} mb-10`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={tableHeadClassName}>Automation</th>
+                  <th className={tableHeadClassName}>Status</th>
+                  <th className={tableHeadClassName}>Discount</th>
+                  <th className={tableHeadClassName}>Schedule</th>
+                  <th className={`${tableHeadClassName} text-right`}>Sends</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Attributed revenue
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Conv. rate
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {mainAutomations.map((automation) => (
+                  <tr key={automation.id} className={tableRowClassName}>
+                    <td className={tableCellClassName}>
+                      <Link
+                        to="/admin/email/$automationId"
+                        params={{ automationId: automation.id }}
+                        className="font-medium text-neutral-900 hover:underline"
+                      >
+                        {automation.name}
+                      </Link>
+                      <p className="text-xs text-neutral-500">
+                        {EVENT_TYPE_DESCRIPTIONS[automation.event_type]}
+                      </p>
+                    </td>
+                    <td className={tableCellClassName}>
+                      <Badge tone={automation.is_active ? 'success' : 'neutral'}>
+                        {automation.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </td>
+                    <td className={`${tableCellClassName} text-neutral-500`}>
+                      {automation.discount_id ? 'Attached' : '—'}
+                    </td>
+                    <td className={`${tableCellClassName} text-neutral-500`}>
+                      {automation.event_type === 'welcome'
+                        ? 'Immediately'
+                        : automation.event_type === 'birthday'
+                          ? 'On birthday'
+                          : automation.delay_hours % 24 === 0
+                            ? `${automation.delay_hours / 24}d after`
+                            : `${automation.delay_hours}h after`}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {automation.totalSends}
+                      {automation.totalSends > 0 && (
+                        <span className="text-neutral-400">
+                          {' '}
+                          ({automation.sendsInRange} in{' '}
+                          {formatDateRangeLabel(resolvedRange)})
+                        </span>
+                      )}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {automation.attributedOrderCount > 0 ? (
+                        <>
+                          {formatCentsAsPHP(automation.attributedRevenueCents)}
+                          <span className="text-neutral-400">
+                            {' '}
+                            ({automation.attributedOrderCount}{' '}
+                            {automation.attributedOrderCount === 1
+                              ? 'order'
+                              : 'orders'}
+                            )
+                          </span>
+                          <p className="text-xs text-neutral-400">
+                            {formatCentsAsPHP(
+                              automation.attributedRevenueCentsInRange,
+                            )}{' '}
+                            ({automation.attributedOrderCountInRange}{' '}
+                            {automation.attributedOrderCountInRange === 1
+                              ? 'order'
+                              : 'orders'}
+                            ) in {formatDateRangeLabel(resolvedRange)}
+                          </p>
+                        </>
+                      ) : (
+                        <span className="text-neutral-400">—</span>
+                      )}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {automation.event_type === 'welcome' &&
+                      automation.sendsInRange > 0 ? (
+                        `${((automation.attributedOrderCountInRange / automation.sendsInRange) * 100).toFixed(1)}%`
+                      ) : (
+                        <span className="text-neutral-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {automationsTab === 'reviews' && reviewAutomation && (
+        <Card className="mb-10 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-100 pb-4">
+            <div>
+              <Link
+                to="/admin/email/$automationId"
+                params={{ automationId: reviewAutomation.id }}
+                className="font-medium text-neutral-900 hover:underline"
+              >
+                {reviewAutomation.name}
+              </Link>
+              <p className="mt-0.5 text-xs text-neutral-500">
+                {EVENT_TYPE_DESCRIPTIONS[reviewAutomation.event_type]}
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-neutral-500">
+              <Badge tone={reviewAutomation.is_active ? 'success' : 'neutral'}>
+                {reviewAutomation.is_active ? 'Active' : 'Inactive'}
+              </Badge>
+              <span>14d after delivery</span>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-medium text-neutral-500">Sends</p>
+              <p className="mt-1 text-xl font-semibold text-neutral-900">
+                {reviewAutomation.totalSends}
+              </p>
+              <p className="text-xs text-neutral-400">
+                {reviewAutomation.sendsInRange} in{' '}
+                {formatDateRangeLabel(resolvedRange)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-neutral-500">
+                Bought again within 14 days
+              </p>
+              <p className="mt-1 text-xl font-semibold text-neutral-900">
+                {reviewAutomation.attributedOrderCount > 0
+                  ? formatCentsAsPHP(reviewAutomation.attributedRevenueCents)
+                  : '—'}
+              </p>
+              <p className="text-xs text-neutral-400">
+                {reviewAutomation.attributedOrderCount}{' '}
+                {reviewAutomation.attributedOrderCount === 1
+                  ? 'order'
+                  : 'orders'}{' '}
+                all-time
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-neutral-500">
+                Reviews written
+              </p>
+              <p className="mt-1 text-xl font-semibold text-neutral-900">
+                {reviewAutomation.reviewsWritten ?? 0}
+              </p>
+              <p className="text-xs text-neutral-400">
+                {reviewAutomation.reviewRequestsSent &&
+                reviewAutomation.reviewRequestsSent > 0
+                  ? `${(((reviewAutomation.reviewsWritten ?? 0) / reviewAutomation.reviewRequestsSent) * 100).toFixed(1)}% of ${reviewAutomation.reviewRequestsSent} requested`
+                  : 'No requests sent yet'}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-semibold tracking-wider text-neutral-400 uppercase">
