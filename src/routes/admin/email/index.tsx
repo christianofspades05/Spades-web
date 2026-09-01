@@ -42,7 +42,7 @@ export const Route = createFileRoute('/admin/email/')({
     onlineStoreOnly: z.boolean().catch(false),
     marketingOptInOnly: z.boolean().catch(false),
     page: z.number().int().min(1).catch(1),
-    range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
+    range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
     from: z.string().optional(),
     to: z.string().optional(),
   }),
@@ -138,6 +138,9 @@ function EmailMarketingPage() {
                 <th className={`${tableHeadClassName} text-right`}>
                   Conv. rate
                 </th>
+                <th className={`${tableHeadClassName} text-right`}>
+                  Reviews written
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -183,7 +186,7 @@ function EmailMarketingPage() {
                     )}
                   </td>
                   <td className={`${tableCellClassName} text-right`}>
-                    {automation.discount_id ? (
+                    {automation.attributedOrderCount > 0 ? (
                       <>
                         {formatCentsAsPHP(automation.attributedRevenueCents)}
                         <span className="text-neutral-400">
@@ -212,6 +215,22 @@ function EmailMarketingPage() {
                   <td className={`${tableCellClassName} text-right`}>
                     {automation.sendsInRange > 0 ? (
                       `${((automation.attributedOrderCountInRange / automation.sendsInRange) * 100).toFixed(1)}%`
+                    ) : (
+                      <span className="text-neutral-400">—</span>
+                    )}
+                  </td>
+                  <td className={`${tableCellClassName} text-right`}>
+                    {automation.reviewsWritten !== null &&
+                    automation.reviewRequestsSent !== null ? (
+                      <>
+                        {automation.reviewsWritten}
+                        <span className="text-neutral-400">
+                          {' '}
+                          {automation.reviewRequestsSent > 0
+                            ? `(${((automation.reviewsWritten / automation.reviewRequestsSent) * 100).toFixed(1)}% of ${automation.reviewRequestsSent} requested)`
+                            : ''}
+                        </span>
+                      </>
                     ) : (
                       <span className="text-neutral-400">—</span>
                     )}

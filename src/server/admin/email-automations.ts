@@ -49,6 +49,17 @@ export interface EmailAutomationWithStats extends EmailAutomation {
    *  logged by the cron/server-fn send paths. */
   totalSends: number
   sendsInRange: number
+  /** post_purchase_review only (null for every other automation, since the
+   *  concept doesn't apply) — of the orders that actually got a review
+   *  request (orders.review_request_sent), how many have a review row
+   *  (reviews.order_id) at all, any status. A direct order-level join, not
+   *  the "bought again" proxy above — writing a review is a specific,
+   *  unambiguous action, unlike "placed another order," so it doesn't need
+   *  a time-window guess. Confirmed live this is a much lower rate (~0.3%)
+   *  than the buy-again rate for the same automation (~4.7%) — genuinely
+   *  different customer behaviors, not the same thing measured two ways. */
+  reviewsWritten: number | null
+  reviewRequestsSent: number | null
 }
 
 // Fixed set seeded by 0035_email_marketing.sql — this list is never
@@ -195,10 +206,47 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
       sendStatsByAutomationId.set(send.email_automation_id, existing)
     }
 
+    // post_purchase_review only — a direct order-level join (did this
+    // specific order, which we know got a review request, ever get a
+    // review row) rather than the email-based "bought again" proxy above.
+    let reviewsWritten: number | null = null
+    let reviewRequestsSent: number | null = null
+    const reviewAutomation = automations.find(
+      (a) => a.event_type === 'post_purchase_review',
+    )
+    if (reviewAutomation) {
+      const requestedOrders = await fetchAllRows((offset) =>
+        admin
+          .from('orders')
+          .select('id')
+          .eq('review_request_sent', true)
+          .range(offset, offset + 999),
+      )
+      reviewRequestsSent = requestedOrders.length
+      const requestedOrderIds = new Set(requestedOrders.map((o) => o.id))
+
+      // Wholesale, not filtered by .in(orderIds) — reviews is a small
+      // table (low hundreds at most), and orderIds here can be thousands,
+      // which risks the same PostgREST .in()-list-too-long problem already
+      // hit elsewhere in this codebase. Joining in memory sidesteps it.
+      const allReviews = await fetchAllRows((offset) =>
+        admin.from('reviews').select('order_id').range(offset, offset + 999),
+      )
+      reviewsWritten = new Set(
+        allReviews
+          .map((r) => r.order_id)
+          .filter(
+            (orderId): orderId is string =>
+              orderId !== null && requestedOrderIds.has(orderId),
+          ),
+      ).size
+    }
+
     return automations.map((automation) => {
       const stats = statsByAutomationId.get(automation.id)
       const statsInRange = statsInRangeByAutomationId.get(automation.id)
       const sendStats = sendStatsByAutomationId.get(automation.id)
+      const isReviewAutomation = automation.event_type === 'post_purchase_review'
       return {
         ...automation,
         attributedOrderCount: stats?.count ?? 0,
@@ -207,6 +255,8 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
         attributedRevenueCentsInRange: statsInRange?.revenueCents ?? 0,
         totalSends: sendStats?.total ?? 0,
         sendsInRange: sendStats?.inRange ?? 0,
+        reviewsWritten: isReviewAutomation ? reviewsWritten : null,
+        reviewRequestsSent: isReviewAutomation ? reviewRequestsSent : null,
       }
     })
   })
