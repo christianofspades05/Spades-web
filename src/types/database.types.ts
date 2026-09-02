@@ -995,6 +995,12 @@ export interface Database {
           staff_user_id: string | null
           read_at: string | null
           created_at: string
+          attachments: Array<{
+            filename: string
+            contentType: string
+            size: number
+            url: string
+          }> | null
         }
         Insert: Partial<
           Database['public']['Tables']['order_email_messages']['Row']

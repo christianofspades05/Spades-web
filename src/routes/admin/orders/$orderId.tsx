@@ -657,7 +657,9 @@ const MARKETPLACE_EMAIL_SOURCES: OrderSource[] = [
  *  configured (see order-emails.ts / resend-inbound.ts). Renders every
  *  message's plain-text body only, never bodyHtml — an inbound reply's
  *  HTML comes straight from the customer's mail client and must never be
- *  rendered unsanitized in the admin UI. */
+ *  rendered unsanitized in the admin UI. Attachments are safe to render
+ *  directly (images/links only, no HTML) since the webhook already
+ *  re-uploaded them to our own storage bucket. */
 function OrderEmailsCard({
   orderId,
   source,
@@ -742,6 +744,37 @@ function OrderEmailsCard({
                         : msg.bodyText
                       : '(no plain-text body)'}
                   </p>
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {msg.attachments.map((file) =>
+                        file.contentType.startsWith('image/') ? (
+                          <a
+                            key={file.url}
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={file.filename}
+                          >
+                            <img
+                              src={file.url}
+                              alt={file.filename}
+                              className="h-20 w-20 rounded-md border border-neutral-200 object-cover"
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            key={file.url}
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 underline"
+                          >
+                            {file.filename}
+                          </a>
+                        ),
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

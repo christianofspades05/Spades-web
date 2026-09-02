@@ -37,6 +37,12 @@ export interface OrderEmailMessage {
   toAddress: string
   staffName: string | null
   createdAt: string
+  attachments: Array<{
+    filename: string
+    contentType: string
+    size: number
+    url: string
+  }> | null
 }
 
 export const listOrderEmailMessages = createServerFn({ method: 'GET' })
@@ -48,7 +54,7 @@ export const listOrderEmailMessages = createServerFn({ method: 'GET' })
     const { data: rows, error } = await admin
       .from('order_email_messages')
       .select(
-        'id, direction, subject, body_html, body_text, from_address, to_address, created_at, staff:staff_users(full_name)',
+        'id, direction, subject, body_html, body_text, from_address, to_address, created_at, attachments, staff:staff_users(full_name)',
       )
       .eq('order_id', data.orderId)
       .order('created_at', { ascending: true })
@@ -73,6 +79,7 @@ export const listOrderEmailMessages = createServerFn({ method: 'GET' })
       toAddress: row.to_address,
       staffName: row.staff?.full_name ?? null,
       createdAt: row.created_at,
+      attachments: row.attachments,
     }))
   })
 

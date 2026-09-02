@@ -29,8 +29,15 @@
  * as xendit.ts. The event payload itself is metadata-only (no body); the
  * full message has to be fetched separately from Resend's Received Emails
  * API using the email id it gives us.
+ *
+ * Attachments (e.g. a customer photo) are a second fetch again — Resend
+ * never inlines attachment content, only a metadata + download_url list,
+ * and that download_url expires after 1 hour. fetchAndStoreAttachments
+ * downloads each one immediately and re-uploads it to the
+ * order-email-attachments bucket for a permanent URL.
  */
 import { createFileRoute } from '@tanstack/react-router'
+import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 
 const ORDER_REPLY_ADDRESS_PATTERN =
   /^order-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/i
@@ -72,6 +79,88 @@ interface ResendReceivedEmail {
   text: string | null
   from: string
   subject: string
+}
+
+/**
+ * Resend never inlines attachment content in the email body response above
+ * — only this separate endpoint, and its download_url expires after 1 hour.
+ * So every attachment has to be downloaded and re-uploaded to our own
+ * storage inside that window; there's no way to defer this.
+ */
+interface ResendAttachment {
+  id: string
+  filename: string
+  content_type: string
+  size: number
+  download_url: string
+}
+
+interface StoredAttachment {
+  filename: string
+  contentType: string
+  size: number
+  url: string
+}
+
+async function fetchAndStoreAttachments(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  apiKey: string,
+  emailId: string,
+  orderId: string,
+): Promise<StoredAttachment[]> {
+  const listRes = await fetch(
+    `https://api.resend.com/emails/receiving/${emailId}/attachments`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  )
+  if (!listRes.ok) {
+    console.error(
+      `Resend attachments list failed (${listRes.status}): ${await listRes.text()}`,
+    )
+    return []
+  }
+  const { data: attachments } = (await listRes.json()) as {
+    data: ResendAttachment[]
+  }
+
+  const stored: StoredAttachment[] = []
+  for (const attachment of attachments) {
+    try {
+      const fileRes = await fetch(attachment.download_url)
+      if (!fileRes.ok) {
+        throw new Error(`download failed (${fileRes.status})`)
+      }
+      const buffer = Buffer.from(await fileRes.arrayBuffer())
+      const extension = attachment.filename.includes('.')
+        ? attachment.filename.split('.').pop()
+        : 'bin'
+      const path = `${orderId}/${crypto.randomUUID()}.${extension}`
+
+      const { error } = await admin.storage
+        .from('order-email-attachments')
+        .upload(path, buffer, { contentType: attachment.content_type })
+      if (error) throw error
+
+      const { data: publicUrl } = admin.storage
+        .from('order-email-attachments')
+        .getPublicUrl(path)
+
+      stored.push({
+        filename: attachment.filename,
+        contentType: attachment.content_type,
+        size: attachment.size,
+        url: publicUrl.publicUrl,
+      })
+    } catch (err) {
+      // One bad attachment (expired download_url, unsupported type, a
+      // transient Storage error) shouldn't drop the whole reply — the
+      // customer's text still gets through, just without that image.
+      console.error(
+        `Failed to store attachment "${attachment.filename}" for email ${emailId}:`,
+        err,
+      )
+    }
+  }
+  return stored
 }
 
 export const Route = createFileRoute('/api/webhooks/resend-inbound')({
@@ -157,6 +246,13 @@ export const Route = createFileRoute('/api/webhooks/resend-inbound')({
         }
         const detail = (await detailRes.json()) as ResendReceivedEmail
 
+        const attachments = await fetchAndStoreAttachments(
+          admin,
+          apiKey,
+          payload.data.email_id,
+          orderId,
+        )
+
         // resend_email_id has a partial unique index — a retried webhook
         // delivery for the same email hits a 23505 conflict here, which is
         // treated as already-handled rather than a real failure.
@@ -169,6 +265,7 @@ export const Route = createFileRoute('/api/webhooks/resend-inbound')({
           from_address: detail.from,
           to_address: payload.data.to[0] ?? '',
           resend_email_id: payload.data.email_id,
+          attachments: attachments.length > 0 ? attachments : null,
         })
         if (error && error.code !== '23505') throw error
 
