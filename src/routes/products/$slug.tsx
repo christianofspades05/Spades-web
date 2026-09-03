@@ -173,14 +173,11 @@ function ProductPage() {
       (sum, inv) => sum + inv.quantity_available,
       0,
     ) ?? 0
-  // Real stock always wins if there's any — a variant marked pre-order
-  // that's since been restocked sells as a normal item again (matches
-  // getActiveVariantStock's own rule server-side).
-  const sellingAsPreOrder =
-    Boolean(selectedVariant) &&
-    availableStock <= 0 &&
-    Boolean(selectedVariant?.is_pre_order) &&
-    (selectedVariant?.pre_order_available ?? 0) > 0
+  // is_pre_order is an explicit staff choice and wins outright — a variant
+  // flagged pre-order sells as a pre-order regardless of how much real
+  // stock happens to be on hand (matches getActiveVariantStock's rule
+  // server-side).
+  const sellingAsPreOrder = Boolean(selectedVariant?.is_pre_order)
   const purchasableQuantity = sellingAsPreOrder
     ? (selectedVariant?.pre_order_available ?? 0)
     : availableStock

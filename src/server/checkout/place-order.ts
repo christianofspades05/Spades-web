@@ -93,17 +93,16 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // Re-verify stock right now — the cart's snapshot may be stale. Checked
       // in parallel rather than one round-trip per line — with a multi-item
       // cart, doing this sequentially was adding real, avoidable latency to
-      // every checkout. A pre-order line (see 0086_pre_orders.sql) has no
-      // real stock by definition, so it's checked against pre-order
-      // availability instead — never blended with availableStock, same
-      // "real stock wins if any exists" rule as the cart mutations.
+      // every checkout. is_pre_order (see 0086_pre_orders.sql) is an
+      // explicit staff choice and wins outright regardless of real stock —
+      // a pre-order line is checked against pre-order availability only,
+      // never blended with availableStock.
       const stockChecks = await Promise.all(
         cart.items.map((item) => getActiveVariantStock(admin, item.variant_id)),
       )
       cart.items.forEach((item, i) => {
         const stock = stockChecks[i]
-        const sellingAsPreOrder =
-          !!stock && stock.availableStock <= 0 && stock.preOrderAvailable > 0
+        const sellingAsPreOrder = Boolean(stock?.isPreOrder)
         const availableForThisLine = !stock
           ? 0
           : sellingAsPreOrder
@@ -117,10 +116,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
       })
       const preOrderVariantIds = new Set(
         cart.items
-          .filter((_item, i) => {
-            const stock = stockChecks[i]
-            return !!stock && stock.availableStock <= 0 && stock.preOrderAvailable > 0
-          })
+          .filter((_item, i) => Boolean(stockChecks[i]?.isPreOrder))
           .map((item) => item.variant_id),
       )
       const hasPreOrderItems = preOrderVariantIds.size > 0

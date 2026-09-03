@@ -80,13 +80,17 @@ export const addCartItem = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<CartWithItems> => {
     const admin = getSupabaseAdminClient()
     const stock = await getActiveVariantStock(admin, data.variantId)
-    if (!stock || (stock.availableStock <= 0 && stock.preOrderAvailable <= 0)) {
+    // is_pre_order is an explicit staff choice and wins outright — a variant
+    // flagged pre-order sells as a pre-order regardless of how much real
+    // stock happens to be on hand; staff un-flag it to go back to selling
+    // it normally.
+    const sellingAsPreOrder = Boolean(stock?.isPreOrder)
+    const stockCap = sellingAsPreOrder
+      ? (stock?.preOrderAvailable ?? 0)
+      : (stock?.availableStock ?? 0)
+    if (!stock || stockCap <= 0) {
       throw new Error('This item is out of stock')
     }
-    // Real stock always wins if there's any — a variant marked pre-order
-    // that's since been restocked should sell as a normal item again.
-    const sellingAsPreOrder = stock.availableStock <= 0 && stock.preOrderAvailable > 0
-    const stockCap = sellingAsPreOrder ? stock.preOrderAvailable : stock.availableStock
 
     const cartId = await getOrCreateCartId(admin)
     await assertNoPreOrderMixing(admin, cartId, sellingAsPreOrder)
@@ -143,13 +147,10 @@ export const updateCartItemQuantity = createServerFn({ method: 'POST' })
     const stock = await getActiveVariantStock(admin, item.variant_id)
     if (!stock) throw new Error('This item is no longer available')
 
-    // Same "real stock wins if any exists" rule as addCartItem — an
-    // existing pre-order line whose variant has since been restocked for
-    // real is capped by real stock again, not the (now stale) pre-order pool.
-    const stockCap =
-      stock.availableStock <= 0 && stock.preOrderAvailable > 0
-        ? stock.preOrderAvailable
-        : stock.availableStock
+    // Same "is_pre_order wins outright" rule as addCartItem.
+    const stockCap = stock.isPreOrder
+      ? stock.preOrderAvailable
+      : stock.availableStock
 
     const quantity = Math.min(data.quantity, stockCap, MAX_QUANTITY_PER_ITEM)
     const { error } = await admin

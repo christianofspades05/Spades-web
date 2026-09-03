@@ -93,10 +93,11 @@ function ProductCardImages({
 
 export function ProductCard({ product }: ProductCardProps) {
   const { formatPriceWithMarkup: formatPrice } = useCurrency()
-  const outOfStock = product.total_stock <= 0
-  // Real stock always wins if there's any — a pre-order badge only makes
-  // sense once a product genuinely has no real stock left to sell.
-  const isPreOrder = outOfStock && product.has_pre_order_stock
+  // is_pre_order is an explicit staff choice and wins outright — the badge
+  // shows whenever any variant is flagged pre-order, regardless of how much
+  // real stock the product otherwise has on hand.
+  const isPreOrder = product.has_pre_order_stock
+  const outOfStock = !isPreOrder && product.total_stock <= 0
   const onSale =
     product.salePriceCents != null &&
     product.salePriceCents < product.min_price_cents
