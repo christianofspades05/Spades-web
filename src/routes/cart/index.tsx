@@ -172,6 +172,11 @@ function CartPage() {
                       {variantLabel}
                     </p>
                   )}
+                  {item.variant.is_pre_order && (
+                    <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
+                      Pre-Order
+                    </span>
+                  )}
                   {discountedUnits > 0 && (
                     <p className="text-xs font-medium text-green-700 dark:text-green-400">
                       {t.cart.discountAppliesTo(discountedUnits, item.quantity)}

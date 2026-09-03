@@ -16,6 +16,16 @@ function stockOf(variant: VariantWithStock): number {
   return variant.inventory.reduce((sum, inv) => sum + inv.quantity_available, 0)
 }
 
+/** A variant with no real stock left is still selectable if it can be sold
+ *  as a pre-order — real stock always wins when both exist (see
+ *  getActiveVariantStock's own "real stock wins" rule). */
+function isSelectable(variant: VariantWithStock): boolean {
+  return (
+    stockOf(variant) > 0 ||
+    (variant.is_pre_order && variant.pre_order_available > 0)
+  )
+}
+
 interface VariantSelectorProps {
   variants: VariantWithStock[]
   onVariantChange: (variant: VariantWithStock | undefined) => void
@@ -81,7 +91,7 @@ export function VariantSelector({
         dimensions.every(
           (d) => d === dim || !selected[d] || v[d] === selected[d],
         ) &&
-        stockOf(v) > 0,
+        isSelectable(v),
     )
   }
 

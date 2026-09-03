@@ -300,6 +300,20 @@ function OrderDetailPage() {
         </div>
       )}
 
+      {order.has_pre_order_items && !isCancelled && (
+        <div
+          className={`mb-6 rounded-lg border px-4 py-3 text-sm font-semibold ${
+            order.pre_order_ready_at
+              ? 'border-green-300 bg-green-50 text-green-900'
+              : 'border-amber-300 bg-amber-50 text-amber-900'
+          }`}
+        >
+          {order.pre_order_ready_at
+            ? 'Pre-order stock has arrived — safe to fulfill normally.'
+            : "This order contains a pre-order item whose stock hasn't arrived yet — do not fulfill until it does. Mark it arrived from the Pre-Orders page."}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">
           <Card className={isCancelled ? 'p-5 opacity-60' : 'p-5'}>

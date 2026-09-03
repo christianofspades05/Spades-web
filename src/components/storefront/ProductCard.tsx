@@ -94,6 +94,9 @@ function ProductCardImages({
 export function ProductCard({ product }: ProductCardProps) {
   const { formatPriceWithMarkup: formatPrice } = useCurrency()
   const outOfStock = product.total_stock <= 0
+  // Real stock always wins if there's any — a pre-order badge only makes
+  // sense once a product genuinely has no real stock left to sell.
+  const isPreOrder = outOfStock && product.has_pre_order_stock
   const onSale =
     product.salePriceCents != null &&
     product.salePriceCents < product.min_price_cents
@@ -115,10 +118,16 @@ export function ProductCard({ product }: ProductCardProps) {
     >
       <div className="relative aspect-square overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-900">
         <ProductCardImages images={product.images} name={product.name} />
-        {outOfStock && (
-          <span className={`absolute left-3 top-3 ${badgeOutOfStockClassName}`}>
-            Out of stock
+        {isPreOrder ? (
+          <span className="absolute top-3 left-3 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+            Pre-Order
           </span>
+        ) : (
+          outOfStock && (
+            <span className={`absolute left-3 top-3 ${badgeOutOfStockClassName}`}>
+              Out of stock
+            </span>
+          )
         )}
         {!outOfStock && onSale && (
           <span className="absolute left-3 top-3 rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">

@@ -77,14 +77,32 @@ export async function assertOwnsCart(
   if (cart.session_token !== token) throw new Error('Not your cart')
 }
 
-/** Sums `inventory.quantity_available` across locations for one variant. Returns null if the variant doesn't exist or is inactive. */
+/** Sums `inventory.quantity_available` across locations for one variant,
+ *  plus its pre-order availability (a separate pool — see
+ *  0086_pre_orders.sql for why this isn't just another `inventory` row).
+ *  Returns null if the variant doesn't exist or is inactive.
+ *
+ *  `availableStock` is real stock only, deliberately never blended with
+ *  pre-order availability — callers that need "can this be added to cart
+ *  right now, in either mode" should check `availableStock > 0 ||
+ *  preOrderAvailable > 0` explicitly, so a customer is never shown "in
+ *  stock" for something that's actually a pre-order. */
+export interface VariantStock {
+  priceCents: number
+  availableStock: number
+  isPreOrder: boolean
+  preOrderAvailable: number
+}
+
 export async function getActiveVariantStock(
   admin: Admin,
   variantId: string,
-): Promise<{ priceCents: number; availableStock: number } | null> {
+): Promise<VariantStock | null> {
   const { data: variant, error } = await admin
     .from('product_variants')
-    .select('price_cents, is_active, inventory(quantity_available)')
+    .select(
+      'price_cents, is_active, is_pre_order, pre_order_available, inventory(quantity_available)',
+    )
     .eq('id', variantId)
     .maybeSingle()
 
@@ -95,5 +113,10 @@ export async function getActiveVariantStock(
     (sum, inv) => sum + inv.quantity_available,
     0,
   )
-  return { priceCents: variant.price_cents, availableStock }
+  return {
+    priceCents: variant.price_cents,
+    availableStock,
+    isPreOrder: variant.is_pre_order,
+    preOrderAvailable: variant.is_pre_order ? variant.pre_order_available : 0,
+  }
 }

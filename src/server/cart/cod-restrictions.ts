@@ -24,6 +24,19 @@ export async function resolveCodAvailability(
   admin: Admin,
   items: CartItemWithVariant[],
 ): Promise<CodAvailability> {
+  // Pre-order stock isn't real yet — Cash on Delivery would let a customer
+  // walk away without paying for something the store hasn't even received.
+  // Checked before the cod_restrictions table below since this applies
+  // regardless of any staff-configured restriction. placeOrder re-derives
+  // this fresh (via loadCartWithItems), so this is the actual server-side
+  // enforcement, not just a UI hint.
+  if (items.some((item) => item.variant.is_pre_order)) {
+    return {
+      available: false,
+      reason: 'Cash on Delivery is not available for pre-order items.',
+    }
+  }
+
   const { data: restrictions, error } = await admin
     .from('cod_restrictions')
     .select('scope, scope_ids')

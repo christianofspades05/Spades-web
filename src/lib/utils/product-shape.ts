@@ -9,6 +9,10 @@ type VariantWithStock = ProductVariant & {
   inventory?: { quantity_available: number }[]
 }
 
+function hasPreOrderStock(variants: VariantWithStock[]): boolean {
+  return variants.some((v) => v.is_pre_order && v.pre_order_available > 0)
+}
+
 /** Adapts a collection-query result (product + variants + inventory) into the shape ProductCard/ProductGrid expect. */
 export function toListingProduct(
   p: ProductWithVariants & Partial<WithSalePrice>,
@@ -36,6 +40,7 @@ export function toListingProduct(
     min_price_cents: prices.length ? Math.min(...prices) : 0,
     total_stock: totalStock,
     brand: p.brand,
+    has_pre_order_stock: hasPreOrderStock(variants),
     salePriceCents: p.salePriceCents ?? null,
     saleTitle: p.saleTitle ?? null,
   }

@@ -1370,34 +1370,53 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
  * undoes that). Anything past that point (paid/processing/packed) went
  * through commit_variant_stock, which already decremented quantity_on_hand
  * — restock_variant_stock is the only way to put that back.
+ *
+ * A pre-order line that hasn't had its stock arrive yet (order's
+ * pre_order_ready_at still null) was never reserved against real inventory
+ * at all — it's sitting in pre_order_reserved instead (see place-order.ts),
+ * so it needs release_pre_order_stock, not release/restock_variant_stock,
+ * regardless of the order's payment status. Once receivePreOrderStock has
+ * migrated it onto the real ('main') location, it's indistinguishable from
+ * a normal line and the usual restock/release logic applies.
  */
 async function restockCancelledOrder(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   orderId: string,
   currentStatus: OrderStatus,
-  items: Pick<OrderItem, 'variant_id' | 'quantity'>[],
+  preOrderReadyAt: string | null,
+  items: Pick<OrderItem, 'variant_id' | 'quantity' | 'is_pre_order'>[],
 ) {
   const wasCommitted = currentStatus !== 'pending_payment'
   const rpcName = wasCommitted
     ? 'restock_variant_stock'
     : 'release_variant_stock'
-  const itemsWithVariant: { variant_id: string; quantity: number }[] = []
+  const itemsWithVariant: {
+    variant_id: string
+    quantity: number
+    is_pre_order: boolean
+  }[] = []
   for (const item of items) {
     if (item.variant_id) {
       itemsWithVariant.push({
         variant_id: item.variant_id,
         quantity: item.quantity,
+        is_pre_order: item.is_pre_order,
       })
     }
   }
   await Promise.all(
     itemsWithVariant.map((item) =>
-      admin.rpc(rpcName, {
-        p_variant_id: item.variant_id,
-        p_quantity: item.quantity,
-        p_reference_type: 'order_cancel',
-        p_reference_id: orderId,
-      }),
+      item.is_pre_order && !preOrderReadyAt
+        ? admin.rpc('release_pre_order_stock', {
+            p_variant_id: item.variant_id,
+            p_quantity: item.quantity,
+          })
+        : admin.rpc(rpcName, {
+            p_variant_id: item.variant_id,
+            p_quantity: item.quantity,
+            p_reference_type: 'order_cancel',
+            p_reference_id: orderId,
+          }),
     ),
   )
 }
@@ -1410,7 +1429,7 @@ export const cancelOrder = createServerFn({ method: 'POST' })
 
     const { data: current, error: readError } = await admin
       .from('orders')
-      .select('status')
+      .select('status, pre_order_ready_at')
       .eq('id', data.orderId)
       .single()
     if (readError) throw readError
@@ -1423,10 +1442,16 @@ export const cancelOrder = createServerFn({ method: 'POST' })
     if (data.restock) {
       const { data: items, error: itemsError } = await admin
         .from('order_items')
-        .select('variant_id, quantity')
+        .select('variant_id, quantity, is_pre_order')
         .eq('order_id', data.orderId)
       if (itemsError) throw itemsError
-      await restockCancelledOrder(admin, data.orderId, currentStatus, items)
+      await restockCancelledOrder(
+        admin,
+        data.orderId,
+        currentStatus,
+        current.pre_order_ready_at,
+        items,
+      )
     }
 
     const { data: order, error } = await admin
@@ -1458,14 +1483,14 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
 
       const { data: orders, error: readError } = await admin
         .from('orders')
-        .select('id, status')
+        .select('id, status, pre_order_ready_at')
         .in('id', data.orderIds)
       if (readError) throw readError
 
       const { data: allItems, error: itemsError } = data.restock
         ? await admin
             .from('order_items')
-            .select('order_id, variant_id, quantity')
+            .select('order_id, variant_id, quantity, is_pre_order')
             .in('order_id', data.orderIds)
         : { data: [], error: null }
       if (itemsError) throw itemsError
@@ -1491,6 +1516,7 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
               admin,
               order.id,
               currentStatus,
+              order.pre_order_ready_at,
               itemsByOrder.get(order.id) ?? [],
             )
           }

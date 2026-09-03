@@ -56,6 +56,13 @@ export interface CheckoutReservationItem {
   lineSubtotalCents: number
   lineDiscountCents: number
   lineTotalCents: number
+  /** Snapshotted at checkout — whether this was reserved against pre-order
+   *  stock (reserve_pre_order_stock) rather than real inventory. Determines
+   *  whether mintOrderFromReservation can commit_variant_stock for this
+   *  line once payment confirms, or must leave it reserved-not-committed
+   *  until the pre-order's stock actually arrives (see receivePreOrderStock
+   *  in server/admin/pre-orders.ts). */
+  isPreOrder: boolean
 }
 
 export type ShippingMethod = 'standard' | 'lalamove'
@@ -383,6 +390,11 @@ export interface Database {
           barcode: string | null
           is_active: boolean
           sort_order: number
+          is_pre_order: boolean
+          pre_order_arrival_note: string | null
+          pre_order_quantity: number
+          pre_order_reserved: number
+          pre_order_available: number
           created_at: string
           updated_at: string
         }
@@ -602,6 +614,8 @@ export interface Database {
           lalamove_info: LalamoveInfo | null
           cod_eligibility_reason: string | null
           requires_partial_payment: boolean
+          has_pre_order_items: boolean
+          pre_order_ready_at: string | null
           risk_score: number | null
           placed_at: string
           cancelled_at: string | null
@@ -645,6 +659,8 @@ export interface Database {
           line_subtotal_cents: number
           line_discount_cents: number
           line_total_cents: number
+          is_pre_order: boolean
+          pre_order_stock_arrived_at: string | null
           created_at: string
         }
         Insert: Partial<Database['public']['Tables']['order_items']['Row']> & {
@@ -1247,6 +1263,7 @@ export interface Database {
           min_price_cents: number
           total_stock: number
           brand: ProductBrand
+          has_pre_order_stock: boolean
         }
         Relationships: []
       }
@@ -1312,6 +1329,20 @@ export interface Database {
           p_location_code?: string
           p_reference_type?: string | null
           p_reference_id?: string | null
+        }
+        Returns: undefined
+      }
+      reserve_pre_order_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
+        }
+        Returns: boolean
+      }
+      release_pre_order_stock: {
+        Args: {
+          p_variant_id: string
+          p_quantity: number
         }
         Returns: undefined
       }

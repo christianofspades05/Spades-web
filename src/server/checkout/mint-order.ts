@@ -65,6 +65,7 @@ export async function mintOrderFromReservation(
       shipping_method: reservation.shipping_method,
       lalamove_info: reservation.lalamove_info,
       customer_notes: reservation.customer_notes,
+      has_pre_order_items: items.some((item) => item.isPreOrder),
     })
     .select('id, order_number')
     .single()
@@ -82,15 +83,22 @@ export async function mintOrderFromReservation(
       line_subtotal_cents: item.lineSubtotalCents,
       line_discount_cents: item.lineDiscountCents,
       line_total_cents: item.lineTotalCents,
+      is_pre_order: item.isPreOrder,
     })),
   )
   if (itemsError) throw itemsError
 
+  // A pre-order line has nothing to commit yet — it was reserved against
+  // pre_order_quantity/pre_order_reserved at checkout (place-order.ts), not
+  // real inventory, and stays that way until receivePreOrderStock later
+  // migrates it onto the real ('main') location once stock actually
+  // arrives. Committing it here against 'main' would incorrectly touch
+  // stock this order was never actually reserved against.
   await Promise.all(
     items
       .filter(
         (item): item is CheckoutReservationItem & { variantId: string } =>
-          item.variantId !== null,
+          item.variantId !== null && !item.isPreOrder,
       )
       .map((item) =>
         admin.rpc('commit_variant_stock', {

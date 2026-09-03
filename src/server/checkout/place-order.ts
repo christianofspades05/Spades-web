@@ -93,18 +93,37 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // Re-verify stock right now — the cart's snapshot may be stale. Checked
       // in parallel rather than one round-trip per line — with a multi-item
       // cart, doing this sequentially was adding real, avoidable latency to
-      // every checkout.
+      // every checkout. A pre-order line (see 0086_pre_orders.sql) has no
+      // real stock by definition, so it's checked against pre-order
+      // availability instead — never blended with availableStock, same
+      // "real stock wins if any exists" rule as the cart mutations.
       const stockChecks = await Promise.all(
         cart.items.map((item) => getActiveVariantStock(admin, item.variant_id)),
       )
       cart.items.forEach((item, i) => {
         const stock = stockChecks[i]
-        if (!stock || stock.availableStock < item.quantity) {
+        const sellingAsPreOrder =
+          !!stock && stock.availableStock <= 0 && stock.preOrderAvailable > 0
+        const availableForThisLine = !stock
+          ? 0
+          : sellingAsPreOrder
+            ? stock.preOrderAvailable
+            : stock.availableStock
+        if (availableForThisLine < item.quantity) {
           throw new Error(
             `"${item.variant.product.name}" no longer has enough stock`,
           )
         }
       })
+      const preOrderVariantIds = new Set(
+        cart.items
+          .filter((_item, i) => {
+            const stock = stockChecks[i]
+            return !!stock && stock.availableStock <= 0 && stock.preOrderAvailable > 0
+          })
+          .map((item) => item.variant_id),
+      )
+      const hasPreOrderItems = preOrderVariantIds.size > 0
 
       // Never trust the client's payment method choice alone — a stale page
       // (or a hand-crafted request) could still submit 'cod' after a staff
@@ -314,14 +333,18 @@ export const placeOrder = createServerFn({ method: 'POST' })
         customerId = newCustomer.id
       }
 
-      // Reserve stock for every line atomically; unwind on any failure.
-      const reserved: { variantId: string; quantity: number }[] = []
+      // Reserve stock for every line atomically; unwind on any failure. A
+      // pre-order line reserves against pre_order_quantity/pre_order_reserved
+      // instead (reserve_pre_order_stock) — there's no real inventory to
+      // touch until receivePreOrderStock later migrates this reservation
+      // onto the real ('main') location once stock actually arrives.
+      const reserved: { variantId: string; quantity: number; isPreOrder: boolean }[] = []
       async function releaseAllReserved() {
         for (const r of reserved) {
-          await admin.rpc('release_variant_stock', {
-            p_variant_id: r.variantId,
-            p_quantity: r.quantity,
-          })
+          await admin.rpc(
+            r.isPreOrder ? 'release_pre_order_stock' : 'release_variant_stock',
+            { p_variant_id: r.variantId, p_quantity: r.quantity },
+          )
         }
       }
 
@@ -331,11 +354,12 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // network round-trip per line for no benefit.
       const reserveResults = await Promise.all(
         cart.items.map(async (item) => {
-          const { data: ok, error } = await admin.rpc('reserve_variant_stock', {
-            p_variant_id: item.variant_id,
-            p_quantity: item.quantity,
-          })
-          return { item, ok, error }
+          const isPreOrder = preOrderVariantIds.has(item.variant_id)
+          const { data: ok, error } = await admin.rpc(
+            isPreOrder ? 'reserve_pre_order_stock' : 'reserve_variant_stock',
+            { p_variant_id: item.variant_id, p_quantity: item.quantity },
+          )
+          return { item, ok, error, isPreOrder }
         }),
       )
 
@@ -344,6 +368,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           reserved.push({
             variantId: r.item.variant_id,
             quantity: r.item.quantity,
+            isPreOrder: r.isPreOrder,
           })
         }
       }
@@ -404,6 +429,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           lineSubtotalCents,
           lineDiscountCents: 0,
           lineTotalCents: lineSubtotalCents,
+          isPreOrder: preOrderVariantIds.has(item.variant_id),
         }
       })
 
@@ -438,6 +464,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             brand: scope.brand,
             market_markup_percent: marketMarkupPercent ?? null,
             customer_notes: data.contact.orderNotes || null,
+            has_pre_order_items: hasPreOrderItems,
           })
           .select('id, order_number')
           .single()
@@ -457,6 +484,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           line_subtotal_cents: item.lineSubtotalCents,
           line_discount_cents: item.lineDiscountCents,
           line_total_cents: item.lineTotalCents,
+          is_pre_order: item.isPreOrder,
         }))
         const { error: itemsError } = await admin
           .from('order_items')

@@ -173,7 +173,19 @@ function ProductPage() {
       (sum, inv) => sum + inv.quantity_available,
       0,
     ) ?? 0
-  const outOfStock = Boolean(selectedVariant) && availableStock <= 0
+  // Real stock always wins if there's any — a variant marked pre-order
+  // that's since been restocked sells as a normal item again (matches
+  // getActiveVariantStock's own rule server-side).
+  const sellingAsPreOrder =
+    Boolean(selectedVariant) &&
+    availableStock <= 0 &&
+    Boolean(selectedVariant?.is_pre_order) &&
+    (selectedVariant?.pre_order_available ?? 0) > 0
+  const purchasableQuantity = sellingAsPreOrder
+    ? (selectedVariant?.pre_order_available ?? 0)
+    : availableStock
+  const outOfStock =
+    Boolean(selectedVariant) && purchasableQuantity <= 0
 
   async function handleAddToCart() {
     if (!selectedVariant || outOfStock) return
@@ -255,6 +267,11 @@ function ProductPage() {
               averageRating={reviews.averageRating}
               reviewCount={reviews.reviewCount}
             />
+            {sellingAsPreOrder && !outOfStock && (
+              <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
+                Pre-Order
+              </span>
+            )}
             {displayVariant &&
               (displayVariant.salePriceCents != null &&
               displayVariant.salePriceCents < displayVariant.price_cents ? (
@@ -320,7 +337,7 @@ function ProductPage() {
                   type="button"
                   onClick={() =>
                     setQuantity((q) =>
-                      Math.min(20, availableStock || 20, q + 1),
+                      Math.min(20, purchasableQuantity || 20, q + 1),
                     )
                   }
                   className="h-9 w-9 rounded-full border border-neutral-300 hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
@@ -341,9 +358,21 @@ function ProductPage() {
                     ? t.product.selectOptions
                     : isAdding
                       ? t.product.adding
-                      : t.product.addToCart}
+                      : sellingAsPreOrder
+                        ? 'Pre-Order'
+                        : t.product.addToCart}
               </button>
             </div>
+
+            {sellingAsPreOrder && !outOfStock && (
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+                This is a pre-order —{' '}
+                {selectedVariant?.pre_order_arrival_note ||
+                  'ships once stock arrives'}
+                . Can't be checked out with regular in-stock items, and Cash
+                on Delivery isn't available for it.
+              </p>
+            )}
 
             {error && (
               <p className="mt-3 text-sm text-red-700 dark:text-red-400">

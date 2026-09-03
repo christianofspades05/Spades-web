@@ -588,6 +588,22 @@ function OrdersPage() {
                         >
                           {order.order_number}
                         </Link>
+                        {order.has_pre_order_items && (
+                          <span
+                            title={
+                              order.pre_order_ready_at
+                                ? 'Pre-order — stock arrived, ready to fulfill'
+                                : 'Pre-order — waiting on stock'
+                            }
+                            className={`ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              order.pre_order_ready_at
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            Pre-Order
+                          </span>
+                        )}
                       </td>
                       <td
                         className={`${tableCellClassName} text-neutral-500 whitespace-nowrap`}

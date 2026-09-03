@@ -45,16 +45,51 @@ async function getOrCreateCartId(
   return cart.id
 }
 
+/** Throws if adding this variant would mix a pre-order item into a cart
+ *  that already has regular (non-pre-order) items, or vice versa — a
+ *  pre-order's stock isn't real yet, so its order has to be held back from
+ *  fulfillment separately (see receivePreOrderStock); it can't ship
+ *  alongside items that are ready to go out now. Multiple *different*
+ *  pre-order items together are fine — only pre-order-vs-regular mixing is
+ *  blocked. */
+async function assertNoPreOrderMixing(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  cartId: string,
+  addingVariantIsPreOrder: boolean,
+): Promise<void> {
+  const { data: existingItems, error } = await admin
+    .from('cart_items')
+    .select('variant:product_variants(is_pre_order)')
+    .eq('cart_id', cartId)
+    .limit(1)
+  if (error) throw error
+  if (existingItems.length === 0) return
+
+  const cartIsPreOrder = existingItems[0].variant.is_pre_order
+  if (cartIsPreOrder !== addingVariantIsPreOrder) {
+    throw new Error(
+      addingVariantIsPreOrder
+        ? 'This is a pre-order item and can\'t be checked out together with items already in your cart. Please check out your current cart first, or remove those items.'
+        : 'Your cart has a pre-order item in it, which can\'t be checked out together with regular in-stock items. Please check out your pre-order first, or remove it.',
+    )
+  }
+}
+
 export const addCartItem = createServerFn({ method: 'POST' })
   .validator(addCartItemSchema)
   .handler(async ({ data }): Promise<CartWithItems> => {
     const admin = getSupabaseAdminClient()
     const stock = await getActiveVariantStock(admin, data.variantId)
-    if (!stock || stock.availableStock <= 0) {
+    if (!stock || (stock.availableStock <= 0 && stock.preOrderAvailable <= 0)) {
       throw new Error('This item is out of stock')
     }
+    // Real stock always wins if there's any — a variant marked pre-order
+    // that's since been restocked should sell as a normal item again.
+    const sellingAsPreOrder = stock.availableStock <= 0 && stock.preOrderAvailable > 0
+    const stockCap = sellingAsPreOrder ? stock.preOrderAvailable : stock.availableStock
 
     const cartId = await getOrCreateCartId(admin)
+    await assertNoPreOrderMixing(admin, cartId, sellingAsPreOrder)
 
     const { data: existingItem, error: existingError } = await admin
       .from('cart_items')
@@ -67,7 +102,7 @@ export const addCartItem = createServerFn({ method: 'POST' })
     const requestedQuantity = (existingItem?.quantity ?? 0) + data.quantity
     const quantity = Math.min(
       requestedQuantity,
-      stock.availableStock,
+      stockCap,
       MAX_QUANTITY_PER_ITEM,
     )
 
@@ -108,11 +143,15 @@ export const updateCartItemQuantity = createServerFn({ method: 'POST' })
     const stock = await getActiveVariantStock(admin, item.variant_id)
     if (!stock) throw new Error('This item is no longer available')
 
-    const quantity = Math.min(
-      data.quantity,
-      stock.availableStock,
-      MAX_QUANTITY_PER_ITEM,
-    )
+    // Same "real stock wins if any exists" rule as addCartItem — an
+    // existing pre-order line whose variant has since been restocked for
+    // real is capped by real stock again, not the (now stale) pre-order pool.
+    const stockCap =
+      stock.availableStock <= 0 && stock.preOrderAvailable > 0
+        ? stock.preOrderAvailable
+        : stock.availableStock
+
+    const quantity = Math.min(data.quantity, stockCap, MAX_QUANTITY_PER_ITEM)
     const { error } = await admin
       .from('cart_items')
       .update({ quantity, price_cents_snapshot: stock.priceCents })
