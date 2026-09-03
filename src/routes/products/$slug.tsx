@@ -176,7 +176,15 @@ function ProductPage() {
   // is_pre_order is an explicit staff choice and wins outright — a variant
   // flagged pre-order sells as a pre-order regardless of how much real
   // stock happens to be on hand (matches getActiveVariantStock's rule
-  // server-side).
+  // server-side). Based on displayVariant (not selectedVariant) so the
+  // badge near the title is visible right away — same fallback-to-cheapest
+  // reasoning as the price above it — rather than only appearing once the
+  // shopper actively picks a size.
+  const displayIsPreOrder = Boolean(displayVariant?.is_pre_order)
+  // The button/quantity/notice below, though, must track the shopper's
+  // actual selection — a different size than the default display variant
+  // could easily be in stock (or vice versa), and what happens on
+  // "Add to Cart" has to match what's really being added.
   const sellingAsPreOrder = Boolean(selectedVariant?.is_pre_order)
   const purchasableQuantity = sellingAsPreOrder
     ? (selectedVariant?.pre_order_available ?? 0)
@@ -264,7 +272,7 @@ function ProductPage() {
               averageRating={reviews.averageRating}
               reviewCount={reviews.reviewCount}
             />
-            {sellingAsPreOrder && !outOfStock && (
+            {displayIsPreOrder && (
               <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
                 Pre-Order
               </span>
