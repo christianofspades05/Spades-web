@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type { CollectionRule } from '#/lib/collections/rules'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { createPromiseCache } from '#/lib/utils/cache'
+import { createSharedCache } from '#/lib/utils/shared-cache'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 
@@ -30,27 +30,45 @@ interface RuleMatchProduct {
 // filtered by status/brand/candidate list, since the old per-call query
 // (`.in('id', candidateIds)`) never filtered by status either (a rule can
 // itself check `status`, so a draft product must still be evaluable). This
-// is what lets the ruleset-match computation below run once per 15s and be
-// shared by every caller regardless of which candidate ids or brand they
-// pass in — the table is small (a few hundred rows), so one unfiltered
+// is what lets the ruleset-match computation below run once per TTL window
+// and be shared by every caller regardless of which candidate ids or brand
+// they pass in — the table is small (a few hundred rows), so one unfiltered
 // fetch is far cheaper than the id-scoped query it replaces was, at any
 // real traffic volume.
-const RULE_MATCH_PRODUCTS_CACHE_TTL_MS = 15_000
-const ruleMatchProductsCache = createPromiseCache<RuleMatchProduct[]>(
-  RULE_MATCH_PRODUCTS_CACHE_TTL_MS,
+//
+// Backed by Vercel Runtime Cache (shared across every warm instance in the
+// region — see shared-cache.ts) rather than a process-local cache, per the
+// Sep 2026 audit: inventory/price feed into this cache's rule-matching
+// output and change far more often than collection membership does, so
+// its TTL is deliberately kept short (Phase 1: unchanged at 15s) and has
+// no active invalidation wired up — a longer TTL here would risk a
+// product's auto-match collection membership (and therefore its
+// discount/COD eligibility) lagging real inventory/price changes for
+// longer than is acceptable, unlike collectionScopeCache below.
+const RULE_MATCH_PRODUCTS_CACHE_TTL_SECONDS = 15
+const ruleMatchProductsCache = createSharedCache<RuleMatchProduct[]>(
+  RULE_MATCH_PRODUCTS_CACHE_TTL_SECONDS,
 )
 
+function isRuleMatchProductArray(value: unknown): value is RuleMatchProduct[] {
+  return Array.isArray(value)
+}
+
 function fetchAllProductsForRuleMatch(admin: Admin): Promise<RuleMatchProduct[]> {
-  return ruleMatchProductsCache.get('all', async () => {
-    const { data, error } = await admin
-      .from('products')
-      .select(
-        'id, name, product_type, status, tags, variants:product_variants(price_cents, is_active, inventory(quantity_available))',
-      )
-      .overrideTypes<RuleMatchProduct[], { merge: false }>()
-    if (error) throw error
-    return data
-  })
+  return ruleMatchProductsCache.get(
+    'collections:rule-match-products:all',
+    async () => {
+      const { data, error } = await admin
+        .from('products')
+        .select(
+          'id, name, product_type, status, tags, variants:product_variants(price_cents, is_active, inventory(quantity_available))',
+        )
+        .overrideTypes<RuleMatchProduct[], { merge: false }>()
+      if (error) throw error
+      return data
+    },
+    { isValid: isRuleMatchProductArray },
+  )
 }
 
 function matchesAnyRuleset(
@@ -83,7 +101,10 @@ function matchesAnyRuleset(
   )
 }
 
-interface CollectionScopeData {
+/** Stored/retrieved from Runtime Cache as plain arrays (a Set isn't
+ *  JSON-safe over the wire) — resolveCollectionScopedProductIds converts
+ *  these to Sets for its own O(1) lookups after the cache read. */
+interface SerializableCollectionScopeData {
   /** Every product pinned to any of the requested collections — NOT
    *  filtered by any one caller's candidateProductIds, since that's what
    *  makes this cacheable across callers that pass different candidate
@@ -91,7 +112,7 @@ interface CollectionScopeData {
    *  resolving the same discount's scope against their own 10 products
    *  each). Filtered down to the caller's actual candidates below, after
    *  the cache lookup. */
-  pinnedProductIds: Set<string>
+  pinnedProductIds: string[]
   rulesets: { matchType: 'all' | 'any'; rules: CollectionRule[] }[]
   /** Every product IN THE WHOLE TABLE that matches one of `rulesets` —
    *  not filtered by any caller's candidateProductIds, same reasoning as
@@ -99,35 +120,70 @@ interface CollectionScopeData {
    *  its own candidate ids (see resolveCollectionScopedProductIds), so a
    *  match belonging to another brand's product never surfaces — that
    *  other brand's id is simply never in any candidate list. */
-  matchedProductIds: Set<string>
+  matchedProductIds: string[]
+}
+
+function isSerializableCollectionScopeData(
+  value: unknown,
+): value is SerializableCollectionScopeData {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    Array.isArray(v.pinnedProductIds) &&
+    Array.isArray(v.matchedProductIds) &&
+    Array.isArray(v.rulesets)
+  )
 }
 
 // Collection membership/rules barely ever change (an admin editing a
 // collection), but this is called on every single storefront page that
 // prices a product — every homepage section, every product/collection
-// page, /products, quick search — via resolveSalePrices below. Same 15s
-// TTL and promise-caching rationale as getActiveAutomaticDiscounts/
-// getActiveProductsForBrand right next to this file: caching the in-flight
-// promise (not just the resolved value) means the Spades homepage's
-// concurrent product-grid sections, all resolving the same discount scope
-// via Promise.all, share the exact same single DB round trip instead of
-// firing one of each query per section. Keyed by the sorted collection-id
-// set only — collection ids are already brand-specific rows (a Ysrael
-// collection id is a different uuid than any Spades one), so there's no
-// brand scoping to add and no cross-brand leak risk.
-const COLLECTION_SCOPE_CACHE_TTL_MS = 15_000
-const collectionScopeCache = createPromiseCache<CollectionScopeData>(
-  COLLECTION_SCOPE_CACHE_TTL_MS,
+// page, /products, quick search — via resolveSalePrices below. Backed by
+// Vercel Runtime Cache (shared across every warm instance in the region)
+// rather than a process-local cache: a Sep 2026 traffic audit found this
+// was the dominant source of repeated /rest/v1/collections and
+// /rest/v1/product_collections calls — not many distinct cache keys or
+// duplicate calls within one request, but many concurrently-active Fluid/
+// Lambda instances each keeping its own separate short-lived cache for the
+// same data. A shared cache collapses that down to roughly one real fetch
+// per TTL window site-wide.
+//
+// Phase 1 (this change): shared cache + a longer TTL, no active
+// invalidation yet — an admin editing collection membership/rules can take
+// up to COLLECTION_SCOPE_CACHE_TTL_SECONDS to propagate to the storefront.
+// Phase 2 (separate, later change): the admin write paths that change
+// collection membership/rules (createCollection, updateCollection,
+// addProductToCollection, removeProductFromCollection,
+// pinAndReorderCollectionProducts in server/admin/collections.ts, plus
+// setProductCollections and duplicateProduct in server/admin/products.ts)
+// will call cache.expireTag(`collection:<id>`) after their writes, cutting
+// that propagation down to near-immediate. Tagging every cache entry with
+// `collection:<id>` for every id in its key (done below) is what makes
+// that possible without having to enumerate every discount/COD-restriction
+// combination that might reference a given collection.
+//
+// Keyed by the sorted collection-id set only — collection ids are already
+// brand-specific rows (a Ysrael collection id is a different uuid than any
+// Spades one), so there's no brand scoping to add and no cross-brand leak
+// risk; this is unchanged from the previous process-local cache and must
+// stay unchanged (see the isolation tests in scoped-products.test.ts).
+const COLLECTION_SCOPE_CACHE_TTL_SECONDS = 5 * 60
+const collectionScopeCache = createSharedCache<SerializableCollectionScopeData>(
+  COLLECTION_SCOPE_CACHE_TTL_SECONDS,
 )
 
 function collectionScopeCacheKey(collectionIds: string[]): string {
-  return [...collectionIds].sort().join(',')
+  return `collections:scope:${[...collectionIds].sort().join(',')}`
+}
+
+function collectionScopeCacheTags(collectionIds: string[]): string[] {
+  return collectionIds.map((id) => `collection:${id}`)
 }
 
 async function fetchCollectionScopeData(
   admin: Admin,
   collectionIds: string[],
-): Promise<CollectionScopeData> {
+): Promise<SerializableCollectionScopeData> {
   const [
     { data: pins, error: pinsError },
     { data: collections, error: colError },
@@ -151,17 +207,17 @@ async function fetchCollectionScopeData(
     rules: z.array(collectionRuleSchema).parse(c.rules),
   }))
 
-  const matchedProductIds = new Set<string>()
+  const matchedProductIds: string[] = []
   if (rulesets.length > 0) {
     for (const product of allProducts) {
       if (matchesAnyRuleset(product, rulesets)) {
-        matchedProductIds.add(product.id)
+        matchedProductIds.push(product.id)
       }
     }
   }
 
   return {
-    pinnedProductIds: new Set(pins.map((p) => p.product_id)),
+    pinnedProductIds: pins.map((p) => p.product_id),
     rulesets,
     matchedProductIds,
   }
@@ -176,12 +232,17 @@ export async function resolveCollectionScopedProductIds(
     return new Set()
   }
 
-  const {
-    pinnedProductIds: allPinnedProductIds,
-    matchedProductIds: allMatchedProductIds,
-  } = await collectionScopeCache.get(collectionScopeCacheKey(collectionIds), () =>
-    fetchCollectionScopeData(admin, collectionIds),
+  const { pinnedProductIds, matchedProductIds } = await collectionScopeCache.get(
+    collectionScopeCacheKey(collectionIds),
+    () => fetchCollectionScopeData(admin, collectionIds),
+    {
+      tags: collectionScopeCacheTags(collectionIds),
+      isValid: isSerializableCollectionScopeData,
+    },
   )
+
+  const allPinnedProductIds = new Set(pinnedProductIds)
+  const allMatchedProductIds = new Set(matchedProductIds)
 
   const result = new Set<string>()
   for (const id of candidateProductIds) {
