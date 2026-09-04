@@ -127,4 +127,133 @@ describe('createSharedCache', () => {
     expect(result).toEqual({ hello: 'cached-and-valid' })
     expect(compute).not.toHaveBeenCalled()
   })
+
+  describe('single-flight deduplication', () => {
+    it('collapses 13 concurrent callers on a MISS into one get/compute/set', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+      const compute = vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 5))
+        return 'fresh-result'
+      })
+
+      const shared = createSharedCache<string>(60)
+      const results = await Promise.all(
+        Array.from({ length: 13 }, () => shared.get('key', compute)),
+      )
+
+      expect(results).toEqual(Array(13).fill('fresh-result'))
+      expect(cache.get).toHaveBeenCalledTimes(1)
+      expect(compute).toHaveBeenCalledTimes(1)
+      expect(cache.set).toHaveBeenCalledTimes(1)
+    })
+
+    it('collapses 13 concurrent callers on a HIT into one get, no compute/set', async () => {
+      const cache = fakeCache({ get: vi.fn(async () => 'cached-result') })
+      mockGetCache.mockReturnValue(cache)
+      const compute = vi.fn(async () => 'fresh-result')
+
+      const shared = createSharedCache<string>(60)
+      const results = await Promise.all(
+        Array.from({ length: 13 }, () => shared.get('key', compute)),
+      )
+
+      expect(results).toEqual(Array(13).fill('cached-result'))
+      expect(cache.get).toHaveBeenCalledTimes(1)
+      expect(compute).not.toHaveBeenCalled()
+      expect(cache.set).not.toHaveBeenCalled()
+    })
+
+    it('cleans up the in-flight map on rejection so the next call retries fresh', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+      let attempt = 0
+      const compute = vi.fn(async () => {
+        attempt += 1
+        if (attempt === 1) throw new Error('transient failure')
+        return 'recovered-result'
+      })
+
+      const shared = createSharedCache<string>(60)
+      await expect(shared.get('key', compute)).rejects.toThrow('transient failure')
+
+      const result = await shared.get('key', compute)
+      expect(result).toBe('recovered-result')
+      expect(compute).toHaveBeenCalledTimes(2)
+    })
+
+    it('deduplicates concurrent callers even when Runtime Cache GET fails (fallback path)', async () => {
+      const cache = fakeCache({
+        get: vi.fn(async () => {
+          throw new Error('Runtime Cache timeout')
+        }),
+      })
+      mockGetCache.mockReturnValue(cache)
+      const compute = vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 5))
+        return 'fallback-result'
+      })
+
+      const shared = createSharedCache<string>(60)
+      const results = await Promise.all(
+        Array.from({ length: 13 }, () => shared.get('key', compute)),
+      )
+
+      expect(results).toEqual(Array(13).fill('fallback-result'))
+      expect(cache.get).toHaveBeenCalledTimes(1)
+      expect(compute).toHaveBeenCalledTimes(1)
+    })
+
+    it('returns the correct result to every waiter even when Runtime Cache SET fails', async () => {
+      const cache = fakeCache({
+        set: vi.fn(async () => {
+          throw new Error('Runtime Cache unavailable')
+        }),
+      })
+      mockGetCache.mockReturnValue(cache)
+      const compute = vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 5))
+        return 'correct-result'
+      })
+
+      const shared = createSharedCache<string>(60)
+      const results = await Promise.all(
+        Array.from({ length: 13 }, () => shared.get('key', compute)),
+      )
+
+      expect(results).toEqual(Array(13).fill('correct-result'))
+      expect(compute).toHaveBeenCalledTimes(1)
+    })
+
+    it('executes different keys independently, not sharing a single in-flight operation', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+      const computeA = vi.fn(async () => 'result-a')
+      const computeB = vi.fn(async () => 'result-b')
+
+      const shared = createSharedCache<string>(60)
+      const [a, b] = await Promise.all([
+        shared.get('key-a', computeA),
+        shared.get('key-b', computeB),
+      ])
+
+      expect(a).toBe('result-a')
+      expect(b).toBe('result-b')
+      expect(computeA).toHaveBeenCalledTimes(1)
+      expect(computeB).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not serve a later, non-overlapping request from the single-flight map', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+      const compute = vi.fn(async () => 'result')
+
+      const shared = createSharedCache<string>(60)
+      await shared.get('key', compute)
+      await shared.get('key', compute)
+
+      expect(cache.get).toHaveBeenCalledTimes(2)
+      expect(compute).toHaveBeenCalledTimes(2)
+    })
+  })
 })

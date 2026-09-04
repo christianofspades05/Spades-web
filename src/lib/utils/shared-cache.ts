@@ -22,49 +22,77 @@
  *
  * Phase 1 only: no active invalidation is wired up here — see
  * scoped-products.ts's own comments for what still bounds staleness.
+ *
+ * Single-flight dedup (added after the Phase 1 write-volume audit): a
+ * process-local `Map<string, Promise<T>>` collapses concurrent callers on
+ * the same warm instance requesting the same key into one shared
+ * in-flight operation — mirroring what the old process-local
+ * createPromiseCache got for free by caching the in-flight promise itself.
+ * Runtime Cache has no equivalent of that: without this map, N concurrent
+ * callers racing the same miss window each independently do their own
+ * get/compute/set, multiplying writes by the fan-out factor (the
+ * homepage's 13-way concurrent section load being the clearest case). The
+ * map holds only *pending* operations — entries are removed in `finally`
+ * the instant the leader settles (success or failure), so it never
+ * retains completed results, never grows unbounded, and never becomes a
+ * second TTL cache; a request that arrives after the leader has already
+ * settled starts a fresh operation and goes through Runtime Cache again
+ * like normal.
  */
 import { getCache } from '@vercel/functions'
 
 export function createSharedCache<T>(ttlSeconds: number) {
+  const inFlight = new Map<string, Promise<T>>()
+
   return {
-    async get(
+    get(
       key: string,
       compute: () => Promise<T>,
       options?: { tags?: string[]; isValid?: (value: unknown) => value is T },
     ): Promise<T> {
-      let cache: ReturnType<typeof getCache> | null = null
-      try {
-        cache = getCache()
-      } catch (err) {
-        console.error('Runtime Cache unavailable, falling back to direct compute:', err)
-      }
+      const existing = inFlight.get(key)
+      if (existing) return existing
 
-      if (cache) {
+      const operation = (async (): Promise<T> => {
+        let cache: ReturnType<typeof getCache> | null = null
         try {
-          const cached = await cache.get(key)
-          if (
-            cached !== null &&
-            cached !== undefined &&
-            (!options?.isValid || options.isValid(cached))
-          ) {
-            return cached as T
+          cache = getCache()
+        } catch (err) {
+          console.error('Runtime Cache unavailable, falling back to direct compute:', err)
+        }
+
+        if (cache) {
+          try {
+            const cached = await cache.get(key)
+            if (
+              cached !== null &&
+              cached !== undefined &&
+              (!options?.isValid || options.isValid(cached))
+            ) {
+              return cached as T
+            }
+          } catch (err) {
+            console.error(`Runtime Cache get() failed for key "${key}":`, err)
           }
-        } catch (err) {
-          console.error(`Runtime Cache get() failed for key "${key}":`, err)
         }
-      }
 
-      const fresh = await compute()
+        const fresh = await compute()
 
-      if (cache) {
-        try {
-          await cache.set(key, fresh, { ttl: ttlSeconds, tags: options?.tags })
-        } catch (err) {
-          console.error(`Runtime Cache set() failed for key "${key}":`, err)
+        if (cache) {
+          try {
+            await cache.set(key, fresh, { ttl: ttlSeconds, tags: options?.tags })
+          } catch (err) {
+            console.error(`Runtime Cache set() failed for key "${key}":`, err)
+          }
         }
-      }
 
-      return fresh
+        return fresh
+      })().finally(() => {
+        inFlight.delete(key)
+      })
+
+      inFlight.set(key, operation)
+      return operation
     },
   }
 }
