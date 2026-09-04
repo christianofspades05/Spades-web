@@ -29,6 +29,13 @@ import {
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
 
+const CHANNEL_OPTIONS = [
+  { value: 'storefront', label: 'Online Store' },
+  { value: 'tiktok_shop', label: 'TikTok Shop' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+] as const
+
 const RESTOCK_MIN_AVG_PER_DAY = 5
 const RESTOCK_MAX_CURRENT_STOCK = 30
 const RESTOCK_DAYS_OF_COVER = 45
@@ -43,6 +50,9 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
     from: z.string().optional(),
     to: z.string().optional(),
     brand: z.enum(STOREFRONT_BRANDS).optional(),
+    channel: z
+      .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+      .optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -51,7 +61,9 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
       to: deps.to,
     })
     const [topSellers, velocity] = await Promise.all([
-      getProductProfitBreakdown({ data: { ...resolved, brand: deps.brand } }),
+      getProductProfitBreakdown({
+        data: { ...resolved, brand: deps.brand, channel: deps.channel },
+      }),
       getProductVelocitySignals({ data: { brand: deps.brand } }),
     ])
     return { topSellers, velocity }
@@ -136,26 +148,48 @@ function ProductAnalyticsPage() {
         title="Product Analytics"
         subtitle="Sales velocity, restock decisions, and inventory health by product."
         action={
-          <select
-            value={search.brand ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  brand: (e.target.value || undefined) as
-                    (typeof STOREFRONT_BRANDS)[number] | undefined,
-                }),
-              })
-            }
-            className={inputClassName}
-          >
-            <option value="">All Brands</option>
-            {STOREFRONT_BRANDS.map((b) => (
-              <option key={b} value={b}>
-                {STOREFRONT_BRAND_LABELS[b]}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={search.channel ?? ''}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    channel: (e.target.value || undefined) as
+                      (typeof CHANNEL_OPTIONS)[number]['value'] | undefined,
+                  }),
+                })
+              }
+              className={inputClassName}
+            >
+              <option value="">All Channels</option>
+              {CHANNEL_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={search.brand ?? ''}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    brand: (e.target.value || undefined) as
+                      (typeof STOREFRONT_BRANDS)[number] | undefined,
+                  }),
+                })
+              }
+              className={inputClassName}
+            >
+              <option value="">All Brands</option>
+              {STOREFRONT_BRANDS.map((b) => (
+                <option key={b} value={b}>
+                  {STOREFRONT_BRAND_LABELS[b]}
+                </option>
+              ))}
+            </select>
+          </div>
         }
       />
 

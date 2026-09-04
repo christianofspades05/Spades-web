@@ -28,7 +28,7 @@ import {
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { resolveDiscountForCart } from '#/server/cart/discount'
-import { shippingCostCents } from '#/lib/checkout/shipping'
+import { shippingCostCents, shippingZoneForRegion } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import {
   getLalamoveOrderStatus,
@@ -172,8 +172,51 @@ const listOrdersFilterSchema = z.object({
       'delivered',
     ])
     .optional(),
+  zone: z
+    .enum(['metro_manila', 'luzon', 'visayas', 'mindanao', 'international'])
+    .optional(),
   q: z.string().optional(),
 })
+
+/**
+ * Every order id whose delivery method (see the admin Orders table's own
+ * "Delivery method" column) matches the requested zone — computed the
+ * exact same way that column is rendered (shippingZoneForRegion, plus the
+ * same country-based "International" check), so a filtered result always
+ * matches what staff see displayed. shipping_address is a jsonb snapshot
+ * with no queryable zone column, so this reads id+shipping_address for
+ * every order (two light columns, paginated — same fetch-all-then-filter
+ * pattern as resolveFulfillmentOrderIds above) rather than trying to
+ * express the region-to-zone mapping as a Postgres filter.
+ */
+async function resolveZoneOrderIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  zone: z.infer<typeof listOrdersFilterSchema>['zone'],
+): Promise<{ includeIds?: string[] }> {
+  if (!zone) return {}
+  const rows = await fetchAllRows<{
+    id: string
+    shipping_address: unknown
+  }>((offset) =>
+    admin
+      .from('orders')
+      .select('id, shipping_address')
+      .range(offset, offset + 999),
+  )
+  const matching = rows.filter((row) => {
+    const address = row.shipping_address as
+      | { country?: string; region?: string }
+      | null
+    if (!address) return false
+    const isInternational = Boolean(address.country) && address.country !== 'PH'
+    if (zone === 'international') return isInternational
+    return (
+      !isInternational &&
+      shippingZoneForRegion(address.region ?? '') === zone
+    )
+  })
+  return { includeIds: matching.map((r) => r.id) }
+}
 
 /**
  * Resolves the fulfillment filter, shared by both `listOrders` and
@@ -344,6 +387,12 @@ export const listOrders = createServerFn({ method: 'GET' })
       await resolveFulfillmentOrderIds(admin, data.fulfillment)
     if (includeIds && includeIds.length === 0) return []
 
+    const { includeIds: zoneIncludeIds } = await resolveZoneOrderIds(
+      admin,
+      data.zone,
+    )
+    if (zoneIncludeIds && zoneIncludeIds.length === 0) return []
+
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
@@ -378,6 +427,7 @@ export const listOrders = createServerFn({ method: 'GET' })
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
+      if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }
@@ -462,6 +512,12 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       await resolveFulfillmentOrderIds(admin, data.fulfillment)
     if (includeIds && includeIds.length === 0) return { total: 0 }
 
+    const { includeIds: zoneIncludeIds } = await resolveZoneOrderIds(
+      admin,
+      data.zone,
+    )
+    if (zoneIncludeIds && zoneIncludeIds.length === 0) return { total: 0 }
+
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
@@ -483,6 +539,7 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
+      if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }

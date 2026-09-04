@@ -121,6 +121,14 @@ const ZONE_LABELS: Record<ShippingZone, string> = {
   mindanao: 'Mindanao',
 }
 
+const DELIVERY_METHOD_OPTIONS = [
+  { value: 'metro_manila', label: 'Metro Manila' },
+  { value: 'luzon', label: 'Luzon Provinces' },
+  { value: 'visayas', label: 'Visayas' },
+  { value: 'mindanao', label: 'Mindanao' },
+  { value: 'international', label: 'International' },
+] as const
+
 interface OrderShippingAddress {
   country?: string
   region: string
@@ -144,6 +152,9 @@ export const Route = createFileRoute('/admin/orders/')({
         'delivered',
       ])
       .optional(),
+    zone: z
+      .enum(['metro_manila', 'luzon', 'visayas', 'mindanao', 'international'])
+      .optional(),
     q: z.string().optional(),
     page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
@@ -161,6 +172,7 @@ export const Route = createFileRoute('/admin/orders/')({
       source: deps.source,
       brand: deps.brand,
       fulfillment: deps.fulfillment,
+      zone: deps.zone,
       q: deps.q,
     }
     const overviewPromise: Promise<OrdersOverview> = getOrdersOverview({
@@ -426,6 +438,14 @@ function OrdersPage() {
             options={BRAND_OPTIONS}
             onChange={(brand) =>
               navigate({ search: (prev) => ({ ...prev, brand, page: 1 }) })
+            }
+          />
+          <FilterDropdown
+            label="Delivery Method"
+            value={search.zone}
+            options={DELIVERY_METHOD_OPTIONS}
+            onChange={(zone) =>
+              navigate({ search: (prev) => ({ ...prev, zone, page: 1 }) })
             }
           />
         </div>
