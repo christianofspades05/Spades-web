@@ -10,14 +10,15 @@
  * Source: open.er-api.com — free, keyless, and (unlike ECB-based
  * Frankfurter) covers VND, which the storefront's currency list needs.
  * Confirmed live: `GET https://open.er-api.com/v6/latest/PHP` returns
- * `{ result: "success", rates: { USD, EUR, SGD, HKD, MYR, THB, VND, JPY,
- * MOP, ... } }`.
+ * `{ result: "success", rates: { USD, EUR, GBP, SGD, HKD, MYR, THB, VND,
+ * JPY, MOP, ... } }`.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
 const SUPPORTED_CURRENCIES = [
   'USD',
   'EUR',
+  'GBP',
   'SGD',
   'HKD',
   'MYR',
