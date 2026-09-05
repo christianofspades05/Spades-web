@@ -11,6 +11,7 @@ import type { Currency } from '#/lib/utils/money'
 
 const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   US: 'USD',
+  GB: 'GBP',
   SG: 'SGD',
   MY: 'MYR',
   TH: 'THB',
@@ -20,7 +21,8 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   MO: 'MOP',
   KR: 'KRW',
   TW: 'TWD',
-  // Eurozone
+  // Eurozone (the 20 official members, Croatia included since it adopted
+  // the euro on 2023-01-01 — previously missing here).
   AT: 'EUR',
   BE: 'EUR',
   CY: 'EUR',
@@ -30,6 +32,7 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   FI: 'EUR',
   FR: 'EUR',
   GR: 'EUR',
+  HR: 'EUR',
   IE: 'EUR',
   IT: 'EUR',
   LT: 'EUR',
@@ -40,6 +43,16 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   PT: 'EUR',
   SI: 'EUR',
   SK: 'EUR',
+  // Not Eurozone/EU members, but the euro is their real circulating
+  // currency (by formal monetary agreement for AD/MC/SM/VA, adopted
+  // unilaterally by ME/XK) — a visitor from any of these should still see
+  // EUR pricing, not fall through to PHP.
+  AD: 'EUR',
+  MC: 'EUR',
+  SM: 'EUR',
+  VA: 'EUR',
+  ME: 'EUR',
+  XK: 'EUR',
 }
 
 /**
@@ -74,6 +87,15 @@ export function resolveGeoDefaultCurrency(): Currency | null {
   return COUNTRY_TO_CURRENCY[country] ?? null
 }
 
+/**
+ * LEGACY COMPATIBILITY ENDPOINT — see getMaintenanceMode's identical doc
+ * comment in server/storefront/maintenance.ts. Not called from anywhere
+ * in this codebase anymore; kept only so a stale cached HTML/JS bundle
+ * from before root-loader.ts switched to resolveGeoDefaultCurrency
+ * doesn't hit a hard 404/500 for the few minutes it can still be served.
+ * Revisit deleting once several deployments pass without that error
+ * recurring.
+ */
 export const getGeoDefaultCurrency = createServerFn({ method: 'GET' }).handler(
   (): Currency | null => resolveGeoDefaultCurrency(),
 )
@@ -83,6 +105,10 @@ export const getGeoDefaultCurrency = createServerFn({ method: 'GET' }).handler(
  * best-effort apply a country's product-price markup (see
  * lib/checkout/market-pricing.ts) while browsing, before the visitor has
  * chosen a shipping destination at checkout.
+ *
+ * LEGACY COMPATIBILITY ENDPOINT — same reasoning as getGeoDefaultCurrency
+ * just above (not called anywhere anymore; kept only for stale-bundle
+ * compatibility during a deploy transition).
  */
 export const getGeoCountry = createServerFn({ method: 'GET' }).handler(
   (): string | null => resolveGeoCountry(),
