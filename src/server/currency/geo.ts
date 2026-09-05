@@ -21,10 +21,11 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   MO: 'MOP',
   KR: 'KRW',
   TW: 'TWD',
-  // Eurozone (the 20 official members, Croatia included since it adopted
-  // the euro on 2023-01-01 — previously missing here).
+  // Eurozone (21 members — the 20 prior members plus Bulgaria, which
+  // adopted the euro on 2026-01-01).
   AT: 'EUR',
   BE: 'EUR',
+  BG: 'EUR',
   CY: 'EUR',
   DE: 'EUR',
   EE: 'EUR',
