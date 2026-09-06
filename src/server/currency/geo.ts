@@ -12,6 +12,7 @@ import type { Currency } from '#/lib/utils/money'
 const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   US: 'USD',
   GB: 'GBP',
+  CA: 'CAD',
   SG: 'SGD',
   MY: 'MYR',
   TH: 'THB',
