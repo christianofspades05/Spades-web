@@ -148,6 +148,15 @@ export const placeOrder = createServerFn({ method: 'POST' })
       if (isLalamove && data.paymentProvider === 'cod') {
         throw new Error('Lalamove delivery requires online payment.')
       }
+      // Lalamove is a same-day courier pickup — there's no real stock to
+      // hand a rider until the pre-order arrives (see receivePreOrderStock),
+      // same reasoning as pre-order never mixing with regular in-stock
+      // items in one order.
+      if (isLalamove && hasPreOrderItems) {
+        throw new Error(
+          'Lalamove delivery is not available for pre-order items, since there is no stock yet to hand a rider. Please choose a different delivery method.',
+        )
+      }
       if (
         isLalamove &&
         !isLalamoveEligible({

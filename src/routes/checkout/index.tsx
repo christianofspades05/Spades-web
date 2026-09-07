@@ -199,15 +199,22 @@ function CheckoutPage() {
     region: info.region,
   })
   const lalamoveAvailableToday = isLalamoveAvailableToday()
-  const lalamoveEligible = lalamoveRegionEligible && lalamoveAvailableToday
+  // Lalamove is a same-day courier pickup — there's no real stock to hand a
+  // rider until a pre-order item actually arrives, same reasoning as
+  // pre-order never mixing with regular in-stock items in one order (see
+  // place-order.ts's matching server-side check, which is authoritative).
+  const cartHasPreOrderItems =
+    cart?.items.some((item) => item.variant.is_pre_order) ?? false
+  const lalamoveEligible =
+    lalamoveRegionEligible && lalamoveAvailableToday && !cartHasPreOrderItems
 
   // If the region changes away from Metro Manila (or the window closes —
-  // Sunday, or Saturday from 4PM onwards) while Lalamove is selected, fall
-  // back to standard rather than
-  // letting the customer proceed with a no-longer-valid choice — place-order
-  // would reject it anyway, but this catches it before they even try. Placed
-  // before the early returns below (with every other hook in this
-  // component) — hooks can't be called conditionally.
+  // Sunday, or Saturday from 4PM onwards — or the cart turns out to hold a
+  // pre-order item) while Lalamove is selected, fall back to standard
+  // rather than letting the customer proceed with a no-longer-valid choice
+  // — place-order would reject it anyway, but this catches it before they
+  // even try. Placed before the early returns below (with every other hook
+  // in this component) — hooks can't be called conditionally.
   useEffect(() => {
     if (info.shippingMethod === 'lalamove' && !lalamoveEligible) {
       setInfo({ ...info, shippingMethod: 'standard' })
@@ -548,7 +555,7 @@ function CheckoutPage() {
 
                 <label
                   className={`flex items-center justify-between gap-3 rounded-md border-2 px-4 py-3 text-sm ${
-                    !lalamoveAvailableToday
+                    !lalamoveAvailableToday || cartHasPreOrderItems
                       ? 'cursor-not-allowed border-neutral-200 opacity-50 dark:border-neutral-800'
                       : info.shippingMethod === 'lalamove'
                         ? 'cursor-pointer border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
@@ -559,7 +566,7 @@ function CheckoutPage() {
                     <input
                       type="radio"
                       name="shippingMethod"
-                      disabled={!lalamoveAvailableToday}
+                      disabled={!lalamoveAvailableToday || cartHasPreOrderItems}
                       checked={info.shippingMethod === 'lalamove'}
                       onChange={() =>
                         setInfo({ ...info, shippingMethod: 'lalamove' })
@@ -567,11 +574,17 @@ function CheckoutPage() {
                     />
                     <span className="font-medium text-neutral-900 dark:text-white">
                       Lalamove Same-day Delivery (10AM–4PM, Metro Manila only)
-                      {!lalamoveAvailableToday && (
+                      {cartHasPreOrderItems ? (
                         <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
-                          Not available Saturday from 4PM onwards, or on
-                          Sundays.
+                          Not available for pre-order items.
                         </span>
+                      ) : (
+                        !lalamoveAvailableToday && (
+                          <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                            Not available Saturday from 4PM onwards, or on
+                            Sundays.
+                          </span>
+                        )
                       )}
                     </span>
                   </span>
