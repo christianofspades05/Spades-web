@@ -245,7 +245,7 @@ function PreOrderTableRow({
           {variantLabel(row)}
           {row.sku && <div className="text-xs text-neutral-400">{row.sku}</div>}
         </td>
-        <td className={tableCellClassName}>{row.quantityOnHand}</td>
+        <td className={tableCellClassName}>{row.quantityAvailable}</td>
         <td className={tableCellClassName}>
           <div className="flex items-center gap-2">
             <input

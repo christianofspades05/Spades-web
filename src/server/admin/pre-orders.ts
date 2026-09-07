@@ -30,10 +30,16 @@ export interface PreOrderVariantRow {
   preOrderReserved: number
   preOrderAvailable: number
   preOrderArrivalNote: string | null
-  /** Real stock on hand — shown for context so staff can see at a glance
-   *  whether a variant genuinely has zero real stock (the usual reason to
-   *  enable pre-order) without switching to the Inventory page. */
-  quantityOnHand: number
+  /** Real, currently-sellable stock — quantity_available (on-hand minus
+   *  reserved), the same figure the Inventory page's own "Available"
+   *  column shows. Shown for context so staff can see at a glance whether
+   *  a variant genuinely has zero real stock (the usual reason to enable
+   *  pre-order) without switching to the Inventory page. Deliberately not
+   *  quantity_on_hand — a variant can show on-hand stock that's entirely
+   *  spoken for by existing orders' reservations, which would make "Real
+   *  Stock" here disagree with what staff see on Inventory for the same
+   *  variant. */
+  quantityAvailable: number
   productId: string
   productName: string
   productSlug: string
@@ -51,7 +57,7 @@ export const listPreOrderVariants = createServerFn({ method: 'GET' })
     let query = admin
       .from('product_variants')
       .select(
-        'id, sku, size, color, style, is_active, is_pre_order, pre_order_quantity, pre_order_reserved, pre_order_available, pre_order_arrival_note, inventory(quantity_on_hand), product:products(id, name, slug, images)',
+        'id, sku, size, color, style, is_active, is_pre_order, pre_order_quantity, pre_order_reserved, pre_order_available, pre_order_arrival_note, inventory(quantity_available), product:products(id, name, slug, images)',
       )
       .order('sku', { ascending: true })
 
@@ -89,8 +95,8 @@ export const listPreOrderVariants = createServerFn({ method: 'GET' })
       preOrderReserved: v.pre_order_reserved,
       preOrderAvailable: v.pre_order_available,
       preOrderArrivalNote: v.pre_order_arrival_note,
-      quantityOnHand: v.inventory.reduce(
-        (sum, inv) => sum + inv.quantity_on_hand,
+      quantityAvailable: v.inventory.reduce(
+        (sum, inv) => sum + inv.quantity_available,
         0,
       ),
       productId: v.product.id,
