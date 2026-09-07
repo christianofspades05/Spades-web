@@ -14,7 +14,6 @@ import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import {
   buttonPrimaryClassName,
-  buttonSecondaryClassName,
   inputClassName,
   tableCellClassName,
   tableHeadClassName,
@@ -149,32 +148,35 @@ function PreOrderTableRow({
     isPreOrder !== row.isPreOrder ||
     arrivalNote !== (row.preOrderArrivalNote ?? '')
   const quantityDirty = quantity !== row.preOrderQuantity
+  const dirty = settingsDirty || quantityDirty
 
-  async function handleSaveSettings() {
+  /** One Save button covers all three editable fields (pre-order checkbox,
+   *  arrival note, upcoming qty) — settings and quantity are still two
+   *  separate server calls (different tables/RPCs), but only the ones that
+   *  actually changed fire, and staff only ever see a single button. */
+  async function handleSave() {
     setSaving(true)
     setError(null)
     try {
-      await setPreOrderEnabled({
-        data: { variantId: row.variantId, isPreOrder, arrivalNote },
-      })
-      onSaved()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleSaveQuantity() {
-    setSaving(true)
-    setError(null)
-    try {
-      await adjustPreOrderQuantity({
-        data: {
-          variantId: row.variantId,
-          quantityDelta: quantity - row.preOrderQuantity,
-        },
-      })
+      const calls: Promise<unknown>[] = []
+      if (settingsDirty) {
+        calls.push(
+          setPreOrderEnabled({
+            data: { variantId: row.variantId, isPreOrder, arrivalNote },
+          }),
+        )
+      }
+      if (quantityDirty) {
+        calls.push(
+          adjustPreOrderQuantity({
+            data: {
+              variantId: row.variantId,
+              quantityDelta: quantity - row.preOrderQuantity,
+            },
+          }),
+        )
+      }
+      await Promise.all(calls)
       onSaved()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -253,10 +255,10 @@ function PreOrderTableRow({
               checked={isPreOrder}
               onChange={(e) => setIsPreOrder(e.target.checked)}
             />
-            {settingsDirty && (
+            {dirty && (
               <button
                 type="button"
-                onClick={handleSaveSettings}
+                onClick={handleSave}
                 disabled={saving}
                 className={`${buttonPrimaryClassName} px-2 py-1 text-xs`}
               >
@@ -266,25 +268,14 @@ function PreOrderTableRow({
           </div>
         </td>
         <td className={tableCellClassName}>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-              className={`${inputClassName} w-20`}
-            />
-            {quantityDirty && (
-              <button
-                type="button"
-                onClick={handleSaveQuantity}
-                disabled={saving}
-                className={`${buttonPrimaryClassName} px-2 py-1 text-xs`}
-              >
-                Save
-              </button>
-            )}
-          </div>
+          <input
+            type="number"
+            min="0"
+            value={quantity}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+            onFocus={(e) => e.target.select()}
+            className={`${inputClassName} w-20`}
+          />
         </td>
         <td className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}>
           {row.preOrderReserved} / {row.preOrderAvailable}
@@ -305,16 +296,6 @@ function PreOrderTableRow({
             placeholder="e.g. Expected early October"
             className={`${inputClassName} w-48`}
           />
-          {settingsDirty && (
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              disabled={saving}
-              className={`${buttonSecondaryClassName} mt-1 px-2 py-1 text-xs`}
-            >
-              Save note
-            </button>
-          )}
         </td>
         <td className={tableCellClassName}>
           <div className="flex items-center gap-1">

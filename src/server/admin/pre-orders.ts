@@ -13,6 +13,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { compareSizes } from '#/lib/utils/size-order'
 import { logStaffActivity } from './activity-log'
 import type { StaffRole } from '#/types/entities'
 
@@ -59,7 +60,6 @@ export const listPreOrderVariants = createServerFn({ method: 'GET' })
       .select(
         'id, sku, size, color, style, is_active, is_pre_order, pre_order_quantity, pre_order_reserved, pre_order_available, pre_order_arrival_note, inventory(quantity_available), product:products(id, name, slug, images)',
       )
-      .order('sku', { ascending: true })
 
     if (data.onlyEnabled) {
       query = query.eq('is_pre_order', true)
@@ -83,7 +83,17 @@ export const listPreOrderVariants = createServerFn({ method: 'GET' })
     const { data: variants, error } = await query
     if (error) throw error
 
-    return variants.map((v) => ({
+    // Grouped by product, then S/M/L/XL/2XL/... within each product — the
+    // raw fetch order (SKU) put same-product variants in an arbitrary
+    // sequence (e.g. XL, M, 2XL, L, 3XL, S), which read as unsorted to
+    // staff scanning a single product's rows after a search.
+    const sorted = [...variants].sort((a, b) => {
+      const productCompare = a.product.name.localeCompare(b.product.name)
+      if (productCompare !== 0) return productCompare
+      return compareSizes(a.size ?? '', b.size ?? '')
+    })
+
+    return sorted.map((v) => ({
       variantId: v.id,
       sku: v.sku,
       size: v.size,

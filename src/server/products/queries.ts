@@ -146,10 +146,20 @@ function getActiveProductsForBrand(
   return promise
 }
 
+// Pre-order availability counts as real, sellable stock here — a variant
+// flagged is_pre_order sells regardless of real inventory (see
+// VariantSelector.tsx's own comment on this), so a product with zero real
+// stock but pre-order availability is genuinely purchasable and must not
+// be treated as "out of stock" by hide_out_of_stock_products or an
+// inventory-based auto-match rule (Clearance Sale, Jersey, Blanks, Long
+// Sleeve) — confirmed live: a zero-real-stock pre-order product was
+// silently disappearing from any collection gating on this.
 function inventoryStockOf(product: ProductWithStock): number {
   return product.variants.reduce(
     (sum, v) =>
-      sum + v.inventory.reduce((s, inv) => s + inv.quantity_available, 0),
+      sum +
+      v.inventory.reduce((s, inv) => s + inv.quantity_available, 0) +
+      (v.is_pre_order ? v.pre_order_available : 0),
     0,
   )
 }
