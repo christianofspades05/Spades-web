@@ -495,9 +495,14 @@ function AdminPage() {
                       {SOURCE_LABELS[c.source]}
                     </span>
                   </div>
-                  <p className="text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.netSalesCents)}
-                  </p>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-neutral-900">
+                      {formatCentsAsPHP(c.netSalesCents)}
+                    </p>
+                    <p className="text-xs text-neutral-500">
+                      {c.orderCount} {c.orderCount === 1 ? 'order' : 'orders'}
+                    </p>
+                  </div>
                 </div>
               ))}
               {salesByChannel.channels.length === 0 && (
