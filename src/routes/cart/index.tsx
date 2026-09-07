@@ -173,9 +173,15 @@ function CartPage() {
                     </p>
                   )}
                   {item.variant.is_pre_order && (
-                    <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
-                      Pre-Order
-                    </span>
+                    <>
+                      <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
+                        Pre-Order
+                      </span>
+                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                        {item.variant.pre_order_arrival_note ||
+                          'Ships within 10 days'}
+                      </p>
+                    </>
                   )}
                   {discountedUnits > 0 && (
                     <p className="text-xs font-medium text-green-700 dark:text-green-400">

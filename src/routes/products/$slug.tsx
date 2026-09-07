@@ -373,7 +373,7 @@ function ProductPage() {
               <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
                 This is a pre-order —{' '}
                 {selectedVariant?.pre_order_arrival_note ||
-                  'ships once stock arrives'}
+                  'ships within 10 days'}
                 . Can't be checked out with regular in-stock items, and Cash
                 on Delivery isn't available for it.
               </p>
