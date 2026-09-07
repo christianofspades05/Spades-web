@@ -31,6 +31,8 @@ export interface OrderCardData {
   total_cents: number
   is_cod: boolean
   source: OrderSource
+  has_pre_order_items: boolean
+  pre_order_ready_at: string | null
   customer: { full_name: string | null; email: string }
   payments: { status: string; created_at: string }[]
   shipments: { status: string }[]
@@ -102,8 +104,24 @@ export function OrderCard({
           >
             <input type="checkbox" checked={checked} onChange={onToggle} />
             <div>
-              <p className="font-medium text-neutral-900">
+              <p className="flex items-center gap-1.5 font-medium text-neutral-900">
                 {order.order_number}
+                {order.has_pre_order_items && (
+                  <span
+                    title={
+                      order.pre_order_ready_at
+                        ? 'Pre-order — stock arrived, ready to fulfill'
+                        : 'Pre-order — waiting on stock'
+                    }
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      order.pre_order_ready_at
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    Pre-Order
+                  </span>
+                )}
               </p>
               <p className="text-xs text-neutral-500">
                 {new Date(order.placed_at).toLocaleDateString('en-US', {
