@@ -533,6 +533,14 @@ function ProfitPage() {
                     {formatCentsAsPHP(c.costOfGoodsCents)}
                   </p>
                 </div>
+                {c.platformFeesCents > 0 && (
+                  <div>
+                    <p className="text-xs text-neutral-500">Platform Fees</p>
+                    <p className="mt-1 text-sm font-semibold text-neutral-900">
+                      {formatCentsAsPHP(c.platformFeesCents)}
+                    </p>
+                  </div>
+                )}
               </div>
             </Card>
           )
@@ -703,6 +711,9 @@ function OrderProfitSection({
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>Cost</th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      Platform Fees
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       Shipping
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
@@ -782,6 +793,11 @@ function OrderProfitSection({
                         </td>
                         <td className={`${tableCellClassName} text-right`}>
                           {formatCentsAsPHP(order.costCents)}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
+                          {order.platformFeesCents > 0
+                            ? formatCentsAsPHP(order.platformFeesCents)
+                            : '—'}
                         </td>
                         <td className={`${tableCellClassName} text-right`}>
                           {formatCentsAsPHP(order.shippingCents)}

@@ -59,6 +59,12 @@ export interface ChannelSales {
   discountCents: number
   netSalesCents: number
   costOfGoodsCents: number
+  /** Marketplace commission/service/transaction fees + withholding tax Shopee/
+   *  TikTok Shop deduct from the payout (orders.platform_fees_cents, captured
+   *  from each platform's own escrow/order-income API at sync time — see
+   *  sync-engine.ts). Always 0 for storefront/admin orders, which have no
+   *  such fee. */
+  platformFeesCents: number
   netProfitCents: number
   marginPct: number | null
   orderCount: number
@@ -68,6 +74,7 @@ export interface ProfitDailyPoint {
   date: string
   grossSalesCents: number
   costOfGoodsCents: number
+  platformFeesCents: number
   netProfitCents: number
   marginPct: number | null
 }
@@ -78,6 +85,7 @@ export interface SalesByChannelResult {
   totals: {
     grossSalesCents: number
     costOfGoodsCents: number
+    platformFeesCents: number
     netProfitCents: number
     marginPct: number | null
     orderCount: number
@@ -88,6 +96,7 @@ export interface SalesByChannelResult {
     totals: {
       grossSalesCents: number
       costOfGoodsCents: number
+      platformFeesCents: number
       netProfitCents: number
       marginPct: number | null
       orderCount: number
@@ -121,7 +130,7 @@ async function computeChannelSales(
     let orderQuery = admin
       .from('orders')
       .select(
-        'id, source, subtotal_cents, discount_cents, shipping_cents, status, placed_at',
+        'id, source, subtotal_cents, discount_cents, shipping_cents, platform_fees_cents, status, placed_at',
       )
       .gte('placed_at', rangeStart)
       .lte('placed_at', rangeEnd)
@@ -219,6 +228,7 @@ async function computeChannelSales(
       discountCents: number
       refundCents: number
       costOfGoodsCents: number
+      platformFeesCents: number
       orderCount: number
     }
   >()
@@ -228,12 +238,14 @@ async function computeChannelSales(
       discountCents: 0,
       refundCents: 0,
       costOfGoodsCents: 0,
+      platformFeesCents: 0,
       orderCount: 0,
     }
     bucket.grossSalesCents += grossSalesCentsForOrder(order)
     bucket.discountCents += order.discount_cents
     bucket.refundCents += refundByOrderId.get(order.id) ?? 0
     bucket.costOfGoodsCents += cogsByOrderId.get(order.id) ?? 0
+    bucket.platformFeesCents += order.platform_fees_cents
     bucket.orderCount += 1
     bySource.set(order.source, bucket)
   }
@@ -241,13 +253,15 @@ async function computeChannelSales(
   const channels: ChannelSales[] = Array.from(bySource.entries())
     .map(([source, b]) => {
       const netSalesCents = b.grossSalesCents - b.discountCents - b.refundCents
-      const netProfitCents = netSalesCents - b.costOfGoodsCents
+      const netProfitCents =
+        netSalesCents - b.costOfGoodsCents - b.platformFeesCents
       return {
         source,
         grossSalesCents: b.grossSalesCents,
         discountCents: b.discountCents,
         netSalesCents,
         costOfGoodsCents: b.costOfGoodsCents,
+        platformFeesCents: b.platformFeesCents,
         netProfitCents,
         marginPct:
           b.grossSalesCents > 0
@@ -264,6 +278,7 @@ async function computeChannelSales(
       discountCents: sum.discountCents + c.discountCents,
       netSalesCents: sum.netSalesCents + c.netSalesCents,
       costOfGoodsCents: sum.costOfGoodsCents + c.costOfGoodsCents,
+      platformFeesCents: sum.platformFeesCents + c.platformFeesCents,
       netProfitCents: sum.netProfitCents + c.netProfitCents,
       orderCount: sum.orderCount + c.orderCount,
     }),
@@ -272,6 +287,7 @@ async function computeChannelSales(
       discountCents: 0,
       netSalesCents: 0,
       costOfGoodsCents: 0,
+      platformFeesCents: 0,
       netProfitCents: 0,
       orderCount: 0,
     },
@@ -282,6 +298,7 @@ async function computeChannelSales(
     discountCents: totalsRaw.discountCents,
     netSalesCents: totalsRaw.netSalesCents,
     costOfGoodsCents: totalsRaw.costOfGoodsCents,
+    platformFeesCents: totalsRaw.platformFeesCents,
     netProfitCents: totalsRaw.netProfitCents,
     marginPct:
       totalsRaw.grossSalesCents > 0
@@ -299,6 +316,7 @@ async function computeChannelSales(
       discountCents: number
       refundCents: number
       costOfGoodsCents: number
+      platformFeesCents: number
     }
   >()
   for (
@@ -311,6 +329,7 @@ async function computeChannelSales(
       discountCents: 0,
       refundCents: 0,
       costOfGoodsCents: 0,
+      platformFeesCents: 0,
     })
   }
   for (const order of liveOrders) {
@@ -321,15 +340,21 @@ async function computeChannelSales(
     bucket.discountCents += order.discount_cents
     bucket.refundCents += refundByOrderId.get(order.id) ?? 0
     bucket.costOfGoodsCents += cogsByOrderId.get(order.id) ?? 0
+    bucket.platformFeesCents += order.platform_fees_cents
   }
   const daily: ProfitDailyPoint[] = Array.from(dailyMap.entries()).map(
     ([date, b]) => {
       const netProfitCents =
-        b.grossSalesCents - b.discountCents - b.refundCents - b.costOfGoodsCents
+        b.grossSalesCents -
+        b.discountCents -
+        b.refundCents -
+        b.costOfGoodsCents -
+        b.platformFeesCents
       return {
         date,
         grossSalesCents: b.grossSalesCents,
         costOfGoodsCents: b.costOfGoodsCents,
+        platformFeesCents: b.platformFeesCents,
         netProfitCents,
         marginPct:
           b.grossSalesCents > 0
@@ -1162,6 +1187,13 @@ export interface ProductProfitRow {
   imageUrl: string | null
   unitsSold: number
   grossSalesCents: number
+  /** This product's share of marketplace platform fees across every order
+   *  it appeared in. Shopee/TikTok charge fees per order, not per line item,
+   *  so an order's platform_fees_cents is split across its items by each
+   *  item's share of that order's line_total_cents — a product bought
+   *  alongside expensive items in one order absorbs proportionally more of
+   *  that order's fee than one bought alongside cheap items. */
+  platformFeesCents: number
   netProfitCents: number
   marginPct: number | null
   srpCents: number | null
@@ -1205,7 +1237,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     const orders = await fetchAllRows((offset) => {
       let query = admin
         .from('orders')
-        .select('id, status')
+        .select('id, status, platform_fees_cents')
         .gte('placed_at', rangeStart)
         .lte('placed_at', rangeEnd)
         .range(offset, offset + 999)
@@ -1213,13 +1245,15 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       if (data.brand) query = query.eq('brand', data.brand)
       return query
     })
-    const liveOrderIds = orders
-      .filter((o) => !VOID_STATUSES.has(o.status))
-      .map((o) => o.id)
+    const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+    const liveOrderIds = liveOrders.map((o) => o.id)
     if (liveOrderIds.length === 0) {
       productProfitCache.set(cacheKey, [])
       return []
     }
+    const platformFeesByOrderId = new Map(
+      liveOrders.map((o) => [o.id, o.platform_fees_cents]),
+    )
 
     const itemChunks = await Promise.all(
       chunkArray(liveOrderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
@@ -1227,7 +1261,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
           admin
             .from('order_items')
             .select(
-              'variant_id, product_name_snapshot, quantity, line_total_cents',
+              'order_id, variant_id, product_name_snapshot, quantity, line_total_cents',
             )
             .in('order_id', ids)
             .range(offset, offset + 999),
@@ -1235,6 +1269,25 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       ),
     )
     const items = itemChunks.flat()
+
+    // An order's platform fee is split across its own items by each item's
+    // share of that order's total line_total_cents — computed once per
+    // order up front so every item lookup below is just a division, not a
+    // re-scan of the order's other items.
+    const orderLineTotalById = new Map<string, number>()
+    for (const item of items) {
+      orderLineTotalById.set(
+        item.order_id,
+        (orderLineTotalById.get(item.order_id) ?? 0) + item.line_total_cents,
+      )
+    }
+    function platformFeeShareForItem(item: (typeof items)[number]): number {
+      const orderFeeCents = platformFeesByOrderId.get(item.order_id) ?? 0
+      if (orderFeeCents === 0) return 0
+      const orderLineTotal = orderLineTotalById.get(item.order_id) ?? 0
+      if (orderLineTotal <= 0) return 0
+      return orderFeeCents * (item.line_total_cents / orderLineTotal)
+    }
 
     const variantIds = Array.from(
       new Set(
@@ -1362,6 +1415,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       unitsSold: number
       grossSalesCents: number
       costOfGoodsCents: number
+      platformFeesCents: number
       srpCents: number | null
       costCents: number | null
     }
@@ -1400,6 +1454,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         unitsSold: 0,
         grossSalesCents: 0,
         costOfGoodsCents: 0,
+        platformFeesCents: 0,
         srpCents: variant?.price_cents ?? fallbackSrpCents,
         costCents:
           variant?.cost_cents ?? (productId ? fallbackCostCents : null),
@@ -1408,18 +1463,22 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       bucket.grossSalesCents += item.line_total_cents
       bucket.costOfGoodsCents +=
         (variant?.cost_cents ?? fallbackCostCents) * item.quantity
+      bucket.platformFeesCents += platformFeeShareForItem(item)
       buckets.set(key, bucket)
     }
 
     const result = Array.from(buckets.values())
       .map((b) => {
-        const netProfitCents = b.grossSalesCents - b.costOfGoodsCents
+        const platformFeesCents = Math.round(b.platformFeesCents)
+        const netProfitCents =
+          b.grossSalesCents - b.costOfGoodsCents - platformFeesCents
         return {
           productId: b.productId,
           productName: b.name,
           imageUrl: b.imageUrl,
           unitsSold: b.unitsSold,
           grossSalesCents: b.grossSalesCents,
+          platformFeesCents,
           netProfitCents,
           marginPct:
             b.grossSalesCents > 0
@@ -1675,6 +1734,10 @@ export interface OrderProfitRow {
   discountCents: number
   netSalesCents: number
   costCents: number
+  /** Marketplace commission/service/transaction fees + withholding tax for a
+   *  Shopee/TikTok Shop order (orders.platform_fees_cents) — 0 for
+   *  storefront/admin orders. */
+  platformFeesCents: number
   shippingCents: number
   refundCents: number
   profitCents: number
@@ -1720,7 +1783,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
     let query = admin
       .from('orders')
       .select(
-        'id, order_number, customer_id, placed_at, status, source, subtotal_cents, discount_cents, shipping_cents',
+        'id, order_number, customer_id, placed_at, status, source, subtotal_cents, discount_cents, shipping_cents, platform_fees_cents',
         { count: 'exact' },
       )
       .gte('placed_at', rangeStart)
@@ -1834,6 +1897,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
           discountCents: 0,
           netSalesCents: 0,
           costCents: 0,
+          platformFeesCents: 0,
           shippingCents: order.shipping_cents,
           refundCents,
           profitCents: 0,
@@ -1845,7 +1909,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       const grossSalesCents = grossSalesCentsForOrder(order)
       const netSalesCents = grossSalesCents - order.discount_cents - refundCents
       const costCents = cogsByOrderId.get(order.id) ?? 0
-      const profitCents = netSalesCents - costCents
+      const profitCents = netSalesCents - costCents - order.platform_fees_cents
 
       return {
         id: order.id,
@@ -1858,6 +1922,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         discountCents: order.discount_cents,
         netSalesCents,
         costCents,
+        platformFeesCents: order.platform_fees_cents,
         shippingCents: order.shipping_cents,
         refundCents,
         profitCents,
