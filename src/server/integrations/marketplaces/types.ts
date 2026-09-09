@@ -227,8 +227,8 @@ export interface MarketplaceAdapter {
   /** Sets a variant's live selling price on the platform — used to mirror
    *  an active storefront sale (see sync-engine.ts's pushPriceForAllProducts).
    *  Optional: only implemented where a platform's API actually supports a
-   *  direct price update (Shopee, so far — TikTok/Lazada don't have one
-   *  wired up yet). */
+   *  direct price update (Shopee and TikTok Shop, so far — Lazada doesn't
+   *  have one wired up yet). */
   updatePrice?: (
     connection: MarketplaceConnection,
     externalProductId: string,

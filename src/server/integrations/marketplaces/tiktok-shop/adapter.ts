@@ -372,6 +372,43 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     })
   },
 
+  /**
+   * Mirrors pushInventory's endpoint/body shape exactly — TikTok's Update
+   * Price endpoint (`/product/202309/products/{id}/prices/update`) takes the
+   * same `skus: [{ id, ... }]` shape as inventory/update, just with a
+   * `price` object instead of `inventory`. The `{ amount, currency }` shape
+   * itself is not a guess — it's the exact one createProduct above already
+   * sends successfully for a brand-new sku's initial price. Unverified
+   * against this specific *update* endpoint's live behavior, though (no
+   * TikTok seller has exercised this one yet) — treat a rejection here the
+   * same way createProduct's own attribute-shape errors were debugged
+   * previously: adjust against whatever field TikTok's error names next.
+   */
+  async updatePrice(
+    connection: MarketplaceConnection,
+    externalProductId: string,
+    externalVariantId: string,
+    priceCents: number,
+  ) {
+    if (!connection.access_token_encrypted) {
+      throw new Error('TikTok Shop connection has no access token.')
+    }
+    await callTikTokApi({
+      method: 'POST',
+      path: `/product/202309/products/${externalProductId}/prices/update`,
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.shop_cipher ?? undefined,
+      body: {
+        skus: [
+          {
+            id: externalVariantId,
+            price: { amount: (priceCents / 100).toFixed(2), currency: 'PHP' },
+          },
+        ],
+      },
+    })
+  },
+
   async pullOrders(connection: MarketplaceConnection, since: Date) {
     if (!connection.access_token_encrypted) {
       throw new Error('TikTok Shop connection has no access token.')
