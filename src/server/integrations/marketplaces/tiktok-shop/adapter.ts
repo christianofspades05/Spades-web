@@ -393,6 +393,13 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     if (!connection.access_token_encrypted) {
       throw new Error('TikTok Shop connection has no access token.')
     }
+    // Rounded to the nearest whole peso before sending — a markup like
+    // +10% on an arbitrary base price otherwise lands on a centavo amount
+    // (e.g. 745.19) that reads as raw exchange-rate-style math rather than
+    // a deliberately set price. Only affects what TikTok actually shows;
+    // the exact, unrounded priceCents is still used everywhere else
+    // (discount math, other marketplaces, the storefront's own price).
+    const roundedMajorPesos = Math.round(priceCents / 100)
     await callTikTokApi({
       method: 'POST',
       path: `/product/202309/products/${externalProductId}/prices/update`,
@@ -402,7 +409,10 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
         skus: [
           {
             id: externalVariantId,
-            price: { amount: (priceCents / 100).toFixed(2), currency: 'PHP' },
+            price: {
+              amount: roundedMajorPesos.toFixed(2),
+              currency: 'PHP',
+            },
           },
         ],
       },
