@@ -306,10 +306,20 @@ export const placeOrder = createServerFn({ method: 'POST' })
       )
 
       const email = data.contact.email.trim().toLowerCase()
+      // customers_email_key enforces uniqueness on lower(email), not the raw
+      // column — a plain .eq() misses an existing customer whose email
+      // happens to be stored with different casing (e.g. from an older
+      // order, or a marketplace-synced customer), which would otherwise
+      // send this down the insert branch below straight into that
+      // case-insensitive unique constraint and fail the whole checkout for
+      // a real, paying customer. ilike (with % / _ escaped, so this stays
+      // an exact match) mirrors lower(email)'s actual semantics — see
+      // sync-engine.ts's identical fix for the same bug on the marketplace
+      // order-import side.
       const { data: existingCustomer, error: customerLookupError } = await admin
         .from('customers')
         .select('id')
-        .eq('email', email)
+        .ilike('email', email.replace(/[%_]/g, '\\$&'))
         .maybeSingle()
       if (customerLookupError) throw customerLookupError
 

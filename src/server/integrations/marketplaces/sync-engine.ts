@@ -761,11 +761,25 @@ async function importOrder(
 
   const email = normalized.shippingAddress.email.trim().toLowerCase() || null
   let customerId: string
+  // customers_email_key enforces uniqueness on lower(email), but a plain
+  // .eq('email', email) compares against the raw column case-sensitively —
+  // a customer whose email happened to get stored with different casing
+  // (e.g. a masked marketplace relay address imported before this
+  // .toLowerCase() normalization was consistently applied everywhere) is
+  // then invisible to this lookup, so every later order from that same
+  // buyer hits the insert branch below and fails on the case-insensitive
+  // unique constraint — forever, since the lookup never finds it to update
+  // instead. Confirmed live: one TikTok order silently failed this way on
+  // every sync run for 12+ days straight. ilike with escaped wildcard
+  // characters matches lower(email)'s actual case-insensitive semantics
+  // without a custom RPC; email addresses essentially never contain % or _,
+  // but the escape keeps this an exact match rather than a pattern search
+  // even if one did.
   const { data: existingCustomer, error: customerLookupError } = email
     ? await admin
         .from('customers')
         .select('id')
-        .eq('email', email)
+        .ilike('email', email.replace(/[%_]/g, '\\$&'))
         .maybeSingle()
     : { data: null, error: null }
   if (customerLookupError) throw customerLookupError
