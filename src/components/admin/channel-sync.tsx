@@ -67,6 +67,24 @@ export const OAUTH_CONNECT_PATHS: Partial<Record<MarketplaceName, string>> = {
   shopee: '/api/oauth/shopee/connect',
 }
 
+// Every marketplace whose adapter implements updatePrice — kept in sync
+// with types.ts's MarketplaceAdapter.updatePrice doc comment. Duplicated
+// here (rather than imported) because sync-engine.ts pulls in every
+// adapter's Node-only client code, which breaks this client-bundled route
+// (see implemented.ts's own comment on the same constraint).
+const PRICE_SYNC_MARKETPLACES = new Set<MarketplaceName>([
+  'shopee',
+  'tiktok_shop',
+])
+
+// Only Shopee mirrors an active storefront sale on top of its markup —
+// mirrors sync-engine.ts's MARKETPLACES_WITH_SALE_MIRRORING exactly. TikTok
+// Shop is deliberately excluded: staff manage its promotions directly
+// inside TikTok Seller Center, so this app's own sales must never stack on
+// top of that (confirmed live: a TikTok order was discounted by both at
+// once before this was fixed).
+const SALE_MIRRORING_MARKETPLACES = new Set<MarketplaceName>(['shopee'])
+
 export const MARKETPLACE_LABELS: Record<MarketplaceName, string> = {
   tiktok_shop: 'TikTok Shop',
   shopee: 'Shopee',
@@ -256,10 +274,10 @@ export function ConnectionCard({
         </label>
       )}
 
-      {/* Price sync (updatePrice) is only implemented for Shopee so far —
-          see MarketplaceAdapter.updatePrice's doc comment. */}
+      {/* Price sync (updatePrice) is only implemented for Shopee and TikTok
+          Shop so far — see MarketplaceAdapter.updatePrice's doc comment. */}
       {(status === 'active' || status === 'expired') &&
-        info.marketplace === 'shopee' && (
+        PRICE_SYNC_MARKETPLACES.has(info.marketplace) && (
           <div className="mt-3">
             <label className="flex items-center gap-2 text-xs text-neutral-600">
               <span>Price markup %</span>
@@ -283,8 +301,10 @@ export function ConnectionCard({
               )}
             </label>
             <p className="mt-0.5 text-xs text-neutral-400">
-              How much higher Shopee's regular price sits above the
-              website's — e.g. 10 means Shopee lists 10% above the website.
+              How much higher {MARKETPLACE_LABELS[info.marketplace]}'s
+              regular price sits above the website's — e.g. 10 means{' '}
+              {MARKETPLACE_LABELS[info.marketplace]} lists 10% above the
+              website.
             </p>
 
             <label className="mt-2 flex items-start gap-2 text-xs text-neutral-600">
@@ -296,13 +316,30 @@ export function ConnectionCard({
                 className="mt-0.5"
               />
               <span>
-                Automatically sync sale prices to this channel
+                {SALE_MIRRORING_MARKETPLACES.has(info.marketplace)
+                  ? 'Automatically sync sale prices to this channel'
+                  : 'Automatically sync price to this channel'}
                 {!priceSyncEnabled && (
                   <span className="block text-neutral-400">
-                    Off by default — Shopee's price = website price + markup
-                    above, discounted the same % as the website whenever a
-                    sale is active. Turning this on immediately pushes the
-                    current price for every connected product.
+                    {SALE_MIRRORING_MARKETPLACES.has(info.marketplace) ? (
+                      <>
+                        Off by default — {MARKETPLACE_LABELS[info.marketplace]}
+                        's price = website price + markup above, discounted
+                        the same % as the website whenever a sale is active.
+                        Turning this on immediately pushes the current price
+                        for every connected product.
+                      </>
+                    ) : (
+                      <>
+                        Off by default — {MARKETPLACE_LABELS[info.marketplace]}
+                        's price = website price + markup above only.
+                        Storefront sales are never mirrored here — manage{' '}
+                        {MARKETPLACE_LABELS[info.marketplace]}'s own
+                        promotions directly in its seller center. Turning
+                        this on immediately pushes the current price for
+                        every connected product.
+                      </>
+                    )}
                   </span>
                 )}
               </span>

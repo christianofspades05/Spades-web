@@ -156,9 +156,19 @@ interface TikTokOrder {
      *  against a live order's raw response (see mapOrderToInternalFormat). */
     original_total_product_price?: string
     /** Seller-funded discount only, distinct from platform_discount (TikTok's
-     *  own promo budget) — confirmed live: sub_total ==
-     *  original_total_product_price - seller_discount - platform_discount. */
+     *  own promo budget). */
     seller_discount?: string
+    /** TikTok's *total* platform-funded discount — the combined sum of the
+     *  item-level "TikTok Shop discount on items" and any separate
+     *  payment-level "Payment platform discount" (itself broken out
+     *  elsewhere as payment_platform_discount), never seller-funded money.
+     *  Confirmed live on order 585994243001517935 (2026-09-10):
+     *  original_total_product_price(745) - seller_discount(111.75) -
+     *  platform_discount(375.99) + shipping_fee(0, already post-discount)
+     *  == total_amount(257.26) exactly — so this is what to subtract
+     *  alongside seller_discount to reconcile the order's real total, even
+     *  though (per NormalizedOrder.platformDiscountCents) it must never be
+     *  netted into our own profit/net-sales numbers, only displayed. */
     platform_discount?: string
   }
   status?: string
@@ -539,6 +549,9 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
     const shippingCents = centsFromAmountString(order.payment?.shipping_fee)
     const totalCents = centsFromAmountString(order.payment?.total_amount)
     const discountCents = centsFromAmountString(order.payment?.seller_discount)
+    const platformDiscountCents = centsFromAmountString(
+      order.payment?.platform_discount,
+    )
     // Prefer the pre-discount item total TikTok reports directly; fall back
     // to reconstructing it from sub_total (which is already net of both
     // discounts) if a shop's payload is ever missing the field.
@@ -546,7 +559,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       centsFromAmountString(order.payment?.original_total_product_price) ||
       centsFromAmountString(order.payment?.sub_total) +
         discountCents +
-        centsFromAmountString(order.payment?.platform_discount)
+        platformDiscountCents
     const fulfillmentStatus = order.status
       ? TIKTOK_STATUS_TO_FULFILLMENT.get(order.status)
       : undefined
@@ -558,6 +571,7 @@ export const tiktokShopAdapter: MarketplaceAdapter = {
       items,
       subtotalCents,
       discountCents,
+      platformDiscountCents,
       shippingCents,
       totalCents,
       isPaid: PAID_STATUSES.has(order.status ?? ''),
