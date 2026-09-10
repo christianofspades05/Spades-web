@@ -400,11 +400,25 @@ async function pushOnePriceMapping(
 }
 
 /**
+ * Marketplaces whose price sync should mirror an active storefront sale on
+ * top of the connection's markup. TikTok Shop is deliberately excluded —
+ * staff manage TikTok's own promotions directly inside TikTok Seller
+ * Center, so pushing our own sale price there on top would stack two
+ * separate discounts on the same order (confirmed live: a TikTok order
+ * showed both a mirrored storefront-sale gap *and* its own real
+ * payment.seller_discount, reducing the price twice for one sale). Add a
+ * marketplace here only when staff have confirmed they want this app's own
+ * sales, not that marketplace's native promo tools, to control its price.
+ */
+const MARKETPLACES_WITH_SALE_MIRRORING = new Set<MarketplaceName>(['shopee'])
+
+/**
  * Re-prices every mapping for a marketplace to whatever it should currently
  * show: the connection's marked-up regular price (price_cents inflated by
  * price_markup_percent — e.g. Shopee lists 10% above the website), further
- * discounted by whatever active storefront sale applies, or just the
- * marked-up regular price if none does. Discounts are read fresh (bypassing
+ * discounted by whatever active storefront sale applies (only for
+ * marketplaces in MARKETPLACES_WITH_SALE_MIRRORING above), or just the
+ * marked-up regular price otherwise. Discounts are read fresh (bypassing
  * getActiveAutomaticDiscounts' 15s cache) since this can run synchronously
  * right after an admin discount save and must reflect it immediately.
  * Mirrors pushInventoryForAllProducts exactly, including the concurrency
@@ -427,15 +441,17 @@ async function repriceOneMapping(
   const markedUpPriceCents = Math.round(
     variant.price_cents * (1 + connection.price_markup_percent / 100),
   )
-  const sales = await resolveSalePrices(admin, activeDiscounts, [
-    {
-      id: mapping.variant_id,
-      productId: variant.product_id,
-      priceCents: markedUpPriceCents,
-    },
-  ])
-  const priceCents =
-    sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+  let priceCents = markedUpPriceCents
+  if (MARKETPLACES_WITH_SALE_MIRRORING.has(connection.marketplace)) {
+    const sales = await resolveSalePrices(admin, activeDiscounts, [
+      {
+        id: mapping.variant_id,
+        productId: variant.product_id,
+        priceCents: markedUpPriceCents,
+      },
+    ])
+    priceCents = sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+  }
 
   await pushOnePriceMapping(connection, mapping, priceCents, options)
 }

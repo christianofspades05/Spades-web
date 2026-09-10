@@ -376,20 +376,28 @@ function OrderDetailPage() {
                               order.marketplacePriceMarkupPercent,
                             )
                             const markupDeltaCents = markedUp - orpCents
-                            // A positive gap between the marked-up price and
-                            // what was actually charged is the active
-                            // storefront sale being mirrored to the
-                            // marketplace (see sync-engine.ts's
-                            // pushPriceForAllProducts) — surfaced as its own
-                            // line so ORP + markup - discount reconciles to
-                            // the actual selling price. A negative/zero gap
-                            // (the catalog price moved since this order, no
-                            // sale involved) has nothing meaningful to
-                            // subtract, so no discount line is shown for it.
-                            const sellerDiscountCents = Math.max(
-                              0,
-                              markedUp - item.unit_price_cents,
-                            )
+                            // The REAL seller discount, straight from the
+                            // marketplace's own order data (order.discount_cents
+                            // — TikTok's payment.seller_discount / Shopee's
+                            // income.seller_discount, set by staff directly in
+                            // that marketplace's own seller dashboard), shared
+                            // across this order's items by revenue weight. NOT
+                            // a comparison of this item's marked-up price
+                            // against what was charged — that gap is just
+                            // catalog drift (this connection's markup % or the
+                            // variant's price_cents can change after the order
+                            // was placed) and has nothing to do with any real
+                            // discount, so showing it as one used to double-
+                            // count against this same real discount already
+                            // shown in Order Total below.
+                            const sellerDiscountCents =
+                              order.discount_cents > 0 && order.subtotal_cents > 0
+                                ? Math.round(
+                                    (order.discount_cents *
+                                      item.line_subtotal_cents) /
+                                      order.subtotal_cents,
+                                  )
+                                : 0
                             return { orpCents, markedUp, markupDeltaCents, sellerDiscountCents }
                           })()
                         : null
