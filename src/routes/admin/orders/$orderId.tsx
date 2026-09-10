@@ -430,11 +430,14 @@ function OrderDetailPage() {
                         </div>
 
                         {priceBreakdown && (
-                          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                          <details
+                            className="rounded-lg border border-neutral-200 bg-neutral-50"
+                            open={order.order_items.length === 1}
+                          >
+                            <summary className="cursor-pointer select-none p-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
                               Price Breakdown
-                            </p>
-                            <div className="flex flex-col gap-1 text-xs">
+                            </summary>
+                            <div className="flex flex-col gap-1 px-3 pb-3 text-xs">
                               <div className="flex justify-between text-neutral-600">
                                 <span>Original Retail Price</span>
                                 <span>
@@ -471,7 +474,7 @@ function OrderDetailPage() {
                                 </span>
                               </div>
                             </div>
-                          </div>
+                          </details>
                         )}
                       </li>
                     )
