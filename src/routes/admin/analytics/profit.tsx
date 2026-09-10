@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -38,7 +38,8 @@ import {
   STOREFRONT_BRAND_LABELS,
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
-import type { OrderSource } from '#/types/entities'
+import type { OrderSource, OrderStatus } from '#/types/entities'
+import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 
 const SOURCE_LABELS: Record<OrderSource, string> = {
   storefront: 'Online Store',
@@ -69,6 +70,20 @@ export const Route = createFileRoute('/admin/analytics/profit')({
     brand: z.enum(STOREFRONT_BRANDS).optional(),
     compare: z.boolean().catch(false),
     orderPage: z.number().int().min(1).catch(1),
+    orderSearch: z.string().optional(),
+    orderStatus: z
+      .enum([
+        'pending_payment',
+        'paid',
+        'processing',
+        'packed',
+        'shipped',
+        'delivered',
+        'cancelled',
+        'refunded',
+        'failed',
+      ])
+      .optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -93,6 +108,8 @@ export const Route = createFileRoute('/admin/analytics/profit')({
           ...resolved,
           channel: deps.channel,
           brand: deps.brand,
+          status: deps.orderStatus,
+          search: deps.orderSearch,
           page: deps.orderPage,
           pageSize: ORDER_PROFIT_PAGE_SIZE,
         },
@@ -557,9 +574,37 @@ function ProfitPage() {
         onPageChange={(page) =>
           navigate({ search: (prev) => ({ ...prev, orderPage: page }) })
         }
+        searchTerm={search.orderSearch ?? ''}
+        onSearchChange={(orderSearch) =>
+          navigate({
+            search: (prev) => ({
+              ...prev,
+              orderSearch: orderSearch || undefined,
+              orderPage: 1,
+            }),
+          })
+        }
+        status={search.orderStatus}
+        onStatusChange={(orderStatus) =>
+          navigate({
+            search: (prev) => ({ ...prev, orderStatus, orderPage: 1 }),
+          })
+        }
       />
     </div>
   )
+}
+
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  pending_payment: 'Pending payment',
+  paid: 'Paid',
+  processing: 'Processing',
+  packed: 'Packed',
+  shipped: 'Shipped',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+  failed: 'Failed',
 }
 
 function OrderProfitSection({
@@ -567,6 +612,10 @@ function OrderProfitSection({
   page,
   pageSize,
   onPageChange,
+  searchTerm,
+  onSearchChange,
+  status,
+  onStatusChange,
 }: {
   result: {
     orders: OrderProfitRow[]
@@ -576,6 +625,10 @@ function OrderProfitSection({
   page: number
   pageSize: number
   onPageChange: (page: number) => void
+  searchTerm: string
+  onSearchChange: (search: string) => void
+  status: OrderStatus | undefined
+  onStatusChange: (status: OrderStatus | undefined) => void
 }) {
   const totalPages = Math.max(1, Math.ceil(result.total / pageSize))
   const rangeStartIndex = result.total === 0 ? 0 : (page - 1) * pageSize + 1
@@ -583,6 +636,16 @@ function OrderProfitSection({
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(
     new Set(),
   )
+  const [searchInput, setSearchInput] = useState(searchTerm)
+  const debouncedSearchInput = useDebouncedValue(searchInput, 400)
+  useEffect(() => {
+    if (debouncedSearchInput !== searchTerm) {
+      onSearchChange(debouncedSearchInput)
+    }
+    // Deliberately depends on debouncedSearchInput only — searchTerm and
+    // onSearchChange both change as a result of this same effect firing
+    // (a URL navigation), so including them would just re-run it in a loop.
+  }, [debouncedSearchInput])
   const toggleExpanded = (orderId: string) => {
     setExpandedOrderIds((prev) => {
       const next = new Set(prev)
@@ -597,9 +660,36 @@ function OrderProfitSection({
 
   return (
     <div className="mt-8">
-      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-        Store Orders and Their Profit
-      </h2>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+          Store Orders and Their Profit
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search order # or customer…"
+            className={`${inputClassName} w-56`}
+          />
+          <select
+            value={status ?? ''}
+            onChange={(e) =>
+              onStatusChange((e.target.value || undefined) as
+                | OrderStatus
+                | undefined)
+            }
+            className={inputClassName}
+          >
+            <option value="">All Statuses</option>
+            {(Object.keys(ORDER_STATUS_LABELS) as OrderStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {ORDER_STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
       <p className="mb-4 text-xs text-neutral-500">
         {result.total} {result.total === 1 ? 'order' : 'orders'} in this range
       </p>
@@ -989,7 +1079,7 @@ function OrderProfitSection({
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-neutral-300 bg-neutral-100 text-sm font-semibold text-neutral-900">
+                  <tr className="border-t-2 border-neutral-300 bg-neutral-100 text-xs font-semibold text-neutral-900">
                     <td className={tableCellClassName} colSpan={4}>
                       Totals ({result.total}{' '}
                       {result.total === 1 ? 'order' : 'orders'})

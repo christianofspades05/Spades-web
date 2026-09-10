@@ -1767,6 +1767,33 @@ export interface OrderProfitListResult {
 }
 
 /**
+ * Builds the `.or()` filter string for matching an order by order_number or
+ * its customer's name/email — PostgREST's or= syntax treats `,`/`(`/`)` as
+ * structural, so those are stripped from the raw term (order numbers and
+ * names essentially never contain them) and `%`/`_` are escaped so the
+ * ilike stays an exact substring match rather than a pattern search.
+ */
+async function orderSearchFilter(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  rawSearchTerm: string,
+): Promise<string> {
+  const term = rawSearchTerm.replace(/[,()]/g, '').trim()
+  const escaped = term.replace(/[%_]/g, '\\$&')
+  const filters = [`order_number.ilike.%${escaped}%`]
+  if (term) {
+    const { data: matchingCustomers } = await admin
+      .from('customers')
+      .select('id')
+      .or(`full_name.ilike.%${escaped}%,email.ilike.%${escaped}%`)
+    const customerIds = (matchingCustomers ?? []).map((c) => c.id)
+    if (customerIds.length > 0) {
+      filters.push(`customer_id.in.(${customerIds.join(',')})`)
+    }
+  }
+  return filters.join(',')
+}
+
+/**
  * Sums the same figures as one OrderProfitRow, but across every order
  * matching the filters — not just one page. Mirrors getOrderProfitList's own
  * per-order math exactly, just accumulated rather than kept per-row. Fetches
@@ -1781,8 +1808,14 @@ async function computeOrderProfitTotals(
     rangeEnd: string
     channel?: OrderSource
     brand?: string
+    status?: OrderStatus
+    search?: string
   },
 ): Promise<OrderProfitListTotals> {
+  const searchOrFilter = filters.search
+    ? await orderSearchFilter(admin, filters.search)
+    : null
+
   const orders = await fetchAllRows((offset) => {
     let q = admin
       .from('orders')
@@ -1794,6 +1827,8 @@ async function computeOrderProfitTotals(
       .range(offset, offset + 999)
     if (filters.channel) q = q.eq('source', filters.channel)
     if (filters.brand) q = q.eq('brand', filters.brand)
+    if (filters.status) q = q.eq('status', filters.status)
+    if (searchOrFilter) q = q.or(searchOrFilter)
     return q
   })
 
@@ -1939,6 +1974,23 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
       brand: z.string().optional(),
+      status: z
+        .enum([
+          'pending_payment',
+          'paid',
+          'processing',
+          'packed',
+          'shipped',
+          'delivered',
+          'cancelled',
+          'refunded',
+          'failed',
+        ])
+        .optional(),
+      /** Matches order_number or the customer's name/email — same
+       *  ilike-with-escaped-wildcards pattern as every other search box in
+       *  admin, so a literal % or _ in someone's name stays an exact match. */
+      search: z.string().optional(),
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(1).max(100).default(25),
     }),
@@ -1951,6 +2003,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       data.from,
       data.to,
     )
+    const searchTerm = data.search?.trim() || undefined
 
     let query = admin
       .from('orders')
@@ -1963,6 +2016,10 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       .order('placed_at', { ascending: false })
     if (data.channel) query = query.eq('source', data.channel)
     if (data.brand) query = query.eq('brand', data.brand)
+    if (data.status) query = query.eq('status', data.status)
+    if (searchTerm) {
+      query = query.or(await orderSearchFilter(admin, searchTerm))
+    }
 
     const offset = (data.page - 1) * data.pageSize
     query = query.range(offset, offset + data.pageSize - 1)
@@ -1975,6 +2032,8 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       rangeEnd,
       channel: data.channel,
       brand: data.brand,
+      status: data.status,
+      search: searchTerm,
     })
 
     if (orders.length === 0) return { orders: [], total: count ?? 0, totals }
