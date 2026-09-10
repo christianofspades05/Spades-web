@@ -7,7 +7,10 @@ import {
   getProductProfitBreakdown,
   getSalesByChannel,
 } from '#/server/admin/analytics'
-import type { OrderProfitRow } from '#/server/admin/analytics'
+import type {
+  OrderProfitListTotals,
+  OrderProfitRow,
+} from '#/server/admin/analytics'
 import { StatusBadge } from '#/components/admin/Badge'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
@@ -565,7 +568,11 @@ function OrderProfitSection({
   pageSize,
   onPageChange,
 }: {
-  result: { orders: OrderProfitRow[]; total: number }
+  result: {
+    orders: OrderProfitRow[]
+    total: number
+    totals: OrderProfitListTotals
+  }
   page: number
   pageSize: number
   onPageChange: (page: number) => void
@@ -707,6 +714,9 @@ function OrderProfitSection({
                       Gross Sales
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      Seller's Discount
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       Net Sales
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>Cost</th>
@@ -789,6 +799,11 @@ function OrderProfitSection({
                           {formatCentsAsPHP(order.grossSalesCents)}
                         </td>
                         <td className={`${tableCellClassName} text-right`}>
+                          {order.discountCents > 0
+                            ? `-${formatCentsAsPHP(order.discountCents)}`
+                            : '—'}
+                        </td>
+                        <td className={`${tableCellClassName} text-right`}>
                           {formatCentsAsPHP(order.netSalesCents)}
                         </td>
                         <td className={`${tableCellClassName} text-right`}>
@@ -823,48 +838,205 @@ function OrderProfitSection({
                         </td>
                       </tr>
                       {expandedOrderIds.has(order.id) &&
+                        order.items.length > 0 &&
+                        order.items.map((item, index) => {
+                          const itemMarginPct =
+                            item.lineTotalCents > 0
+                              ? (item.profitCents / item.lineTotalCents) * 100
+                              : null
+                          return (
+                            <tr
+                              key={index}
+                              className="bg-neutral-50 text-xs text-neutral-500"
+                            >
+                              <td
+                                className={`${tableCellClassName} truncate py-1.5`}
+                                colSpan={4}
+                              >
+                                <span className="pl-5">
+                                  {item.quantity}× {item.productName}
+                                  {item.variantLabel && (
+                                    <span className="text-neutral-400">
+                                      {' '}
+                                      · {item.variantLabel}
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                {formatCentsAsPHP(item.lineTotalCents)}
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                —
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                —
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                {formatCentsAsPHP(item.costCents)}
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                —
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                —
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                —
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right font-medium ${
+                                  item.profitCents >= 0
+                                    ? 'text-emerald-600'
+                                    : 'text-red-600'
+                                }`}
+                              >
+                                {formatCentsAsPHP(item.profitCents)}
+                              </td>
+                              <td
+                                className={`${tableCellClassName} py-1.5 text-right`}
+                              >
+                                {itemMarginPct !== null
+                                  ? `${itemMarginPct.toFixed(1)}%`
+                                  : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      {expandedOrderIds.has(order.id) &&
                         order.items.length > 0 && (
-                          <tr className="border-b border-neutral-100 bg-neutral-50">
-                            <td colSpan={11} className="px-4 py-3">
-                              <table className="w-full">
-                                <tbody>
-                                  {order.items.map((item, index) => (
-                                    <tr key={index} className="text-xs">
-                                      <td className="py-1 pr-4 text-neutral-700">
-                                        {item.quantity}× {item.productName}
-                                        {item.variantLabel && (
-                                          <span className="text-neutral-400">
-                                            {' '}
-                                            · {item.variantLabel}
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td className="py-1 pr-4 text-right text-neutral-500">
-                                        {formatCentsAsPHP(item.lineTotalCents)}
-                                      </td>
-                                      <td className="py-1 pr-4 text-right text-neutral-500">
-                                        cost {formatCentsAsPHP(item.costCents)}
-                                      </td>
-                                      <td
-                                        className={`py-1 text-right font-medium ${
-                                          item.profitCents >= 0
-                                            ? 'text-emerald-600'
-                                            : 'text-red-600'
-                                        }`}
-                                      >
-                                        {formatCentsAsPHP(item.profitCents)}{' '}
-                                        profit
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                          <tr className="border-b border-neutral-200 bg-neutral-50 text-xs font-semibold text-neutral-700">
+                            <td
+                              className={`${tableCellClassName} py-1.5`}
+                              colSpan={4}
+                            >
+                              <span className="pl-5">Order Total</span>
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {formatCentsAsPHP(order.grossSalesCents)}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {order.discountCents > 0
+                                ? `-${formatCentsAsPHP(order.discountCents)}`
+                                : '—'}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {formatCentsAsPHP(order.netSalesCents)}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {formatCentsAsPHP(order.costCents)}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {order.platformFeesCents > 0
+                                ? formatCentsAsPHP(order.platformFeesCents)
+                                : '—'}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {formatCentsAsPHP(order.shippingCents)}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {order.refundCents > 0
+                                ? formatCentsAsPHP(order.refundCents)
+                                : '—'}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right ${
+                                order.profitCents >= 0
+                                  ? 'text-emerald-600'
+                                  : 'text-red-600'
+                              }`}
+                            >
+                              {formatCentsAsPHP(order.profitCents)}
+                            </td>
+                            <td
+                              className={`${tableCellClassName} py-1.5 text-right`}
+                            >
+                              {order.marginPct !== null
+                                ? `${order.marginPct.toFixed(1)}%`
+                                : '—'}
                             </td>
                           </tr>
                         )}
                     </Fragment>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-neutral-300 bg-neutral-100 text-sm font-semibold text-neutral-900">
+                    <td className={tableCellClassName} colSpan={4}>
+                      Totals ({result.total}{' '}
+                      {result.total === 1 ? 'order' : 'orders'})
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(result.totals.grossSalesCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {result.totals.discountCents > 0
+                        ? `-${formatCentsAsPHP(result.totals.discountCents)}`
+                        : '—'}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(result.totals.netSalesCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(result.totals.costCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {result.totals.platformFeesCents > 0
+                        ? formatCentsAsPHP(result.totals.platformFeesCents)
+                        : '—'}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(result.totals.shippingCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {result.totals.refundCents > 0
+                        ? formatCentsAsPHP(result.totals.refundCents)
+                        : '—'}
+                    </td>
+                    <td
+                      className={`${tableCellClassName} text-right ${
+                        result.totals.profitCents >= 0
+                          ? 'text-emerald-600'
+                          : 'text-red-600'
+                      }`}
+                    >
+                      {formatCentsAsPHP(result.totals.profitCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {result.totals.marginPct !== null
+                        ? `${result.totals.marginPct.toFixed(1)}%`
+                        : '—'}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>

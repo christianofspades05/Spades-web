@@ -1745,9 +1745,181 @@ export interface OrderProfitRow {
   items: OrderProfitItemRow[]
 }
 
+export interface OrderProfitListTotals {
+  grossSalesCents: number
+  discountCents: number
+  netSalesCents: number
+  costCents: number
+  platformFeesCents: number
+  shippingCents: number
+  refundCents: number
+  profitCents: number
+  marginPct: number | null
+}
+
 export interface OrderProfitListResult {
   orders: OrderProfitRow[]
   total: number
+  /** Summed across every order matching the filters/date range — not just
+   *  the current page — so the table's totals row reflects the whole
+   *  report, not only the 25 rows on screen. */
+  totals: OrderProfitListTotals
+}
+
+/**
+ * Sums the same figures as one OrderProfitRow, but across every order
+ * matching the filters — not just one page. Mirrors getOrderProfitList's own
+ * per-order math exactly, just accumulated rather than kept per-row. Fetches
+ * every matching order/item/return via fetchAllRows since a report's full
+ * date range can run into the thousands, well past PostgREST's 1000-row
+ * default cap.
+ */
+async function computeOrderProfitTotals(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  filters: {
+    rangeStart: string
+    rangeEnd: string
+    channel?: OrderSource
+    brand?: string
+  },
+): Promise<OrderProfitListTotals> {
+  const orders = await fetchAllRows((offset) => {
+    let q = admin
+      .from('orders')
+      .select(
+        'id, status, source, subtotal_cents, discount_cents, shipping_cents, platform_fees_cents',
+      )
+      .gte('placed_at', filters.rangeStart)
+      .lte('placed_at', filters.rangeEnd)
+      .range(offset, offset + 999)
+    if (filters.channel) q = q.eq('source', filters.channel)
+    if (filters.brand) q = q.eq('brand', filters.brand)
+    return q
+  })
+
+  if (orders.length === 0) {
+    return {
+      grossSalesCents: 0,
+      discountCents: 0,
+      netSalesCents: 0,
+      costCents: 0,
+      platformFeesCents: 0,
+      shippingCents: 0,
+      refundCents: 0,
+      profitCents: 0,
+      marginPct: null,
+    }
+  }
+
+  const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+  const orderIds = liveOrders.map((o) => o.id)
+
+  const [itemRows, returnRows] = await Promise.all([
+    orderIds.length > 0
+      ? Promise.all(
+          chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+            fetchAllRows((offset) =>
+              admin
+                .from('order_items')
+                .select('order_id, variant_id, quantity, line_total_cents')
+                .in('order_id', ids)
+                .range(offset, offset + 999),
+            ),
+          ),
+        ).then((chunks) => chunks.flat())
+      : Promise.resolve([]),
+    orderIds.length > 0
+      ? Promise.all(
+          chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+            fetchAllRows((offset) =>
+              admin
+                .from('returns')
+                .select('order_id, refund_amount_cents')
+                .eq('status', 'refunded')
+                .in('order_id', ids)
+                .range(offset, offset + 999),
+            ),
+          ),
+        ).then((chunks) => chunks.flat())
+      : Promise.resolve([]),
+  ])
+
+  const refundByOrderId = new Map<string, number>()
+  for (const ret of returnRows) {
+    refundByOrderId.set(
+      ret.order_id,
+      (refundByOrderId.get(ret.order_id) ?? 0) + (ret.refund_amount_cents ?? 0),
+    )
+  }
+
+  const variantIds = Array.from(
+    new Set(
+      itemRows.map((i) => i.variant_id).filter((v): v is string => v !== null),
+    ),
+  )
+  const variants =
+    variantIds.length > 0
+      ? await Promise.all(
+          chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+            fetchAllRows((offset) =>
+              admin
+                .from('product_variants')
+                .select('id, cost_cents')
+                .in('id', ids)
+                .range(offset, offset + 999),
+            ),
+          ),
+        ).then((chunks) => chunks.flat())
+      : []
+  const costByVariantId = new Map(variants.map((v) => [v.id, v.cost_cents]))
+
+  const cogsByOrderId = new Map<string, number>()
+  for (const item of itemRows) {
+    const cost = item.variant_id
+      ? (costByVariantId.get(item.variant_id) ?? 0) * item.quantity
+      : 0
+    cogsByOrderId.set(
+      item.order_id,
+      (cogsByOrderId.get(item.order_id) ?? 0) + cost,
+    )
+  }
+
+  let grossSalesCents = 0
+  let discountCents = 0
+  let costCents = 0
+  let platformFeesCents = 0
+  let shippingCents = 0
+  let refundCents = 0
+
+  for (const order of liveOrders) {
+    grossSalesCents += grossSalesCentsForOrder(order)
+    discountCents += order.discount_cents
+    costCents += cogsByOrderId.get(order.id) ?? 0
+    platformFeesCents += order.platform_fees_cents
+    shippingCents += order.shipping_cents
+    refundCents += refundByOrderId.get(order.id) ?? 0
+  }
+  // Voided orders still carry a shipping_cents value on the row (never
+  // charged, but not worth a special case to zero out) — matches
+  // OrderProfitRow's own per-order voided-order shape above.
+  for (const order of orders) {
+    if (VOID_STATUSES.has(order.status)) shippingCents += order.shipping_cents
+  }
+
+  const netSalesCents = grossSalesCents - discountCents - refundCents
+  const profitCents = netSalesCents - costCents - platformFeesCents
+
+  return {
+    grossSalesCents,
+    discountCents,
+    netSalesCents,
+    costCents,
+    platformFeesCents,
+    shippingCents,
+    refundCents,
+    profitCents,
+    marginPct: grossSalesCents > 0 ? (profitCents / grossSalesCents) * 100 : null,
+  }
 }
 
 /**
@@ -1797,7 +1969,15 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
 
     const { data: orders, count, error } = await query
     if (error) throw error
-    if (orders.length === 0) return { orders: [], total: count ?? 0 }
+
+    const totals = await computeOrderProfitTotals(admin, {
+      rangeStart,
+      rangeEnd,
+      channel: data.channel,
+      brand: data.brand,
+    })
+
+    if (orders.length === 0) return { orders: [], total: count ?? 0, totals }
 
     const orderIds = orders.map((o) => o.id)
     const customerIds = Array.from(new Set(orders.map((o) => o.customer_id)))
@@ -1932,7 +2112,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       }
     })
 
-    return { orders: rows, total: count ?? 0 }
+    return { orders: rows, total: count ?? 0, totals }
   })
 
 export interface LocationSalesRow {
