@@ -110,6 +110,14 @@ export interface OrderWithDetails extends Order {
      *  the variant itself has since been deleted from the catalog
      *  (order_items.variant_id is ON DELETE SET NULL). */
     product_id: string | null
+    /** The variant's *current* catalog price (product_variants.price_cents)
+     *  — not a snapshot of what it was when this order was placed. Used by
+     *  the order-detail page as the "original retail price" (ORP) a
+     *  marketplace order's markup is computed from — see
+     *  marketplacePriceMarkupPercent's doc comment below for why this is
+     *  deliberately the live price rather than a reverse-engineered one.
+     *  Null when the variant has since been deleted from the catalog. */
+    current_price_cents: number | null
   })[]
   payments: Payment[]
   shipments: Shipment[]
@@ -123,11 +131,42 @@ export interface OrderWithDetails extends Order {
    *  customers table's own counter columns — nothing currently keeps those
    *  maintained (see the same note in listCustomers below). */
   customerStats: { ordersCount: number; failedDeliveryCount: number }
+  /** The marketplace connection's *current* price_markup_percent, when this
+   *  order's source is a synced marketplace (shopee/tiktok_shop) — lets the
+   *  order-detail page show each item's original retail price (ORP) and
+   *  what the markup computes to on top of it. Null for storefront/admin
+   *  orders, or if the connection's markup has since been removed.
+   *
+   *  Deliberately paired with each item's *current* product_variants.price_cents
+   *  (order_items.current_price_cents) rather than reverse-engineering an
+   *  "implied ORP" from unit_price_cents (the actual charged price) — the
+   *  charged price can reflect an active storefront sale layered on top of
+   *  the markup (see sync-engine.ts's pushPriceForAllProducts), and
+   *  dividing that back out by markup alone silently ignores the sale,
+   *  producing a number that doesn't match the real catalog price at all.
+   *  Confirmed live: a same-day Shopee order (SPD-10889, 15% markup) shows
+   *  unit_price_cents ₱779 while the variant's real base price is ₱797 —
+   *  reversing 779/1.15 gives a wrong "ORP" of ₱677, when a 15% storefront
+   *  sale active that same day (797 × 1.15 × 0.85 ≈ 779) fully explains the
+   *  gap instead. Showing the real current base price + forward markup may
+   *  therefore not equal what a marketplace buyer was actually charged
+   *  whenever a sale was active or the price has since changed — that's
+   *  expected and visible by comparing against unit_price_cents above it,
+   *  not a bug in this number. */
+  marketplacePriceMarkupPercent: number | null
 }
 
 interface VariantProductInfo {
   imageUrl: string | null
   productId: string
+  /** The variant's *current* catalog price — not a snapshot of what it was
+   *  when this order was placed (order_items only snapshots unit_price_cents,
+   *  the actual charged price). Used by the order-detail page to show a
+   *  marketplace order's "original retail price" alongside its markup —
+   *  see OrderWithDetails.marketplacePriceMarkupPercent's doc comment for
+   *  why this can't be reconstructed from the charged price alone (an
+   *  active sale at charge time makes that reverse math wrong). */
+  priceCents: number
 }
 
 /**
@@ -145,7 +184,7 @@ async function getVariantProductInfo(
 
   const { data, error } = await admin
     .from('product_variants')
-    .select('id, product_id, product:products(images)')
+    .select('id, product_id, price_cents, product:products(images)')
     .in('id', variantIds)
   if (error) throw error
 
@@ -153,6 +192,7 @@ async function getVariantProductInfo(
     map.set(row.id, {
       imageUrl: row.product.images[0] ?? null,
       productId: row.product_id,
+      priceCents: row.price_cents,
     })
   }
   return map
@@ -748,6 +788,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
       { data: customerOrders, error: customerOrdersError },
       { data: returns, error: returnsError },
       discount,
+      marketplacePriceMarkupPercent,
     ] = await Promise.all([
       getVariantProductInfo(admin, variantIds),
       admin
@@ -769,6 +810,14 @@ export const getOrderById = createServerFn({ method: 'GET' })
             .maybeSingle()
             .then((r) => r.data)
         : Promise.resolve(null),
+      order.source === 'shopee' || order.source === 'tiktok_shop'
+        ? admin
+            .from('marketplace_connections')
+            .select('price_markup_percent')
+            .eq('marketplace', order.source)
+            .maybeSingle()
+            .then((r) => r.data?.price_markup_percent ?? null)
+        : Promise.resolve(null),
     ])
     if (customerOrdersError) throw customerOrdersError
     if (returnsError) throw returnsError
@@ -788,6 +837,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
           ...item,
           image_url: info?.imageUrl ?? null,
           product_id: info?.productId ?? null,
+          current_price_cents: info?.priceCents ?? null,
         }
       }),
       returns,
@@ -796,6 +846,7 @@ export const getOrderById = createServerFn({ method: 'GET' })
         ordersCount: customerOrders.length,
         failedDeliveryCount,
       },
+      marketplacePriceMarkupPercent,
     }
   })
 

@@ -6,7 +6,13 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ShieldCheck,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react'
 import {
   cancelOrder,
   getAdjacentOrderIds,
@@ -132,6 +138,19 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
 ]
 
 const CARRIER_OPTIONS = ['J&T', 'SPX', 'DHL']
+
+/** The marketplace's regular (non-sale) selling price for this item: the
+ *  variant's real current base price marked up by the connection's price
+ *  markup % — see OrderWithDetails.marketplacePriceMarkupPercent's doc
+ *  comment for why this is computed forward from the real catalog price
+ *  rather than reverse-engineered from what was actually charged (an
+ *  active sale at charge time makes that reverse math wrong). */
+function markedUpPriceCents(
+  basePriceCents: number,
+  markupPercent: number,
+): number {
+  return Math.round(basePriceCents * (1 + markupPercent / 100))
+}
 
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
@@ -346,112 +365,278 @@ function OrderDetailPage() {
             ) : (
               <div className={isCancelled ? 'line-through decoration-2' : ''}>
                 <ul className="flex flex-col divide-y divide-neutral-100">
-                  {order.order_items.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-center gap-3 py-3 text-sm"
-                    >
-                      {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt=""
-                          className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 object-cover"
-                        />
-                      ) : (
-                        <div className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 bg-neutral-50" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-neutral-900 underline decoration-neutral-300 underline-offset-2 md:no-underline">
-                          {item.product_name_snapshot}
-                        </p>
-                        {item.variant_label_snapshot && (
-                          <p className="text-neutral-500">
-                            {item.variant_label_snapshot}
-                          </p>
-                        )}
-                        <p className="text-neutral-500">
-                          {item.quantity} ×{' '}
-                          {formatCentsAsPHP(item.unit_price_cents)}
-                        </p>
-                      </div>
-                      <p className="font-medium text-neutral-900">
-                        {formatCentsAsPHP(item.line_total_cents)}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
-                  <div className="flex justify-between text-neutral-500">
-                    <span>Subtotal</span>
-                    <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
-                  </div>
-                  {order.market_markup_percent != null && (
-                    <div className="flex justify-between text-neutral-500">
-                      <span>
-                        Market markup (+{order.market_markup_percent}%)
-                      </span>
-                      <span>Included in subtotal</span>
-                    </div>
-                  )}
-                  {order.discount_cents > 0 && (
-                    <div className="flex justify-between text-neutral-500">
-                      <span>
-                        Discount
-                        {order.discount && (
-                          <span className="text-neutral-400">
-                            {' '}
-                            ({order.discount.title}
-                            {order.discount.code
-                              ? ` – ${order.discount.code}`
-                              : ''}
+                  {order.order_items.map((item) => {
+                    const priceBreakdown =
+                      order.marketplacePriceMarkupPercent != null &&
+                      item.current_price_cents != null
+                        ? (() => {
+                            const orpCents = item.current_price_cents
+                            const markedUp = markedUpPriceCents(
+                              orpCents,
+                              order.marketplacePriceMarkupPercent,
                             )
-                          </span>
-                        )}
-                      </span>
-                      <span>-{formatCentsAsPHP(order.discount_cents)}</span>
-                    </div>
-                  )}
-                  {order.platform_discount_cents > 0 && (
-                    <div className="flex justify-between text-neutral-500">
-                      <span>Platform discount ({order.source})</span>
-                      <span>
-                        -{formatCentsAsPHP(order.platform_discount_cents)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-neutral-500">
-                    <span>Shipping</span>
-                    <span>{formatCentsAsPHP(order.shipping_cents)}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-neutral-900">
-                    <span>Total</span>
-                    <span>{formatCentsAsPHP(order.total_cents)}</span>
-                  </div>
-                </div>
+                            const markupDeltaCents = markedUp - orpCents
+                            // A positive gap between the marked-up price and
+                            // what was actually charged is the active
+                            // storefront sale being mirrored to the
+                            // marketplace (see sync-engine.ts's
+                            // pushPriceForAllProducts) — surfaced as its own
+                            // line so ORP + markup - discount reconciles to
+                            // the actual selling price. A negative/zero gap
+                            // (the catalog price moved since this order, no
+                            // sale involved) has nothing meaningful to
+                            // subtract, so no discount line is shown for it.
+                            const sellerDiscountCents = Math.max(
+                              0,
+                              markedUp - item.unit_price_cents,
+                            )
+                            return { orpCents, markedUp, markupDeltaCents, sellerDiscountCents }
+                          })()
+                        : null
 
-                {order.platform_fee_breakdown.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
-                    <p className="text-xs font-medium text-neutral-500">
-                      Platform fees ({order.source})
-                    </p>
-                    {order.platform_fee_breakdown.map((fee) => (
-                      <div
-                        key={fee.label}
-                        className="flex justify-between text-neutral-500"
-                      >
-                        <span>{fee.label}</span>
-                        <span>-{formatCentsAsPHP(fee.amountCents)}</span>
+                    return (
+                      <li key={item.id} className="flex flex-col gap-3 py-3 text-sm">
+                        <div className="flex items-center gap-3">
+                          {item.image_url ? (
+                            <img
+                              src={item.image_url}
+                              alt=""
+                              className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 object-cover"
+                            />
+                          ) : (
+                            <div className="h-14 w-14 shrink-0 rounded-md border border-neutral-200 bg-neutral-50" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-neutral-900 underline decoration-neutral-300 underline-offset-2 md:no-underline">
+                              {item.product_name_snapshot}
+                            </p>
+                            <p className="text-neutral-500">
+                              {item.variant_label_snapshot &&
+                                `${item.variant_label_snapshot} · `}
+                              Qty {item.quantity}
+                            </p>
+                          </div>
+                          <p className="font-medium text-neutral-900">
+                            {formatCentsAsPHP(item.line_total_cents)}
+                          </p>
+                        </div>
+
+                        {priceBreakdown && (
+                          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                              Price Breakdown
+                            </p>
+                            <div className="flex flex-col gap-1 text-xs">
+                              <div className="flex justify-between text-neutral-600">
+                                <span>Original Retail Price</span>
+                                <span>
+                                  {formatCentsAsPHP(priceBreakdown.orpCents)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-neutral-600">
+                                <span>
+                                  {SOURCE_LABELS[order.source]} Markup (+
+                                  {order.marketplacePriceMarkupPercent}%)
+                                </span>
+                                <span className="font-medium text-emerald-600">
+                                  +{formatCentsAsPHP(priceBreakdown.markupDeltaCents)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between border-t border-neutral-200 pt-1 font-medium text-neutral-700">
+                                <span>{SOURCE_LABELS[order.source]} Price</span>
+                                <span>
+                                  {formatCentsAsPHP(priceBreakdown.markedUp)}
+                                </span>
+                              </div>
+                              {priceBreakdown.sellerDiscountCents > 0 && (
+                                <div className="flex justify-between text-neutral-600">
+                                  <span>Seller Discount</span>
+                                  <span className="font-medium text-red-600">
+                                    -{formatCentsAsPHP(priceBreakdown.sellerDiscountCents)}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex justify-between border-t border-neutral-200 pt-1 font-semibold text-neutral-900">
+                                <span>Selling Price</span>
+                                <span>
+                                  {formatCentsAsPHP(item.unit_price_cents)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {order.platform_fee_breakdown.length > 0 ? (
+                  <>
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-neutral-200 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                          <Wallet size={16} className="text-neutral-400" />
+                          Order Total
+                        </div>
+                        <div className="flex flex-col gap-1 text-xs">
+                          <div className="flex justify-between text-neutral-600">
+                            <span>Subtotal</span>
+                            <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
+                          </div>
+                          {order.discount_cents > 0 && (
+                            <div className="flex justify-between text-neutral-600">
+                              <span>
+                                Discount
+                                {order.discount && (
+                                  <span className="text-neutral-400">
+                                    {' '}
+                                    ({order.discount.title}
+                                    {order.discount.code
+                                      ? ` – ${order.discount.code}`
+                                      : ''}
+                                    )
+                                  </span>
+                                )}
+                              </span>
+                              <span className="font-medium text-red-600">
+                                -{formatCentsAsPHP(order.discount_cents)}
+                              </span>
+                            </div>
+                          )}
+                          {order.platform_discount_cents > 0 && (
+                            <div className="flex justify-between text-neutral-600">
+                              <span>
+                                {SOURCE_LABELS[order.source]} Platform Discount
+                              </span>
+                              <span className="font-medium text-red-600">
+                                -{formatCentsAsPHP(order.platform_discount_cents)}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-neutral-600">
+                            <span>Shipping</span>
+                            <span className="font-medium text-emerald-600">
+                              +{formatCentsAsPHP(order.shipping_cents)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between rounded-md bg-blue-50 px-2 py-2 text-sm font-semibold text-blue-900">
+                          <span>Customer Paid</span>
+                          <span>{formatCentsAsPHP(order.total_cents)}</span>
+                        </div>
                       </div>
-                    ))}
-                    <div className="flex justify-between font-semibold text-neutral-900">
-                      <span>Net Sales</span>
-                      <span>
+
+                      <div className="rounded-lg border border-neutral-200 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                          <ShieldCheck size={16} className="text-neutral-400" />
+                          {SOURCE_LABELS[order.source]} Deductions
+                        </div>
+                        <div className="flex flex-col gap-1 text-xs">
+                          {order.platform_fee_breakdown.map((fee) => (
+                            <div
+                              key={fee.label}
+                              className="flex justify-between text-neutral-600"
+                            >
+                              <span>{fee.label}</span>
+                              <span className="font-medium text-red-600">
+                                -{formatCentsAsPHP(fee.amountCents)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-200 pt-2">
+                          <div className="flex items-center justify-between text-sm font-semibold text-neutral-900">
+                            <span>
+                              Total {SOURCE_LABELS[order.source]} Deductions
+                            </span>
+                            <span>
+                              -{formatCentsAsPHP(order.platform_fees_cents)}
+                            </span>
+                          </div>
+                          {order.total_cents > 0 && (
+                            <p className="text-xs text-neutral-400">
+                              {(
+                                (order.platform_fees_cents /
+                                  order.total_cents) *
+                                100
+                              ).toFixed(1)}
+                              % of customer payment
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp size={18} className="text-emerald-600" />
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
+                            Net Sales
+                          </p>
+                          <p className="text-xs text-emerald-600/80">
+                            After {SOURCE_LABELS[order.source]} fees
+                            {order.platform_fee_breakdown.some((f) =>
+                              /withholding/i.test(f.label),
+                            ) && ' & withholding tax'}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-emerald-700">
                         {formatCentsAsPHP(
                           order.subtotal_cents +
                             order.shipping_cents -
                             order.platform_fees_cents,
                         )}
-                      </span>
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 flex flex-col gap-1 border-t border-neutral-100 pt-3 text-sm">
+                    <div className="flex justify-between text-neutral-500">
+                      <span>Subtotal</span>
+                      <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
+                    </div>
+                    {order.market_markup_percent != null && (
+                      <div className="flex justify-between text-neutral-500">
+                        <span>
+                          Market markup (+{order.market_markup_percent}%)
+                        </span>
+                        <span>Included in subtotal</span>
+                      </div>
+                    )}
+                    {order.discount_cents > 0 && (
+                      <div className="flex justify-between text-neutral-500">
+                        <span>
+                          Discount
+                          {order.discount && (
+                            <span className="text-neutral-400">
+                              {' '}
+                              ({order.discount.title}
+                              {order.discount.code
+                                ? ` – ${order.discount.code}`
+                                : ''}
+                              )
+                            </span>
+                          )}
+                        </span>
+                        <span>-{formatCentsAsPHP(order.discount_cents)}</span>
+                      </div>
+                    )}
+                    {order.platform_discount_cents > 0 && (
+                      <div className="flex justify-between text-neutral-500">
+                        <span>Platform discount ({order.source})</span>
+                        <span>
+                          -{formatCentsAsPHP(order.platform_discount_cents)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-neutral-500">
+                      <span>Shipping</span>
+                      <span>{formatCentsAsPHP(order.shipping_cents)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-neutral-900">
+                      <span>Total</span>
+                      <span>{formatCentsAsPHP(order.total_cents)}</span>
                     </div>
                   </div>
                 )}

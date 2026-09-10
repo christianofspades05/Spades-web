@@ -148,16 +148,27 @@ interface ShopeeOrder {
 
 /** The subset of get_escrow_detail's ~150-field response this app cares
  *  about — the fees/tax Shopee deducts from the seller's payout. Field
- *  names confirmed against a real community TypeScript SDK's schema
- *  (congminh1254/shopee-sdk), not exercised against a live/sandbox escrow
- *  response yet — same unverified-until-first-live-call caveat as the rest
- *  of this file. */
+ *  names confirmed live against a real production order's raw response
+ *  (order_sn 260910NJ6J4EUS, 2026-09-10): commission_fee, service_fee,
+ *  seller_transaction_fee, withholding_tax, and
+ *  ads_escrow_top_up_fee_or_technical_support_fee all matched exactly what
+ *  Shopee's own seller-center "Payment Information" panel showed for that
+ *  order. */
 interface ShopeeOrderIncome {
   escrow_amount?: number
   commission_fee?: number
   service_fee?: number
   seller_transaction_fee?: number
   withholding_tax?: number
+  /** Shopee's "Ads Sales Top Up Fee" (a.k.a. Auto Top-up (Escrow)) — a
+   *  percentage of the sale automatically converted into Shopee Ads credit
+   *  and deducted straight from the payout, shown under "Seller
+   *  Value-Added Services → Paid Ads" in Shopee's own invoice summary. Not
+   *  a fixed platform commission — only present/nonzero for sellers who've
+   *  opted into Auto Top-up. Confirmed live at ₱16 on order 260910NJ6J4EUS
+   *  (2026-09-10), matching that order's "Ads Sales Top Up Fee" line in
+   *  Shopee's seller center exactly. */
+  ads_escrow_top_up_fee_or_technical_support_fee?: number
   /** What the buyer actually paid for shipping — confirmed against a real
    *  order to be the authoritative figure, unlike get_order_detail's
    *  actual_shipping_fee/estimated_shipping_fee (see the shippingCents doc
@@ -609,6 +620,10 @@ export const shopeeAdapter: MarketplaceAdapter = {
             ['Service fee', income.service_fee],
             ['Transaction fee', income.seller_transaction_fee],
             ['Withholding tax', income.withholding_tax],
+            [
+              'Ads sales top up fee',
+              income.ads_escrow_top_up_fee_or_technical_support_fee,
+            ],
           ] as const
         ).flatMap(([label, amount]) =>
           amount ? [{ label, amountCents: Math.round(amount * 100) }] : [],
