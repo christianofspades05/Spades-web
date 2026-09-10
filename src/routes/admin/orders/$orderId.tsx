@@ -480,9 +480,15 @@ function OrderDetailPage() {
                     )
                   })}
                 </ul>
-                {order.platform_fee_breakdown.length > 0 ? (
+                {order.source === 'shopee' || order.source === 'tiktok_shop' ? (
                   <>
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div
+                      className={`mt-4 grid grid-cols-1 gap-3 ${
+                        order.platform_fee_breakdown.length > 0
+                          ? 'sm:grid-cols-2'
+                          : ''
+                      }`}
+                    >
                       <div className="rounded-lg border border-neutral-200 p-3">
                         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
                           <Wallet size={16} className="text-neutral-400" />
@@ -534,47 +540,57 @@ function OrderDetailPage() {
                           <span>Customer Paid</span>
                           <span>{formatCentsAsPHP(order.total_cents)}</span>
                         </div>
+                        <p className="mt-1 text-xs text-neutral-400">
+                          What the buyer actually paid on{' '}
+                          {SOURCE_LABELS[order.source]} — not your Net Sales
+                          figure below, since it also nets out{' '}
+                          {SOURCE_LABELS[order.source]}'s own platform-funded
+                          discount, which isn't money that came out of your
+                          margin.
+                        </p>
                       </div>
 
-                      <div className="rounded-lg border border-neutral-200 p-3">
-                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                          <ShieldCheck size={16} className="text-neutral-400" />
-                          {SOURCE_LABELS[order.source]} Deductions
-                        </div>
-                        <div className="flex flex-col gap-1 text-xs">
-                          {order.platform_fee_breakdown.map((fee) => (
-                            <div
-                              key={fee.label}
-                              className="flex justify-between text-neutral-600"
-                            >
-                              <span>{fee.label}</span>
-                              <span className="font-medium text-red-600">
-                                -{formatCentsAsPHP(fee.amountCents)}
+                      {order.platform_fee_breakdown.length > 0 && (
+                        <div className="rounded-lg border border-neutral-200 p-3">
+                          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                            <ShieldCheck size={16} className="text-neutral-400" />
+                            {SOURCE_LABELS[order.source]} Deductions
+                          </div>
+                          <div className="flex flex-col gap-1 text-xs">
+                            {order.platform_fee_breakdown.map((fee) => (
+                              <div
+                                key={fee.label}
+                                className="flex justify-between text-neutral-600"
+                              >
+                                <span>{fee.label}</span>
+                                <span className="font-medium text-red-600">
+                                  -{formatCentsAsPHP(fee.amountCents)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-200 pt-2">
+                            <div className="flex items-center justify-between text-sm font-semibold text-neutral-900">
+                              <span>
+                                Total {SOURCE_LABELS[order.source]} Deductions
+                              </span>
+                              <span>
+                                -{formatCentsAsPHP(order.platform_fees_cents)}
                               </span>
                             </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-200 pt-2">
-                          <div className="flex items-center justify-between text-sm font-semibold text-neutral-900">
-                            <span>
-                              Total {SOURCE_LABELS[order.source]} Deductions
-                            </span>
-                            <span>
-                              -{formatCentsAsPHP(order.platform_fees_cents)}
-                            </span>
+                            {order.total_cents > 0 && (
+                              <p className="text-xs text-neutral-400">
+                                {(
+                                  (order.platform_fees_cents /
+                                    order.total_cents) *
+                                  100
+                                ).toFixed(1)}
+                                % of customer payment
+                              </p>
+                            )}
                           </div>
-                          {order.total_cents > 0 && (
-                            <p className="text-xs text-neutral-400">
-                              {(
-                                (order.platform_fees_cents /
-                                  order.total_cents) *
-                                100
-                              ).toFixed(1)}
-                              % of customer payment
-                            </p>
-                          )}
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
@@ -585,10 +601,13 @@ function OrderDetailPage() {
                             Net Sales
                           </p>
                           <p className="text-xs text-emerald-600/80">
-                            After {SOURCE_LABELS[order.source]} fees
+                            Subtotal minus your discount
+                            {order.platform_fee_breakdown.length > 0 &&
+                              ` and ${SOURCE_LABELS[order.source]} fees`}
                             {order.platform_fee_breakdown.some((f) =>
                               /withholding/i.test(f.label),
                             ) && ' & withholding tax'}
+                            {' — never the platform-funded discount above.'}
                           </p>
                         </div>
                       </div>
@@ -596,6 +615,7 @@ function OrderDetailPage() {
                         {formatCentsAsPHP(
                           order.subtotal_cents +
                             order.shipping_cents -
+                            order.discount_cents -
                             order.platform_fees_cents,
                         )}
                       </p>
