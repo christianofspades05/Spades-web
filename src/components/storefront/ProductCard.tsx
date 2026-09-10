@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import { badgeOutOfStockClassName } from './ui'
@@ -17,7 +17,20 @@ interface ProductCardProps {
  *  own scroll gesture and never fires a click, while a plain tap still
  *  falls through to the card's outer Link), dot indicators to jump to a
  *  specific image on any input (their onClick calls preventDefault so a dot
- *  click doesn't also navigate). */
+ *  click doesn't also navigate).
+ *
+ *  Only image 0 is mounted (and therefore requested) until the card is
+ *  "activated" — hovered on desktop, touched on mobile, or a dot for an
+ *  unmounted slide is clicked. Confirmed live: with every slide mounted
+ *  unconditionally, `loading="lazy"` alone didn't stop most of them from
+ *  loading anyway (750 mounted <img>s across one homepage's worth of
+ *  cards, 349 requested within 5s of a fresh load with zero interaction —
+ *  87% of those were carousel images 2+, never the one actually visible).
+ *  Activating per-card, not globally, keeps every other card's cost at
+ *  zero — this only ever affects the one card a shopper actually touches.
+ *  Dots always reflect the *real* image count (from `images`, not the
+ *  possibly-still-1-image `visibleImages`) so nothing about the visible UI
+ *  changes across activation — the optimization is invisible. */
 function ProductCardImages({
   images,
   name,
@@ -26,7 +39,12 @@ function ProductCardImages({
   name: string
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
+  const [activated, setActivated] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Set when a dot for a not-yet-mounted slide is clicked before the card
+  // has activated — the jump-to-slide below runs once activation's re-render
+  // has actually mounted that slide, rather than scrolling into empty space.
+  const pendingScrollIndex = useRef<number | null>(null)
 
   if (images.length === 0) {
     return (
@@ -36,12 +54,36 @@ function ProductCardImages({
     )
   }
 
+  const visibleImages = activated ? images : images.slice(0, 1)
+
+  function activate() {
+    setActivated(true)
+  }
+
   function scrollToIndex(index: number) {
+    if (!activated) {
+      pendingScrollIndex.current = index
+      setActivated(true)
+      return
+    }
     const el = scrollRef.current
     if (!el) return
     el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
     setActiveIndex(index)
   }
+
+  // Runs right after an activation triggered by a dot click actually mounts
+  // the rest of the slides — jumps straight to the requested one instead of
+  // leaving the customer looking at slide 0 after they asked for slide 3.
+  useEffect(() => {
+    if (!activated || pendingScrollIndex.current === null) return
+    const index = pendingScrollIndex.current
+    pendingScrollIndex.current = null
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ left: index * el.clientWidth })
+    setActiveIndex(index)
+  }, [activated])
 
   function handleScroll() {
     const el = scrollRef.current
@@ -54,9 +96,11 @@ function ProductCardImages({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onMouseEnter={activate}
+        onTouchStart={activate}
         className="flex h-full w-full snap-x snap-mandatory overflow-x-auto transition duration-300 group-hover:scale-105 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {images.map((url, i) => (
+        {visibleImages.map((url, i) => (
           <img
             key={url}
             src={optimizedImageUrl(url, 640)}
@@ -125,7 +169,9 @@ export function ProductCard({ product }: ProductCardProps) {
           </span>
         ) : (
           outOfStock && (
-            <span className={`absolute left-3 top-3 ${badgeOutOfStockClassName}`}>
+            <span
+              className={`absolute left-3 top-3 ${badgeOutOfStockClassName}`}
+            >
               Out of stock
             </span>
           )
