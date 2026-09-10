@@ -19,7 +19,7 @@ import { CartProvider } from '#/lib/cart/CartContext'
 import { ThemeProvider } from '#/lib/theme/ThemeProvider'
 import { CurrencyProvider } from '#/lib/currency/CurrencyContext'
 import { LanguageProvider } from '#/lib/i18n/LanguageContext'
-import { getRootLoaderData } from '#/server/storefront/root-loader'
+import { getRootLoaderDataCached } from '#/lib/utils/root-loader-cache'
 import appCss from '../styles.css?url'
 
 /**
@@ -52,8 +52,11 @@ export const Route = createRootRoute({
   // A single createServerFn call instead of 7 separate ones (see
   // server/storefront/root-loader.ts for why that's a real reduction in
   // Vercel requests, not just code shape, and for the individual-fallback
-  // behavior this preserves unchanged).
-  beforeLoad: () => getRootLoaderData(),
+  // behavior this preserves unchanged). Wrapped in a short client-side TTL
+  // cache (lib/utils/root-loader-cache.ts) so a burst of client-side
+  // navigations doesn't re-run this serverFn every single time — SSR is
+  // unaffected, see that file's doc comment.
+  beforeLoad: () => getRootLoaderDataCached(),
   head: ({ match }) => ({
     meta: [
       {
