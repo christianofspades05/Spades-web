@@ -45,7 +45,7 @@ const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
 
 export const Route = createFileRoute('/admin/analytics/sales')({
   validateSearch: z.object({
-    range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
+    range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
     from: z.string().optional(),
     to: z.string().optional(),
     channel: z

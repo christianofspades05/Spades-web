@@ -7,10 +7,7 @@ import {
 } from '#/server/admin/analytics'
 import type { ProductVelocitySignal } from '#/server/admin/analytics'
 import { formatCentsAsPHP } from '#/lib/utils/money'
-import {
-  DATE_RANGE_PRESETS,
-  resolveDateRange,
-} from '#/lib/utils/date-range'
+import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
@@ -46,7 +43,7 @@ const CLEARANCE_MIN_CURRENT_STOCK = 100
 
 export const Route = createFileRoute('/admin/analytics/product-analytics')({
   validateSearch: z.object({
-    range: z.enum(DATE_RANGE_PRESETS).catch('last_30_days'),
+    range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
     to: z.string().optional(),
     brand: z.enum(STOREFRONT_BRANDS).optional(),
@@ -117,13 +114,18 @@ function ProductAnalyticsPage() {
 
   const restock = velocity
     .filter(
-      (p): p is ProductVelocitySignal & { avgUnitsPerDayWhenWellStocked: number } =>
+      (
+        p,
+      ): p is ProductVelocitySignal & {
+        avgUnitsPerDayWhenWellStocked: number
+      } =>
         p.avgUnitsPerDayWhenWellStocked !== null &&
         p.avgUnitsPerDayWhenWellStocked >= RESTOCK_MIN_AVG_PER_DAY &&
         p.currentStockOnHand < RESTOCK_MAX_CURRENT_STOCK,
     )
     .sort(
-      (a, b) => b.avgUnitsPerDayWhenWellStocked - a.avgUnitsPerDayWhenWellStocked,
+      (a, b) =>
+        b.avgUnitsPerDayWhenWellStocked - a.avgUnitsPerDayWhenWellStocked,
     )
 
   const cashCows = velocity
@@ -221,7 +223,10 @@ function ProductAnalyticsPage() {
         {top10.length > 0 && (
           <div className="mt-5 flex flex-col gap-3 md:hidden">
             {top10.map((p) => (
-              <ProductProfitCard key={p.productId ?? p.productName} product={p} />
+              <ProductProfitCard
+                key={p.productId ?? p.productName}
+                product={p}
+              />
             ))}
           </div>
         )}
@@ -249,7 +254,10 @@ function ProductAnalyticsPage() {
                 </thead>
                 <tbody>
                   {top10.map((p) => (
-                    <tr key={p.productId ?? p.productName} className={tableRowClassName}>
+                    <tr
+                      key={p.productId ?? p.productName}
+                      className={tableRowClassName}
+                    >
                       <td className={`${tableCellClassName} font-medium`}>
                         <div className="flex items-center gap-3">
                           <ProductThumbnail imageUrl={p.imageUrl} />
@@ -332,7 +340,8 @@ function ProductAnalyticsPage() {
                         className={`${tableCellClassName} text-right font-semibold text-emerald-600`}
                       >
                         {Math.round(
-                          p.avgUnitsPerDayWhenWellStocked * RESTOCK_DAYS_OF_COVER,
+                          p.avgUnitsPerDayWhenWellStocked *
+                            RESTOCK_DAYS_OF_COVER,
                         )}
                       </td>
                     </tr>
@@ -353,8 +362,8 @@ function ProductAnalyticsPage() {
           Cash Cow Products
         </h2>
         <p className="text-xs text-neutral-500">
-          Steady performers — {CASH_COW_MIN_AVG_PER_DAY}–{CASH_COW_MAX_AVG_PER_DAY}{' '}
-          orders/day on average, last 30 days
+          Steady performers — {CASH_COW_MIN_AVG_PER_DAY}–
+          {CASH_COW_MAX_AVG_PER_DAY} orders/day on average, last 30 days
         </p>
 
         {cashCows.length > 0 ? (
