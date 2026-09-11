@@ -1294,16 +1294,18 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         items.map((i) => i.variant_id).filter((v): v is string => v !== null),
       ),
     )
-    const variants =
-      variantIds.length > 0
-        ? await fetchAllRows((offset) =>
-            admin
-              .from('product_variants')
-              .select('id, product_id, price_cents, cost_cents')
-              .in('id', variantIds)
-              .range(offset, offset + 999),
-          )
-        : []
+    const variantChunks = await Promise.all(
+      chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('product_variants')
+            .select('id, product_id, price_cents, cost_cents')
+            .in('id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const variants = variantChunks.flat()
     const variantById = new Map(variants.map((v) => [v.id, v]))
 
     // order_items.variant_id is nullable (ON DELETE SET NULL — see
@@ -1345,16 +1347,18 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         ...productIdByOrphanName.values(),
       ]),
     )
-    const products =
-      productIds.length > 0
-        ? await fetchAllRows((offset) =>
-            admin
-              .from('products')
-              .select('id, name, images')
-              .in('id', productIds)
-              .range(offset, offset + 999),
-          )
-        : []
+    const productChunks = await Promise.all(
+      chunkArray(productIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('products')
+            .select('id, name, images')
+            .in('id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const products = productChunks.flat()
     const productNameById = new Map(products.map((p) => [p.id, p.name]))
     const productImageById = new Map(
       products.map((p) => [p.id, p.images[0] ?? null]),
@@ -1368,18 +1372,20 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     // product's currently active variants is the best available estimate,
     // and a real average beats silently treating cost as ₱0 (which used to
     // inflate margin on those units to an artificial 100%).
-    const stockRows =
-      productIds.length > 0
-        ? await fetchAllRows((offset) =>
-            admin
-              .from('products')
-              .select(
-                'id, variants:product_variants(price_cents, cost_cents, inventory(quantity_on_hand))',
-              )
-              .in('id', productIds)
-              .range(offset, offset + 999),
-          )
-        : []
+    const stockRowChunks = await Promise.all(
+      chunkArray(productIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('products')
+            .select(
+              'id, variants:product_variants(price_cents, cost_cents, inventory(quantity_on_hand))',
+            )
+            .in('id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const stockRows = stockRowChunks.flat()
     const currentStockByProduct = new Map<string, number>()
     const avgCostByProduct = new Map<string, number>()
     const avgSrpByProduct = new Map<string, number>()
@@ -1719,8 +1725,19 @@ export interface OrderProfitItemRow {
   variantLabel: string | null
   quantity: number
   lineTotalCents: number
+  /** This item's share of the order's discount/fees/shipping/refund,
+   *  allocated by its share of the order's total line_total_cents — same
+   *  proportional-split technique already used for platform fees in
+   *  ProductProfitRow (see the comment there). None of these are stored
+   *  per line item; orders only track them at the order level. */
+  discountCents: number
+  netSalesCents: number
   costCents: number
+  platformFeesCents: number
+  shippingCents: number
+  refundCents: number
   profitCents: number
+  marginPct: number | null
 }
 
 export interface OrderProfitRow {
@@ -1953,7 +1970,8 @@ async function computeOrderProfitTotals(
     shippingCents,
     refundCents,
     profitCents,
-    marginPct: grossSalesCents > 0 ? (profitCents / grossSalesCents) * 100 : null,
+    marginPct:
+      grossSalesCents > 0 ? (profitCents / grossSalesCents) * 100 : null,
   }
 }
 
@@ -2101,19 +2119,57 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       cogsByOrderId.set(item.order_id, current + cost * item.quantity)
     }
 
+    const orderById = new Map(orders.map((o) => [o.id, o]))
+    const orderLineTotalById = new Map<string, number>()
+    for (const item of itemsRes.data) {
+      orderLineTotalById.set(
+        item.order_id,
+        (orderLineTotalById.get(item.order_id) ?? 0) + item.line_total_cents,
+      )
+    }
+
     const itemsByOrderId = new Map<string, OrderProfitItemRow[]>()
     for (const item of itemsRes.data) {
       const cost = item.variant_id
         ? (costByVariantId.get(item.variant_id) ?? 0) * item.quantity
         : 0
+      const order = orderById.get(item.order_id)
+      const orderLineTotal = orderLineTotalById.get(item.order_id) ?? 0
+      const share =
+        order && orderLineTotal > 0 ? item.line_total_cents / orderLineTotal : 0
+      const itemDiscountCents = order
+        ? Math.round(order.discount_cents * share)
+        : 0
+      const itemFeesCents = order
+        ? Math.round(order.platform_fees_cents * share)
+        : 0
+      const itemShippingCents = order
+        ? Math.round(order.shipping_cents * share)
+        : 0
+      const itemRefundCents = Math.round(
+        (refundByOrderId.get(item.order_id) ?? 0) * share,
+      )
+      const netSalesCents =
+        item.line_total_cents - itemDiscountCents - itemRefundCents
+      const profitCents = netSalesCents - cost - itemFeesCents
+
       const list = itemsByOrderId.get(item.order_id) ?? []
       list.push({
         productName: item.product_name_snapshot,
         variantLabel: item.variant_label_snapshot,
         quantity: item.quantity,
         lineTotalCents: item.line_total_cents,
+        discountCents: itemDiscountCents,
+        netSalesCents,
         costCents: cost,
-        profitCents: item.line_total_cents - cost,
+        platformFeesCents: itemFeesCents,
+        shippingCents: itemShippingCents,
+        refundCents: itemRefundCents,
+        profitCents,
+        marginPct:
+          item.line_total_cents > 0
+            ? (profitCents / item.line_total_cents) * 100
+            : null,
       })
       itemsByOrderId.set(item.order_id, list)
     }

@@ -607,6 +607,83 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   failed: 'Failed',
 }
 
+/** Fixed per-column pixel widths for the dense orders table — paired with
+ *  `table-fixed` + a <colgroup> so sticky-positioned columns get stable,
+ *  predictable left/right offsets instead of drifting with content. */
+const ORDER_COL = {
+  expand: 36,
+  order: 108,
+  customer: 190,
+  date: 78,
+  status: 128,
+  channel: 120,
+  qty: 44,
+  gross: 104,
+  discount: 100,
+  net: 104,
+  cogs: 92,
+  fees: 96,
+  shipping: 92,
+  refund: 92,
+  profit: 108,
+  margin: 78,
+} as const
+
+const ORDER_TABLE_WIDTH = Object.values(ORDER_COL).reduce((a, b) => a + b, 0)
+const ORDER_COL_COUNT = Object.keys(ORDER_COL).length
+
+/** Column widths for the expanded per-product detail table — Product +
+ *  Variant together span exactly the width of the parent row's
+ *  Expand+Order+Customer+Date+Status+Channel columns, and every column
+ *  after that reuses the parent's own widths verbatim, so every number in
+ *  the detail table lines up under its column in the row above it. */
+const ORDER_DETAIL_VARIANT_WIDTH = 120
+const ORDER_DETAIL_COL = {
+  product:
+    ORDER_COL.expand +
+    ORDER_COL.order +
+    ORDER_COL.customer +
+    ORDER_COL.date +
+    ORDER_COL.status +
+    ORDER_COL.channel -
+    ORDER_DETAIL_VARIANT_WIDTH,
+  variant: ORDER_DETAIL_VARIANT_WIDTH,
+  qty: ORDER_COL.qty,
+  gross: ORDER_COL.gross,
+  discount: ORDER_COL.discount,
+  net: ORDER_COL.net,
+  cogs: ORDER_COL.cogs,
+  fees: ORDER_COL.fees,
+  shipping: ORDER_COL.shipping,
+  refund: ORDER_COL.refund,
+  profit: ORDER_COL.profit,
+  margin: ORDER_COL.margin,
+} as const
+
+const ORDER_STICKY_LEFT = {
+  order: ORDER_COL.expand,
+  customer: ORDER_COL.expand + ORDER_COL.order,
+}
+const ORDER_STICKY_RIGHT = {
+  profit: ORDER_COL.margin,
+  margin: 0,
+}
+
+const orderThBase =
+  'h-9 whitespace-nowrap px-3 align-middle text-xs font-medium uppercase tracking-wide text-neutral-500 bg-neutral-50'
+const orderTdBase =
+  'whitespace-nowrap px-3 align-middle text-sm text-neutral-900'
+/** Tighter horizontal padding for the narrow Date/Qty columns — px-3 alone
+ *  eats too much of their small fixed width, leaving no room for the digits. */
+const orderThTight =
+  'h-9 whitespace-nowrap px-2 align-middle text-xs font-medium uppercase tracking-wide text-neutral-500 bg-neutral-50'
+const orderTdTight =
+  'whitespace-nowrap px-2 align-middle text-sm text-neutral-900'
+const orderStickyTh = 'sticky z-20'
+const orderStickyTd = 'sticky z-10 bg-white group-hover:bg-neutral-50'
+const orderEdgeRightShadow = 'shadow-[4px_0_6px_-4px_rgba(0,0,0,0.12)]'
+const orderEdgeLeftShadow = 'shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.12)]'
+
 function OrderProfitSection({
   result,
   page,
@@ -675,9 +752,9 @@ function OrderProfitSection({
           <select
             value={status ?? ''}
             onChange={(e) =>
-              onStatusChange((e.target.value || undefined) as
-                | OrderStatus
-                | undefined)
+              onStatusChange(
+                (e.target.value || undefined) as OrderStatus | undefined,
+              )
             }
             className={inputClassName}
           >
@@ -793,334 +870,474 @@ function OrderProfitSection({
 
           <div className={`${tableWrapperClassName} hidden md:block`}>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table
+                className="table-fixed border-separate border-spacing-0"
+                style={{ width: ORDER_TABLE_WIDTH }}
+              >
+                <colgroup>
+                  {Object.values(ORDER_COL).map((w, i) => (
+                    <col key={i} style={{ width: w }} />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr>
-                    <th className={tableHeadClassName}>Order</th>
-                    <th className={tableHeadClassName}>Date</th>
-                    <th className={tableHeadClassName}>Status</th>
-                    <th className={tableHeadClassName}>Channel</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Gross Sales
+                    <th
+                      className={`${orderThBase} ${orderStickyTh}`}
+                      style={{ position: 'sticky', left: 0 }}
+                    />
+                    <th
+                      className={`${orderThBase} ${orderStickyTh} text-left`}
+                      style={{
+                        position: 'sticky',
+                        left: ORDER_STICKY_LEFT.order,
+                      }}
+                    >
+                      Order
                     </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Seller's Discount
+                    <th
+                      className={`${orderThBase} ${orderStickyTh} ${orderEdgeRightShadow} text-left`}
+                      style={{
+                        position: 'sticky',
+                        left: ORDER_STICKY_LEFT.customer,
+                      }}
+                    >
+                      Customer
                     </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Net Sales
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>Cost</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Platform Fees
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Shipping
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Refund
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
+                    <th className={orderThTight}>Date</th>
+                    <th className={orderThBase}>Status</th>
+                    <th className={orderThBase}>Channel</th>
+                    <th className={`${orderThTight} text-right`}>Qty</th>
+                    <th className={`${orderThBase} text-right`}>Gross Sales</th>
+                    <th className={`${orderThBase} text-right`}>Discount</th>
+                    <th className={`${orderThBase} text-right`}>Net Sales</th>
+                    <th className={`${orderThBase} text-right`}>COGS</th>
+                    <th className={`${orderThBase} text-right`}>Fees</th>
+                    <th className={`${orderThBase} text-right`}>Shipping</th>
+                    <th className={`${orderThBase} text-right`}>Refund</th>
+                    <th
+                      className={`${orderThBase} ${orderStickyTh} ${orderEdgeLeftShadow} text-right`}
+                      style={{
+                        position: 'sticky',
+                        right: ORDER_STICKY_RIGHT.profit,
+                      }}
+                    >
                       Profit
                     </th>
-                    <th className={`${tableHeadClassName} text-right`}>
+                    <th
+                      className={`${orderThBase} ${orderStickyTh} text-right`}
+                      style={{
+                        position: 'sticky',
+                        right: ORDER_STICKY_RIGHT.margin,
+                      }}
+                    >
                       Margin %
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {result.orders.map((order) => (
-                    <Fragment key={order.id}>
-                      <tr className={tableRowClassName}>
-                        <td className={tableCellClassName}>
-                          <div className="flex items-center gap-1.5">
+                  {result.orders.map((order) => {
+                    const isExpanded = expandedOrderIds.has(order.id)
+                    const totalQty = order.items.reduce(
+                      (sum, item) => sum + item.quantity,
+                      0,
+                    )
+                    return (
+                      <Fragment key={order.id}>
+                        <tr className="group h-14 border-t border-neutral-100 first:border-t-0">
+                          <td
+                            className={`${orderTdBase} ${orderStickyTd}`}
+                            style={{ position: 'sticky', left: 0 }}
+                          >
                             {order.items.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => toggleExpanded(order.id)}
-                                className="shrink-0 text-neutral-400 hover:text-neutral-900"
+                                className="flex size-6 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-900"
                                 aria-label={
-                                  expandedOrderIds.has(order.id)
-                                    ? 'Hide items'
-                                    : 'Show items'
+                                  isExpanded ? 'Hide items' : 'Show items'
                                 }
                               >
-                                {expandedOrderIds.has(order.id) ? (
+                                {isExpanded ? (
                                   <ChevronDown className="size-4" />
                                 ) : (
                                   <ChevronRight className="size-4" />
                                 )}
                               </button>
                             )}
-                            <div>
-                              <Link
-                                to="/admin/orders/$orderId"
-                                params={{ orderId: order.id }}
-                                className="font-medium text-neutral-900 hover:underline"
-                              >
-                                {order.orderNumber}
-                              </Link>
-                              <p className="text-xs text-neutral-400">
-                                {order.customerName}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td
-                          className={`${tableCellClassName} whitespace-nowrap text-neutral-500`}
-                        >
-                          {new Date(order.placedAt).toLocaleDateString(
-                            'en-US',
-                            {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            },
-                          )}
-                        </td>
-                        <td className={tableCellClassName}>
-                          <StatusBadge status={order.status} kind="order" />
-                        </td>
-                        <td
-                          className={`${tableCellClassName} text-neutral-500`}
-                        >
-                          {SOURCE_LABELS[order.source]}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {formatCentsAsPHP(order.grossSalesCents)}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {order.discountCents > 0
-                            ? `-${formatCentsAsPHP(order.discountCents)}`
-                            : '—'}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {formatCentsAsPHP(order.netSalesCents)}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {formatCentsAsPHP(order.costCents)}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {order.platformFeesCents > 0
-                            ? formatCentsAsPHP(order.platformFeesCents)
-                            : '—'}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {formatCentsAsPHP(order.shippingCents)}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {order.refundCents > 0
-                            ? formatCentsAsPHP(order.refundCents)
-                            : '—'}
-                        </td>
-                        <td
-                          className={`${tableCellClassName} text-right font-medium ${
-                            order.profitCents >= 0
-                              ? 'text-emerald-600'
-                              : 'text-red-600'
-                          }`}
-                        >
-                          {formatCentsAsPHP(order.profitCents)}
-                        </td>
-                        <td className={`${tableCellClassName} text-right`}>
-                          {order.marginPct !== null
-                            ? `${order.marginPct.toFixed(1)}%`
-                            : '—'}
-                        </td>
-                      </tr>
-                      {expandedOrderIds.has(order.id) &&
-                        order.items.length > 0 &&
-                        order.items.map((item, index) => {
-                          const itemMarginPct =
-                            item.lineTotalCents > 0
-                              ? (item.profitCents / item.lineTotalCents) * 100
-                              : null
-                          return (
-                            <tr
-                              key={index}
-                              className="bg-neutral-50 text-xs text-neutral-500"
+                          </td>
+                          <td
+                            className={`${orderTdBase} ${orderStickyTd}`}
+                            style={{
+                              position: 'sticky',
+                              left: ORDER_STICKY_LEFT.order,
+                            }}
+                          >
+                            <Link
+                              to="/admin/orders/$orderId"
+                              params={{ orderId: order.id }}
+                              className="font-medium text-neutral-900 hover:underline"
                             >
-                              <td
-                                className={`${tableCellClassName} truncate py-1.5`}
-                                colSpan={4}
+                              {order.orderNumber}
+                            </Link>
+                          </td>
+                          <td
+                            className={`${orderTdBase} ${orderStickyTd} ${orderEdgeRightShadow} truncate`}
+                            style={{
+                              position: 'sticky',
+                              left: ORDER_STICKY_LEFT.customer,
+                            }}
+                            title={order.customerName}
+                          >
+                            {order.customerName}
+                          </td>
+                          <td
+                            className={`${orderTdTight} tabular-nums text-neutral-500`}
+                          >
+                            {new Date(order.placedAt).toLocaleDateString(
+                              'en-US',
+                              {
+                                month: '2-digit',
+                                day: '2-digit',
+                                year: '2-digit',
+                              },
+                            )}
+                          </td>
+                          <td className={orderTdBase}>
+                            <StatusBadge status={order.status} kind="order" />
+                          </td>
+                          <td className={`${orderTdBase} text-neutral-500`}>
+                            {SOURCE_LABELS[order.source]}
+                          </td>
+                          <td
+                            className={`${orderTdTight} text-right tabular-nums text-neutral-500`}
+                            title={`${order.items.length} ${order.items.length === 1 ? 'SKU' : 'SKUs'}`}
+                          >
+                            {totalQty}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {formatCentsAsPHP(order.grossSalesCents)}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {order.discountCents > 0
+                              ? `-${formatCentsAsPHP(order.discountCents)}`
+                              : '—'}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {formatCentsAsPHP(order.netSalesCents)}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {formatCentsAsPHP(order.costCents)}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {order.platformFeesCents > 0
+                              ? formatCentsAsPHP(order.platformFeesCents)
+                              : '—'}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {formatCentsAsPHP(order.shippingCents)}
+                          </td>
+                          <td
+                            className={`${orderTdBase} text-right tabular-nums`}
+                          >
+                            {order.refundCents > 0
+                              ? formatCentsAsPHP(order.refundCents)
+                              : '—'}
+                          </td>
+                          <td
+                            className={`${orderTdBase} ${orderStickyTd} ${orderEdgeLeftShadow} text-right tabular-nums font-semibold ${
+                              order.profitCents >= 0
+                                ? 'text-emerald-600'
+                                : 'text-red-600'
+                            }`}
+                            style={{
+                              position: 'sticky',
+                              right: ORDER_STICKY_RIGHT.profit,
+                            }}
+                          >
+                            {formatCentsAsPHP(order.profitCents)}
+                          </td>
+                          <td
+                            className={`${orderTdBase} ${orderStickyTd} text-right tabular-nums`}
+                            style={{
+                              position: 'sticky',
+                              right: ORDER_STICKY_RIGHT.margin,
+                            }}
+                          >
+                            {order.marginPct !== null
+                              ? `${order.marginPct.toFixed(1)}%`
+                              : '—'}
+                          </td>
+                        </tr>
+                        {isExpanded && order.items.length > 0 && (
+                          <tr className="border-t border-neutral-100 bg-neutral-50/70">
+                            <td colSpan={ORDER_COL_COUNT} className="py-3">
+                              <table
+                                className="table-fixed border-collapse text-xs"
+                                style={{ width: ORDER_TABLE_WIDTH }}
                               >
-                                <span className="pl-5">
-                                  {item.quantity}× {item.productName}
-                                  {item.variantLabel && (
-                                    <span className="text-neutral-400">
-                                      {' '}
-                                      · {item.variantLabel}
-                                    </span>
+                                <colgroup>
+                                  {Object.values(ORDER_DETAIL_COL).map(
+                                    (w, i) => (
+                                      <col key={i} style={{ width: w }} />
+                                    ),
                                   )}
-                                </span>
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                {formatCentsAsPHP(item.lineTotalCents)}
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                —
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                —
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                {formatCentsAsPHP(item.costCents)}
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                —
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                —
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                —
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right font-medium ${
-                                  item.profitCents >= 0
-                                    ? 'text-emerald-600'
-                                    : 'text-red-600'
-                                }`}
-                              >
-                                {formatCentsAsPHP(item.profitCents)}
-                              </td>
-                              <td
-                                className={`${tableCellClassName} py-1.5 text-right`}
-                              >
-                                {itemMarginPct !== null
-                                  ? `${itemMarginPct.toFixed(1)}%`
-                                  : '—'}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      {expandedOrderIds.has(order.id) &&
-                        order.items.length > 0 && (
-                          <tr className="border-b border-neutral-200 bg-neutral-50 text-xs font-semibold text-neutral-700">
-                            <td
-                              className={`${tableCellClassName} py-1.5`}
-                              colSpan={4}
-                            >
-                              <span className="pl-5">Order Total</span>
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {formatCentsAsPHP(order.grossSalesCents)}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {order.discountCents > 0
-                                ? `-${formatCentsAsPHP(order.discountCents)}`
-                                : '—'}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {formatCentsAsPHP(order.netSalesCents)}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {formatCentsAsPHP(order.costCents)}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {order.platformFeesCents > 0
-                                ? formatCentsAsPHP(order.platformFeesCents)
-                                : '—'}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {formatCentsAsPHP(order.shippingCents)}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {order.refundCents > 0
-                                ? formatCentsAsPHP(order.refundCents)
-                                : '—'}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right ${
-                                order.profitCents >= 0
-                                  ? 'text-emerald-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
-                              {formatCentsAsPHP(order.profitCents)}
-                            </td>
-                            <td
-                              className={`${tableCellClassName} py-1.5 text-right`}
-                            >
-                              {order.marginPct !== null
-                                ? `${order.marginPct.toFixed(1)}%`
-                                : '—'}
+                                </colgroup>
+                                <thead>
+                                  <tr className="text-neutral-400">
+                                    <th className="px-2 py-1 text-left font-medium whitespace-nowrap">
+                                      Product
+                                    </th>
+                                    <th className="px-2 py-1 text-left font-medium whitespace-nowrap">
+                                      Variant
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Qty
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Gross Sales
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Discount
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Net Sales
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      COGS
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Fees
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Shipping
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Refund
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Profit
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium whitespace-nowrap">
+                                      Margin
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {order.items.map((item, index) => (
+                                    <tr
+                                      key={index}
+                                      className="border-t border-neutral-200/70 text-neutral-600"
+                                    >
+                                      <td
+                                        className="truncate px-2 py-1.5"
+                                        title={item.productName}
+                                      >
+                                        {item.productName}
+                                      </td>
+                                      <td className="whitespace-nowrap px-2 py-1.5 text-neutral-400">
+                                        {item.variantLabel ?? '—'}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.quantity}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {formatCentsAsPHP(item.lineTotalCents)}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.discountCents > 0
+                                          ? `-${formatCentsAsPHP(item.discountCents)}`
+                                          : '—'}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {formatCentsAsPHP(item.netSalesCents)}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {formatCentsAsPHP(item.costCents)}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.platformFeesCents > 0
+                                          ? formatCentsAsPHP(
+                                              item.platformFeesCents,
+                                            )
+                                          : '—'}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.shippingCents > 0
+                                          ? formatCentsAsPHP(item.shippingCents)
+                                          : '—'}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.refundCents > 0
+                                          ? formatCentsAsPHP(item.refundCents)
+                                          : '—'}
+                                      </td>
+                                      <td
+                                        className={`px-2 py-1.5 text-right tabular-nums font-semibold ${
+                                          item.profitCents >= 0
+                                            ? 'text-emerald-600'
+                                            : 'text-red-600'
+                                        }`}
+                                      >
+                                        {formatCentsAsPHP(item.profitCents)}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                        {item.marginPct !== null
+                                          ? `${item.marginPct.toFixed(1)}%`
+                                          : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-neutral-300 font-semibold text-neutral-700">
+                                    <td
+                                      className="whitespace-nowrap px-2 py-1.5"
+                                      colSpan={2}
+                                    >
+                                      Order Total
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {totalQty}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {formatCentsAsPHP(order.grossSalesCents)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {order.discountCents > 0
+                                        ? `-${formatCentsAsPHP(order.discountCents)}`
+                                        : '—'}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {formatCentsAsPHP(order.netSalesCents)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {formatCentsAsPHP(order.costCents)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {order.platformFeesCents > 0
+                                        ? formatCentsAsPHP(
+                                            order.platformFeesCents,
+                                          )
+                                        : '—'}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {formatCentsAsPHP(order.shippingCents)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {order.refundCents > 0
+                                        ? formatCentsAsPHP(order.refundCents)
+                                        : '—'}
+                                    </td>
+                                    <td
+                                      className={`px-2 py-1.5 text-right tabular-nums ${
+                                        order.profitCents >= 0
+                                          ? 'text-emerald-600'
+                                          : 'text-red-600'
+                                      }`}
+                                    >
+                                      {formatCentsAsPHP(order.profitCents)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                                      {order.marginPct !== null
+                                        ? `${order.marginPct.toFixed(1)}%`
+                                        : '—'}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
                             </td>
                           </tr>
                         )}
-                    </Fragment>
-                  ))}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-neutral-300 bg-neutral-100 text-xs font-semibold text-neutral-900">
-                    <td className={tableCellClassName} colSpan={4}>
+                  <tr className="h-11 border-t-2 border-neutral-300 bg-neutral-100 text-xs font-semibold text-neutral-900">
+                    <td
+                      className={`${orderTdBase} sticky z-10 bg-neutral-100`}
+                      style={{ position: 'sticky', left: 0 }}
+                    />
+                    <td
+                      className={`${orderTdBase} sticky z-10 bg-neutral-100`}
+                      style={{
+                        position: 'sticky',
+                        left: ORDER_STICKY_LEFT.order,
+                      }}
+                    />
+                    <td
+                      className={`${orderTdBase} sticky z-10 bg-neutral-100 ${orderEdgeRightShadow}`}
+                      style={{
+                        position: 'sticky',
+                        left: ORDER_STICKY_LEFT.customer,
+                      }}
+                    >
                       Totals ({result.total}{' '}
                       {result.total === 1 ? 'order' : 'orders'})
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={orderTdBase} />
+                    <td className={orderTdBase} />
+                    <td className={orderTdBase} />
+                    <td className={`${orderTdBase} text-right`} />
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {formatCentsAsPHP(result.totals.grossSalesCents)}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {result.totals.discountCents > 0
                         ? `-${formatCentsAsPHP(result.totals.discountCents)}`
                         : '—'}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {formatCentsAsPHP(result.totals.netSalesCents)}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {formatCentsAsPHP(result.totals.costCents)}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {result.totals.platformFeesCents > 0
                         ? formatCentsAsPHP(result.totals.platformFeesCents)
                         : '—'}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {formatCentsAsPHP(result.totals.shippingCents)}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td className={`${orderTdBase} text-right tabular-nums`}>
                       {result.totals.refundCents > 0
                         ? formatCentsAsPHP(result.totals.refundCents)
                         : '—'}
                     </td>
                     <td
-                      className={`${tableCellClassName} text-right ${
+                      className={`${orderTdBase} sticky z-10 bg-neutral-100 ${orderEdgeLeftShadow} text-right tabular-nums ${
                         result.totals.profitCents >= 0
                           ? 'text-emerald-600'
                           : 'text-red-600'
                       }`}
+                      style={{
+                        position: 'sticky',
+                        right: ORDER_STICKY_RIGHT.profit,
+                      }}
                     >
                       {formatCentsAsPHP(result.totals.profitCents)}
                     </td>
-                    <td className={`${tableCellClassName} text-right`}>
+                    <td
+                      className={`${orderTdBase} sticky z-10 bg-neutral-100 text-right tabular-nums`}
+                      style={{
+                        position: 'sticky',
+                        right: ORDER_STICKY_RIGHT.margin,
+                      }}
+                    >
                       {result.totals.marginPct !== null
                         ? `${result.totals.marginPct.toFixed(1)}%`
                         : '—'}

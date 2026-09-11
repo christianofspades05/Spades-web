@@ -26,10 +26,24 @@ export const Route = createFileRoute('/admin')({
   component: AdminLayout,
 })
 
+const NAV_COLLAPSED_STORAGE_KEY = 'admin-nav-collapsed'
+
 function AdminLayout() {
   const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  // Defaults to expanded during SSR/first paint (localStorage isn't
+  // available server-side) and syncs to the stored preference right after
+  // mount — a one-frame flash beats a hydration mismatch.
+  const [navCollapsed, setNavCollapsed] = useState(false)
+  useEffect(() => {
+    if (localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === '1') {
+      setNavCollapsed(true)
+    }
+  }, [])
+  useEffect(() => {
+    localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, navCollapsed ? '1' : '0')
+  }, [navCollapsed])
   // Refetches on every navigation too, not just the interval — visiting the
   // order an unread reply points to marks it read server-side
   // (listOrderEmailMessages), so the badge should clear right away rather
@@ -56,7 +70,11 @@ function AdminLayout() {
       <AdminNav
         staffRole={staff.role}
         unreadCount={unreadCount}
-        className="hidden w-60 shrink-0 border-r lg:flex"
+        collapsed={navCollapsed}
+        onToggleCollapse={() => setNavCollapsed((v) => !v)}
+        className={`hidden shrink-0 border-r lg:flex ${
+          navCollapsed ? 'w-16' : 'w-60'
+        }`}
       />
 
       <div
