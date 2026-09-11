@@ -38,6 +38,18 @@
  * second TTL cache; a request that arrives after the leader has already
  * settled starts a fresh operation and goes through Runtime Cache again
  * like normal.
+ *
+ * `tags` may be a plain array (when the caller already knows the right tags
+ * before computing, e.g. resolveCollectionScopedProductIds, which is keyed
+ * by the same collection ids it tags with) or a function of the resolved
+ * value (for a cache keyed by something that doesn't itself determine the
+ * tag — e.g. collectionListingScopeCache, keyed by collectionSlug, doesn't
+ * know the collection's id to tag with until after compute() resolves it).
+ *
+ * `invalidate` exposes Runtime Cache's own expireTag — same fail-open
+ * philosophy as `get`: an invalidation failure must never throw and break
+ * the admin write that triggered it, since the write itself already
+ * succeeded and the cache entry will still expire on its own via TTL.
  */
 import { getCache } from '@vercel/functions'
 
@@ -48,7 +60,10 @@ export function createSharedCache<T>(ttlSeconds: number) {
     get(
       key: string,
       compute: () => Promise<T>,
-      options?: { tags?: string[]; isValid?: (value: unknown) => value is T },
+      options?: {
+        tags?: string[] | ((value: T) => string[])
+        isValid?: (value: unknown) => value is T
+      },
     ): Promise<T> {
       const existing = inFlight.get(key)
       if (existing) return existing
@@ -80,7 +95,9 @@ export function createSharedCache<T>(ttlSeconds: number) {
 
         if (cache) {
           try {
-            await cache.set(key, fresh, { ttl: ttlSeconds, tags: options?.tags })
+            const tags =
+              typeof options?.tags === 'function' ? options.tags(fresh) : options?.tags
+            await cache.set(key, fresh, { ttl: ttlSeconds, tags })
           } catch (err) {
             console.error(`Runtime Cache set() failed for key "${key}":`, err)
           }
@@ -93,6 +110,22 @@ export function createSharedCache<T>(ttlSeconds: number) {
 
       inFlight.set(key, operation)
       return operation
+    },
+
+    async invalidate(tags: string[]): Promise<void> {
+      if (tags.length === 0) return
+      let cache: ReturnType<typeof getCache> | null = null
+      try {
+        cache = getCache()
+      } catch (err) {
+        console.error('Runtime Cache unavailable, cannot invalidate tags:', err)
+        return
+      }
+      try {
+        await cache.expireTag(tags)
+      } catch (err) {
+        console.error(`Runtime Cache expireTag() failed for tags "${tags.join(', ')}":`, err)
+      }
     },
   }
 }

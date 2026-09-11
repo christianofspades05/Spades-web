@@ -24,7 +24,7 @@ import {
   getActiveAutomaticDiscounts,
   resolveSalePrices,
 } from '#/server/storefront/automatic-sales'
-import { createPromiseCache } from '#/lib/utils/cache'
+import { createSharedCache } from '#/lib/utils/shared-cache'
 import type { ProductWithVariants } from '#/types/entities'
 import type { Database, ProductBrand } from '#/types/database.types'
 
@@ -212,7 +212,7 @@ function sortProducts(
 // for that one URL-blocking check.
 export const OTHER_BRAND_COLLECTION_SLUGS = ['ysrael', 'aspire-365']
 
-interface CollectionMetadata {
+export interface CollectionMetadata {
   id: string
   brand: ProductBrand
   match_type: 'all' | 'any'
@@ -222,7 +222,7 @@ interface CollectionMetadata {
   max_products: number | null
 }
 
-interface CollectionListingScope {
+export interface CollectionListingScope {
   collection: CollectionMetadata | null
   memberships: { product_id: string; sort_order: number }[]
 }
@@ -232,21 +232,65 @@ interface CollectionListingScope {
 // alone, via loadStorefrontSections), independent of and uncovered by
 // resolveCollectionScopedProductIds' own cache (that one only covers the
 // active-discount scoping done later in this same function, via
-// withSalePrices). Same 15s TTL/promise-caching pattern as
-// getActiveProductsForBrand right below: collection metadata/membership
-// barely ever changes (a staff edit in admin), so every concurrent section
-// resolving the same collection slug within the TTL window shares one real
-// Supabase round trip instead of firing its own pair. Keyed by
-// collectionSlug alone — `collections.slug` has a database-level global
-// UNIQUE constraint (collections_slug_key), not scoped per brand, so a
-// Spades and a Ysrael/Aspire365 collection can never share a slug; no brand
-// needs to be added to the key.
-const COLLECTION_LISTING_SCOPE_CACHE_TTL_MS = 15_000
-const collectionListingScopeCache = createPromiseCache<CollectionListingScope>(
-  COLLECTION_LISTING_SCOPE_CACHE_TTL_MS,
+// withSalePrices). Collection metadata/membership barely ever changes (a
+// staff edit in admin), so every section resolving the same collection slug
+// within the TTL window shares one real Supabase round trip instead of
+// firing its own pair. Keyed by collectionSlug alone — `collections.slug`
+// has a database-level global UNIQUE constraint (collections_slug_key), not
+// scoped per brand (verified directly against the constraint), so a Spades
+// and a Ysrael/Aspire365 collection can never share a slug; no brand needs
+// to be added to the key.
+//
+// Backed by Vercel Runtime Cache (shared across every warm instance in the
+// region), not a process-local cache, per the 61K-collections-calls/12h
+// audit: with only 16 active collections site-wide but a process-local
+// cache, every concurrently-active Fluid/Lambda instance kept its own
+// independent copy, so the same 16 collections were re-fetched by every
+// instance rather than once site-wide. Same createSharedCache +
+// single-flight pattern already proven on collectionScopeCache in
+// scoped-products.ts, and the same 300s TTL. Tagged with `collection:<id>`
+// — the same tag scoped-products.ts already uses — so an admin write that
+// changes a collection's rules/metadata or its product membership can
+// invalidate this cache immediately instead of waiting out the TTL; see the
+// write paths in server/admin/collections.ts and server/admin/products.ts.
+const COLLECTION_LISTING_SCOPE_CACHE_TTL_SECONDS = 300
+const collectionListingScopeCache = createSharedCache<CollectionListingScope>(
+  COLLECTION_LISTING_SCOPE_CACHE_TTL_SECONDS,
 )
 
-async function fetchCollectionListingScope(
+export function isCollectionListingScope(
+  value: unknown,
+): value is CollectionListingScope {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  if (!Array.isArray(v.memberships)) return false
+  return (
+    v.collection === null ||
+    (typeof v.collection === 'object' && v.collection !== null)
+  )
+}
+
+export function collectionListingScopeTags(
+  scope: CollectionListingScope,
+): string[] {
+  return scope.collection ? [`collection:${scope.collection.id}`] : []
+}
+
+/** Invalidates collectionListingScopeCache for the given collection ids —
+ *  called by every admin write path that changes a collection's own
+ *  metadata/rules or its product_collections membership (see
+ *  server/admin/collections.ts and server/admin/products.ts). Safe to call
+ *  with ids that aren't currently cached (e.g. a brand-new collection) —
+ *  Runtime Cache's expireTag is a no-op for a tag with nothing tagged. */
+export function invalidateCollectionListingCache(
+  collectionIds: string[],
+): Promise<void> {
+  return collectionListingScopeCache.invalidate(
+    collectionIds.map((id) => `collection:${id}`),
+  )
+}
+
+export async function fetchCollectionListingScope(
   supabase: ReturnType<typeof getSupabaseServerClient>,
   collectionSlug: string,
 ): Promise<CollectionListingScope> {
@@ -274,6 +318,21 @@ async function fetchCollectionListingScope(
   return { collection, memberships }
 }
 
+/** The exact cache call listActiveProducts makes below — pulled out into its
+ *  own named function so it can be exercised directly in tests without a
+ *  real request context (fetchCollectionListingScope's own `supabase`
+ *  param means it never calls getSupabaseServerClient() itself). */
+export function getCollectionListingScope(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+  collectionSlug: string,
+): Promise<CollectionListingScope> {
+  return collectionListingScopeCache.get(
+    collectionSlug,
+    () => fetchCollectionListingScope(supabase, collectionSlug),
+    { tags: collectionListingScopeTags, isValid: isCollectionListingScope },
+  )
+}
+
 export const listActiveProducts = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -296,9 +355,9 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       }
       const collectionSlug = data.collectionSlug
 
-      const { collection, memberships } = await collectionListingScopeCache.get(
+      const { collection, memberships } = await getCollectionListingScope(
+        supabase,
         collectionSlug,
-        () => fetchCollectionListingScope(supabase, collectionSlug),
       )
       if (!collection) return []
 

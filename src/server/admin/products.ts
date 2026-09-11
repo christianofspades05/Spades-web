@@ -19,6 +19,7 @@ import { slugify } from '#/lib/utils/slug'
 import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
+import { invalidateCollectionListingCache } from '#/server/products/queries'
 import { logStaffActivity } from './activity-log'
 import type {
   Inventory,
@@ -680,6 +681,10 @@ export const duplicateProduct = createServerFn({ method: 'POST' })
           })),
         )
       if (collectionsError) throw collectionsError
+
+      await invalidateCollectionListingCache(
+        original.collections.map((c) => c.collection_id),
+      )
     }
 
     if (data.duplicateVariants) {
@@ -1015,6 +1020,16 @@ export const setProductCollections = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
+    // Captured before the delete below so invalidation covers collections
+    // the product is LEAVING too, not just the ones it's joining — both
+    // sides' cached listing (fetchCollectionListingScope) become stale.
+    const { data: previousRows, error: previousError } = await admin
+      .from('product_collections')
+      .select('collection_id')
+      .eq('product_id', data.productId)
+    if (previousError) throw previousError
+    const previousCollectionIds = previousRows.map((r) => r.collection_id)
+
     const { error: deleteError } = await admin
       .from('product_collections')
       .delete()
@@ -1033,6 +1048,10 @@ export const setProductCollections = createServerFn({ method: 'POST' })
         )
       if (insertError) throw insertError
     }
+
+    await invalidateCollectionListingCache([
+      ...new Set([...previousCollectionIds, ...data.collectionIds]),
+    ])
 
     await logStaffActivity(
       staff,

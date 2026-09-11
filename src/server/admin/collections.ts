@@ -10,6 +10,7 @@ import { matchesRules } from '#/lib/collections/rules'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { logStaffActivity } from './activity-log'
+import { invalidateCollectionListingCache } from '#/server/products/queries'
 import type { Collection } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
@@ -103,6 +104,8 @@ export const updateCollection = createServerFn({ method: 'POST' })
       .select('*')
       .single()
     if (error) throw error
+
+    await invalidateCollectionListingCache([collection.id])
 
     await logStaffActivity(
       staff,
@@ -263,6 +266,8 @@ export const addProductToCollection = createServerFn({ method: 'POST' })
     })
     if (error) throw error
 
+    await invalidateCollectionListingCache([data.collectionId])
+
     await logStaffActivity(
       staff,
       'collection.add_product',
@@ -286,6 +291,8 @@ export const removeProductFromCollection = createServerFn({ method: 'POST' })
       .eq('collection_id', data.collectionId)
       .eq('product_id', data.productId)
     if (error) throw error
+
+    await invalidateCollectionListingCache([data.collectionId])
 
     await logStaffActivity(
       staff,
@@ -311,6 +318,8 @@ export const reorderCollectionProducts = createServerFn({ method: 'POST' })
           .eq('product_id', productId),
       ),
     )
+
+    await invalidateCollectionListingCache([data.collectionId])
 
     await logStaffActivity(
       staff,
@@ -346,6 +355,8 @@ export const pinAndReorderCollectionProducts = createServerFn({
       { onConflict: 'product_id,collection_id' },
     )
     if (error) throw error
+
+    await invalidateCollectionListingCache([data.collectionId])
 
     await logStaffActivity(
       staff,

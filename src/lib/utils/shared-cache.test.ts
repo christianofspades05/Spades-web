@@ -256,4 +256,91 @@ describe('createSharedCache', () => {
       expect(compute).toHaveBeenCalledTimes(2)
     })
   })
+
+  describe('function-form tags', () => {
+    it('derives tags from the resolved value on a miss', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+
+      const shared = createSharedCache<{ id: string }>(300)
+      await shared.get('slug-a', async () => ({ id: 'collection-1' }), {
+        tags: (value) => [`collection:${value.id}`],
+      })
+
+      expect(cache.set).toHaveBeenCalledWith(
+        'slug-a',
+        { id: 'collection-1' },
+        { ttl: 300, tags: ['collection:collection-1'] },
+      )
+    })
+
+    it('never calls the tags function on a hit (nothing was computed to derive tags from)', async () => {
+      const cache = fakeCache({ get: vi.fn(async () => ({ id: 'cached' })) })
+      mockGetCache.mockReturnValue(cache)
+      const tagsFn = vi.fn((value: { id: string }) => [`collection:${value.id}`])
+
+      const shared = createSharedCache<{ id: string }>(300)
+      const result = await shared.get('slug-a', async () => ({ id: 'fresh' }), {
+        tags: tagsFn,
+      })
+
+      expect(result).toEqual({ id: 'cached' })
+      expect(tagsFn).not.toHaveBeenCalled()
+      expect(cache.set).not.toHaveBeenCalled()
+    })
+
+    it('still accepts a plain array of tags unchanged (existing callers)', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+
+      const shared = createSharedCache<string>(300)
+      await shared.get('key', async () => 'value', { tags: ['collection:abc'] })
+
+      expect(cache.set).toHaveBeenCalledWith('key', 'value', { ttl: 300, tags: ['collection:abc'] })
+    })
+  })
+
+  describe('invalidate', () => {
+    it('calls Runtime Cache expireTag with the given tags', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+
+      const shared = createSharedCache<string>(300)
+      await shared.invalidate(['collection:abc', 'collection:def'])
+
+      expect(cache.expireTag).toHaveBeenCalledWith(['collection:abc', 'collection:def'])
+    })
+
+    it('is a no-op when given an empty tag list', async () => {
+      const cache = fakeCache()
+      mockGetCache.mockReturnValue(cache)
+
+      const shared = createSharedCache<string>(300)
+      await shared.invalidate([])
+
+      expect(mockGetCache).not.toHaveBeenCalled()
+      expect(cache.expireTag).not.toHaveBeenCalled()
+    })
+
+    it('fails open (does not throw) when getCache() itself throws', async () => {
+      mockGetCache.mockImplementation(() => {
+        throw new Error('No cache available in the context')
+      })
+
+      const shared = createSharedCache<string>(300)
+      await expect(shared.invalidate(['collection:abc'])).resolves.toBeUndefined()
+    })
+
+    it('fails open (does not throw) when expireTag() itself throws', async () => {
+      const cache = fakeCache({
+        expireTag: vi.fn(async () => {
+          throw new Error('Runtime Cache unavailable')
+        }),
+      })
+      mockGetCache.mockReturnValue(cache)
+
+      const shared = createSharedCache<string>(300)
+      await expect(shared.invalidate(['collection:abc'])).resolves.toBeUndefined()
+    })
+  })
 })
