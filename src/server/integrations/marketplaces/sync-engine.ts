@@ -156,7 +156,7 @@ async function pushOneMapping(
   connection: MarketplaceConnection,
   mapping: MappingRow,
   rawQuantity: number,
-  options?: { force?: boolean },
+  options?: { force?: boolean; logSuccess?: boolean },
 ): Promise<void> {
   // Inventory sync is an explicit per-channel opt-in (off by default) — a
   // channel connected here may already have its stock managed by another
@@ -208,11 +208,20 @@ async function pushOneMapping(
           last_pushed_quantity: quantity,
         })
         .eq('id', mapping.id)
-      await logSync(connection.marketplace, 'push_inventory', 'success', {
-        mappingId: mapping.id,
-        quantity,
-        attempt,
-      })
+      // Suppressed for pushInventoryForAllProducts (options.logSuccess:
+      // false) — sync_status/last_synced_at above already record success
+      // on the mapping row itself, so a per-mapping success row here was
+      // pure duplicate bookkeeping at catalog scale. Every other caller
+      // (a real-time sale via pushInventoryForVariant, or an admin "sync
+      // now"/"force" click) still gets one, unchanged — logSuccess
+      // defaults to true.
+      if (options?.logSuccess ?? true) {
+        await logSync(connection.marketplace, 'push_inventory', 'success', {
+          mappingId: mapping.id,
+          quantity,
+          attempt,
+        })
+      }
       return
     } catch (err) {
       await logSync(
@@ -304,26 +313,46 @@ export async function pushInventoryForAllProducts(
     .eq('marketplace_connection_id', connection.id)
   if (error) throw error
 
+  // Batched ahead of the loop instead of one inventory SELECT per mapping —
+  // at today's catalog size (1,929 mappings) that was 1,929 individual
+  // round trips for data this single .in() sweep (chunked, same reasoning
+  // as pushPriceForProducts' CHUNK_SIZE below) gets in a handful. Same
+  // .eq('variant_id', ...).maybeSingle() semantics per mapping are
+  // preserved exactly: a variant_id absent from `inventory` still resolves
+  // to 0 via the same `?? 0` fallback, and a duplicate variant_id across
+  // mappings just reads the same map entry twice, identical to two
+  // separate live SELECTs returning the same row.
+  const CHUNK_SIZE = 200
+  const uniqueVariantIds = Array.from(
+    new Set(mappings.map((m) => m.variant_id)),
+  )
+  const inventoryByVariantId = new Map<string, number>()
+  for (let i = 0; i < uniqueVariantIds.length; i += CHUNK_SIZE) {
+    const { data: batch, error: inventoryError } = await admin
+      .from('inventory')
+      .select('variant_id, quantity_available')
+      .in('variant_id', uniqueVariantIds.slice(i, i + CHUNK_SIZE))
+    if (inventoryError) throw inventoryError
+    for (const row of batch) {
+      inventoryByVariantId.set(row.variant_id, row.quantity_available)
+    }
+  }
+
   // Concurrent, not one mapping at a time — sequential pushes over a
-  // catalog this size (hundreds of mappings, each a DB read + a real
-  // marketplace API call + a DB write) run well past a serverless
-  // function's time limit and the whole request gets killed mid-run, the
-  // same class of problem mapWithConcurrency already exists to fix for
-  // autoConnectProductsBySku's remote-detail fetches.
+  // catalog this size (hundreds of mappings, each a real marketplace API
+  // call + a DB write) run well past a serverless function's time limit
+  // and the whole request gets killed mid-run, the same class of problem
+  // mapWithConcurrency already exists to fix for autoConnectProductsBySku's
+  // remote-detail fetches.
   await mapWithConcurrency(
     mappings,
     DETAIL_FETCH_CONCURRENCY,
     async (mapping) => {
-      const { data: inventoryRow } = await admin
-        .from('inventory')
-        .select('quantity_available')
-        .eq('variant_id', mapping.variant_id)
-        .maybeSingle()
       await pushOneMapping(
         connection,
         mapping,
-        inventoryRow?.quantity_available ?? 0,
-        options,
+        inventoryByVariantId.get(mapping.variant_id) ?? 0,
+        { ...options, logSuccess: false },
       )
     },
   )
@@ -345,7 +374,7 @@ async function pushOnePriceMapping(
   connection: MarketplaceConnection,
   mapping: PriceMappingRow,
   priceCents: number,
-  options?: { force?: boolean },
+  options?: { force?: boolean; logSuccess?: boolean },
 ): Promise<void> {
   // Same opt-in reasoning as pushOneMapping's inventory gate — a channel's
   // price may be managed by another tool, so this only ever runs uninvited
@@ -378,11 +407,17 @@ async function pushOnePriceMapping(
         mapping.external_variant_id,
         priceCents,
       )
-      await logSync(connection.marketplace, 'push_price', 'success', {
-        mappingId: mapping.id,
-        priceCents,
-        attempt,
-      })
+      // Suppressed for pushPriceForAllProducts (options.logSuccess: false)
+      // — same reasoning as pushOneMapping's inventory success log above.
+      // Every other caller (pushPriceForProducts' forced scoped resync)
+      // still gets one, unchanged — logSuccess defaults to true.
+      if (options?.logSuccess ?? true) {
+        await logSync(connection.marketplace, 'push_price', 'success', {
+          mappingId: mapping.id,
+          priceCents,
+          attempt,
+        })
+      }
       return
     } catch (err) {
       await logSync(
@@ -429,13 +464,23 @@ async function repriceOneMapping(
   connection: MarketplaceConnection,
   activeDiscounts: Awaited<ReturnType<typeof getActiveAutomaticDiscountsFresh>>,
   mapping: PriceMappingRow,
-  options?: { force?: boolean },
+  options?: { force?: boolean; logSuccess?: boolean },
+  // Optional preloaded {price_cents, product_id} for this mapping's variant
+  // — pushPriceForAllProducts below batches this ahead of the loop instead
+  // of every mapping doing its own SELECT. Left undefined (falls back to
+  // the original live fetch, unchanged) for pushPriceForProducts' scoped
+  // resync, which isn't part of this optimization's scope.
+  preloadedVariant?: { price_cents: number; product_id: string },
 ): Promise<void> {
-  const { data: variant } = await admin
-    .from('product_variants')
-    .select('price_cents, product_id')
-    .eq('id', mapping.variant_id)
-    .maybeSingle()
+  const variant =
+    preloadedVariant ??
+    (
+      await admin
+        .from('product_variants')
+        .select('price_cents, product_id')
+        .eq('id', mapping.variant_id)
+        .maybeSingle()
+    ).data
   if (!variant) return
 
   const markedUpPriceCents = Math.round(
@@ -475,10 +520,45 @@ export async function pushPriceForAllProducts(
     .eq('marketplace_connection_id', connection.id)
   if (error) throw error
 
+  // Batched ahead of the loop instead of one product_variants SELECT per
+  // mapping inside repriceOneMapping — same reasoning and same chunk size
+  // as pushInventoryForAllProducts' inventory batch above. A variant_id
+  // missing from the result (deleted variant, say) resolves to `undefined`
+  // in the map, which repriceOneMapping already treats identically to its
+  // old !variant early-return.
+  const CHUNK_SIZE = 200
+  const uniqueVariantIds = Array.from(
+    new Set(mappings.map((m) => m.variant_id)),
+  )
+  const variantsById = new Map<
+    string,
+    { price_cents: number; product_id: string }
+  >()
+  for (let i = 0; i < uniqueVariantIds.length; i += CHUNK_SIZE) {
+    const { data: batch, error: variantsError } = await admin
+      .from('product_variants')
+      .select('id, price_cents, product_id')
+      .in('id', uniqueVariantIds.slice(i, i + CHUNK_SIZE))
+    if (variantsError) throw variantsError
+    for (const v of batch) {
+      variantsById.set(v.id, {
+        price_cents: v.price_cents,
+        product_id: v.product_id,
+      })
+    }
+  }
+
   const activeDiscounts = await getActiveAutomaticDiscountsFresh(admin)
 
   await mapWithConcurrency(mappings, DETAIL_FETCH_CONCURRENCY, (mapping) =>
-    repriceOneMapping(admin, connection, activeDiscounts, mapping, options),
+    repriceOneMapping(
+      admin,
+      connection,
+      activeDiscounts,
+      mapping,
+      { ...options, logSuccess: false },
+      variantsById.get(mapping.variant_id),
+    ),
   )
 
   return { attempted: mappings.length }
