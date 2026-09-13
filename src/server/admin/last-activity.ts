@@ -6,6 +6,24 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 export interface LastActivityInfo {
   updatedAt: string
   staffName: string | null
+  /** Present only when the most recent activity for this variant was a
+   *  stock adjustment (inventory.adjust) — never for a plain variant edit
+   *  (price/SKU/etc.), which logs no `delta`. newQuantity is the on-hand
+   *  count immediately after that specific edit, captured at the time (see
+   *  products.ts's inventory.adjust log call) — null for older log rows
+   *  from before this was captured, since it can't be safely reconstructed
+   *  from today's stock (a sale/return can move stock afterward without
+   *  its own staff activity log entry). */
+  stockChange?: { delta: number; newQuantity: number | null }
+}
+
+function parseStockChange(
+  metadata: Record<string, unknown> | null | undefined,
+): LastActivityInfo['stockChange'] {
+  const delta = metadata?.delta
+  if (typeof delta !== 'number') return undefined
+  const newQuantity = metadata?.newQuantity
+  return { delta, newQuantity: typeof newQuantity === 'number' ? newQuantity : null }
 }
 
 /**
@@ -52,7 +70,11 @@ export const getVariantsLastActivity = createServerFn({ method: 'GET' })
 
     const result: Record<string, LastActivityInfo> = {}
     for (const row of rows) {
-      result[row.variant_id] = { updatedAt: row.updated_at, staffName: row.staff_name }
+      result[row.variant_id] = {
+        updatedAt: row.updated_at,
+        staffName: row.staff_name,
+        stockChange: parseStockChange(row.metadata),
+      }
     }
     return result
   })

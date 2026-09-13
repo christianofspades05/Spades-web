@@ -1394,7 +1394,12 @@ export interface Database {
       }
       get_variant_last_activity: {
         Args: { variant_ids: string[] }
-        Returns: { variant_id: string; updated_at: string; staff_name: string | null }[]
+        Returns: {
+          variant_id: string
+          updated_at: string
+          staff_name: string | null
+          metadata: Record<string, unknown>
+        }[]
       }
     }
     Enums: Record<string, never>

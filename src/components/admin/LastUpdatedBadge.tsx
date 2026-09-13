@@ -42,8 +42,17 @@ export function LastUpdatedBadge({ info }: { info: LastActivityInfo | undefined 
             className="fixed inset-0 z-10 cursor-default"
           />
           <div className="absolute top-full left-1/2 z-20 mt-1 w-max -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-xs whitespace-nowrap text-neutral-600 shadow-lg">
-            Last updated {label}, {time}
-            {info.staffName ? ` · ${info.staffName}` : ''}
+            <p>
+              Last updated {label}, {time}
+              {info.staffName ? ` · ${info.staffName}` : ''}
+            </p>
+            {info.stockChange && (
+              <p className="mt-0.5 font-medium text-neutral-900">
+                {info.stockChange.newQuantity !== null
+                  ? `Stock: ${info.stockChange.newQuantity - info.stockChange.delta} → ${info.stockChange.newQuantity}`
+                  : `Stock ${info.stockChange.delta >= 0 ? '+' : ''}${info.stockChange.delta}`}
+              </p>
+            )}
           </div>
         </>
       )}

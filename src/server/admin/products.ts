@@ -1122,6 +1122,11 @@ export const adjustInventory = createServerFn({ method: 'POST' })
     await logStaffActivity(staff, 'inventory.adjust', 'inventory', updated.id, {
       variantId: data.variantId,
       delta: data.quantityDelta,
+      // The on-hand quantity right after this specific edit — not derivable
+      // from today's current stock minus delta later, since a sale/return
+      // can move stock again afterward without ever going through a staff
+      // activity log of its own (see LastUpdatedBadge's stock-change tooltip).
+      newQuantity: updated.quantity_on_hand,
     })
 
     // Awaited (not fire-and-forget) — on serverless, work kicked off after
