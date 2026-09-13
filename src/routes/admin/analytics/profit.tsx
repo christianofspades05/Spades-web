@@ -59,6 +59,26 @@ const CHANNEL_COLORS: Record<OrderSource, string> = {
 
 const ORDER_PROFIT_PAGE_SIZE = 25
 
+const REPORT_TIMEZONE_IANA = {
+  ph: 'Asia/Manila',
+  la: 'America/Los_Angeles',
+} as const
+
+const REPORT_TIMEZONE_NAMES = {
+  ph: 'Philippine Time',
+  la: 'Los Angeles, America',
+} as const
+
+/** e.g. "GMT+8" / "GMT-7" — computed live since LA's offset flips with DST;
+ *  PH's stays constant but is cheap enough to compute the same way. */
+function reportTimezoneOffsetLabel(tz: 'ph' | 'la'): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: REPORT_TIMEZONE_IANA[tz],
+    timeZoneName: 'shortOffset',
+  }).formatToParts(new Date())
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+}
+
 export const Route = createFileRoute('/admin/analytics/profit')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
@@ -84,6 +104,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
         'failed',
       ])
       .optional(),
+    tz: z.enum(['ph', 'la']).catch('ph'),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -98,10 +119,16 @@ export const Route = createFileRoute('/admin/analytics/profit')({
           channel: deps.channel,
           brand: deps.brand,
           comparePrevious: deps.compare,
+          tz: deps.tz,
         },
       }),
       getProductProfitBreakdown({
-        data: { ...resolved, channel: deps.channel, brand: deps.brand },
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          brand: deps.brand,
+          tz: deps.tz,
+        },
       }),
       getOrderProfitList({
         data: {
@@ -112,6 +139,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
           search: deps.orderSearch,
           page: deps.orderPage,
           pageSize: ORDER_PROFIT_PAGE_SIZE,
+          tz: deps.tz,
         },
       }),
     ])
@@ -194,6 +222,28 @@ function ProfitPage() {
               to={search.to ?? resolveDateRange(search.range, {}).to}
               onChange={handleRangeChange}
             />
+            <select
+              value={search.tz}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    tz: e.target.value as 'ph' | 'la',
+                  }),
+                })
+              }
+              className={inputClassName}
+              title="Timezone this report's dates/totals are grouped by"
+            >
+              {(Object.keys(REPORT_TIMEZONE_NAMES) as ('ph' | 'la')[]).map(
+                (tz) => (
+                  <option key={tz} value={tz}>
+                    {REPORT_TIMEZONE_NAMES[tz]} (
+                    {reportTimezoneOffsetLabel(tz)})
+                  </option>
+                ),
+              )}
+            </select>
             <select
               value={search.brand ?? ''}
               onChange={(e) =>

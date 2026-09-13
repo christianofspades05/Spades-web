@@ -5,11 +5,14 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import {
   daysAgo,
   previousPeriod,
+  reportLocalDateKey,
+  reportRangeToUtcBounds,
   storeLocalDateKey,
   storeLocalHourKey,
   storeLocalMonthKey,
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
+import type { ReportTimezone } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
@@ -119,12 +122,17 @@ async function computeChannelSales(
   to: string,
   channelFilter: OrderSource | undefined,
   brandFilter: string | undefined,
+  tz: ReportTimezone = 'ph',
 ): Promise<{
   channels: ChannelSales[]
   totals: ChannelSales
   daily: ProfitDailyPoint[]
 }> {
-  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
+  const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
+    from,
+    to,
+    tz,
+  )
 
   const orders = await fetchAllRows((offset) => {
     let orderQuery = admin
@@ -333,7 +341,7 @@ async function computeChannelSales(
     })
   }
   for (const order of liveOrders) {
-    const key = storeLocalDateKey(order.placed_at)
+    const key = reportLocalDateKey(order.placed_at, tz)
     const bucket = dailyMap.get(key)
     if (!bucket) continue
     bucket.grossSalesCents += grossSalesCentsForOrder(order)
@@ -757,6 +765,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
         .optional(),
       brand: z.string().optional(),
       comparePrevious: z.boolean().default(false),
+      tz: z.enum(['ph', 'la']).default('ph'),
     }),
   )
   .handler(async ({ data }): Promise<SalesByChannelResult> => {
@@ -769,6 +778,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
       data.to,
       data.channel,
       data.brand,
+      data.tz,
     )
 
     let previous: SalesByChannelResult['previous'] = null
@@ -780,6 +790,7 @@ export const getSalesByChannel = createServerFn({ method: 'GET' })
         prev.to,
         data.channel,
         data.brand,
+        data.tz,
       )
       previous = {
         channels: prevResult.channels,
@@ -1218,20 +1229,22 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
         .optional(),
       brand: z.string().optional(),
+      tz: z.enum(['ph', 'la']).default('ph'),
     }),
   )
   .handler(async ({ data }): Promise<ProductProfitRow[]> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}`
     const cached = productProfitCache.get(cacheKey)
     if (cached) return cached
 
     const admin = getSupabaseAdminClient()
 
-    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+    const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
       data.from,
       data.to,
+      data.tz,
     )
 
     const orders = await fetchAllRows((offset) => {
@@ -2011,15 +2024,17 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
       search: z.string().optional(),
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(1).max(100).default(25),
+      tz: z.enum(['ph', 'la']).default('ph'),
     }),
   )
   .handler(async ({ data }): Promise<OrderProfitListResult> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+    const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
       data.from,
       data.to,
+      data.tz,
     )
     const searchTerm = data.search?.trim() || undefined
 
