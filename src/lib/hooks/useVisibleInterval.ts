@@ -5,10 +5,12 @@ import { useEffect, useRef } from 'react'
  * background/inactive tab), and fires one fresh call as soon as it becomes
  * visible again so the data doesn't sit stale. Written for polling loops
  * that would otherwise keep hitting the server indefinitely in a tab
- * nobody is actually looking at — see LiveViewerHeartbeat.tsx, the
- * original case this mattered for (a cost audit traced a large share of
- * Vercel's Edge Request/Function Invocation volume to exactly this: a
- * site-wide interval with no visibility gating).
+ * nobody is actually looking at — originally added for the storefront's
+ * live-presence heartbeat (a cost audit traced a large share of Vercel's
+ * Edge Request/Function Invocation volume to exactly this: a site-wide
+ * interval with no visibility gating). That heartbeat has since been
+ * removed entirely, but the hook is still used by admin.tsx's unread-
+ * replies polling.
  *
  * Does NOT fire on mount — callers that want an immediate first call
  * should still do that themselves, same as before this hook existed.

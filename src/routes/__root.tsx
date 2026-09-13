@@ -12,7 +12,6 @@ import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { LanguagePopup } from '#/components/storefront/LanguagePopup'
 import { EmailCapturePopup } from '#/components/storefront/EmailCapturePopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
-import { LiveViewerHeartbeat } from '#/components/storefront/LiveViewerHeartbeat'
 import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
 import { buildPixelBootstrapScript } from '#/lib/analytics/facebook-pixel'
 import { CartProvider } from '#/lib/cart/CartContext'
@@ -160,7 +159,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           </noscript>
         )}
         <VisitTracker brand={storefrontScope.brand} />
-        <LiveViewerHeartbeat brand={storefrontScope.brand} />
         <FacebookPixelPageView />
         <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
           <LanguageProvider geoCountry={geoCountry}>
