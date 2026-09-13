@@ -7,6 +7,7 @@ import {
 import type { MarketInput } from '#/lib/validation/admin/market-pricing'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { invalidateMarketConfigCache } from '#/server/storefront/market-pricing'
 import { logStaffActivity } from './activity-log'
 import type { MarketWithCountries, StaffRole } from '#/types/entities'
 
@@ -127,6 +128,8 @@ export const createMarket = createServerFn({ method: 'POST' })
       throw countriesError
     }
 
+    await invalidateMarketConfigCache()
+
     await logStaffActivity(staff, 'market.create', 'markets', market.id, {
       countryCodes: data.countryCodes,
       markupPercent: data.markupPercent,
@@ -171,6 +174,8 @@ export const updateMarket = createServerFn({ method: 'POST' })
       }
       throw insertError
     }
+
+    await invalidateMarketConfigCache()
 
     await logStaffActivity(staff, 'market.update', 'markets', market.id, {
       countryCodes: data.countryCodes,
