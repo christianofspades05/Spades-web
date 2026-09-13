@@ -1,9 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { getExchangeRates } from '#/server/currency/rates'
-import {
-  getActiveMarketMarkups,
-  getActiveMarketShipping,
-} from '#/server/storefront/market-pricing'
+import { getCurrencyMarketBootstrap } from '#/server/storefront/currency-bootstrap'
 import type {
   MarketMarkups,
   MarketShippingByCountry,
@@ -93,16 +89,17 @@ export function CurrencyProvider({
     }
   }, [geoDefaultCurrency])
 
+  // One combined request instead of three separate ones — see
+  // server/storefront/currency-bootstrap.ts's own doc comment. Each of the
+  // three pieces of state is still populated (or left at its {} default on
+  // that one piece's own failure) exactly as before; only the number of
+  // round trips changed.
   useEffect(() => {
-    getExchangeRates().then(setRates)
-  }, [])
-
-  useEffect(() => {
-    getActiveMarketMarkups().then(setMarketMarkups)
-  }, [])
-
-  useEffect(() => {
-    getActiveMarketShipping().then(setMarketShipping)
+    getCurrencyMarketBootstrap().then((bootstrap) => {
+      setRates(bootstrap.rates)
+      setMarketMarkups(bootstrap.markups)
+      setMarketShipping(bootstrap.shipping)
+    })
   }, [])
 
   function setCurrency(next: Currency) {

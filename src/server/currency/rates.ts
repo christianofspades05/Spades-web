@@ -3,7 +3,7 @@
  * api/cron/sync-exchange-rates) — never calls the external rate API
  * directly, so a page render never depends on that API's uptime/latency.
  */
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import type { ExchangeRates } from '#/lib/utils/money'
 import { createPromiseCache } from '#/lib/utils/cache'
@@ -20,15 +20,24 @@ const exchangeRatesCache = createPromiseCache<ExchangeRates>(
   EXCHANGE_RATES_CACHE_TTL_MS,
 )
 
-export const getExchangeRates = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<ExchangeRates> => {
-    return exchangeRatesCache.get('default', async () => {
+// Wrapped in createServerOnlyFn, not a plain function — same reasoning as
+// market-pricing.ts's fetchActiveMarketMarkups/fetchActiveMarketShipping:
+// lets server/storefront/currency-bootstrap.ts call this in-process
+// alongside those two without going through a second createServerFn RPC
+// hop, and lets it be exercised directly in tests without a real request
+// context.
+export const fetchExchangeRates = createServerOnlyFn(
+  (): Promise<ExchangeRates> =>
+    exchangeRatesCache.get('default', async () => {
       const supabase = getSupabaseServerClient()
       const { data, error } = await supabase
         .from('exchange_rates')
         .select('currency, rate_to_php')
       if (error) throw error
       return Object.fromEntries(data.map((r) => [r.currency, r.rate_to_php]))
-    })
-  },
+    }),
+)
+
+export const getExchangeRates = createServerFn({ method: 'GET' }).handler(
+  (): Promise<ExchangeRates> => fetchExchangeRates(),
 )
