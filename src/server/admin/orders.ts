@@ -215,6 +215,9 @@ const listOrdersFilterSchema = z.object({
   zone: z
     .enum(['metro_manila', 'luzon', 'visayas', 'mindanao', 'international'])
     .optional(),
+  /** Filters against orders.has_pre_order_items — a plain boolean column,
+   *  so unlike zone/fulfillment above this needs no id-resolution step. */
+  preOrder: z.enum(['yes', 'no']).optional(),
   q: z.string().optional(),
 })
 
@@ -463,6 +466,9 @@ export const listOrders = createServerFn({ method: 'GET' })
       if (data.source) q = q.eq('source', data.source)
       if (data.brand) q = q.eq('brand', data.brand)
       if (hasShipment !== undefined) q = q.eq('has_shipment', hasShipment)
+      if (data.preOrder) {
+        q = q.eq('has_pre_order_items', data.preOrder === 'yes')
+      }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
@@ -575,6 +581,9 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       if (data.source) q = q.eq('source', data.source)
       if (data.brand) q = q.eq('brand', data.brand)
       if (hasShipment !== undefined) q = q.eq('has_shipment', hasShipment)
+      if (data.preOrder) {
+        q = q.eq('has_pre_order_items', data.preOrder === 'yes')
+      }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }

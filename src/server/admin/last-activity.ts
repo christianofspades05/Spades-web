@@ -15,6 +15,12 @@ export interface LastActivityInfo {
    *  from today's stock (a sale/return can move stock afterward without
    *  its own staff activity log entry). */
   stockChange?: { delta: number; newQuantity: number | null }
+  /** Product-scoped only: the sum of each of this product's variants' own
+   *  latest stock adjustment (one per variant that has any, not every
+   *  adjustment ever) — e.g. "Staff adjusted stock +123" for a product with
+   *  several sizes each recently restocked. Undefined when no variant has
+   *  an inventory.adjust log at all. */
+  totalStockDelta?: number
 }
 
 function parseStockChange(
@@ -47,7 +53,11 @@ export const getProductsLastActivity = createServerFn({ method: 'GET' })
 
     const result: Record<string, LastActivityInfo> = {}
     for (const row of rows) {
-      result[row.product_id] = { updatedAt: row.updated_at, staffName: row.staff_name }
+      result[row.product_id] = {
+        updatedAt: row.updated_at,
+        staffName: row.staff_name,
+        totalStockDelta: row.total_stock_delta ?? undefined,
+      }
     }
     return result
   })

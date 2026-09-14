@@ -53,6 +53,12 @@ export function LastUpdatedBadge({ info }: { info: LastActivityInfo | undefined 
                   : `Stock ${info.stockChange.delta >= 0 ? '+' : ''}${info.stockChange.delta}`}
               </p>
             )}
+            {info.totalStockDelta !== undefined && (
+              <p className="mt-0.5 font-medium text-neutral-900">
+                Staff adjusted stock {info.totalStockDelta >= 0 ? '+' : ''}
+                {info.totalStockDelta}
+              </p>
+            )}
           </div>
         </>
       )}

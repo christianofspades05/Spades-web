@@ -1390,7 +1390,12 @@ export interface Database {
       }
       get_product_last_activity: {
         Args: { product_ids: string[] }
-        Returns: { product_id: string; updated_at: string; staff_name: string | null }[]
+        Returns: {
+          product_id: string
+          updated_at: string
+          staff_name: string | null
+          total_stock_delta: number | null
+        }[]
       }
       get_variant_last_activity: {
         Args: { variant_ids: string[] }

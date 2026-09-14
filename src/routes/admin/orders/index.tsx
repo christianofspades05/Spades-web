@@ -129,6 +129,11 @@ const DELIVERY_METHOD_OPTIONS = [
   { value: 'international', label: 'International' },
 ] as const
 
+const PRE_ORDER_OPTIONS = [
+  { value: 'yes', label: 'Pre-Order Only' },
+  { value: 'no', label: 'Excluding Pre-Order' },
+] as const
+
 interface OrderShippingAddress {
   country?: string
   region: string
@@ -155,6 +160,7 @@ export const Route = createFileRoute('/admin/orders/')({
     zone: z
       .enum(['metro_manila', 'luzon', 'visayas', 'mindanao', 'international'])
       .optional(),
+    preOrder: z.enum(['yes', 'no']).optional(),
     q: z.string().optional(),
     page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
@@ -173,6 +179,7 @@ export const Route = createFileRoute('/admin/orders/')({
       brand: deps.brand,
       fulfillment: deps.fulfillment,
       zone: deps.zone,
+      preOrder: deps.preOrder,
       q: deps.q,
     }
     const overviewPromise: Promise<OrdersOverview> = getOrdersOverview({
@@ -446,6 +453,14 @@ function OrdersPage() {
             options={DELIVERY_METHOD_OPTIONS}
             onChange={(zone) =>
               navigate({ search: (prev) => ({ ...prev, zone, page: 1 }) })
+            }
+          />
+          <FilterDropdown
+            label="Pre-Order"
+            value={search.preOrder}
+            options={PRE_ORDER_OPTIONS}
+            onChange={(preOrder) =>
+              navigate({ search: (prev) => ({ ...prev, preOrder, page: 1 }) })
             }
           />
         </div>
