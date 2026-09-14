@@ -19,7 +19,7 @@
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { Discount } from '#/types/entities'
-import { createPromiseCache } from '#/lib/utils/cache'
+import { createSharedCache } from '#/lib/utils/shared-cache'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 
@@ -38,19 +38,70 @@ export type AutomaticDiscount = Pick<
   | 'stacks_with_sale'
 >
 
+/** Tag both the cache entry and its invalidation share — bumped by every
+ *  admin write that can change discount behavior (createDiscount,
+ *  updateDiscount, setDiscountActive) in server/admin/discounts.ts, so an
+ *  admin edit is visible immediately instead of waiting out the TTL. Safe
+ *  to call even when nothing is cached — Runtime Cache's expireTag is a
+ *  no-op for a tag with nothing tagged under it. */
+const DISCOUNT_CONFIG_CACHE_TAG = 'discount-config'
+
+type AutomaticDiscountRow = AutomaticDiscount & {
+  starts_at: string | null
+  ends_at: string | null
+}
+
 // Called on every single product-detail page view (and every listing page)
 // to price each product — the discounts table itself only ever has a
 // handful of active automatic rows at once, but re-fetching it per view adds
-// up site-wide the same way storefront/maintenance.ts's flag did. Not
-// brand-scoped, so a single fixed key.
-const ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_MS = 15_000
-const activeAutomaticDiscountsCache = createPromiseCache<AutomaticDiscount[]>(
-  ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_MS,
+// up site-wide the same way markets' markup/shipping config did (see
+// server/storefront/market-pricing.ts). Was createPromiseCache (process-
+// local, 15s): a Sep 2026 traffic audit found this the same gap already
+// fixed for markets/collections — every warm Fluid/Lambda instance kept its
+// own independent copy instead of sharing one site-wide. Switched to
+// createSharedCache (Vercel Runtime Cache + single-flight), 300s TTL — safe
+// here specifically because every write path that can change this result
+// (createDiscount, updateDiscount, setDiscountActive) calls
+// invalidateDiscountConfigCache() immediately after a successful write, so
+// staleness is bounded by invalidation, not by waiting out the TTL. Not
+// brand-scoped, so a single fixed key — kept distinct from any other
+// cache's key ('active-automatic-discounts', not 'default') since
+// createSharedCache is a single flat namespace shared by every cache
+// instance in the deployment, unlike the old per-instance createPromiseCache
+// Map.
+const ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_SECONDS = 300
+const activeAutomaticDiscountsCache = createSharedCache<AutomaticDiscountRow[]>(
+  ACTIVE_AUTOMATIC_DISCOUNTS_CACHE_TTL_SECONDS,
 )
 
-async function fetchActiveAutomaticDiscounts(
+function isAutomaticDiscountRowArray(
+  value: unknown,
+): value is AutomaticDiscountRow[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (d) =>
+        typeof d === 'object' &&
+        d !== null &&
+        'id' in d &&
+        'type' in d &&
+        'scope' in d &&
+        'starts_at' in d &&
+        'ends_at' in d,
+    )
+  )
+}
+
+/** Raw is_active automatic rows, deliberately NOT filtered by starts_at/
+ *  ends_at here — that filter is time-sensitive (its answer changes the
+ *  instant the clock crosses a boundary) and must never be baked into a
+ *  300s-cached result, or a scheduled sale could start or end up to 5
+ *  minutes late/early for shoppers. This raw fetch is the only part that's
+ *  cached; the date-window filter itself always runs fresh, in
+ *  applyActiveWindow below. */
+async function fetchActiveAutomaticDiscountRows(
   admin: Admin,
-): Promise<AutomaticDiscount[]> {
+): Promise<AutomaticDiscountRow[]> {
   const { data, error } = await admin
     .from('discounts')
     .select(
@@ -59,9 +110,14 @@ async function fetchActiveAutomaticDiscounts(
     .eq('kind', 'automatic')
     .eq('is_active', true)
   if (error) throw error
+  return data
+}
 
+function applyActiveWindow(
+  rows: AutomaticDiscountRow[],
+): AutomaticDiscount[] {
   const now = Date.now()
-  return data.filter((d) => {
+  return rows.filter((d) => {
     if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
     if (d.ends_at && new Date(d.ends_at).getTime() < now) return false
     return true
@@ -72,20 +128,32 @@ async function fetchActiveAutomaticDiscounts(
 export async function getActiveAutomaticDiscounts(
   admin: Admin,
 ): Promise<AutomaticDiscount[]> {
-  return activeAutomaticDiscountsCache.get('default', () =>
-    fetchActiveAutomaticDiscounts(admin),
+  const rows = await activeAutomaticDiscountsCache.get(
+    'active-automatic-discounts',
+    () => fetchActiveAutomaticDiscountRows(admin),
+    { tags: [DISCOUNT_CONFIG_CACHE_TAG], isValid: isAutomaticDiscountRowArray },
   )
+  return applyActiveWindow(rows)
 }
 
-/** Same as getActiveAutomaticDiscounts but bypasses the 15s cache — for
+/** Invalidates the active-automatic-discounts cache — called by every admin
+ *  write path that can change a discount's kind/is_active/scope/value/dates
+ *  (createDiscount, updateDiscount, setDiscountActive in
+ *  server/admin/discounts.ts). Fail-open, same as the cache itself: never
+ *  throws, since the write it's cleaning up after has already succeeded. */
+export function invalidateDiscountConfigCache(): Promise<void> {
+  return activeAutomaticDiscountsCache.invalidate([DISCOUNT_CONFIG_CACHE_TAG])
+}
+
+/** Same as getActiveAutomaticDiscounts but bypasses the cache entirely — for
  *  callers where staleness right after a discount write would be wrong
  *  (the marketplace price-sync job in sync-engine.ts runs synchronously
- *  right after an admin discount save and must reflect it immediately,
- *  not whatever was cached up to 15s ago). */
+ *  right after an admin discount save and must reflect it immediately, not
+ *  whatever was cached up to 300s ago). */
 export async function getActiveAutomaticDiscountsFresh(
   admin: Admin,
 ): Promise<AutomaticDiscount[]> {
-  return fetchActiveAutomaticDiscounts(admin)
+  return applyActiveWindow(await fetchActiveAutomaticDiscountRows(admin))
 }
 
 /** Splits active automatic discounts into "additive" (a store-wide sale,

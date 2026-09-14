@@ -12,6 +12,7 @@ import { pesosToCents } from '#/lib/utils/money'
 import { storeLocalDateTimeToUtcIso } from '#/lib/utils/date-range'
 import { IMPLEMENTED_MARKETPLACES } from '#/server/integrations/marketplaces/implemented'
 import { pushPriceForAllProducts } from '#/server/integrations/marketplaces/sync-engine'
+import { invalidateDiscountConfigCache } from '#/server/storefront/automatic-sales'
 import { logStaffActivity } from './activity-log'
 import type { Discount } from '#/types/entities'
 
@@ -179,6 +180,7 @@ export const createDiscount = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateDiscountConfigCache()
     await logStaffActivity(staff, 'discount.create', 'discounts', discount.id, {
       kind: data.kind,
       title: data.title,
@@ -201,6 +203,7 @@ export const updateDiscount = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateDiscountConfigCache()
     await logStaffActivity(
       staff,
       'discount.update',
@@ -226,6 +229,7 @@ export const setDiscountActive = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateDiscountConfigCache()
     await logStaffActivity(staff, 'discount.set_active', 'discounts', data.id, {
       isActive: data.isActive,
     })
