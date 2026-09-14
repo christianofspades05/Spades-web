@@ -6,6 +6,7 @@ import {
 } from '#/lib/validation/admin/storefront-banner'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { invalidateStorefrontBannerCache } from '#/server/storefront/banner'
 import { logStaffActivity } from './activity-log'
 import type { ProductBrand } from '#/types/database.types'
 import type { StaffRole } from '#/types/entities'
@@ -68,6 +69,7 @@ export const createStorefrontBanner = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateStorefrontBannerCache(data.brand)
     await logStaffActivity(
       staff,
       'storefront.banner_create',
@@ -84,7 +86,7 @@ export const setStorefrontBanner = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
-    const { error } = await admin
+    const { data: row, error } = await admin
       .from('storefront_banner')
       .update({
         text: data.text,
@@ -95,8 +97,11 @@ export const setStorefrontBanner = createServerFn({ method: 'POST' })
         updated_at: new Date().toISOString(),
       })
       .eq('id', data.id)
+      .select('brand')
+      .single()
     if (error) throw error
 
+    await invalidateStorefrontBannerCache(row.brand)
     await logStaffActivity(
       staff,
       'storefront.banner_update',
@@ -112,12 +117,15 @@ export const deleteStorefrontBanner = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
-    const { error } = await admin
+    const { data: row, error } = await admin
       .from('storefront_banner')
       .delete()
       .eq('id', data.id)
+      .select('brand')
+      .single()
     if (error) throw error
 
+    await invalidateStorefrontBannerCache(row.brand)
     await logStaffActivity(
       staff,
       'storefront.banner_delete',

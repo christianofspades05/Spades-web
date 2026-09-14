@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { setMaintenanceModeSchema } from '#/lib/validation/admin/maintenance'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { invalidateMaintenanceModeCache } from '#/server/storefront/maintenance'
 import { logStaffActivity } from './activity-log'
 import type { ProductBrand } from '#/types/database.types'
 import type { StaffRole } from '#/types/entities'
@@ -42,6 +43,7 @@ export const setMaintenanceMode = createServerFn({ method: 'POST' })
       .eq('brand', data.brand)
     if (error) throw error
 
+    await invalidateMaintenanceModeCache(data.brand)
     await logStaffActivity(
       staff,
       'storefront.maintenance_mode_update',
