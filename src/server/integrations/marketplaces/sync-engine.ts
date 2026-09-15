@@ -1026,6 +1026,49 @@ async function importOrder(
   return true
 }
 
+/**
+ * Given a batch of `marketplace`'s order ids, returns the subset that
+ * already exist in `orders` — one batched .in() lookup, not one per id.
+ * Lets an adapter (currently just Shopee) skip a per-order enrichment
+ * fetch that's only ever needed for a brand-new order: importOrder's
+ * existing-order branch (above) never reads platformFees/shippingCents/
+ * discountCents/platformDiscountCents at all, only isCancelled,
+ * cancellationDetail, and fulfillmentInfo — none of which come from
+ * Shopee's order-income lookup.
+ *
+ * Fails open toward correctness, not toward cost: a lookup failure returns
+ * an empty Set (nothing is treated as pre-existing), so the caller falls
+ * back to fetching enrichment for every order exactly as it did before
+ * this existed, rather than risking a new order being imported without
+ * its fee data.
+ */
+export async function getExistingExternalOrderIds(
+  marketplace: SyncableMarketplace,
+  externalOrderIds: string[],
+): Promise<Set<string>> {
+  if (externalOrderIds.length === 0) return new Set()
+  try {
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin
+      .from('orders')
+      .select('external_order_id')
+      .eq('source', marketplace)
+      .in('external_order_id', externalOrderIds)
+    if (error) throw error
+    return new Set(
+      data
+        .map((o) => o.external_order_id)
+        .filter((id): id is string => id !== null),
+    )
+  } catch (err) {
+    console.error(
+      `getExistingExternalOrderIds failed for ${marketplace}, falling back to treating all orders as new:`,
+      err,
+    )
+    return new Set()
+  }
+}
+
 export async function pullOrdersForMarketplace(
   marketplace: SyncableMarketplace,
   since: Date,
@@ -1035,7 +1078,10 @@ export async function pullOrdersForMarketplace(
 
   const adapter = getAdapter(marketplace)
   const fresh = await ensureFreshConnection(connection)
-  const rawOrders = await adapter.pullOrders(fresh, since)
+  const rawOrders = await adapter.pullOrders(fresh, since, {
+    filterExistingExternalOrderIds: (ids) =>
+      getExistingExternalOrderIds(marketplace, ids),
+  })
 
   let imported = 0
   let failed = 0

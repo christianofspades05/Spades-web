@@ -240,6 +240,19 @@ export interface MarketplaceAdapter {
   pullOrders: (
     connection: MarketplaceConnection,
     since: Date,
+    options?: {
+      /**
+       * Given a batch of this platform's order ids, resolves to the subset
+       * that already exist locally — one batched lookup, not one per id.
+       * Optional: only sync-engine.ts's caller supplies it, and only an
+       * adapter with a per-order enrichment fetch worth skipping for an
+       * already-imported order needs to use it (currently just Shopee's
+       * fetchOrderIncome — see its pullOrders). Adapters without that
+       * problem (e.g. TikTok Shop, whose search endpoint already returns
+       * everything needed in one call) can ignore this entirely.
+       */
+      filterExistingExternalOrderIds?: (ids: string[]) => Promise<Set<string>>
+    },
   ) => Promise<Record<string, unknown>[]>
 
   /**

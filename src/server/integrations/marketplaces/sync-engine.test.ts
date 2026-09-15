@@ -685,3 +685,169 @@ describe('pushPriceForAllProducts — batched variant reads', () => {
     expect(syncLogs.some((l) => l.status === 'success')).toBe(true)
   })
 })
+
+describe('getExistingExternalOrderIds — batched existing-order lookup', () => {
+  beforeEach(() => {
+    mockGetSupabaseAdminClient.mockReset()
+  })
+
+  function fakeOrdersAdmin(fixture: {
+    existingIds: string[]
+    queryCount: { count: number }
+    throwOnQuery?: boolean
+  }) {
+    return {
+      from(table: string) {
+        if (table !== 'orders') throw new Error(`Unexpected table: ${table}`)
+        return {
+          select: () => ({
+            eq: () => ({
+              in: async (_col: string, ids: string[]) => {
+                fixture.queryCount.count++
+                if (fixture.throwOnQuery) {
+                  return { data: null, error: new Error('connection refused') }
+                }
+                return {
+                  data: ids
+                    .filter((id) => fixture.existingIds.includes(id))
+                    .map((id) => ({ external_order_id: id })),
+                  error: null,
+                }
+              },
+            }),
+          }),
+        }
+      },
+    }
+  }
+
+  it('1. returns exactly the ids that already exist, via one batched query', async () => {
+    const { getExistingExternalOrderIds } = await freshModule()
+    const queryCount = { count: 0 }
+    mockGetSupabaseAdminClient.mockReturnValue(
+      fakeOrdersAdmin({ existingIds: ['SN-1', 'SN-3'], queryCount }),
+    )
+
+    const result = await getExistingExternalOrderIds('shopee' as never, [
+      'SN-1',
+      'SN-2',
+      'SN-3',
+    ])
+
+    expect(queryCount.count).toBe(1)
+    expect(result).toEqual(new Set(['SN-1', 'SN-3']))
+  })
+
+  it('2. empty input never queries the database', async () => {
+    const { getExistingExternalOrderIds } = await freshModule()
+    const queryCount = { count: 0 }
+    mockGetSupabaseAdminClient.mockReturnValue(
+      fakeOrdersAdmin({ existingIds: [], queryCount }),
+    )
+
+    const result = await getExistingExternalOrderIds('shopee' as never, [])
+
+    expect(queryCount.count).toBe(0)
+    expect(result).toEqual(new Set())
+  })
+
+  it('3. a Supabase error fails open to an empty Set, not a thrown error', async () => {
+    const { getExistingExternalOrderIds } = await freshModule()
+    const queryCount = { count: 0 }
+    mockGetSupabaseAdminClient.mockReturnValue(
+      fakeOrdersAdmin({ existingIds: [], queryCount, throwOnQuery: true }),
+    )
+
+    const result = await getExistingExternalOrderIds('shopee' as never, ['SN-1'])
+
+    expect(result).toEqual(new Set())
+  })
+
+  it('4. getSupabaseAdminClient itself throwing also fails open to an empty Set', async () => {
+    const { getExistingExternalOrderIds } = await freshModule()
+    mockGetSupabaseAdminClient.mockImplementation(() => {
+      throw new Error('no admin client available')
+    })
+
+    const result = await getExistingExternalOrderIds('shopee' as never, ['SN-1'])
+
+    expect(result).toEqual(new Set())
+  })
+})
+
+describe('pullOrdersForMarketplace — wires the batched existence lookup into the adapter', () => {
+  beforeEach(() => {
+    mockGetSupabaseAdminClient.mockReset()
+    mockGetAdapter.mockReset()
+  })
+
+  it('passes filterExistingExternalOrderIds to adapter.pullOrders, backed by exactly one Supabase query', async () => {
+    const { pullOrdersForMarketplace } = await freshModule()
+    const connection = {
+      id: 'conn-1',
+      marketplace: 'shopee',
+      status: 'active',
+      inventory_sync_enabled: true,
+      price_sync_enabled: true,
+      token_expires_at: FAR_FUTURE,
+      refresh_token_encrypted: null,
+      access_token_encrypted: 'token',
+      external_shop_id: 'shop-1',
+    }
+    const queryCount = { count: 0 }
+    const admin = {
+      from(table: string) {
+        if (table === 'marketplace_connections') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({ maybeSingle: async () => ({ data: connection, error: null }) }),
+              }),
+            }),
+          }
+        }
+        if (table === 'orders') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: async () => {
+                  queryCount.count++
+                  return { data: [{ external_order_id: 'SN-EXISTING' }], error: null }
+                },
+              }),
+            }),
+          }
+        }
+        if (table === 'sync_logs') {
+          return { insert: async () => ({ data: null, error: null }) }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      },
+    }
+    mockGetSupabaseAdminClient.mockReturnValue(admin)
+
+    let receivedOptions:
+      | { filterExistingExternalOrderIds?: (ids: string[]) => Promise<Set<string>> }
+      | undefined
+    mockGetAdapter.mockReturnValue({
+      pullOrders: async (
+        _conn: unknown,
+        _since: unknown,
+        options?: { filterExistingExternalOrderIds?: (ids: string[]) => Promise<Set<string>> },
+      ) => {
+        receivedOptions = options
+        return []
+      },
+    })
+
+    await pullOrdersForMarketplace('shopee' as never, new Date(0))
+
+    expect(receivedOptions?.filterExistingExternalOrderIds).toBeTypeOf('function')
+    const resolved = await receivedOptions?.filterExistingExternalOrderIds?.([
+      'SN-EXISTING',
+      'SN-NEW',
+    ])
+    expect(resolved).toEqual(new Set(['SN-EXISTING']))
+    expect(queryCount.count).toBe(1)
+  })
+})

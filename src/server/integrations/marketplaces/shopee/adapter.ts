@@ -412,7 +412,13 @@ export const shopeeAdapter: MarketplaceAdapter = {
     })
   },
 
-  async pullOrders(connection: MarketplaceConnection, since: Date) {
+  async pullOrders(
+    connection: MarketplaceConnection,
+    since: Date,
+    options?: {
+      filterExistingExternalOrderIds?: (ids: string[]) => Promise<Set<string>>
+    },
+  ) {
     const { accessToken, shopId } = requireCredentials(connection)
     const sinceSeconds = Math.floor(since.getTime() / 1000)
     const nowSeconds = Math.floor(Date.now() / 1000)
@@ -461,6 +467,26 @@ export const shopeeAdapter: MarketplaceAdapter = {
 
     // get_order_detail caps out at 50 order_sn per call.
     const orderSnList = Array.from(orderSns)
+
+    // One batched lookup (not one per order_sn) for which of these are
+    // already imported — see fetchOrderIncome's call below for why this
+    // matters. Resolves to an empty Set if the caller doesn't supply the
+    // option at all (reproducing the exact pre-existing behavior of
+    // fetching income for every order) or if the lookup itself throws —
+    // sync-engine.ts's implementation already catches its own errors and
+    // resolves to an empty Set, but this is defended here too, since an
+    // empty Set is always the correctness-safe fallback (fetch income for
+    // everyone, same as before this optimization existed) regardless of
+    // what supplies the callback.
+    let existingExternalOrderIds: Set<string>
+    try {
+      existingExternalOrderIds =
+        (await options?.filterExistingExternalOrderIds?.(orderSnList)) ??
+        new Set<string>()
+    } catch {
+      existingExternalOrderIds = new Set<string>()
+    }
+
     const orders: Record<string, unknown>[] = []
     for (let i = 0; i < orderSnList.length; i += 50) {
       const batch = orderSnList.slice(i, i + 50)
@@ -504,12 +530,17 @@ export const shopeeAdapter: MarketplaceAdapter = {
       }
 
       // Same one-call-per-order approach for the fee/tax breakdown Shopee
-      // deducts from the payout (see fetchOrderIncome) — this repeats for
-      // orders already imported on a previous pull too (their lookback
-      // window overlaps), which is wasted work but harmless: sync-engine
-      // only reads platformFees while inserting a brand-new order, never on
-      // a dedup hit.
+      // deducts from the payout (see fetchOrderIncome) — only needed for a
+      // brand-new order (sync-engine.ts's importOrder reads platformFees/
+      // shippingCents/discountCents/platformDiscountCents, all derived from
+      // this, only while inserting; its existing-order branch never reads
+      // any of them). Skipped for an order already known to exist, since
+      // that response would just be discarded — this is exactly the
+      // lookback window's overlap (an order's update_time can stay inside
+      // it for ~3 consecutive 5-minute polls), so this was previously
+      // re-fetched and thrown away on every one of those extra polls.
       for (const order of order_list ?? []) {
+        if (existingExternalOrderIds.has(order.order_sn)) continue
         order.order_income =
           (await fetchOrderIncome(accessToken, shopId, order.order_sn)) ??
           undefined
