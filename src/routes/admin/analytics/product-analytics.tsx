@@ -242,6 +242,9 @@ function ProductAnalyticsPage() {
                       Units sold
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      Avg orders/day
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       Current qty
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
@@ -266,6 +269,9 @@ function ProductAnalyticsPage() {
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {p.unitsSold}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {p.avgOrdersPerDay.toFixed(1)}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {p.currentStockOnHand ?? '—'}

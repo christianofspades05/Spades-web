@@ -1214,6 +1214,14 @@ export interface ProductProfitRow {
    *  independent of the row's date range. Null for snapshot-name buckets
    *  (line items with no variant, e.g. a manual price adjustment). */
   currentStockOnHand: number | null
+  /** Distinct orders that included this product within the selected range
+   *  — not unitsSold, which counts quantity (a single 3-unit order counts
+   *  once here, three times there). */
+  orderCount: number
+  /** orderCount ÷ the number of calendar days in [from, to] (inclusive) —
+   *  scoped to whatever date range is currently selected, unlike the
+   *  Restock table's fixed 30-day velocity window below. */
+  avgOrdersPerDay: number
 }
 
 const productProfitCache = createTtlCache<ProductProfitRow[]>(
@@ -1437,6 +1445,7 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       platformFeesCents: number
       srpCents: number | null
       costCents: number | null
+      orderIds: Set<string>
     }
     const buckets = new Map<string, Bucket>()
     for (const item of items) {
@@ -1477,14 +1486,25 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         srpCents: variant?.price_cents ?? fallbackSrpCents,
         costCents:
           variant?.cost_cents ?? (productId ? fallbackCostCents : null),
+        orderIds: new Set<string>(),
       }
       bucket.unitsSold += item.quantity
       bucket.grossSalesCents += item.line_total_cents
       bucket.costOfGoodsCents +=
         (variant?.cost_cents ?? fallbackCostCents) * item.quantity
       bucket.platformFeesCents += platformFeeShareForItem(item)
+      bucket.orderIds.add(item.order_id)
       buckets.set(key, bucket)
     }
+
+    const rangeDayCount = Math.max(
+      1,
+      Math.round(
+        (new Date(`${data.to}T00:00:00Z`).getTime() -
+          new Date(`${data.from}T00:00:00Z`).getTime()) /
+          86_400_000,
+      ) + 1,
+    )
 
     const result = Array.from(buckets.values())
       .map((b) => {
@@ -1510,6 +1530,8 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
           currentStockOnHand: b.productId
             ? (currentStockByProduct.get(b.productId) ?? 0)
             : null,
+          orderCount: b.orderIds.size,
+          avgOrdersPerDay: b.orderIds.size / rangeDayCount,
         }
       })
       .sort((a, b) => b.netProfitCents - a.netProfitCents)
