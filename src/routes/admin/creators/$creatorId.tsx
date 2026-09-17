@@ -282,6 +282,9 @@ function CreatorPage() {
       )}
       {tab === 'Codes' && (
         <>
+          <h2 className="mb-1 text-sm font-semibold text-neutral-900">
+            Assign a new code
+          </h2>
           <p className="mb-4 text-sm text-neutral-600">
             Assign an existing code or{' '}
             <Link to="/admin/discounts/new" className="underline">
@@ -297,16 +300,23 @@ function CreatorPage() {
             run={run}
             busy={busy}
           />
-          {data.assignments.map((a) => (
-            <CodeForm
-              key={a.id}
-              assignment={a}
-              discounts={data.discounts}
-              creatorId={creatorId}
-              run={run}
-              busy={busy}
-            />
-          ))}
+          {data.assignments.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-4 border-t pt-6 text-sm font-semibold text-neutral-900">
+                Existing codes ({data.assignments.length})
+              </h2>
+              {data.assignments.map((a) => (
+                <CodeForm
+                  key={a.id}
+                  assignment={a}
+                  discounts={data.discounts}
+                  creatorId={creatorId}
+                  run={run}
+                  busy={busy}
+                />
+              ))}
+            </>
+          )}
         </>
       )}
       {tab === 'Expenses & Gifts' && (
