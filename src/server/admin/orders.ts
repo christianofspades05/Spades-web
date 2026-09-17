@@ -17,7 +17,11 @@ import {
 } from '#/lib/utils/date-range'
 import { pushFulfillmentUpdate } from '#/server/integrations/marketplaces/sync-engine'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
-import { sendEmail, withDisplayName } from '#/lib/email/resend'
+import {
+  inboundReplyToAddress,
+  sendEmail,
+  withDisplayName,
+} from '#/lib/email/resend'
 import {
   shipmentTrackingEmailHtml,
   shipmentTrackingEmailSubject,
@@ -26,6 +30,12 @@ import {
   pickupPhotoEmailHtml,
   pickupPhotoEmailSubject,
 } from '#/lib/email/templates/pickup-photo'
+import {
+  failedDeliveryEmailHtml,
+  failedDeliveryEmailSubject,
+} from '#/lib/email/templates/failed-delivery'
+import { primaryHostnameFor } from '#/server/storefront/domain'
+import type { Brand } from '#/server/storefront/domain'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { resolveDiscountForCart } from '#/server/cart/discount'
@@ -1593,6 +1603,73 @@ async function restockCancelledOrder(
   )
 }
 
+/**
+ * Fire-and-forget: a customer-facing notice that their storefront order
+ * failed to deliver, with a "did you actually receive it?" prompt (see
+ * failed-delivery.ts's own header comment for why that's phrased neutrally)
+ * and a one-click reorder link nudging online payment over COD next time.
+ * Never blocks or fails the cancellation itself — matches the same
+ * resilience the shipment-tracking email already has elsewhere in this
+ * file. Marketplace orders are skipped: their "customer email" is a
+ * relay address that can't receive or route a reply anywhere real.
+ */
+function sendFailedDeliveryEmail(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  order: Order,
+): void {
+  if (order.source !== 'storefront') return
+
+  void (async () => {
+    const { data: customer, error: customerError } = await admin
+      .from('customers')
+      .select('email, full_name')
+      .eq('id', order.customer_id)
+      .single()
+    if (customerError) throw customerError
+
+    const hostname = primaryHostnameFor(order.brand as Brand)
+    if (!hostname) return
+
+    const html = failedDeliveryEmailHtml({
+      orderNumber: order.order_number,
+      customerFirstName: customer.full_name?.split(' ')[0] ?? null,
+      reorderUrl: `https://${hostname}/reorder/${order.id}`,
+    })
+
+    const sent = await sendEmail({
+      to: customer.email,
+      subject: failedDeliveryEmailSubject(order.order_number),
+      html,
+      from: withDisplayName(
+        'Spades Official Orders',
+        process.env.RESEND_FROM_EMAIL_ORDERS,
+      ),
+      replyTo: inboundReplyToAddress(order.id),
+    })
+
+    const { error: insertError } = await admin
+      .from('order_email_messages')
+      .insert({
+        order_id: order.id,
+        direction: 'outbound',
+        subject: failedDeliveryEmailSubject(order.order_number),
+        body_html: html,
+        from_address:
+          withDisplayName(
+            'Spades Official Orders',
+            process.env.RESEND_FROM_EMAIL_ORDERS,
+          ) ??
+          process.env.RESEND_FROM_EMAIL ??
+          '',
+        to_address: customer.email,
+        resend_email_id: sent.id,
+      })
+    if (insertError) throw insertError
+  })().catch((err: unknown) => {
+    console.error('Failed to send failed-delivery email:', err)
+  })
+}
+
 export const cancelOrder = createServerFn({ method: 'POST' })
   .validator(cancelOrderSchema)
   .handler(async ({ data }): Promise<Order> => {
@@ -1643,6 +1720,9 @@ export const cancelOrder = createServerFn({ method: 'POST' })
       restocked: data.restock,
       reason: data.reason,
     })
+    if (data.reason === 'failed_delivery') {
+      sendFailedDeliveryEmail(admin, order)
+    }
     return order
   })
 
@@ -1693,7 +1773,7 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
             )
           }
 
-          await admin
+          const { data: updated, error: updateError } = await admin
             .from('orders')
             .update({
               status: 'cancelled',
@@ -1701,6 +1781,9 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
               cancellation_reason: data.reason,
             })
             .eq('id', order.id)
+            .select('*')
+            .single()
+          if (updateError) throw updateError
 
           await logStaffActivity(staff, 'order.cancel', 'orders', order.id, {
             from: currentStatus,
@@ -1708,6 +1791,9 @@ export const bulkCancelOrders = createServerFn({ method: 'POST' })
             reason: data.reason,
             bulk: true,
           })
+          if (data.reason === 'failed_delivery') {
+            sendFailedDeliveryEmail(admin, updated)
+          }
           return true
         }),
       )

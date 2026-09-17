@@ -24,6 +24,7 @@ import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
 import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as ReviewTokenRouteImport } from './routes/review/$token'
+import { Route as ReorderOrderIdRouteImport } from './routes/reorder/$orderId'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
 import { Route as CheckoutPaypalReturnRouteImport } from './routes/checkout/paypal-return'
@@ -166,6 +167,11 @@ const TrackOrderIdRoute = TrackOrderIdRouteImport.update({
 const ReviewTokenRoute = ReviewTokenRouteImport.update({
   id: '/review/$token',
   path: '/review/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReorderOrderIdRoute = ReorderOrderIdRouteImport.update({
+  id: '/reorder/$orderId',
+  path: '/reorder/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProductsSlugRoute = ProductsSlugRouteImport.update({
@@ -540,6 +546,7 @@ export interface FileRoutesByFullPath {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -623,6 +630,7 @@ export interface FileRoutesByTo {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -709,6 +717,7 @@ export interface FileRoutesById {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -796,6 +805,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -879,6 +889,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -964,6 +975,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -1046,6 +1058,7 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
+  ReorderOrderIdRoute: typeof ReorderOrderIdRoute
   ReviewTokenRoute: typeof ReviewTokenRoute
   TrackOrderIdRoute: typeof TrackOrderIdRoute
   UnsubscribeTokenRoute: typeof UnsubscribeTokenRoute
@@ -1179,6 +1192,13 @@ declare module '@tanstack/react-router' {
       path: '/review/$token'
       fullPath: '/review/$token'
       preLoaderRoute: typeof ReviewTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reorder/$orderId': {
+      id: '/reorder/$orderId'
+      path: '/reorder/$orderId'
+      fullPath: '/reorder/$orderId'
+      preLoaderRoute: typeof ReorderOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/products/$slug': {
@@ -1781,6 +1801,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
+  ReorderOrderIdRoute: ReorderOrderIdRoute,
   ReviewTokenRoute: ReviewTokenRoute,
   TrackOrderIdRoute: TrackOrderIdRoute,
   UnsubscribeTokenRoute: UnsubscribeTokenRoute,
