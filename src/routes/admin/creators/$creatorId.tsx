@@ -559,6 +559,19 @@ function ExpenseForm({
   const [variants, setVariants] = useState<
     Awaited<ReturnType<typeof searchGiftVariants>>
   >([])
+  const [selectedVariantId, setSelectedVariantId] = useState('')
+  const [giftQty, setGiftQty] = useState('1')
+  const [giftLines, setGiftLines] = useState<
+    {
+      requestId: string
+      variantId: string
+      quantity: number
+      productName: string
+      sku: string | null
+      size: string | null
+      costCents: number | null
+    }[]
+  >([])
   const [error, setError] = useState('')
   const [requestId, setRequestId] = useState<string | null>(null)
   return (
@@ -568,6 +581,38 @@ function ExpenseForm({
         e.preventDefault()
         const form = e.currentTarget
         const f = new FormData(form)
+        const incurredAt = new Date(
+          String(f.get('date')) + 'T00:00:00+08:00',
+        ).toISOString()
+
+        if (kind === 'gift') {
+          if (giftLines.length === 0) {
+            setError('Add at least one product to the list')
+            return
+          }
+          setError('')
+          for (const line of giftLines) {
+            const ok = await run({
+              action: 'expense',
+              id: line.requestId,
+              creatorId,
+              kind: 'gift',
+              description: String(f.get('description')),
+              amountCents: 0,
+              variantId: line.variantId,
+              quantity: line.quantity,
+              incurredAt,
+              paidAt: null,
+            })
+            if (!ok) return
+          }
+          form.reset()
+          setGiftLines([])
+          setVariants([])
+          setGiftQuery('')
+          return
+        }
+
         const id = requestId ?? crypto.randomUUID()
         setRequestId(id)
         const ok = await run({
@@ -576,13 +621,8 @@ function ExpenseForm({
           creatorId,
           kind,
           description: String(f.get('description')),
-          amountCents:
-            kind === 'gift' ? 0 : Math.round(Number(f.get('amount')) * 100),
-          variantId: kind === 'gift' ? String(f.get('variant')) : undefined,
-          quantity: kind === 'gift' ? Number(f.get('quantity')) : undefined,
-          incurredAt: new Date(
-            String(f.get('date')) + 'T00:00:00+08:00',
-          ).toISOString(),
+          amountCents: Math.round(Number(f.get('amount')) * 100),
+          incurredAt,
           paidAt: f.get('paid') === 'on' ? new Date().toISOString() : null,
         })
         if (ok) {
@@ -673,7 +713,11 @@ function ExpenseForm({
           </div>
           <label className="text-sm">
             Variant
-            <select name="variant" required className={input}>
+            <select
+              value={selectedVariantId}
+              onChange={(e) => setSelectedVariantId(e.target.value)}
+              className={input}
+            >
               <option value="">Choose variant</option>
               {variants.map((v) => (
                 <option
@@ -690,15 +734,91 @@ function ExpenseForm({
           <label className="text-sm">
             Quantity
             <input
-              name="quantity"
+              value={giftQty}
+              onChange={(e) => setGiftQty(e.target.value)}
               type="number"
               min="1"
               max="10000"
-              defaultValue="1"
-              required
               className={input}
             />
           </label>
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              className={secondary}
+              onClick={() => {
+                const variant = variants.find((v) => v.id === selectedVariantId)
+                const quantity = Number(giftQty)
+                if (!variant) {
+                  setError('Choose a variant first')
+                  return
+                }
+                if (variant.cost_cents === null) {
+                  setError('Set this variant cost before gifting it')
+                  return
+                }
+                if (!Number.isInteger(quantity) || quantity < 1) {
+                  setError('Enter a valid quantity')
+                  return
+                }
+                setError('')
+                setGiftLines((lines) => [
+                  ...lines,
+                  {
+                    requestId: crypto.randomUUID(),
+                    variantId: variant.id,
+                    quantity,
+                    productName: variant.productName ?? 'Unknown product',
+                    sku: variant.sku,
+                    size: variant.size,
+                    costCents: variant.cost_cents,
+                  },
+                ])
+                setSelectedVariantId('')
+                setGiftQty('1')
+              }}
+            >
+              + Add to list
+            </button>
+          </div>
+          {giftLines.length > 0 && (
+            <div className="sm:col-span-2">
+              <p className="mb-2 text-sm font-medium">
+                Gifts to record ({giftLines.length})
+              </p>
+              <ul className="divide-y rounded-md border">
+                {giftLines.map((line, index) => (
+                  <li
+                    key={line.requestId}
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                  >
+                    <span>
+                      {line.productName} · {line.sku} · {line.size} · qty{' '}
+                      {line.quantity}
+                      {line.costCents !== null && (
+                        <span className="text-neutral-500">
+                          {' '}
+                          · {money(line.costCents * line.quantity)}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-neutral-400 hover:text-red-600"
+                      aria-label={`Remove ${line.productName}`}
+                      onClick={() =>
+                        setGiftLines((lines) =>
+                          lines.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <p className="text-xs text-neutral-500 sm:col-span-2">
             Recording a gift issues available stock and snapshots its cost.
             Gifted items do not create sales or commission.
@@ -711,8 +831,13 @@ function ExpenseForm({
           Already paid
         </label>
       )}
-      <button disabled={busy} className={primary}>
-        Record {kind === 'gift' ? 'gift and issue stock' : 'expense'}
+      <button
+        disabled={busy || (kind === 'gift' && giftLines.length === 0)}
+        className={primary}
+      >
+        {kind === 'gift'
+          ? `Record ${giftLines.length} gift${giftLines.length === 1 ? '' : 's'} and issue stock`
+          : 'Record expense'}
       </button>
     </form>
   )
