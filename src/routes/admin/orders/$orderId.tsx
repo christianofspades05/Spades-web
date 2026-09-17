@@ -1,4 +1,5 @@
 import { OrderCreatorFinance } from '#/components/admin/OrderCreatorFinance'
+import { orderHasCreatorAttribution } from '#/server/admin/creators'
 import { useRef, useState } from 'react'
 import {
   createFileRoute,
@@ -155,13 +156,14 @@ function markedUpPriceCents(
 
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
-    const [order, adjacent, emails] = await Promise.all([
+    const [order, adjacent, emails, hasCreatorAttribution] = await Promise.all([
       getOrderById({ data: { id: params.orderId } }),
       getAdjacentOrderIds({ data: { id: params.orderId } }),
       listOrderEmailMessages({ data: { orderId: params.orderId } }),
+      orderHasCreatorAttribution({ data: { orderId: params.orderId } }),
     ])
     if (!order) throw notFound()
-    return { order, adjacent, emails }
+    return { order, adjacent, emails, hasCreatorAttribution }
   },
   component: OrderDetailPage,
 })
@@ -177,10 +179,12 @@ function OrderDetailPage() {
     order,
     adjacent,
     emails,
+    hasCreatorAttribution,
   }: {
     order: OrderWithDetails
     adjacent: AdjacentOrderIds
     emails: OrderEmailMessage[]
+    hasCreatorAttribution: boolean
   } = Route.useLoaderData()
   const router = useRouter()
   const navigate = useNavigate()
@@ -232,12 +236,14 @@ function OrderDetailPage() {
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      <OrderCreatorFinance
-        key={order.id}
-        orderId={order.id}
-        isCod={order.is_cod}
-        role={staff.role}
-      />
+      {hasCreatorAttribution && (
+        <OrderCreatorFinance
+          key={order.id}
+          orderId={order.id}
+          isCod={order.is_cod}
+          role={staff.role}
+        />
+      )}
       <PageHeader
         title={
           <div className="flex items-center gap-1">

@@ -190,6 +190,24 @@ export const searchGiftVariants = createServerFn({ method: 'GET' })
     }))
   })
 
+/** Cheap enough to call on every order-detail page load regardless of role
+ *  (any staff, not just manager+) — the order page uses this to decide
+ *  whether to show the finance panel at all, so a packer/support viewer
+ *  never gets thrown a 403 just for opening an order that has nothing to
+ *  do with creators. The panel's own contents stay manager+-gated. */
+export const orderHasCreatorAttribution = createServerFn({ method: 'GET' })
+  .validator(z.object({ orderId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireStaff()
+    const { data: row, error } = await getSupabaseAdminClient()
+      .from('order_creator_attributions')
+      .select('order_id')
+      .eq('order_id', data.orderId)
+      .maybeSingle()
+    if (error) throw error
+    return Boolean(row)
+  })
+
 export const getOrderCreatorFinance = createServerFn({ method: 'GET' })
   .validator(z.object({ orderId: z.string().uuid() }))
   .handler(async ({ data }) => {
