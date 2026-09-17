@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import {
   CUSTOMER_REPLIES_PAGE_SIZE,
-  listCustomerReplies,
+  listFailedDeliveryReplies,
 } from '#/server/admin/order-emails'
 import { PageHeader } from '#/components/admin/PageHeader'
 import {
@@ -14,14 +14,15 @@ import {
 } from '#/components/admin/ui'
 
 export const Route = createFileRoute('/admin/customer-replies/')({
-  loader: () => listCustomerReplies({ data: { page: 1 } }),
+  loader: () => listFailedDeliveryReplies({ data: { page: 1 } }),
   component: CustomerRepliesPage,
 })
 
 /**
- * Full history of inbound customer replies across every order (not just
- * unread) — the same query the nav bell's dropdown uses, just as a proper
- * paginated page instead of a 10-row popover. Paginated with local state
+ * Replies to the automatic failed-delivery email specifically (orders
+ * cancelled with reason 'failed_delivery') — not the general order-email
+ * inbox the nav bell's dropdown covers, which includes replies to shipment
+ * tracking emails, ad-hoc staff messages, etc. Paginated with local state
  * rather than a URL search param (unlike most other admin list pages)
  * since a single-field, all-defaulted validateSearch schema here confused
  * TanStack Router's search-param inference for unrelated Links elsewhere
@@ -46,7 +47,7 @@ function CustomerRepliesPage() {
     }
     let cancelled = false
     setLoading(true)
-    listCustomerReplies({ data: { page } })
+    listFailedDeliveryReplies({ data: { page } })
       .then((data) => {
         if (!cancelled) setResult(data)
       })

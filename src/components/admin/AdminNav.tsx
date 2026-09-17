@@ -84,6 +84,7 @@ export function AdminNav({
   onNavigate,
   staffRole,
   unreadCount,
+  failedDeliveryUnreadCount,
   collapsed = false,
   onToggleCollapse,
 }: {
@@ -98,8 +99,15 @@ export function AdminNav({
   /** Unread count for the bell's badge — polled from admin.tsx and shared
    *  by both AdminNav mounts (desktop sidebar + mobile drawer) so it's only
    *  fetched once. The dropdown's own full reply list below is fetched
-   *  independently by whichever mount actually gets opened. */
+   *  independently by whichever mount actually gets opened. Covers every
+   *  order-email reply (shipment tracking, ad-hoc staff messages, etc), not
+   *  just failed-delivery ones — see failedDeliveryUnreadCount below for
+   *  that narrower count. */
   unreadCount: number
+  /** Badge on the "Customer Replies" Operations link — scoped to only
+   *  replies on orders cancelled with reason 'failed_delivery', unlike the
+   *  bell's unreadCount above which is every order-email reply. */
+  failedDeliveryUnreadCount: number
   /** Icon-only rail mode — only meaningful for the desktop sidebar mount;
    *  the mobile drawer mount never passes this (it has its own overlay
    *  width and doesn't need to save space). */
@@ -633,9 +641,9 @@ export function AdminNav({
           {!collapsed && (
             <span className="flex flex-1 items-center justify-between">
               Customer Replies
-              {unreadCount > 0 && (
+              {failedDeliveryUnreadCount > 0 && (
                 <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {failedDeliveryUnreadCount > 9 ? '9+' : failedDeliveryUnreadCount}
                 </span>
               )}
             </span>
