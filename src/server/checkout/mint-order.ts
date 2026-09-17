@@ -7,14 +7,12 @@
  * net) go through the identical order-creation logic instead of a second
  * hand-copied version drifting out of sync with it.
  *
- * NOT idempotent on its own — every caller is expected to have already
- * checked `orders.external_order_id` for an existing order before calling
- * this (both existing callers do, for their own reasons: Xendit webhook
- * retries, and PayPal's synchronous return path potentially racing its
- * own webhook).
+ * The database RPC serializes by reservation and commits order, items,
+ * stock, payment and discount usage atomically. Retries return the original
+ * order without repeating stock changes or notifications.
  */
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import type { CheckoutReservationItem, Database, PaymentProvider } from '#/types/database.types'
+import type { Database, PaymentProvider } from '#/types/database.types'
 import { chargedCurrencyConversion } from '#/lib/utils/money'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
@@ -36,6 +34,7 @@ export interface MintOrderPayment {
    *  already used. */
   chargedCurrency?: string | null
   chargedAmountCents?: number | null
+  rawPayload?: Record<string, unknown>
 }
 
 export async function mintOrderFromReservation(
@@ -45,101 +44,16 @@ export async function mintOrderFromReservation(
 ): Promise<{ id: string; orderNumber: string }> {
   const items = reservation.items
 
-  const { data: order, error: orderError } = await admin
-    .from('orders')
-    .insert({
-      customer_id: reservation.customer_id,
-      status: 'paid',
-      source: 'storefront',
-      external_order_id: reservation.id,
-      subtotal_cents: reservation.subtotal_cents,
-      discount_cents: reservation.discount_cents,
-      shipping_cents: reservation.shipping_cents,
-      total_cents: reservation.total_cents,
-      discount_id: reservation.discount_id,
-      shipping_address: reservation.shipping_address,
-      is_cod: false,
-      currency: reservation.currency,
-      brand: reservation.brand,
-      market_markup_percent: reservation.market_markup_percent,
-      shipping_method: reservation.shipping_method,
-      lalamove_info: reservation.lalamove_info,
-      customer_notes: reservation.customer_notes,
-      has_pre_order_items: items.some((item) => item.isPreOrder),
-    })
-    .select('id, order_number')
-    .single()
-  if (orderError) throw orderError
-
-  const { error: itemsError } = await admin.from('order_items').insert(
-    items.map((item) => ({
-      order_id: order.id,
-      variant_id: item.variantId,
-      product_name_snapshot: item.productNameSnapshot,
-      variant_label_snapshot: item.variantLabelSnapshot,
-      sku_snapshot: item.skuSnapshot,
-      unit_price_cents: item.unitPriceCents,
-      quantity: item.quantity,
-      line_subtotal_cents: item.lineSubtotalCents,
-      line_discount_cents: item.lineDiscountCents,
-      line_total_cents: item.lineTotalCents,
-      is_pre_order: item.isPreOrder,
-    })),
+  const { data: minted, error: mintError } = await admin.rpc(
+    'mint_checkout_order',
+    {
+      p_reservation_id: reservation.id,
+      p_payment: { ...payment },
+    },
   )
-  if (itemsError) throw itemsError
-
-  // A pre-order line has nothing to commit yet — it was reserved against
-  // pre_order_quantity/pre_order_reserved at checkout (place-order.ts), not
-  // real inventory, and stays that way until receivePreOrderStock later
-  // migrates it onto the real ('main') location once stock actually
-  // arrives. Committing it here against 'main' would incorrectly touch
-  // stock this order was never actually reserved against.
-  await Promise.all(
-    items
-      .filter(
-        (item): item is CheckoutReservationItem & { variantId: string } =>
-          item.variantId !== null && !item.isPreOrder,
-      )
-      .map((item) =>
-        admin.rpc('commit_variant_stock', {
-          p_variant_id: item.variantId,
-          p_quantity: item.quantity,
-        }),
-      ),
-  )
-
-  const { error: paymentError } = await admin.from('payments').insert({
-    order_id: order.id,
-    provider: payment.provider,
-    provider_reference: payment.providerReference,
-    status: 'captured',
-    amount_cents: reservation.total_cents,
-    idempotency_key: crypto.randomUUID(),
-    captured_at: new Date().toISOString(),
-    ...(payment.chargedCurrency && payment.chargedAmountCents != null
-      ? {
-          charged_currency: payment.chargedCurrency,
-          charged_amount_cents: payment.chargedAmountCents,
-        }
-      : {}),
-  })
-  if (paymentError) throw paymentError
-
-  if (reservation.discount_id) {
-    const { data: discount } = await admin
-      .from('discounts')
-      .select('times_used')
-      .eq('id', reservation.discount_id)
-      .maybeSingle()
-    if (discount) {
-      await admin
-        .from('discounts')
-        .update({ times_used: discount.times_used + 1 })
-        .eq('id', reservation.discount_id)
-    }
-  }
-
-  await admin.from('checkout_reservations').delete().eq('id', reservation.id)
+  if (mintError) throw mintError
+  if (!minted.created) return { id: minted.id, orderNumber: minted.orderNumber }
+  const order = { id: minted.id, order_number: minted.orderNumber }
 
   // Both emails fire only now — an online order isn't real until payment
   // is actually confirmed (see place-order.ts). The equivalent immediate
@@ -164,12 +78,15 @@ export async function mintOrderFromReservation(
     const imageByVariantId = new Map(
       (variants ?? []).map((v) => [v.id, v.product.images[0] ?? null]),
     )
-    const { currency: emailCurrency, convert: toEmailCurrency, totalCents: emailTotalCents } =
-      chargedCurrencyConversion(
-        reservation.total_cents,
-        payment.chargedCurrency,
-        payment.chargedAmountCents,
-      )
+    const {
+      currency: emailCurrency,
+      convert: toEmailCurrency,
+      totalCents: emailTotalCents,
+    } = chargedCurrencyConversion(
+      reservation.total_cents,
+      payment.chargedCurrency,
+      payment.chargedAmountCents,
+    )
 
     const emailItems = items.map((item) => ({
       name: item.productNameSnapshot,
@@ -189,9 +106,8 @@ export async function mintOrderFromReservation(
 
     const storeOwnerEmail = process.env.STORE_OWNER_EMAIL
     if (storeOwnerEmail) {
-      const { newOrderEmailHtml, newOrderEmailSubject } = await import(
-        '#/lib/email/templates/new-order'
-      )
+      const { newOrderEmailHtml, newOrderEmailSubject } =
+        await import('#/lib/email/templates/new-order')
       await sendEmail({
         to: storeOwnerEmail,
         subject: newOrderEmailSubject(order.order_number),

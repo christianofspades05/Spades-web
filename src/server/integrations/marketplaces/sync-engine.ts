@@ -495,7 +495,8 @@ async function repriceOneMapping(
         priceCents: markedUpPriceCents,
       },
     ])
-    priceCents = sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
+    priceCents =
+      sales.get(mapping.variant_id)?.salePriceCents ?? markedUpPriceCents
   }
 
   await pushOnePriceMapping(connection, mapping, priceCents, options)
@@ -966,6 +967,7 @@ async function importOrder(
     return {
       order_id: order.id,
       variant_id: variantIdByExternalId.get(item.externalVariantId) ?? null,
+      external_variant_id: item.externalVariantId,
       product_name_snapshot: item.productName,
       variant_label_snapshot: item.variantLabel,
       sku_snapshot: item.externalSku ?? item.externalVariantId,
@@ -1120,7 +1122,8 @@ const RECONCILE_BATCH_SIZE = 50
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size))
   return out
 }
 
@@ -1189,7 +1192,10 @@ export async function reconcileNonTerminalOrders(
         if (!orderId) continue
 
         const changed = normalized.isCancelled
-          ? await syncPlatformCancellation(orderId, normalized.cancellationDetail)
+          ? await syncPlatformCancellation(
+              orderId,
+              normalized.cancellationDetail,
+            )
           : await syncFulfillmentInfo(orderId, normalized.fulfillmentInfo)
         if (changed) updated += 1
       } catch (err) {
@@ -1222,9 +1228,8 @@ export async function reconcileNonTerminalOrders(
  * Applies one normalized return line item to our returns table — inserting
  * it the first time we see it, updating status/refund amount on repeat
  * pulls otherwise (de-duped on returns.external_return_id's unique index).
- * Restocks inventory exactly once, on the transition INTO 'refunded', so
- * re-pulling an already-refunded return on every cron run never
- * double-restocks it.
+ * Physical receipt/restocking is confirmed separately by staff; a refund
+ * notification alone never adds inventory.
  *
  * A partial return (some but not all of an order's items) deliberately
  * doesn't touch the parent order's own status — orders.status = 'refunded'
@@ -1255,12 +1260,40 @@ async function importReturn(
 
   const { data: orderItems, error: itemsError } = await admin
     .from('order_items')
-    .select('id, variant_id, sku_snapshot')
+    .select('id, variant_id, sku_snapshot, external_variant_id, quantity')
     .eq('order_id', order.id)
   if (itemsError) throw itemsError
-  const matchedItem =
-    orderItems.find((item) => item.sku_snapshot === ret.externalVariantId) ??
-    null
+  const directMatches = orderItems.filter(
+    (item) =>
+      item.external_variant_id === ret.externalVariantId ||
+      item.sku_snapshot === ret.externalVariantId,
+  )
+  let matchedItem =
+    directMatches.length === 1 && directMatches[0].quantity >= ret.quantity
+      ? directMatches[0]
+      : null
+  if (!matchedItem && directMatches.length === 0) {
+    const { data: connection } = await admin
+      .from('marketplace_connections')
+      .select('id')
+      .eq('marketplace', marketplace)
+      .maybeSingle()
+    if (connection) {
+      const { data: mapping } = await admin
+        .from('marketplace_product_mappings')
+        .select('variant_id')
+        .eq('marketplace_connection_id', connection.id)
+        .eq('external_variant_id', ret.externalVariantId)
+        .maybeSingle()
+      const candidates = orderItems.filter(
+        (item) =>
+          item.variant_id === mapping?.variant_id &&
+          item.quantity >= ret.quantity,
+      )
+      // Repeated platform lines require reconciliation; never guess which unit returned.
+      if (candidates.length === 1) matchedItem = candidates[0]
+    }
+  }
 
   const { data: existing, error: existingError } = await admin
     .from('returns')
@@ -1285,48 +1318,23 @@ async function importReturn(
     external_return_id: ret.externalReturnId,
   }
 
-  const justCompleted =
-    ret.status === 'refunded' && existing?.status !== 'refunded'
-
-  let returnId: string
   if (existing) {
     const { error } = await admin
       .from('returns')
       .update(payload)
       .eq('id', existing.id)
     if (error) throw error
-    returnId = existing.id
   } else {
-    const { data: created, error } = await admin
+    const { error } = await admin
       .from('returns')
       .insert(payload)
       .select('id')
       .single()
     if (error) throw error
-    returnId = created.id
   }
 
-  if (justCompleted && matchedItem?.variant_id) {
-    const { error: stockError } = await admin.rpc('restock_variant_stock', {
-      p_variant_id: matchedItem.variant_id,
-      p_quantity: ret.quantity,
-      p_reference_type: 'return',
-      p_reference_id: returnId,
-    })
-    if (stockError) {
-      await logSync(
-        marketplace,
-        'restock_return',
-        'failed',
-        {
-          returnId,
-          variantId: matchedItem.variant_id,
-          quantity: ret.quantity,
-        },
-        getErrorMessage(stockError),
-      )
-    }
-  }
+  // Refund completion is not evidence of physical receipt/resellability.
+  // Staff confirm received goods through receive_return, which restocks once.
 }
 
 export async function pullReturnsForMarketplace(

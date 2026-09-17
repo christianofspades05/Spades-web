@@ -1,3 +1,4 @@
+import { chargedItemAmounts } from '#/lib/creators/money'
 /**
  * Places an order from the current guest cart. Follows the plan in
  * README.md: recompute everything server-side, reserve stock atomically per
@@ -44,7 +45,10 @@ import { getLalamoveQuotation } from '#/lib/lalamove/client'
 import { convertCents, minorUnitsPerMajor } from '#/lib/utils/money'
 import type { ExchangeRates } from '#/lib/utils/money'
 import type { MarketShippingConfig } from '#/server/storefront/market-pricing'
-import type { CheckoutReservationItem, LalamoveInfo } from '#/types/database.types'
+import type {
+  CheckoutReservationItem,
+  LalamoveInfo,
+} from '#/types/database.types'
 import { createXenditInvoice } from '#/lib/xendit/client'
 import { createPayPalOrder } from '#/lib/paypal/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
@@ -353,7 +357,11 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // instead (reserve_pre_order_stock) — there's no real inventory to
       // touch until receivePreOrderStock later migrates this reservation
       // onto the real ('main') location once stock actually arrives.
-      const reserved: { variantId: string; quantity: number; isPreOrder: boolean }[] = []
+      const reserved: {
+        variantId: string
+        quantity: number
+        isPreOrder: boolean
+      }[] = []
       async function releaseAllReserved() {
         for (const r of reserved) {
           await admin.rpc(
@@ -424,29 +432,44 @@ export const placeOrder = createServerFn({ method: 'POST' })
         )
       }
 
-      const itemsPayload: CheckoutReservationItem[] = cart.items.map((item) => {
-        const lineSubtotalCents = item.quantity * item.price_cents_snapshot
-        const variantLabel = [
-          item.variant.size,
-          item.variant.color,
-          item.variant.style,
-        ]
-          .filter(Boolean)
-          .join(' / ')
+      const chargedAmounts = chargedItemAmounts(
+        subtotalCents,
+        chargedDiscountCents,
+        cart.items.map((item) => ({
+          subtotal: item.quantity * item.price_cents_snapshot,
+          discount:
+            cart.discount?.itemBreakdown.find(
+              (entry) => entry.cartItemId === item.id,
+            )?.discountedAmountCents ?? 0,
+        })),
+      )
+      const itemsPayload: CheckoutReservationItem[] = cart.items.map(
+        (item, index) => {
+          const lineSubtotalCents = item.quantity * item.price_cents_snapshot
+          const variantLabel = [
+            item.variant.size,
+            item.variant.color,
+            item.variant.style,
+          ]
+            .filter(Boolean)
+            .join(' / ')
 
-        return {
-          variantId: item.variant_id,
-          productNameSnapshot: item.variant.product.name,
-          variantLabelSnapshot: variantLabel || null,
-          skuSnapshot: item.variant.sku!,
-          unitPriceCents: item.price_cents_snapshot,
-          quantity: item.quantity,
-          lineSubtotalCents,
-          lineDiscountCents: 0,
-          lineTotalCents: lineSubtotalCents,
-          isPreOrder: preOrderVariantIds.has(item.variant_id),
-        }
-      })
+          return {
+            variantId: item.variant_id,
+            productNameSnapshot: item.variant.product.name,
+            variantLabelSnapshot: variantLabel || null,
+            skuSnapshot: item.variant.sku!,
+            unitPriceCents: item.price_cents_snapshot,
+            quantity: item.quantity,
+            lineSubtotalCents,
+            lineDiscountCents: 0,
+            lineTotalCents: lineSubtotalCents,
+            ...chargedAmounts[index],
+            unitCostCentsSnapshot: item.variant.cost_cents,
+            isPreOrder: preOrderVariantIds.has(item.variant_id),
+          }
+        },
+      )
 
       const origin = getRequestUrl().origin
       const emailItems = cart.items.map((item) => ({
@@ -499,6 +522,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
           line_subtotal_cents: item.lineSubtotalCents,
           line_discount_cents: item.lineDiscountCents,
           line_total_cents: item.lineTotalCents,
+          charged_product_cents: item.chargedProductCents,
+          charged_discount_cents: item.chargedDiscountCents,
+          unit_cost_cents_snapshot: item.unitCostCentsSnapshot,
           is_pre_order: item.isPreOrder,
         }))
         const { error: itemsError } = await admin

@@ -1,3 +1,4 @@
+import { chargedItemAmounts } from '#/lib/creators/money'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import {
@@ -28,7 +29,10 @@ import {
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { isOrderItemsEditable } from '#/lib/admin/order-editability'
 import { resolveDiscountForCart } from '#/server/cart/discount'
-import { shippingCostCents, shippingZoneForRegion } from '#/lib/checkout/shipping'
+import {
+  shippingCostCents,
+  shippingZoneForRegion,
+} from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import {
   getLalamoveOrderStatus,
@@ -247,15 +251,15 @@ async function resolveZoneOrderIds(
       .range(offset, offset + 999),
   )
   const matching = rows.filter((row) => {
-    const address = row.shipping_address as
-      | { country?: string; region?: string }
-      | null
+    const address = row.shipping_address as {
+      country?: string
+      region?: string
+    } | null
     if (!address) return false
     const isInternational = Boolean(address.country) && address.country !== 'PH'
     if (zone === 'international') return isInternational
     return (
-      !isInternational &&
-      shippingZoneForRegion(address.region ?? '') === zone
+      !isInternational && shippingZoneForRegion(address.region ?? '') === zone
     )
   })
   return { includeIds: matching.map((r) => r.id) }
@@ -495,13 +499,11 @@ export const listOrders = createServerFn({ method: 'GET' })
       // resolveSearchMatchedOrderIds' own comment), so pagination happens
       // in memory afterward rather than via a single SQL-level .range().
       const chunkResults = await Promise.all(
-        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(
-          async (chunk) => {
-            const { data: rows, error } = await buildQuery(chunk)
-            if (error) throw error
-            return rows as unknown as RawOrderRow[]
-          },
-        ),
+        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(async (chunk) => {
+          const { data: rows, error } = await buildQuery(chunk)
+          if (error) throw error
+          return rows as unknown as RawOrderRow[]
+        }),
       )
       const offset = (data.page - 1) * data.pageSize
       orders = chunkResults
@@ -597,13 +599,11 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       // Same chunking rationale as listOrders above — each chunk's ids are
       // disjoint, so summing counts across chunks is exact, not an estimate.
       const counts = await Promise.all(
-        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(
-          async (chunk) => {
-            const { count, error } = await buildQuery(chunk)
-            if (error) throw error
-            return count ?? 0
-          },
-        ),
+        chunkArray(matchedOrderIds, SEARCH_ID_CHUNK_SIZE).map(async (chunk) => {
+          const { count, error } = await buildQuery(chunk)
+          if (error) throw error
+          return count ?? 0
+        }),
       )
       return { total: counts.reduce((sum, c) => sum + c, 0) }
     }
@@ -987,7 +987,9 @@ export const updateOrderStatus = createServerFn({ method: 'POST' })
 /** Staff-editable internal notes — separate from orders.customer_notes
  *  (what the customer wrote at checkout, read-only). */
 export const updateOrderNotes = createServerFn({ method: 'POST' })
-  .validator(z.object({ orderId: z.string().uuid(), notes: z.string().max(2000) }))
+  .validator(
+    z.object({ orderId: z.string().uuid(), notes: z.string().max(2000) }),
+  )
   .handler(async ({ data }): Promise<Order> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
@@ -1214,14 +1216,18 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       return totals
     }
     const oldTotals = sumQuantityByVariant(
-      editableExisting.map((i) => ({ variantId: i.variant_id, quantity: i.quantity })),
+      editableExisting.map((i) => ({
+        variantId: i.variant_id,
+        quantity: i.quantity,
+      })),
     )
     const newTotals = sumQuantityByVariant(data.items)
     const deltas = Array.from(
       new Set([...oldTotals.keys(), ...newTotals.keys()]),
       (variantId) => ({
         variantId,
-        delta: (newTotals.get(variantId) ?? 0) - (oldTotals.get(variantId) ?? 0),
+        delta:
+          (newTotals.get(variantId) ?? 0) - (oldTotals.get(variantId) ?? 0),
       }),
     ).filter((d) => d.delta !== 0)
 
@@ -1286,7 +1292,11 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
           `Not enough stock for "${variant.product.name}" (${[variant.size, variant.color, variant.style].filter(Boolean).join(' / ')}).`,
         )
       }
-      const entry = { variantId: inc.variantId, quantity: inc.delta, committed: false }
+      const entry = {
+        variantId: inc.variantId,
+        quantity: inc.delta,
+        committed: false,
+      }
       increased.push(entry)
 
       if (wasCommitted) {
@@ -1382,17 +1392,21 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
 
     // Recompute order-level totals, reusing the exact same discount/
     // shipping/markup logic place-order.ts uses at checkout.
-    const syntheticItems: CartItemWithVariant[] = finalizedItems.map((item) => ({
-      id: item.id ?? item.variant.id,
-      cart_id: '',
-      variant_id: item.variant.id,
-      quantity: item.quantity,
-      price_cents_snapshot: item.unitPriceCents,
-      created_at: '',
-      updated_at: '',
-      variant: item.variant,
-    }))
+    const syntheticItems: CartItemWithVariant[] = finalizedItems.map(
+      (item) => ({
+        id: item.id ?? item.variant.id,
+        cart_id: '',
+        variant_id: item.variant.id,
+        quantity: item.quantity,
+        price_cents_snapshot: item.unitPriceCents,
+        created_at: '',
+        updated_at: '',
+        variant: item.variant,
+      }),
+    )
 
+    let itemDiscounts: { cartItemId: string; discountedAmountCents: number }[] =
+      []
     let discountCents = 0
     let excludesFreeShipping = false
     if (order.discount_id) {
@@ -1402,6 +1416,7 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
         syntheticItems,
       )
       discountCents = applied?.amountCents ?? 0
+      itemDiscounts = applied?.itemBreakdown ?? []
       excludesFreeShipping = applied?.excludesFreeShipping ?? false
     }
 
@@ -1413,6 +1428,34 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       rawSubtotalCents,
       order.market_markup_percent ?? undefined,
     )
+
+    discountCents = applyMarketMarkup(
+      discountCents,
+      order.market_markup_percent ?? undefined,
+    )
+    const charged = chargedItemAmounts(
+      subtotalCents,
+      discountCents,
+      syntheticItems.map((item) => ({
+        subtotal: item.quantity * item.price_cents_snapshot,
+        discount:
+          itemDiscounts.find((entry) => entry.cartItemId === item.id)
+            ?.discountedAmountCents ?? 0,
+      })),
+    )
+    for (const [index, item] of finalizedItems.entries()) {
+      const { error: snapshotError } = await admin
+        .from('order_items')
+        .update({
+          charged_product_cents: charged[index].chargedProductCents,
+          charged_discount_cents: charged[index].chargedDiscountCents,
+          // The order is still editable and unpaid; this is the cost at its revised agreement.
+          unit_cost_cents_snapshot: item.variant.cost_cents,
+        })
+        .eq('order_id', data.orderId)
+        .eq('variant_id', item.variant.id)
+      if (snapshotError) throw snapshotError
+    }
 
     const address = order.shipping_address as unknown as OrderShippingAddress
     const country = address.country ?? 'PH'
@@ -1444,7 +1487,10 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       }
     }
 
-    const itemCount = finalizedItems.reduce((sum, item) => sum + item.quantity, 0)
+    const itemCount = finalizedItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    )
     const shippingCents = shippingCostCents(
       country,
       address.region,
@@ -1454,7 +1500,10 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       marketShipping,
       excludesFreeShipping,
     )
-    const totalCents = Math.max(0, subtotalCents - discountCents + shippingCents)
+    const totalCents = Math.max(
+      0,
+      subtotalCents - discountCents + shippingCents,
+    )
 
     const { data: updatedOrder, error: updateOrderError } = await admin
       .from('orders')
@@ -1469,14 +1518,20 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       .single()
     if (updateOrderError) throw updateOrderError
 
-    await logStaffActivity(staff, 'order.items_update', 'orders', data.orderId, {
-      before: editableExisting.map((i) => ({
-        variantId: i.variant_id,
-        quantity: i.quantity,
-      })),
-      after: data.items,
-      stockMovements: deltas,
-    })
+    await logStaffActivity(
+      staff,
+      'order.items_update',
+      'orders',
+      data.orderId,
+      {
+        before: editableExisting.map((i) => ({
+          variantId: i.variant_id,
+          quantity: i.quantity,
+        })),
+        after: data.items,
+        stockMovements: deltas,
+      },
+    )
 
     return updatedOrder
   })

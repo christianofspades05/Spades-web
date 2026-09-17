@@ -1,3 +1,4 @@
+import { OrderCreatorFinance } from '#/components/admin/OrderCreatorFinance'
 import { useRef, useState } from 'react'
 import {
   createFileRoute,
@@ -171,6 +172,7 @@ export const Route = createFileRoute('/admin/orders/$orderId')({
 const SWIPE_MIN_DISTANCE_PX = 60
 
 function OrderDetailPage() {
+  const { staff } = Route.useRouteContext()
   const {
     order,
     adjacent,
@@ -230,6 +232,12 @@ function OrderDetailPage() {
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      <OrderCreatorFinance
+        key={order.id}
+        orderId={order.id}
+        isCod={order.is_cod}
+        role={staff.role}
+      />
       <PageHeader
         title={
           <div className="flex items-center gap-1">
@@ -391,19 +399,28 @@ function OrderDetailPage() {
                             // count against this same real discount already
                             // shown in Order Total below.
                             const sellerDiscountCents =
-                              order.discount_cents > 0 && order.subtotal_cents > 0
+                              order.discount_cents > 0 &&
+                              order.subtotal_cents > 0
                                 ? Math.round(
                                     (order.discount_cents *
                                       item.line_subtotal_cents) /
                                       order.subtotal_cents,
                                   )
                                 : 0
-                            return { orpCents, markedUp, markupDeltaCents, sellerDiscountCents }
+                            return {
+                              orpCents,
+                              markedUp,
+                              markupDeltaCents,
+                              sellerDiscountCents,
+                            }
                           })()
                         : null
 
                     return (
-                      <li key={item.id} className="flex flex-col gap-3 py-3 text-sm">
+                      <li
+                        key={item.id}
+                        className="flex flex-col gap-3 py-3 text-sm"
+                      >
                         <div className="flex items-center gap-3">
                           {item.image_url ? (
                             <img
@@ -450,7 +467,10 @@ function OrderDetailPage() {
                                   {order.marketplacePriceMarkupPercent}%)
                                 </span>
                                 <span className="font-medium text-emerald-600">
-                                  +{formatCentsAsPHP(priceBreakdown.markupDeltaCents)}
+                                  +
+                                  {formatCentsAsPHP(
+                                    priceBreakdown.markupDeltaCents,
+                                  )}
                                 </span>
                               </div>
                               <div className="flex justify-between border-t border-neutral-200 pt-1 font-medium text-neutral-700">
@@ -463,7 +483,10 @@ function OrderDetailPage() {
                                 <div className="flex justify-between text-neutral-600">
                                   <span>Seller Discount</span>
                                   <span className="font-medium text-red-600">
-                                    -{formatCentsAsPHP(priceBreakdown.sellerDiscountCents)}
+                                    -
+                                    {formatCentsAsPHP(
+                                      priceBreakdown.sellerDiscountCents,
+                                    )}
                                   </span>
                                 </div>
                               )}
@@ -497,7 +520,9 @@ function OrderDetailPage() {
                         <div className="flex flex-col gap-1 text-xs">
                           <div className="flex justify-between text-neutral-600">
                             <span>Subtotal</span>
-                            <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
+                            <span>
+                              {formatCentsAsPHP(order.subtotal_cents)}
+                            </span>
                           </div>
                           {order.discount_cents > 0 && (
                             <div className="flex justify-between text-neutral-600">
@@ -525,7 +550,10 @@ function OrderDetailPage() {
                                 {SOURCE_LABELS[order.source]} Platform Discount
                               </span>
                               <span className="font-medium text-red-600">
-                                -{formatCentsAsPHP(order.platform_discount_cents)}
+                                -
+                                {formatCentsAsPHP(
+                                  order.platform_discount_cents,
+                                )}
                               </span>
                             </div>
                           )}
@@ -553,7 +581,10 @@ function OrderDetailPage() {
                       {order.platform_fee_breakdown.length > 0 && (
                         <div className="rounded-lg border border-neutral-200 p-3">
                           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                            <ShieldCheck size={16} className="text-neutral-400" />
+                            <ShieldCheck
+                              size={16}
+                              className="text-neutral-400"
+                            />
                             {SOURCE_LABELS[order.source]} Deductions
                           </div>
                           <div className="flex flex-col gap-1 text-xs">
@@ -932,9 +963,9 @@ function OrderEmailsCard({
 
       {disabled ? (
         <p className="mb-4 rounded-md bg-neutral-50 p-3 text-sm text-neutral-500">
-          This order's contact is a {SOURCE_LABELS[source]} relay address,
-          not the customer's real inbox — message them through the
-          marketplace's own chat instead.
+          This order's contact is a {SOURCE_LABELS[source]} relay address, not
+          the customer's real inbox — message them through the marketplace's own
+          chat instead.
         </p>
       ) : (
         <>
@@ -964,9 +995,7 @@ function OrderEmailsCard({
                       })}
                     </span>
                   </div>
-                  <p className="font-medium text-neutral-900">
-                    {msg.subject}
-                  </p>
+                  <p className="font-medium text-neutral-900">{msg.subject}</p>
                   <p className="mt-1 whitespace-pre-line text-neutral-700">
                     {msg.bodyText
                       ? msg.direction === 'inbound'

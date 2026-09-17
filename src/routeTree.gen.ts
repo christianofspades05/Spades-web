@@ -50,6 +50,7 @@ import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-
 import { Route as AdminEmailIndexRouteImport } from './routes/admin/email/index'
 import { Route as AdminDiscountsIndexRouteImport } from './routes/admin/discounts/index'
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
+import { Route as AdminCreatorsIndexRouteImport } from './routes/admin/creators/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
@@ -77,6 +78,7 @@ import { Route as AdminEmailAutomationIdRouteImport } from './routes/admin/email
 import { Route as AdminDiscountsNewRouteImport } from './routes/admin/discounts/new'
 import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/discounts/$discountId'
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
+import { Route as AdminCreatorsCreatorIdRouteImport } from './routes/admin/creators/$creatorId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
 import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
@@ -296,6 +298,11 @@ const AdminCustomersIndexRoute = AdminCustomersIndexRouteImport.update({
   path: '/customers/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminCreatorsIndexRoute = AdminCreatorsIndexRouteImport.update({
+  id: '/creators/',
+  path: '/creators/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCollectionsIndexRoute = AdminCollectionsIndexRouteImport.update({
   id: '/collections/',
   path: '/collections/',
@@ -439,6 +446,11 @@ const AdminCustomersCustomerIdRoute =
     path: '/customers/$customerId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminCreatorsCreatorIdRoute = AdminCreatorsCreatorIdRouteImport.update({
+  id: '/creators/$creatorId',
+  path: '/creators/$creatorId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCollectionsCollectionIdRoute =
   AdminCollectionsCollectionIdRouteImport.update({
     id: '/collections/$collectionId',
@@ -548,6 +560,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -575,6 +588,7 @@ export interface FileRoutesByFullPath {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -629,6 +643,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -656,6 +671,7 @@ export interface FileRoutesByTo {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
+  '/admin/creators': typeof AdminCreatorsIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
   '/admin/discounts': typeof AdminDiscountsIndexRoute
   '/admin/email': typeof AdminEmailIndexRoute
@@ -713,6 +729,7 @@ export interface FileRoutesById {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -740,6 +757,7 @@ export interface FileRoutesById {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -798,6 +816,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -825,6 +844,7 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
+    | '/admin/creators/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -879,6 +899,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -906,6 +927,7 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels'
     | '/admin/collections'
+    | '/admin/creators'
     | '/admin/customers'
     | '/admin/discounts'
     | '/admin/email'
@@ -962,6 +984,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -989,6 +1012,7 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
+    | '/admin/creators/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -1339,6 +1363,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCustomersIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/creators/': {
+      id: '/admin/creators/'
+      path: '/creators'
+      fullPath: '/admin/creators/'
+      preLoaderRoute: typeof AdminCreatorsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/collections/': {
       id: '/admin/collections/'
       path: '/collections'
@@ -1528,6 +1559,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCustomersCustomerIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/creators/$creatorId': {
+      id: '/admin/creators/$creatorId'
+      path: '/creators/$creatorId'
+      fullPath: '/admin/creators/$creatorId'
+      preLoaderRoute: typeof AdminCreatorsCreatorIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/collections/$collectionId': {
       id: '/admin/collections/$collectionId'
       path: '/collections/$collectionId'
@@ -1632,6 +1670,7 @@ interface AdminRouteChildren {
   AdminAnalyticsVisitorsRoute: typeof AdminAnalyticsVisitorsRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
+  AdminCreatorsCreatorIdRoute: typeof AdminCreatorsCreatorIdRoute
   AdminCustomersCustomerIdRoute: typeof AdminCustomersCustomerIdRoute
   AdminDiscountsDiscountIdRoute: typeof AdminDiscountsDiscountIdRoute
   AdminDiscountsNewRoute: typeof AdminDiscountsNewRoute
@@ -1648,6 +1687,7 @@ interface AdminRouteChildren {
   AdminProductsNewRoute: typeof AdminProductsNewRoute
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
+  AdminCreatorsIndexRoute: typeof AdminCreatorsIndexRoute
   AdminCustomersIndexRoute: typeof AdminCustomersIndexRoute
   AdminDiscountsIndexRoute: typeof AdminDiscountsIndexRoute
   AdminEmailIndexRoute: typeof AdminEmailIndexRoute
@@ -1673,6 +1713,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsVisitorsRoute: AdminAnalyticsVisitorsRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
+  AdminCreatorsCreatorIdRoute: AdminCreatorsCreatorIdRoute,
   AdminCustomersCustomerIdRoute: AdminCustomersCustomerIdRoute,
   AdminDiscountsDiscountIdRoute: AdminDiscountsDiscountIdRoute,
   AdminDiscountsNewRoute: AdminDiscountsNewRoute,
@@ -1689,6 +1730,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsNewRoute: AdminProductsNewRoute,
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
+  AdminCreatorsIndexRoute: AdminCreatorsIndexRoute,
   AdminCustomersIndexRoute: AdminCustomersIndexRoute,
   AdminDiscountsIndexRoute: AdminDiscountsIndexRoute,
   AdminEmailIndexRoute: AdminEmailIndexRoute,

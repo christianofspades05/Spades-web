@@ -171,7 +171,7 @@ async function computeChannelSales(
       chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
         fetchAllRows((offset) =>
           admin
-            .from('returns')
+            .from('order_financial_refunds')
             .select('order_id, refund_amount_cents')
             .eq('status', 'refunded')
             .in('order_id', ids)
@@ -1010,7 +1010,7 @@ async function computeSalesAnalytics(
     chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
       fetchAllRows((offset) =>
         admin
-          .from('returns')
+          .from('order_financial_refunds')
           .select('order_id, refund_amount_cents')
           .eq('status', 'refunded')
           .in('order_id', ids)
@@ -1920,7 +1920,7 @@ async function computeOrderProfitTotals(
           chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
             fetchAllRows((offset) =>
               admin
-                .from('returns')
+                .from('order_financial_refunds')
                 .select('order_id, refund_amount_cents')
                 .eq('status', 'refunded')
                 .in('order_id', ids)
@@ -2108,7 +2108,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         )
         .in('order_id', orderIds),
       admin
-        .from('returns')
+        .from('order_financial_refunds')
         .select('order_id, refund_amount_cents')
         .eq('status', 'refunded')
         .in('order_id', orderIds),

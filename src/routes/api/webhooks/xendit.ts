@@ -27,7 +27,10 @@
  * `orders.external_order_id` and no-ops.
  */
 import { createFileRoute } from '@tanstack/react-router'
-import type { CheckoutReservationItem, PaymentProvider } from '#/types/database.types'
+import type {
+  CheckoutReservationItem,
+  PaymentProvider,
+} from '#/types/database.types'
 
 // Dynamic imports (not top-level) are deliberate: routeTree.gen.ts imports
 // every route file — including this one — eagerly so the client can build
@@ -126,9 +129,8 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
 
             if (payload.status === 'PAID') {
               const { majorUnitsToCents } = await import('#/lib/utils/money')
-              const { mintOrderFromReservation } = await import(
-                '#/server/checkout/mint-order'
-              )
+              const { mintOrderFromReservation } =
+                await import('#/server/checkout/mint-order')
 
               // Xendit's payload is the authoritative record of what was
               // actually charged — overwrite our upfront (request-time)
@@ -142,6 +144,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
               await mintOrderFromReservation(admin, reservation, {
                 provider: mapPaymentProvider(payload),
                 providerReference: payload.id,
+                rawPayload: payload,
                 chargedCurrency,
                 chargedAmountCents:
                   chargedCurrency && typeof payload.amount === 'number'
@@ -174,9 +177,8 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 liveInvoice.status === 'SETTLED'
               ) {
                 const { majorUnitsToCents } = await import('#/lib/utils/money')
-                const { mintOrderFromReservation } = await import(
-                  '#/server/checkout/mint-order'
-                )
+                const { mintOrderFromReservation } =
+                  await import('#/server/checkout/mint-order')
                 const chargedCurrency =
                   liveInvoice.currency && liveInvoice.currency !== 'PHP'
                     ? liveInvoice.currency

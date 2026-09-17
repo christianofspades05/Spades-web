@@ -525,6 +525,21 @@ export function AdminNav({
           {!collapsed && 'Discounts'}
         </Link>
 
+        {['super_admin', 'admin', 'manager'].includes(staffRole) && (
+          <Link
+            to="/admin/creators"
+            onClick={onNavigate}
+            title={collapsed ? 'Creators & Affiliates' : undefined}
+            className={navLinkClassName(
+              pathname.startsWith('/admin/creators'),
+              collapsed,
+            )}
+          >
+            <Users size={17} strokeWidth={2} className="shrink-0" />
+            {!collapsed && 'Creators & Affiliates'}
+          </Link>
+        )}
+
         <Link
           to="/admin/hide-payments"
           onClick={onNavigate}
