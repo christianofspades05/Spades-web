@@ -15,6 +15,7 @@ import {
   LayoutTemplate,
   LogOut,
   Mail,
+  MessageCircle,
   Package,
   PackageSearch,
   Plug,
@@ -618,6 +619,28 @@ export function AdminNav({
           <Truck size={17} strokeWidth={2} className="shrink-0" />
           {!collapsed && 'Shipmate'}
         </a>
+
+        <Link
+          to="/admin/customer-replies"
+          onClick={onNavigate}
+          title={collapsed ? 'Customer Replies' : undefined}
+          className={navLinkClassName(
+            pathname.startsWith('/admin/customer-replies'),
+            collapsed,
+          )}
+        >
+          <MessageCircle size={17} strokeWidth={2} className="shrink-0" />
+          {!collapsed && (
+            <span className="flex flex-1 items-center justify-between">
+              Customer Replies
+              {unreadCount > 0 && (
+                <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </span>
+          )}
+        </Link>
       </nav>
 
       <div className="border-t border-neutral-200 p-2">

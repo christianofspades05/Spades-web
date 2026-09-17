@@ -110,7 +110,7 @@ export interface CustomerReply {
   read: boolean
 }
 
-const CUSTOMER_REPLIES_PAGE_SIZE = 10
+export const CUSTOMER_REPLIES_PAGE_SIZE = 10
 
 /** Full history of customer replies (not just unread) for the admin nav
  *  bell's dropdown, newest first — a read reply stays visible here even

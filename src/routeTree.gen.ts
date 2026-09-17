@@ -51,6 +51,7 @@ import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-
 import { Route as AdminEmailIndexRouteImport } from './routes/admin/email/index'
 import { Route as AdminDiscountsIndexRouteImport } from './routes/admin/discounts/index'
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
+import { Route as AdminCustomerRepliesIndexRouteImport } from './routes/admin/customer-replies/index'
 import { Route as AdminCreatorsIndexRouteImport } from './routes/admin/creators/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
@@ -304,6 +305,12 @@ const AdminCustomersIndexRoute = AdminCustomersIndexRouteImport.update({
   path: '/customers/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminCustomerRepliesIndexRoute =
+  AdminCustomerRepliesIndexRouteImport.update({
+    id: '/customer-replies/',
+    path: '/customer-replies/',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminCreatorsIndexRoute = AdminCreatorsIndexRouteImport.update({
   id: '/creators/',
   path: '/creators/',
@@ -596,6 +603,7 @@ export interface FileRoutesByFullPath {
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -680,6 +688,7 @@ export interface FileRoutesByTo {
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
   '/admin/creators': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
   '/admin/discounts': typeof AdminDiscountsIndexRoute
   '/admin/email': typeof AdminEmailIndexRoute
@@ -767,6 +776,7 @@ export interface FileRoutesById {
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -855,6 +865,7 @@ export interface FileRouteTypes {
     | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/creators/'
+    | '/admin/customer-replies/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -939,6 +950,7 @@ export interface FileRouteTypes {
     | '/admin/channels'
     | '/admin/collections'
     | '/admin/creators'
+    | '/admin/customer-replies'
     | '/admin/customers'
     | '/admin/discounts'
     | '/admin/email'
@@ -1025,6 +1037,7 @@ export interface FileRouteTypes {
     | '/admin/channels/'
     | '/admin/collections/'
     | '/admin/creators/'
+    | '/admin/customer-replies/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -1383,6 +1396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCustomersIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/customer-replies/': {
+      id: '/admin/customer-replies/'
+      path: '/customer-replies'
+      fullPath: '/admin/customer-replies/'
+      preLoaderRoute: typeof AdminCustomerRepliesIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/creators/': {
       id: '/admin/creators/'
       path: '/creators'
@@ -1708,6 +1728,7 @@ interface AdminRouteChildren {
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
   AdminCreatorsIndexRoute: typeof AdminCreatorsIndexRoute
+  AdminCustomerRepliesIndexRoute: typeof AdminCustomerRepliesIndexRoute
   AdminCustomersIndexRoute: typeof AdminCustomersIndexRoute
   AdminDiscountsIndexRoute: typeof AdminDiscountsIndexRoute
   AdminEmailIndexRoute: typeof AdminEmailIndexRoute
@@ -1751,6 +1772,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
   AdminCreatorsIndexRoute: AdminCreatorsIndexRoute,
+  AdminCustomerRepliesIndexRoute: AdminCustomerRepliesIndexRoute,
   AdminCustomersIndexRoute: AdminCustomersIndexRoute,
   AdminDiscountsIndexRoute: AdminDiscountsIndexRoute,
   AdminEmailIndexRoute: AdminEmailIndexRoute,

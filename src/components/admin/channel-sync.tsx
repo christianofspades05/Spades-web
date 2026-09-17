@@ -44,6 +44,7 @@ import {
 import type { ProductType } from '#/types/database.types'
 import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { notifySafely } from '#/lib/notifications'
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
 import type { BadgeTone } from '#/components/admin/Badge'
@@ -104,23 +105,6 @@ const CONNECTION_LABEL: Record<string, string> = {
   expired: 'Connected (needs refresh)',
   revoked: 'Not connected',
   error: 'Error',
-}
-
-/**
- * Best-effort browser notification — some browsers/contexts (e.g. Chrome on
- * Android) throw "Illegal constructor" from `new Notification(...)` even
- * when permission is granted, since they require the Service Worker
- * notification API instead. Never let that surface as if the actual
- * operation had failed.
- */
-export function notifySafely(title: string, body: string): void {
-  try {
-    if (typeof Notification === 'undefined') return
-    if (Notification.permission !== 'granted') return
-    new Notification(title, { body })
-  } catch {
-    // Ignored — the in-page result panel already shows the outcome.
-  }
 }
 
 /**

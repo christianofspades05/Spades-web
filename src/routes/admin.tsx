@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createFileRoute,
   Outlet,
@@ -10,6 +10,10 @@ import { getStaffSession } from '#/server/admin/auth'
 import { AdminNav } from '#/components/admin/AdminNav'
 import { getUnreadCustomerReplyCount } from '#/server/admin/order-emails'
 import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
+import {
+  notifySafely,
+  requestNotificationPermissionIfNeeded,
+} from '#/lib/notifications'
 
 // Polled (rather than pushed) since this app has no realtime/websocket
 // infra elsewhere — cheap enough (a single COUNT query) to run this often
@@ -32,6 +36,9 @@ function AdminLayout() {
   const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  // null until the first poll resolves — distinguishes "just loaded, don't
+  // notify for whatever was already unread" from a real subsequent increase.
+  const previousUnreadCountRef = useRef<number | null>(null)
   // Defaults to expanded during SSR/first paint (localStorage isn't
   // available server-side) and syncs to the stored preference right after
   // mount — a one-frame flash beats a hydration mismatch.
@@ -53,12 +60,31 @@ function AdminLayout() {
   async function pollUnreadCount() {
     try {
       const count = await getUnreadCustomerReplyCount()
+      const previous = previousUnreadCountRef.current
+      if (previous !== null && count > previous) {
+        const newReplies = count - previous
+        notifySafely(
+          'New customer reply',
+          newReplies === 1
+            ? 'A customer replied to a failed-delivery or order email.'
+            : `${newReplies} customers replied to failed-delivery or order emails.`,
+        )
+      }
+      previousUnreadCountRef.current = count
       setUnreadCount(count)
     } catch {
       // Transient failure — next poll retries; the bell just won't
       // update this cycle.
     }
   }
+
+  // Asks once per browser (never re-prompts after a grant/deny) so a new
+  // reply can surface as a real desktop notification, not just the nav
+  // bell's badge — the badge alone is easy to miss if staff aren't already
+  // looking at the sidebar.
+  useEffect(() => {
+    requestNotificationPermissionIfNeeded()
+  }, [])
 
   useEffect(() => {
     void pollUnreadCount()
