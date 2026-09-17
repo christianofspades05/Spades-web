@@ -3,16 +3,19 @@ import { z } from 'zod'
 const id = z.string().uuid()
 const cents = z.number().int().min(0).max(2_000_000_000)
 const reference = z.string().trim().min(1).max(200)
+const socialUrl = z.union([
+  z.literal(''),
+  z.url().refine((s) => /^https?:\/\//.test(s), 'Use an HTTP or HTTPS URL'),
+])
 export const creatorCommandSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('save_creator'),
     creatorId: id.optional(),
     name: z.string().trim().min(1).max(200),
     email: z.union([z.literal(''), z.email()]),
-    socialUrl: z.union([
-      z.literal(''),
-      z.url().refine((s) => /^https?:\/\//.test(s), 'Use an HTTP or HTTPS URL'),
-    ]),
+    tiktokUrl: socialUrl,
+    instagramUrl: socialUrl,
+    facebookUrl: socialUrl,
     notes: z.string().max(4000),
     isActive: z.boolean(),
   }),

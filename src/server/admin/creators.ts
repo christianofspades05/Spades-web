@@ -143,17 +143,51 @@ export const creatorCommand = createServerFn({ method: 'POST' })
   })
 
 export const searchGiftVariants = createServerFn({ method: 'GET' })
-  .validator(z.object({ sku: z.string().trim().min(2).max(100) }))
+  .validator(z.object({ q: z.string().trim().min(2).max(100) }))
   .handler(async ({ data }) => {
     await authorize()
-    const { data: variants, error } = await getSupabaseAdminClient()
+    const db = getSupabaseAdminClient()
+    const escaped = data.q.replace(/[%_]/g, '\\$&')
+
+    const { data: matchingProducts, error: productsError } = await db
+      .from('products')
+      .select('id')
+      .ilike('name', `%${escaped}%`)
+      .limit(50)
+    if (productsError) throw productsError
+    const productIds = matchingProducts.map((p) => p.id)
+
+    const orFilter =
+      productIds.length > 0
+        ? `sku.ilike.%${escaped}%,product_id.in.(${productIds.join(',')})`
+        : `sku.ilike.%${escaped}%`
+
+    const { data: variants, error } = await db
       .from('product_variants')
-      .select('id, sku, size, color, cost_cents')
-      .ilike('sku', `%${data.sku.replace(/[%_]/g, '\\$&')}%`)
+      .select('id, sku, size, color, cost_cents, product_id')
+      .or(orFilter)
       .eq('is_active', true)
       .limit(25)
     if (error) throw error
-    return variants
+
+    const variantProductIds = Array.from(
+      new Set(variants.map((v) => v.product_id)),
+    )
+    const productNameById = new Map<string, string>()
+    const { data: products, error: namesError } =
+      variantProductIds.length > 0
+        ? await db
+            .from('products')
+            .select('id, name')
+            .in('id', variantProductIds)
+        : { data: [], error: null }
+    if (namesError) throw namesError
+    for (const p of products) productNameById.set(p.id, p.name)
+
+    return variants.map((v) => ({
+      ...v,
+      productName: productNameById.get(v.product_id) ?? null,
+    }))
   })
 
 export const getOrderCreatorFinance = createServerFn({ method: 'GET' })

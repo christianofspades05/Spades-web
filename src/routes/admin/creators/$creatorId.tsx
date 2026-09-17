@@ -532,12 +532,14 @@ function CodeForm({
         />
         Accept new attributions
       </label>
-      <span className="text-xs text-neutral-500">
+      <span className="self-center text-xs text-neutral-500">
         {assignment?.brand ?? 'spades'} storefront
       </span>
-      <button className={primary} disabled={busy}>
-        {assignment ? 'Save future terms' : 'Assign code'}
-      </button>
+      <div className="flex items-center sm:col-span-3">
+        <button className={primary} disabled={busy}>
+          {busy ? 'Saving…' : assignment ? 'Save' : 'Assign code'}
+        </button>
+      </div>
     </form>
   )
 }
@@ -553,7 +555,7 @@ function ExpenseForm({
   const [kind, setKind] = useState<'content_fee' | 'gift' | 'other'>(
     'content_fee',
   )
-  const [sku, setSku] = useState('')
+  const [giftQuery, setGiftQuery] = useState('')
   const [variants, setVariants] = useState<
     Awaited<ReturnType<typeof searchGiftVariants>>
   >([])
@@ -640,10 +642,14 @@ function ExpenseForm({
         <>
           <div className="sm:col-span-2">
             <label className="text-sm">
-              Find gift by SKU
+              Search products
               <input
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
+                value={giftQuery}
+                onChange={(e) => setGiftQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.preventDefault()
+                }}
+                placeholder="Product name or SKU"
                 className={input}
               />
             </label>
@@ -652,7 +658,9 @@ function ExpenseForm({
               className={`${secondary} mt-2`}
               onClick={async () => {
                 try {
-                  setVariants(await searchGiftVariants({ data: { sku } }))
+                  setVariants(
+                    await searchGiftVariants({ data: { q: giftQuery } }),
+                  )
                   setError('')
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Search failed')
@@ -673,7 +681,7 @@ function ExpenseForm({
                   value={v.id}
                   disabled={v.cost_cents === null}
                 >
-                  {v.sku} · {v.size} ·{' '}
+                  {v.productName ?? 'Unknown product'} · {v.sku} · {v.size} ·{' '}
                   {v.cost_cents === null ? 'Cost missing' : money(v.cost_cents)}
                 </option>
               ))}

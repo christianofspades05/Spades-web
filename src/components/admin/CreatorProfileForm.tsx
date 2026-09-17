@@ -27,7 +27,9 @@ export function CreatorProfileForm({
               creatorId: creator?.id,
               name: String(form.get('name')),
               email: String(form.get('email')),
-              socialUrl: String(form.get('socialUrl')),
+              tiktokUrl: String(form.get('tiktokUrl')),
+              instagramUrl: String(form.get('instagramUrl')),
+              facebookUrl: String(form.get('facebookUrl')),
               notes: String(form.get('notes')),
               isActive: form.get('active') === 'on',
             },
@@ -61,12 +63,33 @@ export function CreatorProfileForm({
           className={inputClassName}
         />
       </label>
-      <label className="text-sm sm:col-span-2">
-        Social profile URL
+      <label className="text-sm">
+        TikTok URL
         <input
-          name="socialUrl"
+          name="tiktokUrl"
           type="url"
-          defaultValue={creator?.social_url ?? ''}
+          placeholder="https://www.tiktok.com/@handle"
+          defaultValue={creator?.tiktok_url ?? ''}
+          className={inputClassName}
+        />
+      </label>
+      <label className="text-sm">
+        Instagram URL
+        <input
+          name="instagramUrl"
+          type="url"
+          placeholder="https://www.instagram.com/handle"
+          defaultValue={creator?.instagram_url ?? ''}
+          className={inputClassName}
+        />
+      </label>
+      <label className="text-sm">
+        Facebook URL
+        <input
+          name="facebookUrl"
+          type="url"
+          placeholder="https://www.facebook.com/handle"
+          defaultValue={creator?.facebook_url ?? ''}
           className={inputClassName}
         />
       </label>

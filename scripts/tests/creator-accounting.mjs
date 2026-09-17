@@ -32,6 +32,7 @@ await db.exec(
   `alter table orders add column market_markup_percent numeric, add column shipping_method text default 'standard', add column lalamove_info jsonb, add column customer_notes text, add column has_pre_order_items boolean default false; alter table order_items add column is_pre_order boolean default false; alter table checkout_reservations add column shipping_method text default 'standard', add column lalamove_info jsonb, add column customer_notes text; alter table payments add column charged_currency text, add column charged_amount_cents integer; alter table orders alter column order_number set default gen_random_uuid()::text;`,
 )
 await db.exec(await migration('0091_creator_management.sql'))
+await db.exec(await migration('0092_creator_social_platforms.sql'))
 const row = async (sql, args = []) => (await db.query(sql, args)).rows[0]
 async function insert(table, data) {
   const keys = Object.keys(data)
@@ -78,7 +79,9 @@ const command = async (action, data, actor = staff.id) =>
 const cid = await command('save_creator', {
   name: 'John',
   email: '',
-  socialUrl: '',
+  tiktokUrl: '',
+  instagramUrl: '',
+  facebookUrl: '',
   notes: '',
   isActive: true,
 })

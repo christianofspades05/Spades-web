@@ -2,7 +2,9 @@ export interface Creator {
   id: string
   name: string
   email: string | null
-  social_url: string | null
+  tiktok_url: string | null
+  instagram_url: string | null
+  facebook_url: string | null
   notes: string | null
   is_active: boolean
   created_at: string
