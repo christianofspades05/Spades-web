@@ -25,10 +25,12 @@ import {
 } from '#/server/admin/orders'
 import type { AdjacentOrderIds, OrderWithDetails } from '#/server/admin/orders'
 import {
+  createOrderEmailAttachmentUploadUrl,
   listOrderEmailMessages,
   sendOrderEmail,
 } from '#/server/admin/order-emails'
 import type { OrderEmailMessage } from '#/server/admin/order-emails'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
@@ -944,19 +946,69 @@ function OrderEmailsCard({
 }) {
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
+  const [attachments, setAttachments] = useState<
+    Array<{ filename: string; contentType: string; size: number; url: string }>
+  >([])
+  const [uploading, setUploading] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const disabled = MARKETPLACE_EMAIL_SOURCES.includes(source)
+  const MAX_ATTACHMENTS = 5
+
+  async function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (files.length === 0) return
+    setError(null)
+    setUploading(true)
+    try {
+      for (const file of files.slice(0, MAX_ATTACHMENTS - attachments.length)) {
+        const { path, token, publicUrl } =
+          await createOrderEmailAttachmentUploadUrl({
+            data: { orderId, fileName: file.name },
+          })
+        const { error: uploadError } = await getSupabaseBrowserClient()
+          .storage.from('order-email-attachments')
+          .uploadToSignedUrl(path, token, file)
+        if (uploadError) throw uploadError
+        setAttachments((prev) => [
+          ...prev,
+          {
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+            url: publicUrl,
+          },
+        ])
+      }
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleRemoveAttachment(url: string) {
+    setAttachments((prev) => prev.filter((file) => file.url !== url))
+  }
 
   async function handleSend(event: React.FormEvent) {
     event.preventDefault()
     setSending(true)
     setError(null)
     try {
-      await sendOrderEmail({ data: { orderId, subject, message } })
+      await sendOrderEmail({
+        data: {
+          orderId,
+          subject,
+          message,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        },
+      })
       setSubject('')
       setMessage('')
+      setAttachments([])
       onSent()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -1079,10 +1131,50 @@ function OrderEmailsCard({
                 className={inputClassName}
               />
             </label>
+
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((file) => (
+                  <div key={file.url} className="relative">
+                    <img
+                      src={file.url}
+                      alt={file.filename}
+                      className="h-16 w-16 rounded-md border border-neutral-200 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(file.url)}
+                      aria-label={`Remove ${file.filename}`}
+                      className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-neutral-900 text-xs text-white"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
+              <label
+                className={`${buttonSecondaryClassName} cursor-pointer ${
+                  uploading || attachments.length >= MAX_ATTACHMENTS
+                    ? 'pointer-events-none opacity-50'
+                    : ''
+                }`}
+              >
+                {uploading ? 'Uploading…' : 'Attach images'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFilesSelected}
+                  disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
+                  className="hidden"
+                />
+              </label>
               <button
                 type="submit"
-                disabled={sending}
+                disabled={sending || uploading}
                 className={buttonPrimaryClassName}
               >
                 {sending ? 'Sending…' : 'Send email'}

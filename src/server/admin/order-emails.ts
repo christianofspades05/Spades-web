@@ -233,12 +233,63 @@ export const listFailedDeliveryReplies = createServerFn({ method: 'GET' })
     }
   })
 
+const attachmentSchema = z.object({
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().positive(),
+  url: z.string().url(),
+})
+
+/**
+ * Returns a short-lived signed upload URL so the browser can upload the
+ * file directly to Supabase Storage instead of routing its bytes through
+ * this server function — base64-encoding a file into a createServerFn body
+ * inflates its size by ~37% and runs into Vercel's serverless request body
+ * cap (same issue already fixed for product/section images, see
+ * createProductImageUploadUrl's own comment). Same bucket and
+ * `<orderId>/<uuid>.<ext>` path convention the Resend inbound webhook
+ * already uses for a customer's own attachments (resend-inbound.ts) — safe
+ * to share since both sides use a random uuid, and the row's `direction`
+ * column is what actually distinguishes staff-sent from customer-sent.
+ */
+export const createOrderEmailAttachmentUploadUrl = createServerFn({
+  method: 'POST',
+})
+  .validator(
+    z.object({ orderId: z.string().uuid(), fileName: z.string().min(1) }),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ path: string; token: string; publicUrl: string }> => {
+      await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
+
+      const extension = data.fileName.includes('.')
+        ? data.fileName.split('.').pop()
+        : 'jpg'
+      const path = `${data.orderId}/${crypto.randomUUID()}.${extension}`
+
+      const { data: signed, error } = await admin.storage
+        .from('order-email-attachments')
+        .createSignedUploadUrl(path)
+      if (error) throw error
+
+      const { data: publicUrl } = admin.storage
+        .from('order-email-attachments')
+        .getPublicUrl(path)
+
+      return { path, token: signed.token, publicUrl: publicUrl.publicUrl }
+    },
+  )
+
 export const sendOrderEmail = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       orderId: z.string().uuid(),
       subject: z.string().min(1).max(200),
       message: z.string().min(1).max(5000),
+      attachments: z.array(attachmentSchema).max(5).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -273,6 +324,10 @@ export const sendOrderEmail = createServerFn({ method: 'POST' })
       html,
       from,
       replyTo: inboundReplyToAddress(data.orderId),
+      attachments: data.attachments?.map((file) => ({
+        filename: file.filename,
+        path: file.url,
+      })),
     })
 
     const { error: insertError } = await admin
@@ -287,6 +342,10 @@ export const sendOrderEmail = createServerFn({ method: 'POST' })
         to_address: order.customer.email,
         resend_email_id: sent.id,
         staff_user_id: staff.id,
+        attachments:
+          data.attachments && data.attachments.length > 0
+            ? data.attachments
+            : null,
       })
     if (insertError) throw insertError
 
