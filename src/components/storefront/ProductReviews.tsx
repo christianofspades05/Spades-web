@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Stars } from '#/components/storefront/Stars'
+import { ImageLightbox } from '#/components/storefront/ImageLightbox'
 import type { Review } from '#/types/entities'
 
 const REVIEWS_PER_PAGE = 5
@@ -42,6 +43,7 @@ export function ProductReviewsList({
   maxHeightPx?: number
 }) {
   const [page, setPage] = useState(1)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const pageCount = Math.ceil(reviews.length / REVIEWS_PER_PAGE)
   const visibleReviews =
     mode === 'scroll'
@@ -96,12 +98,19 @@ export function ProductReviewsList({
               {review.photo_urls.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {review.photo_urls.map((url) => (
-                    <img
+                    <button
                       key={url}
-                      src={url}
-                      alt=""
-                      className="size-16 rounded-md border border-neutral-200 object-cover dark:border-neutral-700"
-                    />
+                      type="button"
+                      onClick={() => setLightboxUrl(url)}
+                      aria-label="View full-size photo"
+                      className="cursor-zoom-in"
+                    >
+                      <img
+                        src={url}
+                        alt=""
+                        className="size-16 rounded-md border border-neutral-200 object-cover dark:border-neutral-700"
+                      />
+                    </button>
                   ))}
                 </div>
               )}
@@ -132,6 +141,11 @@ export function ProductReviewsList({
           </button>
         </div>
       )}
+      <ImageLightbox
+        url={lightboxUrl}
+        onClose={() => setLightboxUrl(null)}
+        alt="Review photo, full size"
+      />
     </div>
   )
 }

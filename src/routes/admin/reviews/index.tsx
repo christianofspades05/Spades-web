@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import {
@@ -11,6 +11,7 @@ import { REVIEW_STATUSES } from '#/lib/validation/admin/reviews'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { StatusBadge } from '#/components/admin/Badge'
 import { Stars } from '#/components/storefront/Stars'
+import { ImageLightbox } from '#/components/storefront/ImageLightbox'
 import {
   buttonSecondaryClassName,
   tableCellClassName,
@@ -48,15 +49,6 @@ function ReviewsPage() {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!lightboxUrl) return
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setLightboxUrl(null)
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxUrl])
 
   const page = search.page
   const totalPages = Math.max(1, Math.ceil(total / REVIEWS_PAGE_SIZE))
@@ -290,26 +282,11 @@ function ReviewsPage() {
         </div>
       )}
 
-      {lightboxUrl && (
-        <div
-          onClick={() => setLightboxUrl(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8"
-        >
-          <button
-            type="button"
-            onClick={() => setLightboxUrl(null)}
-            aria-label="Close"
-            className="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-xl text-white hover:bg-white/20"
-          >
-            ×
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Review photo, full size"
-            className="max-h-full max-w-full rounded-lg object-contain"
-          />
-        </div>
-      )}
+      <ImageLightbox
+        url={lightboxUrl}
+        onClose={() => setLightboxUrl(null)}
+        alt="Review photo, full size"
+      />
     </div>
   )
 }
