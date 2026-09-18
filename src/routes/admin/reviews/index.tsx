@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import {
@@ -47,6 +47,16 @@ function ReviewsPage() {
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!lightboxUrl) return
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setLightboxUrl(null)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [lightboxUrl])
 
   const page = search.page
   const totalPages = Math.max(1, Math.ceil(total / REVIEWS_PAGE_SIZE))
@@ -187,12 +197,19 @@ function ReviewsPage() {
                       {review.photo_urls.length > 0 && (
                         <div className="mt-1.5 flex gap-1">
                           {review.photo_urls.map((url) => (
-                            <img
+                            <button
                               key={url}
-                              src={url}
-                              alt=""
-                              className="size-10 rounded-md border border-neutral-200 object-cover"
-                            />
+                              type="button"
+                              onClick={() => setLightboxUrl(url)}
+                              aria-label="View full-size photo"
+                              className="cursor-zoom-in"
+                            >
+                              <img
+                                src={url}
+                                alt=""
+                                className="size-10 rounded-md border border-neutral-200 object-cover"
+                              />
+                            </button>
                           ))}
                         </div>
                       )}
@@ -270,6 +287,27 @@ function ReviewsPage() {
               Next
             </Link>
           </div>
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            aria-label="Close"
+            className="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-xl text-white hover:bg-white/20"
+          >
+            ×
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Review photo, full size"
+            className="max-h-full max-w-full rounded-lg object-contain"
+          />
         </div>
       )}
     </div>
