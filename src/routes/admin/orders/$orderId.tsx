@@ -921,12 +921,16 @@ const MARKETPLACE_EMAIL_SOURCES: OrderSource[] = [
 /** Ad-hoc per-order email thread — staff can message the customer about
  *  this specific order (e.g. a shipping delay) and see their replies,
  *  which route back here via the Resend inbound webhook once that's
- *  configured (see order-emails.ts / resend-inbound.ts). Renders every
- *  message's plain-text body only, never bodyHtml — an inbound reply's
- *  HTML comes straight from the customer's mail client and must never be
- *  rendered unsanitized in the admin UI. Attachments are safe to render
- *  directly (images/links only, no HTML) since the webhook already
- *  re-uploaded them to our own storage bucket. */
+ *  configured (see order-emails.ts / resend-inbound.ts). An inbound
+ *  reply's bodyText only, never bodyHtml — that HTML comes straight from
+ *  the customer's mail client and must never be rendered unsanitized in
+ *  the admin UI. An outbound message falls back to its bodyHtml when it
+ *  has no bodyText (e.g. the automatic failed-delivery/shipment-tracking
+ *  templates, which are HTML-only) — safe to render as-is since every
+ *  outbound body is produced by our own template functions, never by a
+ *  third party. Attachments are safe to render directly (images/links
+ *  only, no HTML) since the webhook already re-uploaded them to our own
+ *  storage bucket. */
 function OrderEmailsCard({
   orderId,
   source,
@@ -1002,13 +1006,22 @@ function OrderEmailsCard({
                     </span>
                   </div>
                   <p className="font-medium text-neutral-900">{msg.subject}</p>
-                  <p className="mt-1 whitespace-pre-line text-neutral-700">
-                    {msg.bodyText
-                      ? msg.direction === 'inbound'
+                  {msg.bodyText ? (
+                    <p className="mt-1 whitespace-pre-line text-neutral-700">
+                      {msg.direction === 'inbound'
                         ? stripQuotedReply(msg.bodyText)
-                        : msg.bodyText
-                      : '(no plain-text body)'}
-                  </p>
+                        : msg.bodyText}
+                    </p>
+                  ) : msg.direction === 'outbound' && msg.bodyHtml ? (
+                    <div
+                      className="mt-1 text-neutral-700 [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
+                    />
+                  ) : (
+                    <p className="mt-1 text-neutral-400 italic">
+                      (no content)
+                    </p>
+                  )}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {msg.attachments.map((file) =>
