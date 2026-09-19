@@ -248,9 +248,13 @@ function ProductAnalyticsPage() {
           collections={collections}
           collectionId={search.collectionId}
           topSellers={collectionTopSellers}
+          range={search.range}
+          from={search.from}
+          to={search.to}
           onSelectCollection={(collectionId) =>
             navigate({ search: (prev) => ({ ...prev, collectionId }) })
           }
+          onRangeChange={handleRangeChange}
         />
       )}
 
@@ -539,12 +543,23 @@ function CollectionAnalyticsTab({
   collections,
   collectionId,
   topSellers,
+  range,
+  from,
+  to,
   onSelectCollection,
+  onRangeChange,
 }: {
   collections: { id: string; name: string }[]
   collectionId: string | undefined
   topSellers: ProductProfitRow[] | null
+  range: DateRangePreset
+  from: string | undefined
+  to: string | undefined
   onSelectCollection: (collectionId: string | undefined) => void
+  onRangeChange: (
+    preset: DateRangePreset,
+    custom?: { from: string; to: string },
+  ) => void
 }) {
   const rows = [...(topSellers ?? [])].sort(
     (a, b) => b.unitsSold - a.unitsSold,
@@ -562,18 +577,26 @@ function CollectionAnalyticsTab({
             products
           </p>
         </div>
-        <select
-          value={collectionId ?? ''}
-          onChange={(e) => onSelectCollection(e.target.value || undefined)}
-          className={inputClassName}
-        >
-          <option value="">Choose a collection…</option>
-          {collections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={collectionId ?? ''}
+            onChange={(e) => onSelectCollection(e.target.value || undefined)}
+            className={inputClassName}
+          >
+            <option value="">Choose a collection…</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <DateRangePicker
+            preset={range}
+            from={from ?? resolveDateRange(range, {}).from}
+            to={to ?? resolveDateRange(range, {}).to}
+            onChange={onRangeChange}
+          />
+        </div>
       </div>
 
       {!collectionId ? (
@@ -582,7 +605,7 @@ function CollectionAnalyticsTab({
         </p>
       ) : rows.length === 0 ? (
         <p className="mt-5 text-sm text-neutral-400">
-          No sales in this range for this collection.
+          This collection has no products right now.
         </p>
       ) : (
         <div className={`${tableWrapperClassName} mt-5`}>

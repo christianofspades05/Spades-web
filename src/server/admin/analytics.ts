@@ -1229,27 +1229,40 @@ const productProfitCache = createTtlCache<ProductProfitRow[]>(
   ANALYTICS_CACHE_TTL_MS,
 )
 
+interface CollectionProductInfo {
+  productName: string
+  imageUrl: string | null
+  currentStockOnHand: number
+  srpCents: number | null
+  costCents: number | null
+}
+
 /**
- * Which product ids currently belong to a collection — for the Product
- * Analytics page's "By Collection" tab. Deliberately NOT the storefront's
- * own listActiveProducts/fetchCollectionListingScope path (queries.ts):
- * that one restricts to status='active' since it's building a live shelf,
- * but analytics needs to include a product that sold during the selected
- * range and has since been archived. Mirrors the same manual-pin-plus-
- * auto-match-rules logic otherwise (product_collections union matchesRules)
- * so a collection's analytics agree with what customers actually saw.
+ * Every product currently belonging to a collection, with the metadata
+ * needed to both scope getProductProfitBreakdown's sales query AND
+ * synthesize a zero-sales row for a product that's in the collection but
+ * didn't sell in the selected range (see getProductProfitBreakdown's own
+ * "every collection product should appear" backfill below) — for the
+ * Product Analytics page's "By Collection" tab. Deliberately NOT the
+ * storefront's own listActiveProducts/fetchCollectionListingScope path
+ * (queries.ts): that one restricts to status='active' since it's building a
+ * live shelf, but analytics needs to include a product that sold during the
+ * selected range and has since been archived. Mirrors the same manual-pin-
+ * plus-auto-match-rules logic otherwise (product_collections union
+ * matchesRules) so a collection's analytics agree with what customers
+ * actually saw.
  */
-async function resolveCollectionProductIds(
+async function resolveCollectionProducts(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   collectionId: string,
-): Promise<Set<string>> {
+): Promise<Map<string, CollectionProductInfo>> {
   const { data: collection, error: collectionError } = await admin
     .from('collections')
     .select('brand, match_type, rules')
     .eq('id', collectionId)
     .maybeSingle()
   if (collectionError) throw collectionError
-  if (!collection) return new Set()
+  if (!collection) return new Map()
 
   const [{ data: memberships, error: membershipError }, products] =
     await Promise.all([
@@ -1261,7 +1274,7 @@ async function resolveCollectionProductIds(
         admin
           .from('products')
           .select(
-            'id, name, product_type, status, tags, variants:product_variants(price_cents, is_pre_order, pre_order_available, inventory(quantity_available))',
+            'id, name, images, product_type, status, tags, variants:product_variants(price_cents, cost_cents, is_pre_order, pre_order_available, inventory(quantity_available, quantity_on_hand))',
           )
           .eq('brand', collection.brand)
           .range(offset, offset + 999),
@@ -1269,12 +1282,38 @@ async function resolveCollectionProductIds(
     ])
   if (membershipError) throw membershipError
 
-  const rules = collectionRuleSchema
-    .array()
-    .parse(collection.rules ?? [])
-  const productIds = new Set(memberships.map((m) => m.product_id))
+  function productInfo(p: (typeof products)[number]): CollectionProductInfo {
+    let stockOnHand = 0
+    let costSum = 0
+    let costCount = 0
+    let srpSum = 0
+    for (const v of p.variants) {
+      for (const inv of v.inventory) stockOnHand += inv.quantity_on_hand
+      if (v.cost_cents !== null) {
+        costSum += v.cost_cents
+        costCount += 1
+      }
+      srpSum += v.price_cents
+    }
+    return {
+      productName: p.name,
+      imageUrl: p.images[0] ?? null,
+      currentStockOnHand: stockOnHand,
+      costCents: costCount > 0 ? Math.round(costSum / costCount) : null,
+      srpCents:
+        p.variants.length > 0 ? Math.round(srpSum / p.variants.length) : null,
+    }
+  }
+
+  const rules = collectionRuleSchema.array().parse(collection.rules ?? [])
+  const productById = new Map(products.map((p) => [p.id, p]))
+  const result = new Map<string, CollectionProductInfo>()
+  for (const m of memberships) {
+    const p = productById.get(m.product_id)
+    if (p) result.set(p.id, productInfo(p))
+  }
   for (const p of products) {
-    if (productIds.has(p.id)) continue
+    if (result.has(p.id)) continue
     const inventoryStock = p.variants.reduce(
       (sum, v) =>
         sum +
@@ -1298,9 +1337,9 @@ async function resolveCollectionProductIds(
       rules,
       collection.match_type,
     )
-    if (matches) productIds.add(p.id)
+    if (matches) result.set(p.id, productInfo(p))
   }
-  return productIds
+  return result
 }
 
 export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
@@ -1325,8 +1364,11 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
 
     const admin = getSupabaseAdminClient()
 
-    const collectionProductIds = data.collectionId
-      ? await resolveCollectionProductIds(admin, data.collectionId)
+    const collectionProducts = data.collectionId
+      ? await resolveCollectionProducts(admin, data.collectionId)
+      : null
+    const collectionProductIds = collectionProducts
+      ? new Set(collectionProducts.keys())
       : null
 
     const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
@@ -1596,35 +1638,64 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       ) + 1,
     )
 
-    const result = Array.from(buckets.values())
-      .map((b) => {
-        const platformFeesCents = Math.round(b.platformFeesCents)
-        const netProfitCents =
-          b.grossSalesCents - b.costOfGoodsCents - platformFeesCents
-        return {
-          productId: b.productId,
-          productName: b.name,
-          imageUrl: b.imageUrl,
-          unitsSold: b.unitsSold,
-          grossSalesCents: b.grossSalesCents,
-          platformFeesCents,
-          netProfitCents,
-          marginPct:
-            b.grossSalesCents > 0
-              ? (netProfitCents / b.grossSalesCents) * 100
-              : null,
-          srpCents: b.srpCents,
-          costCents: b.costCents,
-          netProfitPerUnitCents:
-            b.unitsSold > 0 ? Math.round(netProfitCents / b.unitsSold) : null,
-          currentStockOnHand: b.productId
-            ? (currentStockByProduct.get(b.productId) ?? 0)
+    const rows: ProductProfitRow[] = Array.from(buckets.values()).map((b) => {
+      const platformFeesCents = Math.round(b.platformFeesCents)
+      const netProfitCents =
+        b.grossSalesCents - b.costOfGoodsCents - platformFeesCents
+      return {
+        productId: b.productId,
+        productName: b.name,
+        imageUrl: b.imageUrl,
+        unitsSold: b.unitsSold,
+        grossSalesCents: b.grossSalesCents,
+        platformFeesCents,
+        netProfitCents,
+        marginPct:
+          b.grossSalesCents > 0
+            ? (netProfitCents / b.grossSalesCents) * 100
             : null,
-          orderCount: b.orderIds.size,
-          avgOrdersPerDay: b.orderIds.size / rangeDayCount,
-        }
-      })
-      .sort((a, b) => b.netProfitCents - a.netProfitCents)
+        srpCents: b.srpCents,
+        costCents: b.costCents,
+        netProfitPerUnitCents:
+          b.unitsSold > 0 ? Math.round(netProfitCents / b.unitsSold) : null,
+        currentStockOnHand: b.productId
+          ? (currentStockByProduct.get(b.productId) ?? 0)
+          : null,
+        orderCount: b.orderIds.size,
+        avgOrdersPerDay: b.orderIds.size / rangeDayCount,
+      }
+    })
+
+    // A collection-scoped view lists every product currently in the
+    // collection, not just the ones that happened to sell in this range —
+    // otherwise a slow-moving or brand-new product would look like it
+    // doesn't exist instead of "zero sales."
+    if (collectionProducts) {
+      const soldProductIds = new Set(
+        rows.map((r) => r.productId).filter((id): id is string => id !== null),
+      )
+      for (const [productId, info] of collectionProducts) {
+        if (soldProductIds.has(productId)) continue
+        rows.push({
+          productId,
+          productName: info.productName,
+          imageUrl: info.imageUrl,
+          unitsSold: 0,
+          grossSalesCents: 0,
+          platformFeesCents: 0,
+          netProfitCents: 0,
+          marginPct: null,
+          srpCents: info.srpCents,
+          costCents: info.costCents,
+          netProfitPerUnitCents: null,
+          currentStockOnHand: info.currentStockOnHand,
+          orderCount: 0,
+          avgOrdersPerDay: 0,
+        })
+      }
+    }
+
+    const result = rows.sort((a, b) => b.netProfitCents - a.netProfitCents)
 
     productProfitCache.set(cacheKey, result)
     return result
