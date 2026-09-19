@@ -16,6 +16,7 @@ import type { ReportTimezone } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
+import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type {
   OrderCancellationReason,
   OrderSource,
@@ -1228,6 +1229,80 @@ const productProfitCache = createTtlCache<ProductProfitRow[]>(
   ANALYTICS_CACHE_TTL_MS,
 )
 
+/**
+ * Which product ids currently belong to a collection — for the Product
+ * Analytics page's "By Collection" tab. Deliberately NOT the storefront's
+ * own listActiveProducts/fetchCollectionListingScope path (queries.ts):
+ * that one restricts to status='active' since it's building a live shelf,
+ * but analytics needs to include a product that sold during the selected
+ * range and has since been archived. Mirrors the same manual-pin-plus-
+ * auto-match-rules logic otherwise (product_collections union matchesRules)
+ * so a collection's analytics agree with what customers actually saw.
+ */
+async function resolveCollectionProductIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  collectionId: string,
+): Promise<Set<string>> {
+  const { data: collection, error: collectionError } = await admin
+    .from('collections')
+    .select('brand, match_type, rules')
+    .eq('id', collectionId)
+    .maybeSingle()
+  if (collectionError) throw collectionError
+  if (!collection) return new Set()
+
+  const [{ data: memberships, error: membershipError }, products] =
+    await Promise.all([
+      admin
+        .from('product_collections')
+        .select('product_id')
+        .eq('collection_id', collectionId),
+      fetchAllRows((offset) =>
+        admin
+          .from('products')
+          .select(
+            'id, name, product_type, status, tags, variants:product_variants(price_cents, is_pre_order, pre_order_available, inventory(quantity_available))',
+          )
+          .eq('brand', collection.brand)
+          .range(offset, offset + 999),
+      ),
+    ])
+  if (membershipError) throw membershipError
+
+  const rules = collectionRuleSchema
+    .array()
+    .parse(collection.rules ?? [])
+  const productIds = new Set(memberships.map((m) => m.product_id))
+  for (const p of products) {
+    if (productIds.has(p.id)) continue
+    const inventoryStock = p.variants.reduce(
+      (sum, v) =>
+        sum +
+        v.inventory.reduce((s, inv) => s + inv.quantity_available, 0) +
+        (v.is_pre_order ? v.pre_order_available : 0),
+      0,
+    )
+    const lowestPriceCents = p.variants.reduce<number | null>(
+      (min, v) => (min === null || v.price_cents < min ? v.price_cents : min),
+      null,
+    )
+    const matches = matchesRules(
+      {
+        name: p.name,
+        productType: p.product_type,
+        status: p.status,
+        tags: p.tags,
+        inventoryStock,
+        lowestPriceCents,
+      },
+      rules,
+      collection.match_type,
+    )
+    if (matches) productIds.add(p.id)
+  }
+  return productIds
+}
+
 export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -1238,16 +1313,21 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         .optional(),
       brand: z.string().optional(),
       tz: z.enum(['ph', 'la']).default('ph'),
+      collectionId: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }): Promise<ProductProfitRow[]> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}|${data.collectionId ?? 'all'}`
     const cached = productProfitCache.get(cacheKey)
     if (cached) return cached
 
     const admin = getSupabaseAdminClient()
+
+    const collectionProductIds = data.collectionId
+      ? await resolveCollectionProductIds(admin, data.collectionId)
+      : null
 
     const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
       data.from,
@@ -1460,6 +1540,16 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         variant?.product_id ??
         productIdByOrphanName.get(item.product_name_snapshot) ??
         null
+      // A collection-scoped view can only ever attribute a sale to a real,
+      // resolvable product — an unresolvable snapshot-name line item has no
+      // way to confirm collection membership, so it's excluded rather than
+      // guessed into or out of scope.
+      if (
+        collectionProductIds &&
+        (productId === null || !collectionProductIds.has(productId))
+      ) {
+        continue
+      }
       // Line items with no variant AND no resolvable product (e.g. a manual
       // price adjustment, or the product itself was deleted) get grouped by
       // their own snapshot name instead of a shared product.
