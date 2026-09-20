@@ -37,6 +37,7 @@ import {
 import type { StorefrontSectionInput } from '#/lib/validation/admin/storefront-sections'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { resizeImageFile } from '#/lib/utils/file'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
@@ -670,12 +671,16 @@ function SectionForm({
     setUploading(true)
     setError(null)
     try {
+      // Video sections pass through untouched — resizeImageFile only ever
+      // touches image/* files, and this input's accept switches to
+      // video/* for type === 'video' anyway.
+      const resized = await resizeImageFile(file, 2000)
       const { path, token, publicUrl } = await createStorefrontSectionUploadUrl(
-        { data: { fileName: file.name } },
+        { data: { fileName: resized.name } },
       )
       const { error: uploadError } = await getSupabaseBrowserClient()
         .storage.from('storefront-sections')
-        .uploadToSignedUrl(path, token, file)
+        .uploadToSignedUrl(path, token, resized)
       if (uploadError) throw uploadError
       setMediaUrl(publicUrl)
     } catch (err) {

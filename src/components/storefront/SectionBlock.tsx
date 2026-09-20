@@ -1,7 +1,14 @@
 import { ProductGrid } from '#/components/storefront/ProductGrid'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import type { RenderedStorefrontSection } from '#/server/storefront/sections'
+
+// 1920 is the widest entry in vercel.json's images.sizes — appropriate for
+// a full-bleed hero/CMS banner, which (unlike a product card) has no fixed
+// display width of its own. An arbitrary width 400s per image-optimize.ts's
+// own comment, so this must stay one of the declared sizes.
+const HERO_IMAGE_WIDTH = 1920
 
 export function SectionBlock({
   section,
@@ -19,7 +26,7 @@ export function SectionBlock({
         // of which the router's compile-time-typed route literals can cover.
         <a href={section.link_url || '/products'} className="block">
           <img
-            src={section.media_url}
+            src={optimizedImageUrl(section.media_url, HERO_IMAGE_WIDTH)}
             alt={section.title ?? ''}
             className="h-auto w-full object-cover"
           />
@@ -66,15 +73,17 @@ export function SectionBlock({
       return section.link_url ? (
         <a href={section.link_url} className="block">
           <img
-            src={section.media_url}
+            src={optimizedImageUrl(section.media_url, HERO_IMAGE_WIDTH)}
             alt={section.title ?? ''}
+            loading="lazy"
             className="h-auto w-full object-cover"
           />
         </a>
       ) : (
         <img
-          src={section.media_url}
+          src={optimizedImageUrl(section.media_url, HERO_IMAGE_WIDTH)}
           alt={section.title ?? ''}
+          loading="lazy"
           className="h-auto w-full object-cover"
         />
       )

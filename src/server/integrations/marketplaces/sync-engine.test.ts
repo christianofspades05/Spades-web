@@ -851,3 +851,206 @@ describe('pullOrdersForMarketplace — wires the batched existence lookup into t
     expect(queryCount.count).toBe(1)
   })
 })
+
+const FAKE_CONNECTION = {
+  id: 'conn-1',
+  marketplace: 'shopee',
+  status: 'active',
+  inventory_sync_enabled: true,
+  price_sync_enabled: true,
+  token_expires_at: FAR_FUTURE,
+  refresh_token_encrypted: null,
+  access_token_encrypted: 'token',
+  external_shop_id: 'shop-1',
+}
+
+describe('pullOrdersForMarketplace — batches the existing-order lookup', () => {
+  beforeEach(() => {
+    mockGetSupabaseAdminClient.mockReset()
+    mockGetAdapter.mockReset()
+  })
+
+  it('resolves every already-imported order in the pull via exactly one batched query, not one per order', async () => {
+    const { pullOrdersForMarketplace } = await freshModule()
+    const ordersQueryCount = { count: 0 }
+    const admin = {
+      from(table: string) {
+        if (table === 'marketplace_connections') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: FAKE_CONNECTION, error: null }),
+                }),
+              }),
+            }),
+          }
+        }
+        if (table === 'orders') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: async (_col: string, ids: string[]) => {
+                  ordersQueryCount.count++
+                  // Every id passed in is already "imported" — echoes back
+                  // an internal id per external id, same shape a real
+                  // .in() lookup would return.
+                  return {
+                    data: ids.map((id) => ({
+                      id: `internal-${id}`,
+                      external_order_id: id,
+                    })),
+                    error: null,
+                  }
+                },
+              }),
+            }),
+          }
+        }
+        if (table === 'sync_logs') {
+          return { insert: async () => ({ data: null, error: null }) }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      },
+    }
+    mockGetSupabaseAdminClient.mockReturnValue(admin)
+
+    const rawOrders = [{ id: 'SN-1' }, { id: 'SN-2' }, { id: 'SN-3' }]
+    mockGetAdapter.mockReturnValue({
+      pullOrders: async () => rawOrders,
+      mapOrderToInternalFormat: (raw: { id: string }) => ({
+        externalOrderId: raw.id,
+        placedAt: new Date().toISOString(),
+        shippingAddress: {},
+        items: [],
+        subtotalCents: 0,
+        discountCents: 0,
+        shippingCents: 0,
+        totalCents: 0,
+        isPaid: true,
+        isCancelled: false,
+        cancellationDetail: null,
+        // null short-circuits syncFulfillmentInfo before it touches the
+        // database at all — isolates this test to the existing-order
+        // lookup it's actually asserting on, not fulfillment-sync logic
+        // already covered by intent elsewhere in this file.
+        fulfillmentInfo: null,
+      }),
+    })
+
+    const result = await pullOrdersForMarketplace('shopee' as never, new Date(0))
+
+    expect(ordersQueryCount.count).toBe(1)
+    expect(result).toEqual({ scanned: 3, imported: 0, failed: 0 })
+  })
+})
+
+describe('pullReturnsForMarketplace — batches the per-return lookups', () => {
+  beforeEach(() => {
+    mockGetSupabaseAdminClient.mockReset()
+    mockGetAdapter.mockReset()
+  })
+
+  it('resolves every return\'s order, order_items, and existing-return check via one batched query each, not one per return', async () => {
+    const { pullReturnsForMarketplace } = await freshModule()
+    const queryCounts = { orders: 0, orderItems: 0, returnsSelect: 0, returnsInsert: 0 }
+    const admin = {
+      from(table: string) {
+        if (table === 'marketplace_connections') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: FAKE_CONNECTION, error: null }),
+                }),
+              }),
+            }),
+          }
+        }
+        if (table === 'orders') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: async (_col: string, ids: string[]) => {
+                  queryCounts.orders++
+                  return {
+                    data: ids.map((id) => ({
+                      id: `internal-${id}`,
+                      external_order_id: id,
+                      customer_id: `cust-${id}`,
+                    })),
+                    error: null,
+                  }
+                },
+              }),
+            }),
+          }
+        }
+        if (table === 'order_items') {
+          return {
+            select: () => ({
+              in: async () => {
+                queryCounts.orderItems++
+                return { data: [], error: null }
+              },
+            }),
+          }
+        }
+        if (table === 'returns') {
+          return {
+            select: () => ({
+              in: async () => {
+                queryCounts.returnsSelect++
+                return { data: [], error: null }
+              },
+            }),
+            insert: () => ({
+              select: () => ({
+                single: async () => {
+                  queryCounts.returnsInsert++
+                  return {
+                    data: { id: `return-${queryCounts.returnsInsert}` },
+                    error: null,
+                  }
+                },
+              }),
+            }),
+          }
+        }
+        if (table === 'sync_logs') {
+          return { insert: async () => ({ data: null, error: null }) }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      },
+    }
+    mockGetSupabaseAdminClient.mockReturnValue(admin)
+
+    const rawReturns = [{ id: 'R-1' }, { id: 'R-2' }]
+    mockGetAdapter.mockReturnValue({
+      pullReturns: async () => rawReturns,
+      mapReturnToInternalFormat: (raw: { id: string }) => [
+        {
+          externalReturnId: raw.id,
+          externalOrderId: `SN-${raw.id}`,
+          externalVariantId: 'sku-1',
+          quantity: 1,
+          // Not 'refunded' — keeps justCompleted false so this test never
+          // needs to fake the restock RPC, which is out of scope for what
+          // it's asserting (batched lookups, not restock behavior).
+          status: 'requested',
+          reason: 'Changed my mind',
+          refundAmountCents: 1000,
+          requestedAt: new Date().toISOString(),
+        },
+      ],
+    })
+
+    const result = await pullReturnsForMarketplace('shopee' as never, new Date(0))
+
+    expect(queryCounts.orders).toBe(1)
+    expect(queryCounts.orderItems).toBe(1)
+    expect(queryCounts.returnsSelect).toBe(1)
+    expect(queryCounts.returnsInsert).toBe(2)
+    expect(result).toEqual({ scanned: 2, processed: 2, failed: 0 })
+  })
+})

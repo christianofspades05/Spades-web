@@ -428,6 +428,40 @@ export type ProductBySlugResult =
     })
   | null
 
+type ProductBySlugRow = Omit<ProductWithVariants, 'variants'> & {
+  variants: (ProductWithVariants['variants'][number] & {
+    inventory: { quantity_available: number }[]
+  })[]
+}
+
+function isProductBySlugRow(value: unknown): value is ProductBySlugRow | null {
+  if (value === null) return true
+  return typeof value === 'object' && 'variants' in value
+}
+
+// Every /products/$slug page view — the second-highest-traffic read in the
+// app after the listing itself. Same reasoning as
+// storefrontListingCache above: caches only the product+variants+inventory
+// row (never sale prices, computed fresh below via resolveSalePrices so a
+// discount starting/ending mid-TTL always shows correctly), tagged coarsely
+// rather than per-product for the same reason — a product's own slug/brand
+// aren't known to have changed without re-deriving the query. Checkout
+// re-validates price/stock server-side regardless (see the money invariants
+// in CLAUDE.md), so the worst case of a stale hit here is a confusing
+// listing, never a wrong charge or an oversell.
+const PRODUCT_DETAIL_CACHE_TTL_SECONDS = 60
+const PRODUCT_DETAIL_CACHE_TAG = 'storefront-product-detail'
+const productDetailCache = createSharedCache<ProductBySlugRow | null>(
+  PRODUCT_DETAIL_CACHE_TTL_SECONDS,
+)
+
+/** Invalidates every cached product-detail page — called by the same admin
+ *  write paths as invalidateStorefrontListingCache. Fail-open, same as the
+ *  cache itself. */
+export function invalidateProductDetailCache(): Promise<void> {
+  return productDetailCache.invalidate([PRODUCT_DETAIL_CACHE_TAG])
+}
+
 /**
  * Wrapped in createServerOnlyFn, not just a plain function, so
  * server/products/product-page.ts can call it directly — see
@@ -443,22 +477,32 @@ export const resolveProductBySlug = createServerOnlyFn(
     const admin = getSupabaseAdminClient()
 
     // getActiveAutomaticDiscounts doesn't depend on the product row at all,
-    // so it runs alongside the product fetch instead of after it — on a
-    // cold serverless instance (empty caches, fresh DB connections) this was
-    // a real, avoidable chunk of this page's slow first hit.
-    const [{ data: product, error }, activeDiscounts] = await Promise.all([
-      supabase
-        .from('products')
-        .select('*, variants:product_variants(*, inventory(quantity_available))')
-        .eq('slug', slug)
-        .eq('status', 'active')
-        .eq('brand', brand)
-        .order('sort_order', { foreignTable: 'variants' })
-        .maybeSingle(),
+    // so it runs alongside the (possibly cached) product fetch instead of
+    // after it — on a cold serverless instance (empty caches, fresh DB
+    // connections) this was a real, avoidable chunk of this page's slow
+    // first hit.
+    const [product, activeDiscounts] = await Promise.all([
+      productDetailCache.get(
+        `${slug}:${brand}`,
+        async () => {
+          const { data, error } = await supabase
+            .from('products')
+            .select(
+              '*, variants:product_variants(*, inventory(quantity_available))',
+            )
+            .eq('slug', slug)
+            .eq('status', 'active')
+            .eq('brand', brand)
+            .order('sort_order', { foreignTable: 'variants' })
+            .maybeSingle()
+          if (error) throw error
+          return data
+        },
+        { tags: [PRODUCT_DETAIL_CACHE_TAG], isValid: isProductBySlugRow },
+      ),
       getActiveAutomaticDiscounts(admin),
     ])
 
-    if (error) throw error
     if (!product) return null
 
     // Each variant priced (and its best discount picked) individually — its
@@ -504,6 +548,63 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
       resolveProductBySlug(data.slug, data.brand),
   )
 
+interface StorefrontListingResult {
+  products: StorefrontListingProduct[]
+  total: number
+}
+
+function isStorefrontListingResult(
+  value: unknown,
+): value is StorefrontListingResult {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return Array.isArray(v.products) && typeof v.total === 'number'
+}
+
+// One tag for every filter/sort/page combination, deliberately coarse
+// rather than per-product: the /products page is the single highest-traffic
+// read in the app (every storefront visit that isn't a direct product-page
+// link goes through it), but there's no cheap way to know which cached
+// listing pages a given product write could affect (a name/tag edit changes
+// search matches, a status/stock change changes which page a product even
+// falls on) without re-deriving the whole query server-side. Invalidating
+// everything on any relevant write is still a large win: listing writes
+// (admin product/variant/inventory edits) are far rarer than listing reads.
+// Sale prices are deliberately NOT part of what's cached here — see
+// attachSalePrices below, computed fresh on every call — so a discount
+// starting/ending mid-TTL always shows correctly without needing to
+// invalidate this cache at all.
+const STOREFRONT_LISTING_CACHE_TTL_SECONDS = 60
+const STOREFRONT_LISTING_CACHE_TAG = 'storefront-listing'
+const storefrontListingCache = createSharedCache<StorefrontListingResult>(
+  STOREFRONT_LISTING_CACHE_TTL_SECONDS,
+)
+
+function storefrontListingCacheKey(
+  data: z.infer<typeof listStorefrontProductsSchema>,
+): string {
+  return [
+    'storefront-listing',
+    data.brand,
+    data.type ?? '',
+    data.q ?? '',
+    data.minPriceCents ?? '',
+    data.maxPriceCents ?? '',
+    data.inStock ? '1' : '0',
+    data.sort,
+    data.page,
+    data.pageSize,
+  ].join(':')
+}
+
+/** Invalidates every cached /products listing page — called by every admin
+ *  write path that can change a product's name, tags, type, status, brand,
+ *  price, or stock (see server/admin/products.ts). Fail-open, same as the
+ *  cache itself. */
+export function invalidateStorefrontListingCache(): Promise<void> {
+  return storefrontListingCache.invalidate([STOREFRONT_LISTING_CACHE_TAG])
+}
+
 /**
  * Paginated, filterable, sortable, searchable product listing for the
  * /products page. Reads from `storefront_product_listing`, a view that
@@ -523,56 +624,67 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
     }> => {
       const supabase = getSupabaseServerClient()
 
-      let query = supabase
-        .from('storefront_product_listing')
-        .select('*', { count: 'exact' })
-        .eq('brand', data.brand)
+      const { products, total } = await storefrontListingCache.get(
+        storefrontListingCacheKey(data),
+        async () => {
+          let query = supabase
+            .from('storefront_product_listing')
+            .select('*', { count: 'exact' })
+            .eq('brand', data.brand)
 
-      if (data.type) query = query.eq('product_type', data.type)
-      if (data.q) {
-        const normalized = normalizeSearchTerm(data.q)
-        query = query.or(
-          `name_search.ilike.%${normalized}%,tags.cs.{${data.q}}`,
-        )
-      }
-      if (data.minPriceCents != null) {
-        query = query.gte('min_price_cents', data.minPriceCents)
-      }
-      if (data.maxPriceCents != null) {
-        query = query.lte('min_price_cents', data.maxPriceCents)
-      }
-      if (data.inStock) query = query.gt('total_stock', 0)
+          if (data.type) query = query.eq('product_type', data.type)
+          if (data.q) {
+            const normalized = normalizeSearchTerm(data.q)
+            query = query.or(
+              `name_search.ilike.%${normalized}%,tags.cs.{${data.q}}`,
+            )
+          }
+          if (data.minPriceCents != null) {
+            query = query.gte('min_price_cents', data.minPriceCents)
+          }
+          if (data.maxPriceCents != null) {
+            query = query.lte('min_price_cents', data.maxPriceCents)
+          }
+          if (data.inStock) query = query.gt('total_stock', 0)
 
-      // Every sort column here ties often (total_stock especially — a small
-      // integer shared by dozens of products) and .range() below runs as a
-      // fresh query per page, so without a deterministic tiebreaker Postgres
-      // is free to order tied rows differently between page requests —
-      // products silently reshuffle, repeat across pages, or get skipped
-      // entirely while paging through "Inventory: High to Low". `id` is
-      // unique per row, so appending it as a secondary sort fully
-      // determines the order regardless of ties on the primary column.
-      switch (data.sort) {
-        case 'price_asc':
-          query = query.order('min_price_cents', { ascending: true })
-          break
-        case 'price_desc':
-          query = query.order('min_price_cents', { ascending: false })
-          break
-        case 'newest':
-          query = query.order('created_at', { ascending: false })
-          break
-        case 'stock_desc':
-        default:
-          query = query.order('total_stock', { ascending: false })
-          break
-      }
-      query = query.order('id', { ascending: true })
+          // Every sort column here ties often (total_stock especially — a
+          // small integer shared by dozens of products) and .range() below
+          // runs as a fresh query per page, so without a deterministic
+          // tiebreaker Postgres is free to order tied rows differently
+          // between page requests — products silently reshuffle, repeat
+          // across pages, or get skipped entirely while paging through
+          // "Inventory: High to Low". `id` is unique per row, so appending
+          // it as a secondary sort fully determines the order regardless of
+          // ties on the primary column.
+          switch (data.sort) {
+            case 'price_asc':
+              query = query.order('min_price_cents', { ascending: true })
+              break
+            case 'price_desc':
+              query = query.order('min_price_cents', { ascending: false })
+              break
+            case 'newest':
+              query = query.order('created_at', { ascending: false })
+              break
+            case 'stock_desc':
+            default:
+              query = query.order('total_stock', { ascending: false })
+              break
+          }
+          query = query.order('id', { ascending: true })
 
-      const from = (data.page - 1) * data.pageSize
-      const to = from + data.pageSize - 1
-      const { data: products, error, count } = await query.range(from, to)
+          const from = (data.page - 1) * data.pageSize
+          const to = from + data.pageSize - 1
+          const { data: rows, error, count } = await query.range(from, to)
+          if (error) throw error
+          return { products: rows, total: count ?? 0 }
+        },
+        {
+          tags: [STOREFRONT_LISTING_CACHE_TAG],
+          isValid: isStorefrontListingResult,
+        },
+      )
 
-      if (error) throw error
       const sales = await attachSalePrices(
         products.map((p) => ({ id: p.id, priceCents: p.min_price_cents })),
       )
@@ -581,7 +693,7 @@ export const listStorefrontProducts = createServerFn({ method: 'GET' })
           ...p,
           ...(sales.get(p.id) ?? { salePriceCents: null, saleTitle: null }),
         })),
-        total: count ?? 0,
+        total,
       }
     },
   )

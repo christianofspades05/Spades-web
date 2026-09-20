@@ -11,6 +11,7 @@ import {
 } from '#/lib/validation/admin/storefront-sections'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { invalidateStorefrontSectionsCache } from '#/server/storefront/sections'
 import { logStaffActivity } from './activity-log'
 import type { StorefrontSection } from '#/types/entities'
 
@@ -113,6 +114,7 @@ export const createStorefrontSection = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateStorefrontSectionsCache(data.page, data.brand)
     await logStaffActivity(
       staff,
       'storefront_section.create',
@@ -153,6 +155,7 @@ export const updateStorefrontSection = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateStorefrontSectionsCache(data.page, data.brand)
     await logStaffActivity(
       staff,
       'storefront_section.update',
@@ -168,12 +171,15 @@ export const setStorefrontSectionActive = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
-    const { error } = await admin
+    const { data: section, error } = await admin
       .from('storefront_sections')
       .update({ is_active: data.isActive })
       .eq('id', data.id)
+      .select('page, brand')
+      .single()
     if (error) throw error
 
+    await invalidateStorefrontSectionsCache(section.page, section.brand)
     await logStaffActivity(
       staff,
       data.isActive ? 'storefront_section.show' : 'storefront_section.hide',
@@ -189,12 +195,15 @@ export const deleteStorefrontSection = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
-    const { error } = await admin
+    const { data: section, error } = await admin
       .from('storefront_sections')
       .delete()
       .eq('id', data.id)
+      .select('page, brand')
+      .single()
     if (error) throw error
 
+    await invalidateStorefrontSectionsCache(section.page, section.brand)
     await logStaffActivity(
       staff,
       'storefront_section.delete',
@@ -211,6 +220,19 @@ export const reorderStorefrontSections = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
+    // A reorder always happens within one page/brand's section list (the
+    // admin UI only lets you drag within one list), but there's no
+    // guarantee every id shares the same one, so every distinct pair
+    // touched gets invalidated rather than assuming just one.
+    const { data: touched, error: touchedError } = await admin
+      .from('storefront_sections')
+      .select('page, brand')
+      .in('id', data.orderedIds)
+    if (touchedError) throw touchedError
+    const touchedPairs = new Map(
+      touched.map((s) => [`${s.page}:${s.brand}`, s]),
+    )
+
     await Promise.all(
       data.orderedIds.map((id, index) =>
         admin
@@ -220,6 +242,11 @@ export const reorderStorefrontSections = createServerFn({ method: 'POST' })
       ),
     )
 
+    await Promise.all(
+      Array.from(touchedPairs.values()).map((s) =>
+        invalidateStorefrontSectionsCache(s.page, s.brand),
+      ),
+    )
     await logStaffActivity(
       staff,
       'storefront_section.reorder',

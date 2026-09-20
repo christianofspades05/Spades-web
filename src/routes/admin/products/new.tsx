@@ -9,6 +9,7 @@ import {
   setProductCollections,
 } from '#/server/admin/products'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { resizeImageFile } from '#/lib/utils/file'
 import { slugify } from '#/lib/utils/slug'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { PageHeader } from '#/components/admin/PageHeader'
@@ -110,12 +111,16 @@ function NewProductPage() {
     setError(null)
     const results = await Promise.allSettled(
       toUpload.map(async (file) => {
+        // 2000px comfortably covers the largest width vercel.json's
+        // images.sizes ever requests (1920) — see the identical comment on
+        // $productId.tsx's handleFileSelect.
+        const resized = await resizeImageFile(file, 2000)
         const { path, token, publicUrl } = await createProductImageUploadUrl({
-          data: { fileName: file.name },
+          data: { fileName: resized.name },
         })
         const { error: uploadError } = await getSupabaseBrowserClient()
           .storage.from('product-images')
-          .uploadToSignedUrl(path, token, file)
+          .uploadToSignedUrl(path, token, resized)
         if (uploadError) throw uploadError
         return publicUrl
       }),
