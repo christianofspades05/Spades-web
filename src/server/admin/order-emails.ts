@@ -110,7 +110,7 @@ export interface CustomerReply {
   read: boolean
 }
 
-const CUSTOMER_REPLIES_PAGE_SIZE = 10
+export const CUSTOMER_REPLIES_PAGE_SIZE = 10
 
 /** Full history of customer replies (not just unread) for the admin nav
  *  bell's dropdown, newest first — a read reply stays visible here even
@@ -157,12 +157,139 @@ export const listCustomerReplies = createServerFn({ method: 'GET' })
     }
   })
 
+/** Cheap poll target for the Customer Replies nav badge/desktop
+ *  notification — scoped to only orders staff actually cancelled with
+ *  reason 'failed_delivery' (the one and only trigger for
+ *  sendFailedDeliveryEmail in orders.ts), unlike getUnreadCustomerReplyCount
+ *  above which counts replies to ANY order email thread (shipment tracking,
+ *  ad-hoc staff messages, etc). */
+export const getUnreadFailedDeliveryReplyCount = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<number> => {
+  await requireStaff()
+  const admin = getSupabaseAdminClient()
+
+  const { count, error } = await admin
+    .from('order_email_messages')
+    .select('id, order:orders!inner(cancellation_reason)', {
+      count: 'exact',
+      head: true,
+    })
+    .eq('direction', 'inbound')
+    .is('read_at', null)
+    .eq('order.cancellation_reason', 'failed_delivery')
+  if (error) throw error
+  return count ?? 0
+})
+
+/** Same shape as listCustomerReplies, but scoped to only replies on orders
+ *  cancelled with reason 'failed_delivery' — the dedicated Customer Replies
+ *  page under Operations is specifically about replies to that automatic
+ *  email (e.g. "I actually received this"), not the general order-email
+ *  inbox the nav bell's dropdown already covers. */
+export const listFailedDeliveryReplies = createServerFn({ method: 'GET' })
+  .validator(z.object({ page: z.number().int().min(1).default(1) }))
+  .handler(async ({ data }): Promise<{
+    items: CustomerReply[]
+    total: number
+  }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const offset = (data.page - 1) * CUSTOMER_REPLIES_PAGE_SIZE
+
+    const [{ count, error: countError }, { data: rows, error: rowsError }] =
+      await Promise.all([
+        admin
+          .from('order_email_messages')
+          .select('id, order:orders!inner(cancellation_reason)', {
+            count: 'exact',
+            head: true,
+          })
+          .eq('direction', 'inbound')
+          .eq('order.cancellation_reason', 'failed_delivery'),
+        admin
+          .from('order_email_messages')
+          .select(
+            'id, order_id, body_text, created_at, read_at, order:orders!inner(order_number, cancellation_reason)',
+          )
+          .eq('direction', 'inbound')
+          .eq('order.cancellation_reason', 'failed_delivery')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + CUSTOMER_REPLIES_PAGE_SIZE - 1),
+      ])
+    if (countError) throw countError
+    if (rowsError) throw rowsError
+
+    return {
+      total: count ?? 0,
+      items: rows.map((row) => ({
+        id: row.id,
+        orderId: row.order_id,
+        orderNumber: row.order.order_number,
+        bodyText: row.body_text,
+        createdAt: row.created_at,
+        read: row.read_at !== null,
+      })),
+    }
+  })
+
+const attachmentSchema = z.object({
+  filename: z.string().min(1).max(200),
+  contentType: z.string().min(1),
+  size: z.number().int().positive(),
+  url: z.string().url(),
+})
+
+/**
+ * Returns a short-lived signed upload URL so the browser can upload the
+ * file directly to Supabase Storage instead of routing its bytes through
+ * this server function — base64-encoding a file into a createServerFn body
+ * inflates its size by ~37% and runs into Vercel's serverless request body
+ * cap (same issue already fixed for product/section images, see
+ * createProductImageUploadUrl's own comment). Same bucket and
+ * `<orderId>/<uuid>.<ext>` path convention the Resend inbound webhook
+ * already uses for a customer's own attachments (resend-inbound.ts) — safe
+ * to share since both sides use a random uuid, and the row's `direction`
+ * column is what actually distinguishes staff-sent from customer-sent.
+ */
+export const createOrderEmailAttachmentUploadUrl = createServerFn({
+  method: 'POST',
+})
+  .validator(
+    z.object({ orderId: z.string().uuid(), fileName: z.string().min(1) }),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ path: string; token: string; publicUrl: string }> => {
+      await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
+
+      const extension = data.fileName.includes('.')
+        ? data.fileName.split('.').pop()
+        : 'jpg'
+      const path = `${data.orderId}/${crypto.randomUUID()}.${extension}`
+
+      const { data: signed, error } = await admin.storage
+        .from('order-email-attachments')
+        .createSignedUploadUrl(path)
+      if (error) throw error
+
+      const { data: publicUrl } = admin.storage
+        .from('order-email-attachments')
+        .getPublicUrl(path)
+
+      return { path, token: signed.token, publicUrl: publicUrl.publicUrl }
+    },
+  )
+
 export const sendOrderEmail = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       orderId: z.string().uuid(),
       subject: z.string().min(1).max(200),
       message: z.string().min(1).max(5000),
+      attachments: z.array(attachmentSchema).max(5).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -197,6 +324,10 @@ export const sendOrderEmail = createServerFn({ method: 'POST' })
       html,
       from,
       replyTo: inboundReplyToAddress(data.orderId),
+      attachments: data.attachments?.map((file) => ({
+        filename: file.filename,
+        path: file.url,
+      })),
     })
 
     const { error: insertError } = await admin
@@ -211,6 +342,10 @@ export const sendOrderEmail = createServerFn({ method: 'POST' })
         to_address: order.customer.email,
         resend_email_id: sent.id,
         staff_user_id: staff.id,
+        attachments:
+          data.attachments && data.attachments.length > 0
+            ? data.attachments
+            : null,
       })
     if (insertError) throw insertError
 

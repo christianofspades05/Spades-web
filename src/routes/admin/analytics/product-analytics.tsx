@@ -5,7 +5,11 @@ import {
   getProductProfitBreakdown,
   getProductVelocitySignals,
 } from '#/server/admin/analytics'
-import type { ProductVelocitySignal } from '#/server/admin/analytics'
+import type {
+  ProductProfitRow,
+  ProductVelocitySignal,
+} from '#/server/admin/analytics'
+import { listAllCollections } from '#/server/admin/collections'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
@@ -50,6 +54,8 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
     channel: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
+    tab: z.enum(['overview', 'byCollection']).catch('overview'),
+    collectionId: z.string().uuid().optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -57,13 +63,25 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
       from: deps.from,
       to: deps.to,
     })
-    const [topSellers, velocity] = await Promise.all([
-      getProductProfitBreakdown({
-        data: { ...resolved, brand: deps.brand, channel: deps.channel },
-      }),
-      getProductVelocitySignals({ data: { brand: deps.brand } }),
-    ])
-    return { topSellers, velocity }
+    const [topSellers, velocity, collections, collectionTopSellers] =
+      await Promise.all([
+        getProductProfitBreakdown({
+          data: { ...resolved, brand: deps.brand, channel: deps.channel },
+        }),
+        getProductVelocitySignals({ data: { brand: deps.brand } }),
+        listAllCollections(),
+        deps.collectionId
+          ? getProductProfitBreakdown({
+              data: {
+                ...resolved,
+                brand: deps.brand,
+                channel: deps.channel,
+                collectionId: deps.collectionId,
+              },
+            })
+          : Promise.resolve(null),
+      ])
+    return { topSellers, velocity, collections, collectionTopSellers }
   },
   component: ProductAnalyticsPage,
 })
@@ -91,7 +109,8 @@ function ProductThumbnail({
 }
 
 function ProductAnalyticsPage() {
-  const { topSellers, velocity } = Route.useLoaderData()
+  const { topSellers, velocity, collections, collectionTopSellers } =
+    Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -195,7 +214,53 @@ function ProductAnalyticsPage() {
         }
       />
 
-      <Card className="mt-6 p-5">
+      <div className="mt-6 mb-4 flex items-center gap-1 border-b border-neutral-200">
+        <button
+          type="button"
+          onClick={() =>
+            navigate({ search: (prev) => ({ ...prev, tab: 'overview' }) })
+          }
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            search.tab === 'overview'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            navigate({ search: (prev) => ({ ...prev, tab: 'byCollection' }) })
+          }
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            search.tab === 'byCollection'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          By Collection
+        </button>
+      </div>
+
+      {search.tab === 'byCollection' && (
+        <CollectionAnalyticsTab
+          collections={collections}
+          collectionId={search.collectionId}
+          topSellers={collectionTopSellers}
+          range={search.range}
+          from={search.from}
+          to={search.to}
+          onSelectCollection={(collectionId) =>
+            navigate({ search: (prev) => ({ ...prev, collectionId }) })
+          }
+          onRangeChange={handleRangeChange}
+        />
+      )}
+
+      {search.tab === 'overview' && (
+        <>
+      <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-neutral-900">
@@ -468,6 +533,140 @@ function ProductAnalyticsPage() {
           </p>
         )}
       </Card>
+        </>
+      )}
     </div>
+  )
+}
+
+function CollectionAnalyticsTab({
+  collections,
+  collectionId,
+  topSellers,
+  range,
+  from,
+  to,
+  onSelectCollection,
+  onRangeChange,
+}: {
+  collections: { id: string; name: string }[]
+  collectionId: string | undefined
+  topSellers: ProductProfitRow[] | null
+  range: DateRangePreset
+  from: string | undefined
+  to: string | undefined
+  onSelectCollection: (collectionId: string | undefined) => void
+  onRangeChange: (
+    preset: DateRangePreset,
+    custom?: { from: string; to: string },
+  ) => void
+}) {
+  const rows = [...(topSellers ?? [])].sort(
+    (a, b) => b.unitsSold - a.unitsSold,
+  )
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Product Analytics by Collection
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Same figures as Top Selling Products, scoped to one collection's
+            products
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={collectionId ?? ''}
+            onChange={(e) => onSelectCollection(e.target.value || undefined)}
+            className={inputClassName}
+          >
+            <option value="">Choose a collection…</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <DateRangePicker
+            preset={range}
+            from={from ?? resolveDateRange(range, {}).from}
+            to={to ?? resolveDateRange(range, {}).to}
+            onChange={onRangeChange}
+          />
+        </div>
+      </div>
+
+      {!collectionId ? (
+        <p className="mt-5 text-sm text-neutral-400">
+          Choose a collection above to see its product analytics.
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="mt-5 text-sm text-neutral-400">
+          This collection has no products right now.
+        </p>
+      ) : (
+        <div className={`${tableWrapperClassName} mt-5`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={tableHeadClassName}>Product</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Units sold
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Avg orders/day
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Current qty
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Gross sales
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Net profit
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => (
+                  <tr
+                    key={p.productId ?? p.productName}
+                    className={tableRowClassName}
+                  >
+                    <td className={`${tableCellClassName} font-medium`}>
+                      <div className="flex items-center gap-3">
+                        <ProductThumbnail imageUrl={p.imageUrl} />
+                        {p.productName}
+                      </div>
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {p.unitsSold}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {p.avgOrdersPerDay.toFixed(1)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {p.currentStockOnHand ?? '—'}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(p.grossSalesCents)}
+                    </td>
+                    <td
+                      className={`${tableCellClassName} text-right text-emerald-600`}
+                    >
+                      {formatCentsAsPHP(p.netProfitCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }

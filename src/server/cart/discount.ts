@@ -79,11 +79,17 @@ function itemLineTotalCents(item: CartItemWithVariant): number {
 function discountableBreakdown(
   eligible: CartItemWithVariant[],
   maxDiscountedItems: number | null,
-): { subtotalCents: number; units: { cartItemId: string; priceCents: number }[] } {
+): {
+  subtotalCents: number
+  units: { cartItemId: string; priceCents: number }[]
+} {
   const allUnits: { cartItemId: string; priceCents: number }[] = []
   for (const item of eligible) {
     for (let i = 0; i < item.quantity; i++) {
-      allUnits.push({ cartItemId: item.id, priceCents: item.price_cents_snapshot })
+      allUnits.push({
+        cartItemId: item.id,
+        priceCents: item.price_cents_snapshot,
+      })
     }
   }
   if (maxDiscountedItems == null) {
@@ -265,7 +271,10 @@ async function combineAdditiveAndExclusiveDiscounts(
   for (const applied of appliedExclusive) {
     for (const entry of applied.itemBreakdown) {
       const existing = exclusiveByItem.get(entry.cartItemId)
-      if (!existing || entry.discountedAmountCents > existing.discountedAmountCents) {
+      if (
+        !existing ||
+        entry.discountedAmountCents > existing.discountedAmountCents
+      ) {
         exclusiveByItem.set(entry.cartItemId, entry)
       }
     }
@@ -282,7 +291,10 @@ async function combineAdditiveAndExclusiveDiscounts(
       }
       additiveByItem.set(entry.cartItemId, {
         cartItemId: entry.cartItemId,
-        discountedUnits: Math.max(existing.discountedUnits, entry.discountedUnits),
+        discountedUnits: Math.max(
+          existing.discountedUnits,
+          entry.discountedUnits,
+        ),
         discountedAmountCents:
           existing.discountedAmountCents + entry.discountedAmountCents,
       })
@@ -295,15 +307,16 @@ async function combineAdditiveAndExclusiveDiscounts(
   const lineTotalCentsByItem = new Map(
     items.map((item) => [item.id, itemLineTotalCents(item)]),
   )
-  const itemBreakdown = [...exclusiveByItem.values(), ...additiveByItem.values()].map(
-    (entry) => ({
-      ...entry,
-      discountedAmountCents: Math.min(
-        entry.discountedAmountCents,
-        lineTotalCentsByItem.get(entry.cartItemId) ?? entry.discountedAmountCents,
-      ),
-    }),
-  )
+  const itemBreakdown = [
+    ...exclusiveByItem.values(),
+    ...additiveByItem.values(),
+  ].map((entry) => ({
+    ...entry,
+    discountedAmountCents: Math.min(
+      entry.discountedAmountCents,
+      lineTotalCentsByItem.get(entry.cartItemId) ?? entry.discountedAmountCents,
+    ),
+  }))
   if (itemBreakdown.length === 0) return null
 
   const amountCents = itemBreakdown.reduce(
@@ -317,7 +330,15 @@ async function combineAdditiveAndExclusiveDiscounts(
   // Otherwise the discount contributing the most leads (typically the
   // store-wide sale, since it's usually the broadest).
   const primary =
-    allApplied.find((applied) => applied.code != null) ??
+    allApplied.find(
+      (applied) =>
+        applied.code != null &&
+        applied.itemBreakdown.some(
+          (entry) =>
+            !exclusiveByItem.has(entry.cartItemId) &&
+            entry.discountedAmountCents > 0,
+        ),
+    ) ??
     allApplied.reduce((best, applied) =>
       applied.amountCents > best.amountCents ? applied : best,
     )
@@ -346,6 +367,30 @@ async function combineAdditiveAndExclusiveDiscounts(
  * that collection keeps its own flat collection-sale rate regardless of
  * any code — see combineAdditiveAndExclusiveDiscounts.
  */
+async function assertCreatorCodeEligible(admin: Admin, discountId: string) {
+  const { data: assignment, error } = await admin
+    .from('creator_discount_assignments')
+    .select('creator_id, brand, is_active')
+    .eq('discount_id', discountId)
+    .maybeSingle()
+  if (error) throw error
+  if (!assignment) return
+  const { getStorefrontScope } = await import('#/server/storefront/domain')
+  const scope = await getStorefrontScope()
+  const { data: creator, error: creatorError } = await admin
+    .from('creators')
+    .select('is_active')
+    .eq('id', assignment.creator_id)
+    .single()
+  if (creatorError) throw creatorError
+  if (
+    !assignment.is_active ||
+    !creator.is_active ||
+    assignment.brand !== scope.brand
+  )
+    throw new Error('This creator code is not available on this store')
+}
+
 export async function resolveDiscountForCart(
   admin: Admin,
   discountId: string | null,
@@ -360,6 +405,7 @@ export async function resolveDiscountForCart(
     .maybeSingle()
   if (error) throw error
   if (!discount || !discount.is_active) return null
+  await assertCreatorCodeEligible(admin, discount.id)
 
   const activeAutomaticDiscounts = await getActiveAutomaticDiscounts(admin)
   const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(
@@ -391,7 +437,8 @@ export async function resolveAutomaticDiscountsForCart(
   const activeDiscounts = await getActiveAutomaticDiscounts(admin)
   if (activeDiscounts.length === 0) return null
 
-  const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(activeDiscounts)
+  const { additive, exclusive } =
+    splitAdditiveAndExclusiveDiscounts(activeDiscounts)
   return combineAdditiveAndExclusiveDiscounts(admin, items, additive, exclusive)
 }
 
@@ -430,6 +477,7 @@ export async function findValidDiscountByCode(
     throw new Error('Invalid discount code')
   }
   assertDiscountIsRedeemable(discount)
+  await assertCreatorCodeEligible(admin, discount.id)
 
   const subtotalCents = items.reduce(
     (sum, item) => sum + itemLineTotalCents(item),

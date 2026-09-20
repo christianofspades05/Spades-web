@@ -1,3 +1,5 @@
+import { OrderCreatorFinance } from '#/components/admin/OrderCreatorFinance'
+import { orderHasCreatorAttribution } from '#/server/admin/creators'
 import { useRef, useState } from 'react'
 import {
   createFileRoute,
@@ -23,10 +25,12 @@ import {
 } from '#/server/admin/orders'
 import type { AdjacentOrderIds, OrderWithDetails } from '#/server/admin/orders'
 import {
+  createOrderEmailAttachmentUploadUrl,
   listOrderEmailMessages,
   sendOrderEmail,
 } from '#/server/admin/order-emails'
 import type { OrderEmailMessage } from '#/server/admin/order-emails'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatShippingAddress } from '#/lib/checkout/shipping-address'
@@ -154,13 +158,14 @@ function markedUpPriceCents(
 
 export const Route = createFileRoute('/admin/orders/$orderId')({
   loader: async ({ params }) => {
-    const [order, adjacent, emails] = await Promise.all([
+    const [order, adjacent, emails, hasCreatorAttribution] = await Promise.all([
       getOrderById({ data: { id: params.orderId } }),
       getAdjacentOrderIds({ data: { id: params.orderId } }),
       listOrderEmailMessages({ data: { orderId: params.orderId } }),
+      orderHasCreatorAttribution({ data: { orderId: params.orderId } }),
     ])
     if (!order) throw notFound()
-    return { order, adjacent, emails }
+    return { order, adjacent, emails, hasCreatorAttribution }
   },
   component: OrderDetailPage,
 })
@@ -171,14 +176,17 @@ export const Route = createFileRoute('/admin/orders/$orderId')({
 const SWIPE_MIN_DISTANCE_PX = 60
 
 function OrderDetailPage() {
+  const { staff } = Route.useRouteContext()
   const {
     order,
     adjacent,
     emails,
+    hasCreatorAttribution,
   }: {
     order: OrderWithDetails
     adjacent: AdjacentOrderIds
     emails: OrderEmailMessage[]
+    hasCreatorAttribution: boolean
   } = Route.useLoaderData()
   const router = useRouter()
   const navigate = useNavigate()
@@ -230,6 +238,14 @@ function OrderDetailPage() {
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      {hasCreatorAttribution && (
+        <OrderCreatorFinance
+          key={order.id}
+          orderId={order.id}
+          isCod={order.is_cod}
+          role={staff.role}
+        />
+      )}
       <PageHeader
         title={
           <div className="flex items-center gap-1">
@@ -391,19 +407,28 @@ function OrderDetailPage() {
                             // count against this same real discount already
                             // shown in Order Total below.
                             const sellerDiscountCents =
-                              order.discount_cents > 0 && order.subtotal_cents > 0
+                              order.discount_cents > 0 &&
+                              order.subtotal_cents > 0
                                 ? Math.round(
                                     (order.discount_cents *
                                       item.line_subtotal_cents) /
                                       order.subtotal_cents,
                                   )
                                 : 0
-                            return { orpCents, markedUp, markupDeltaCents, sellerDiscountCents }
+                            return {
+                              orpCents,
+                              markedUp,
+                              markupDeltaCents,
+                              sellerDiscountCents,
+                            }
                           })()
                         : null
 
                     return (
-                      <li key={item.id} className="flex flex-col gap-3 py-3 text-sm">
+                      <li
+                        key={item.id}
+                        className="flex flex-col gap-3 py-3 text-sm"
+                      >
                         <div className="flex items-center gap-3">
                           {item.image_url ? (
                             <img
@@ -450,7 +475,10 @@ function OrderDetailPage() {
                                   {order.marketplacePriceMarkupPercent}%)
                                 </span>
                                 <span className="font-medium text-emerald-600">
-                                  +{formatCentsAsPHP(priceBreakdown.markupDeltaCents)}
+                                  +
+                                  {formatCentsAsPHP(
+                                    priceBreakdown.markupDeltaCents,
+                                  )}
                                 </span>
                               </div>
                               <div className="flex justify-between border-t border-neutral-200 pt-1 font-medium text-neutral-700">
@@ -463,7 +491,10 @@ function OrderDetailPage() {
                                 <div className="flex justify-between text-neutral-600">
                                   <span>Seller Discount</span>
                                   <span className="font-medium text-red-600">
-                                    -{formatCentsAsPHP(priceBreakdown.sellerDiscountCents)}
+                                    -
+                                    {formatCentsAsPHP(
+                                      priceBreakdown.sellerDiscountCents,
+                                    )}
                                   </span>
                                 </div>
                               )}
@@ -497,7 +528,9 @@ function OrderDetailPage() {
                         <div className="flex flex-col gap-1 text-xs">
                           <div className="flex justify-between text-neutral-600">
                             <span>Subtotal</span>
-                            <span>{formatCentsAsPHP(order.subtotal_cents)}</span>
+                            <span>
+                              {formatCentsAsPHP(order.subtotal_cents)}
+                            </span>
                           </div>
                           {order.discount_cents > 0 && (
                             <div className="flex justify-between text-neutral-600">
@@ -525,7 +558,10 @@ function OrderDetailPage() {
                                 {SOURCE_LABELS[order.source]} Platform Discount
                               </span>
                               <span className="font-medium text-red-600">
-                                -{formatCentsAsPHP(order.platform_discount_cents)}
+                                -
+                                {formatCentsAsPHP(
+                                  order.platform_discount_cents,
+                                )}
                               </span>
                             </div>
                           )}
@@ -553,7 +589,10 @@ function OrderDetailPage() {
                       {order.platform_fee_breakdown.length > 0 && (
                         <div className="rounded-lg border border-neutral-200 p-3">
                           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                            <ShieldCheck size={16} className="text-neutral-400" />
+                            <ShieldCheck
+                              size={16}
+                              className="text-neutral-400"
+                            />
                             {SOURCE_LABELS[order.source]} Deductions
                           </div>
                           <div className="flex flex-col gap-1 text-xs">
@@ -884,12 +923,16 @@ const MARKETPLACE_EMAIL_SOURCES: OrderSource[] = [
 /** Ad-hoc per-order email thread — staff can message the customer about
  *  this specific order (e.g. a shipping delay) and see their replies,
  *  which route back here via the Resend inbound webhook once that's
- *  configured (see order-emails.ts / resend-inbound.ts). Renders every
- *  message's plain-text body only, never bodyHtml — an inbound reply's
- *  HTML comes straight from the customer's mail client and must never be
- *  rendered unsanitized in the admin UI. Attachments are safe to render
- *  directly (images/links only, no HTML) since the webhook already
- *  re-uploaded them to our own storage bucket. */
+ *  configured (see order-emails.ts / resend-inbound.ts). An inbound
+ *  reply's bodyText only, never bodyHtml — that HTML comes straight from
+ *  the customer's mail client and must never be rendered unsanitized in
+ *  the admin UI. An outbound message falls back to its bodyHtml when it
+ *  has no bodyText (e.g. the automatic failed-delivery/shipment-tracking
+ *  templates, which are HTML-only) — safe to render as-is since every
+ *  outbound body is produced by our own template functions, never by a
+ *  third party. Attachments are safe to render directly (images/links
+ *  only, no HTML) since the webhook already re-uploaded them to our own
+ *  storage bucket. */
 function OrderEmailsCard({
   orderId,
   source,
@@ -903,19 +946,69 @@ function OrderEmailsCard({
 }) {
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
+  const [attachments, setAttachments] = useState<
+    Array<{ filename: string; contentType: string; size: number; url: string }>
+  >([])
+  const [uploading, setUploading] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const disabled = MARKETPLACE_EMAIL_SOURCES.includes(source)
+  const MAX_ATTACHMENTS = 5
+
+  async function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (files.length === 0) return
+    setError(null)
+    setUploading(true)
+    try {
+      for (const file of files.slice(0, MAX_ATTACHMENTS - attachments.length)) {
+        const { path, token, publicUrl } =
+          await createOrderEmailAttachmentUploadUrl({
+            data: { orderId, fileName: file.name },
+          })
+        const { error: uploadError } = await getSupabaseBrowserClient()
+          .storage.from('order-email-attachments')
+          .uploadToSignedUrl(path, token, file)
+        if (uploadError) throw uploadError
+        setAttachments((prev) => [
+          ...prev,
+          {
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+            url: publicUrl,
+          },
+        ])
+      }
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleRemoveAttachment(url: string) {
+    setAttachments((prev) => prev.filter((file) => file.url !== url))
+  }
 
   async function handleSend(event: React.FormEvent) {
     event.preventDefault()
     setSending(true)
     setError(null)
     try {
-      await sendOrderEmail({ data: { orderId, subject, message } })
+      await sendOrderEmail({
+        data: {
+          orderId,
+          subject,
+          message,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        },
+      })
       setSubject('')
       setMessage('')
+      setAttachments([])
       onSent()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -932,9 +1025,9 @@ function OrderEmailsCard({
 
       {disabled ? (
         <p className="mb-4 rounded-md bg-neutral-50 p-3 text-sm text-neutral-500">
-          This order's contact is a {SOURCE_LABELS[source]} relay address,
-          not the customer's real inbox — message them through the
-          marketplace's own chat instead.
+          This order's contact is a {SOURCE_LABELS[source]} relay address, not
+          the customer's real inbox — message them through the marketplace's own
+          chat instead.
         </p>
       ) : (
         <>
@@ -964,16 +1057,23 @@ function OrderEmailsCard({
                       })}
                     </span>
                   </div>
-                  <p className="font-medium text-neutral-900">
-                    {msg.subject}
-                  </p>
-                  <p className="mt-1 whitespace-pre-line text-neutral-700">
-                    {msg.bodyText
-                      ? msg.direction === 'inbound'
+                  <p className="font-medium text-neutral-900">{msg.subject}</p>
+                  {msg.bodyText ? (
+                    <p className="mt-1 whitespace-pre-line text-neutral-700">
+                      {msg.direction === 'inbound'
                         ? stripQuotedReply(msg.bodyText)
-                        : msg.bodyText
-                      : '(no plain-text body)'}
-                  </p>
+                        : msg.bodyText}
+                    </p>
+                  ) : msg.direction === 'outbound' && msg.bodyHtml ? (
+                    <div
+                      className="mt-1 text-neutral-700 [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
+                    />
+                  ) : (
+                    <p className="mt-1 text-neutral-400 italic">
+                      (no content)
+                    </p>
+                  )}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {msg.attachments.map((file) =>
@@ -1031,10 +1131,50 @@ function OrderEmailsCard({
                 className={inputClassName}
               />
             </label>
+
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((file) => (
+                  <div key={file.url} className="relative">
+                    <img
+                      src={file.url}
+                      alt={file.filename}
+                      className="h-16 w-16 rounded-md border border-neutral-200 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(file.url)}
+                      aria-label={`Remove ${file.filename}`}
+                      className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-neutral-900 text-xs text-white"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
+              <label
+                className={`${buttonSecondaryClassName} cursor-pointer ${
+                  uploading || attachments.length >= MAX_ATTACHMENTS
+                    ? 'pointer-events-none opacity-50'
+                    : ''
+                }`}
+              >
+                {uploading ? 'Uploading…' : 'Attach images'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFilesSelected}
+                  disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
+                  className="hidden"
+                />
+              </label>
               <button
                 type="submit"
-                disabled={sending}
+                disabled={sending || uploading}
                 className={buttonPrimaryClassName}
               >
                 {sending ? 'Sending…' : 'Send email'}

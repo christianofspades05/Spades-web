@@ -989,9 +989,23 @@ describe('pullReturnsForMarketplace — batches the per-return lookups', () => {
         if (table === 'order_items') {
           return {
             select: () => ({
-              in: async () => {
+              in: async (_col: string, orderIds: string[]) => {
                 queryCounts.orderItems++
-                return { data: [], error: null }
+                // One directly-matching item per order — exercises the
+                // batching this test asserts on, not the multi-candidate
+                // fallback matching logic (that's a different concern,
+                // covered by its own tests where it was introduced).
+                return {
+                  data: orderIds.map((orderId) => ({
+                    id: `item-${orderId}`,
+                    order_id: orderId,
+                    variant_id: `variant-${orderId}`,
+                    sku_snapshot: 'sku-1',
+                    external_variant_id: 'sku-1',
+                    quantity: 5,
+                  })),
+                  error: null,
+                }
               },
             }),
           }

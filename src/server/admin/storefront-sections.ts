@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start'
+import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import {
   deleteStorefrontSectionSchema,
@@ -9,11 +9,15 @@ import {
   STOREFRONT_PAGES,
   updateStorefrontSectionSchema,
 } from '#/lib/validation/admin/storefront-sections'
+import type {
+  StorefrontSectionInput,
+  UpdateStorefrontSectionInput,
+} from '#/lib/validation/admin/storefront-sections'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { invalidateStorefrontSectionsCache } from '#/server/storefront/sections'
 import { logStaffActivity } from './activity-log'
-import type { StorefrontSection } from '#/types/entities'
+import type { StorefrontSection, StaffUser } from '#/types/entities'
 
 const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
 
@@ -74,10 +78,15 @@ export const listAllStorefrontSections = createServerFn({
     }))
   })
 
-export const createStorefrontSection = createServerFn({ method: 'POST' })
-  .validator(storefrontSectionInputSchema)
-  .handler(async ({ data }): Promise<StorefrontSection> => {
-    const staff = await requireStaff(MANAGE_ROLES)
+// Wrapped in createServerOnlyFn, not just a plain function — same reasoning
+// as server/storefront/sections.ts's fetchStorefrontSectionsConfig: lets
+// this be exercised directly in tests without a real TanStack Start
+// request context.
+export const createStorefrontSectionImpl = createServerOnlyFn(
+  async (
+    data: StorefrontSectionInput,
+    staff: StaffUser,
+  ): Promise<StorefrontSection> => {
     const admin = getSupabaseAdminClient()
 
     const { data: maxRow } = await admin
@@ -114,7 +123,7 @@ export const createStorefrontSection = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
-    await invalidateStorefrontSectionsCache(data.page, data.brand)
+    await invalidateStorefrontSectionsCache(data.brand, data.page)
     await logStaffActivity(
       staff,
       'storefront_section.create',
@@ -123,13 +132,35 @@ export const createStorefrontSection = createServerFn({ method: 'POST' })
       { type: data.type },
     )
     return section
-  })
+  },
+)
 
-export const updateStorefrontSection = createServerFn({ method: 'POST' })
-  .validator(updateStorefrontSectionSchema)
+export const createStorefrontSection = createServerFn({ method: 'POST' })
+  .validator(storefrontSectionInputSchema)
   .handler(async ({ data }): Promise<StorefrontSection> => {
     const staff = await requireStaff(MANAGE_ROLES)
+    return createStorefrontSectionImpl(data, staff)
+  })
+
+export const updateStorefrontSectionImpl = createServerOnlyFn(
+  async (
+    data: UpdateStorefrontSectionInput,
+    staff: StaffUser,
+  ): Promise<StorefrontSection> => {
     const admin = getSupabaseAdminClient()
+
+    // brand/page are part of this same update payload, so this write can
+    // move a section to a different (brand, page) scope — the cached
+    // config at its OLD scope needs invalidating too, not just the new
+    // one, or a stale copy would keep showing there for up to 300s. An
+    // UPDATE...RETURNING only ever reflects the row's post-update state,
+    // so the old scope isn't otherwise obtainable without this read.
+    const { data: before, error: beforeError } = await admin
+      .from('storefront_sections')
+      .select('brand, page')
+      .eq('id', data.id)
+      .single()
+    if (beforeError) throw beforeError
 
     const { data: section, error } = await admin
       .from('storefront_sections')
@@ -155,7 +186,10 @@ export const updateStorefrontSection = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
-    await invalidateStorefrontSectionsCache(data.page, data.brand)
+    await invalidateStorefrontSectionsCache(before.brand, before.page)
+    if (before.brand !== data.brand || before.page !== data.page) {
+      await invalidateStorefrontSectionsCache(data.brand, data.page)
+    }
     await logStaffActivity(
       staff,
       'storefront_section.update',
@@ -163,23 +197,32 @@ export const updateStorefrontSection = createServerFn({ method: 'POST' })
       data.id,
     )
     return section
+  },
+)
+
+export const updateStorefrontSection = createServerFn({ method: 'POST' })
+  .validator(updateStorefrontSectionSchema)
+  .handler(async ({ data }): Promise<StorefrontSection> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    return updateStorefrontSectionImpl(data, staff)
   })
 
-export const setStorefrontSectionActive = createServerFn({ method: 'POST' })
-  .validator(setStorefrontSectionActiveSchema)
-  .handler(async ({ data }): Promise<{ ok: true }> => {
-    const staff = await requireStaff(MANAGE_ROLES)
+export const setStorefrontSectionActiveImpl = createServerOnlyFn(
+  async (
+    data: z.infer<typeof setStorefrontSectionActiveSchema>,
+    staff: StaffUser,
+  ): Promise<{ ok: true }> => {
     const admin = getSupabaseAdminClient()
 
     const { data: section, error } = await admin
       .from('storefront_sections')
       .update({ is_active: data.isActive })
       .eq('id', data.id)
-      .select('page, brand')
+      .select('brand, page')
       .single()
     if (error) throw error
 
-    await invalidateStorefrontSectionsCache(section.page, section.brand)
+    await invalidateStorefrontSectionsCache(section.brand, section.page)
     await logStaffActivity(
       staff,
       data.isActive ? 'storefront_section.show' : 'storefront_section.hide',
@@ -187,23 +230,32 @@ export const setStorefrontSectionActive = createServerFn({ method: 'POST' })
       data.id,
     )
     return { ok: true }
-  })
+  },
+)
 
-export const deleteStorefrontSection = createServerFn({ method: 'POST' })
-  .validator(deleteStorefrontSectionSchema)
+export const setStorefrontSectionActive = createServerFn({ method: 'POST' })
+  .validator(setStorefrontSectionActiveSchema)
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const staff = await requireStaff(MANAGE_ROLES)
+    return setStorefrontSectionActiveImpl(data, staff)
+  })
+
+export const deleteStorefrontSectionImpl = createServerOnlyFn(
+  async (
+    data: z.infer<typeof deleteStorefrontSectionSchema>,
+    staff: StaffUser,
+  ): Promise<{ ok: true }> => {
     const admin = getSupabaseAdminClient()
 
     const { data: section, error } = await admin
       .from('storefront_sections')
       .delete()
       .eq('id', data.id)
-      .select('page, brand')
+      .select('brand, page')
       .single()
     if (error) throw error
 
-    await invalidateStorefrontSectionsCache(section.page, section.brand)
+    await invalidateStorefrontSectionsCache(section.brand, section.page)
     await logStaffActivity(
       staff,
       'storefront_section.delete',
@@ -211,42 +263,52 @@ export const deleteStorefrontSection = createServerFn({ method: 'POST' })
       data.id,
     )
     return { ok: true }
+  },
+)
+
+export const deleteStorefrontSection = createServerFn({ method: 'POST' })
+  .validator(deleteStorefrontSectionSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    return deleteStorefrontSectionImpl(data, staff)
   })
 
 /** Persists a full drag-reordered list in one call — sets each section's sort_order to its index in `orderedIds`. */
-export const reorderStorefrontSections = createServerFn({ method: 'POST' })
-  .validator(reorderStorefrontSectionsSchema)
-  .handler(async ({ data }): Promise<{ ok: true }> => {
-    const staff = await requireStaff(MANAGE_ROLES)
+export const reorderStorefrontSectionsImpl = createServerOnlyFn(
+  async (
+    data: z.infer<typeof reorderStorefrontSectionsSchema>,
+    staff: StaffUser,
+  ): Promise<{ ok: true }> => {
     const admin = getSupabaseAdminClient()
 
-    // A reorder always happens within one page/brand's section list (the
-    // admin UI only lets you drag within one list), but there's no
-    // guarantee every id shares the same one, so every distinct pair
-    // touched gets invalidated rather than assuming just one.
-    const { data: touched, error: touchedError } = await admin
-      .from('storefront_sections')
-      .select('page, brand')
-      .in('id', data.orderedIds)
-    if (touchedError) throw touchedError
-    const touchedPairs = new Map(
-      touched.map((s) => [`${s.page}:${s.brand}`, s]),
-    )
-
-    await Promise.all(
+    const results = await Promise.all(
       data.orderedIds.map((id, index) =>
         admin
           .from('storefront_sections')
           .update({ sort_order: index })
-          .eq('id', id),
+          .eq('id', id)
+          .select('brand, page')
+          .single(),
+      ),
+    )
+    for (const { error } of results) {
+      if (error) throw error
+    }
+
+    // A reorder never changes brand/page, only sort_order — but the
+    // reordered ids could in principle span more than one (brand, page)
+    // scope, so this invalidates every distinct scope actually touched
+    // rather than assuming they're all the same.
+    const scopes = new Map<string, { brand: string; page: string }>()
+    for (const { data: row } of results) {
+      if (row) scopes.set(`${row.brand}:${row.page}`, row)
+    }
+    await Promise.all(
+      Array.from(scopes.values(), ({ brand, page }) =>
+        invalidateStorefrontSectionsCache(brand, page),
       ),
     )
 
-    await Promise.all(
-      Array.from(touchedPairs.values()).map((s) =>
-        invalidateStorefrontSectionsCache(s.page, s.brand),
-      ),
-    )
     await logStaffActivity(
       staff,
       'storefront_section.reorder',
@@ -255,6 +317,14 @@ export const reorderStorefrontSections = createServerFn({ method: 'POST' })
       { orderedIds: data.orderedIds },
     )
     return { ok: true }
+  },
+)
+
+export const reorderStorefrontSections = createServerFn({ method: 'POST' })
+  .validator(reorderStorefrontSectionsSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    return reorderStorefrontSectionsImpl(data, staff)
   })
 
 /**

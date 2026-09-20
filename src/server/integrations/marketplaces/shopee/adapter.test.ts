@@ -214,3 +214,80 @@ describe('shopeeAdapter.pullOrders — skip fetchOrderIncome for already-importe
     expect(trackingCallsByOrderSn['SN-EXISTING-WITH-PACKAGE']).toBe(1)
   })
 })
+
+describe('shopeeAdapter.pullOrders — invoice-pending orders', () => {
+  beforeEach(() => {
+    mockCallShopeeApi.mockReset()
+  })
+
+  it('an order absent from get_order_list is still pulled in via get_pending_buyer_invoice_order_list', async () => {
+    const adapter = await freshAdapter()
+    mockCallShopeeApi.mockImplementation(
+      async ({
+        path,
+        query,
+      }: {
+        path: string
+        query?: Record<string, string>
+      }) => {
+        if (path === '/api/v2/order/get_order_list') {
+          // Empty — this order never shows up in the normal time-windowed
+          // listing at all while it's stuck awaiting an invoice upload.
+          return { order_list: [], more: false, next_cursor: '' }
+        }
+        if (path === '/api/v2/order/get_pending_buyer_invoice_order_list') {
+          return {
+            order_sn_list: ['SN-PENDING-INVOICE'],
+            more: false,
+            next_cursor: '',
+          }
+        }
+        if (path === '/api/v2/order/get_order_detail') {
+          const batch = (query?.order_sn_list ?? '').split(',').filter(Boolean)
+          return {
+            order_list: batch.map((order_sn) => ({
+              order_sn,
+              order_status: 'INVOICE_PENDING',
+              create_time: 1700000000,
+              total_amount: 100,
+              item_list: [],
+              package_list: [],
+            })),
+          }
+        }
+        if (path === '/api/v2/payment/get_escrow_detail') {
+          return { order_income: {} }
+        }
+        throw new Error(`Unexpected Shopee path in test: ${path}`)
+      },
+    )
+
+    const result = await adapter.pullOrders(fakeConnection(), new Date(0), {
+      filterExistingExternalOrderIds: async () => new Set(),
+    })
+
+    expect(result).toHaveLength(1)
+    expect(
+      (result[0] as { order_sn: string }).order_sn,
+    ).toBe('SN-PENDING-INVOICE')
+  })
+
+  it("a failing get_pending_buyer_invoice_order_list call doesn't break the rest of the pull", async () => {
+    const adapter = await freshAdapter()
+    const { incomeCallsByOrderSn } = setupShopeeApi(['SN-NORMAL'])
+    const baseImplementation = mockCallShopeeApi.getMockImplementation()!
+    mockCallShopeeApi.mockImplementation(async (args) => {
+      if (args.path === '/api/v2/order/get_pending_buyer_invoice_order_list') {
+        throw new Error('endpoint not available for this shop')
+      }
+      return baseImplementation(args)
+    })
+
+    const result = await adapter.pullOrders(fakeConnection(), new Date(0), {
+      filterExistingExternalOrderIds: async () => new Set(),
+    })
+
+    expect(result).toHaveLength(1)
+    expect(incomeCallsByOrderSn['SN-NORMAL']).toBe(1)
+  })
+})

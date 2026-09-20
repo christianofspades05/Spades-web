@@ -24,6 +24,7 @@ import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
 import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as ReviewTokenRouteImport } from './routes/review/$token'
+import { Route as ReorderOrderIdRouteImport } from './routes/reorder/$orderId'
 import { Route as ProductsSlugRouteImport } from './routes/products/$slug'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
 import { Route as CheckoutPaypalReturnRouteImport } from './routes/checkout/paypal-return'
@@ -50,6 +51,8 @@ import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-
 import { Route as AdminEmailIndexRouteImport } from './routes/admin/email/index'
 import { Route as AdminDiscountsIndexRouteImport } from './routes/admin/discounts/index'
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
+import { Route as AdminCustomerRepliesIndexRouteImport } from './routes/admin/customer-replies/index'
+import { Route as AdminCreatorsIndexRouteImport } from './routes/admin/creators/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
@@ -77,6 +80,7 @@ import { Route as AdminEmailAutomationIdRouteImport } from './routes/admin/email
 import { Route as AdminDiscountsNewRouteImport } from './routes/admin/discounts/new'
 import { Route as AdminDiscountsDiscountIdRouteImport } from './routes/admin/discounts/$discountId'
 import { Route as AdminCustomersCustomerIdRouteImport } from './routes/admin/customers/$customerId'
+import { Route as AdminCreatorsCreatorIdRouteImport } from './routes/admin/creators/$creatorId'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
 import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
@@ -164,6 +168,11 @@ const TrackOrderIdRoute = TrackOrderIdRouteImport.update({
 const ReviewTokenRoute = ReviewTokenRouteImport.update({
   id: '/review/$token',
   path: '/review/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReorderOrderIdRoute = ReorderOrderIdRouteImport.update({
+  id: '/reorder/$orderId',
+  path: '/reorder/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProductsSlugRoute = ProductsSlugRouteImport.update({
@@ -294,6 +303,17 @@ const AdminDiscountsIndexRoute = AdminDiscountsIndexRouteImport.update({
 const AdminCustomersIndexRoute = AdminCustomersIndexRouteImport.update({
   id: '/customers/',
   path: '/customers/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCustomerRepliesIndexRoute =
+  AdminCustomerRepliesIndexRouteImport.update({
+    id: '/customer-replies/',
+    path: '/customer-replies/',
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminCreatorsIndexRoute = AdminCreatorsIndexRouteImport.update({
+  id: '/creators/',
+  path: '/creators/',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminCollectionsIndexRoute = AdminCollectionsIndexRouteImport.update({
@@ -439,6 +459,11 @@ const AdminCustomersCustomerIdRoute =
     path: '/customers/$customerId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminCreatorsCreatorIdRoute = AdminCreatorsCreatorIdRouteImport.update({
+  id: '/creators/$creatorId',
+  path: '/creators/$creatorId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCollectionsCollectionIdRoute =
   AdminCollectionsCollectionIdRouteImport.update({
     id: '/collections/$collectionId',
@@ -528,6 +553,7 @@ export interface FileRoutesByFullPath {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -548,6 +574,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -575,6 +602,8 @@ export interface FileRoutesByFullPath {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/creators/': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -609,6 +638,7 @@ export interface FileRoutesByTo {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -629,6 +659,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -656,6 +687,8 @@ export interface FileRoutesByTo {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
+  '/admin/creators': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
   '/admin/discounts': typeof AdminDiscountsIndexRoute
   '/admin/email': typeof AdminEmailIndexRoute
@@ -693,6 +726,7 @@ export interface FileRoutesById {
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
+  '/reorder/$orderId': typeof ReorderOrderIdRoute
   '/review/$token': typeof ReviewTokenRoute
   '/track/$orderId': typeof TrackOrderIdRoute
   '/unsubscribe/$token': typeof UnsubscribeTokenRoute
@@ -713,6 +747,7 @@ export interface FileRoutesById {
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
+  '/admin/creators/$creatorId': typeof AdminCreatorsCreatorIdRoute
   '/admin/customers/$customerId': typeof AdminCustomersCustomerIdRoute
   '/admin/discounts/$discountId': typeof AdminDiscountsDiscountIdRoute
   '/admin/discounts/new': typeof AdminDiscountsNewRoute
@@ -740,6 +775,8 @@ export interface FileRoutesById {
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/creators/': typeof AdminCreatorsIndexRoute
+  '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
   '/admin/discounts/': typeof AdminDiscountsIndexRoute
   '/admin/email/': typeof AdminEmailIndexRoute
@@ -778,6 +815,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -798,6 +836,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -825,6 +864,8 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
+    | '/admin/creators/'
+    | '/admin/customer-replies/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -859,6 +900,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -879,6 +921,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -906,6 +949,8 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels'
     | '/admin/collections'
+    | '/admin/creators'
+    | '/admin/customer-replies'
     | '/admin/customers'
     | '/admin/discounts'
     | '/admin/email'
@@ -942,6 +987,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-return'
     | '/collections/$slug'
     | '/products/$slug'
+    | '/reorder/$orderId'
     | '/review/$token'
     | '/track/$orderId'
     | '/unsubscribe/$token'
@@ -962,6 +1008,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
+    | '/admin/creators/$creatorId'
     | '/admin/customers/$customerId'
     | '/admin/discounts/$discountId'
     | '/admin/discounts/new'
@@ -989,6 +1036,8 @@ export interface FileRouteTypes {
     | '/cart/resume/$token'
     | '/admin/channels/'
     | '/admin/collections/'
+    | '/admin/creators/'
+    | '/admin/customer-replies/'
     | '/admin/customers/'
     | '/admin/discounts/'
     | '/admin/email/'
@@ -1022,6 +1071,7 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
+  ReorderOrderIdRoute: typeof ReorderOrderIdRoute
   ReviewTokenRoute: typeof ReviewTokenRoute
   TrackOrderIdRoute: typeof TrackOrderIdRoute
   UnsubscribeTokenRoute: typeof UnsubscribeTokenRoute
@@ -1155,6 +1205,13 @@ declare module '@tanstack/react-router' {
       path: '/review/$token'
       fullPath: '/review/$token'
       preLoaderRoute: typeof ReviewTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reorder/$orderId': {
+      id: '/reorder/$orderId'
+      path: '/reorder/$orderId'
+      fullPath: '/reorder/$orderId'
+      preLoaderRoute: typeof ReorderOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/products/$slug': {
@@ -1337,6 +1394,20 @@ declare module '@tanstack/react-router' {
       path: '/customers'
       fullPath: '/admin/customers/'
       preLoaderRoute: typeof AdminCustomersIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/customer-replies/': {
+      id: '/admin/customer-replies/'
+      path: '/customer-replies'
+      fullPath: '/admin/customer-replies/'
+      preLoaderRoute: typeof AdminCustomerRepliesIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/creators/': {
+      id: '/admin/creators/'
+      path: '/creators'
+      fullPath: '/admin/creators/'
+      preLoaderRoute: typeof AdminCreatorsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/collections/': {
@@ -1528,6 +1599,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCustomersCustomerIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/creators/$creatorId': {
+      id: '/admin/creators/$creatorId'
+      path: '/creators/$creatorId'
+      fullPath: '/admin/creators/$creatorId'
+      preLoaderRoute: typeof AdminCreatorsCreatorIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/collections/$collectionId': {
       id: '/admin/collections/$collectionId'
       path: '/collections/$collectionId'
@@ -1632,6 +1710,7 @@ interface AdminRouteChildren {
   AdminAnalyticsVisitorsRoute: typeof AdminAnalyticsVisitorsRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
+  AdminCreatorsCreatorIdRoute: typeof AdminCreatorsCreatorIdRoute
   AdminCustomersCustomerIdRoute: typeof AdminCustomersCustomerIdRoute
   AdminDiscountsDiscountIdRoute: typeof AdminDiscountsDiscountIdRoute
   AdminDiscountsNewRoute: typeof AdminDiscountsNewRoute
@@ -1648,6 +1727,8 @@ interface AdminRouteChildren {
   AdminProductsNewRoute: typeof AdminProductsNewRoute
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
+  AdminCreatorsIndexRoute: typeof AdminCreatorsIndexRoute
+  AdminCustomerRepliesIndexRoute: typeof AdminCustomerRepliesIndexRoute
   AdminCustomersIndexRoute: typeof AdminCustomersIndexRoute
   AdminDiscountsIndexRoute: typeof AdminDiscountsIndexRoute
   AdminEmailIndexRoute: typeof AdminEmailIndexRoute
@@ -1673,6 +1754,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsVisitorsRoute: AdminAnalyticsVisitorsRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
+  AdminCreatorsCreatorIdRoute: AdminCreatorsCreatorIdRoute,
   AdminCustomersCustomerIdRoute: AdminCustomersCustomerIdRoute,
   AdminDiscountsDiscountIdRoute: AdminDiscountsDiscountIdRoute,
   AdminDiscountsNewRoute: AdminDiscountsNewRoute,
@@ -1689,6 +1771,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsNewRoute: AdminProductsNewRoute,
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
+  AdminCreatorsIndexRoute: AdminCreatorsIndexRoute,
+  AdminCustomerRepliesIndexRoute: AdminCustomerRepliesIndexRoute,
   AdminCustomersIndexRoute: AdminCustomersIndexRoute,
   AdminDiscountsIndexRoute: AdminDiscountsIndexRoute,
   AdminEmailIndexRoute: AdminEmailIndexRoute,
@@ -1739,6 +1823,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
+  ReorderOrderIdRoute: ReorderOrderIdRoute,
   ReviewTokenRoute: ReviewTokenRoute,
   TrackOrderIdRoute: TrackOrderIdRoute,
   UnsubscribeTokenRoute: UnsubscribeTokenRoute,
@@ -1769,12 +1854,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

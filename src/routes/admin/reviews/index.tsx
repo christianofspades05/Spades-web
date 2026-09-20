@@ -11,6 +11,7 @@ import { REVIEW_STATUSES } from '#/lib/validation/admin/reviews'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { StatusBadge } from '#/components/admin/Badge'
 import { Stars } from '#/components/storefront/Stars'
+import { ImageLightbox } from '#/components/storefront/ImageLightbox'
 import {
   buttonSecondaryClassName,
   tableCellClassName,
@@ -47,6 +48,7 @@ function ReviewsPage() {
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const page = search.page
   const totalPages = Math.max(1, Math.ceil(total / REVIEWS_PAGE_SIZE))
@@ -187,12 +189,19 @@ function ReviewsPage() {
                       {review.photo_urls.length > 0 && (
                         <div className="mt-1.5 flex gap-1">
                           {review.photo_urls.map((url) => (
-                            <img
+                            <button
                               key={url}
-                              src={url}
-                              alt=""
-                              className="size-10 rounded-md border border-neutral-200 object-cover"
-                            />
+                              type="button"
+                              onClick={() => setLightboxUrl(url)}
+                              aria-label="View full-size photo"
+                              className="cursor-zoom-in"
+                            >
+                              <img
+                                src={url}
+                                alt=""
+                                className="size-10 rounded-md border border-neutral-200 object-cover"
+                              />
+                            </button>
                           ))}
                         </div>
                       )}
@@ -272,6 +281,12 @@ function ReviewsPage() {
           </div>
         </div>
       )}
+
+      <ImageLightbox
+        url={lightboxUrl}
+        onClose={() => setLightboxUrl(null)}
+        alt="Review photo, full size"
+      />
     </div>
   )
 }

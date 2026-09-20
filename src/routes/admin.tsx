@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createFileRoute,
   Outlet,
@@ -8,8 +8,15 @@ import {
 import { Menu, X } from 'lucide-react'
 import { getStaffSession } from '#/server/admin/auth'
 import { AdminNav } from '#/components/admin/AdminNav'
-import { getUnreadCustomerReplyCount } from '#/server/admin/order-emails'
+import {
+  getUnreadCustomerReplyCount,
+  getUnreadFailedDeliveryReplyCount,
+} from '#/server/admin/order-emails'
 import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
+import {
+  notifySafely,
+  requestNotificationPermissionIfNeeded,
+} from '#/lib/notifications'
 
 // Polled (rather than pushed) since this app has no realtime/websocket
 // infra elsewhere — cheap enough (a single COUNT query) to run this often
@@ -32,6 +39,10 @@ function AdminLayout() {
   const { staff } = Route.useRouteContext()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [failedDeliveryUnreadCount, setFailedDeliveryUnreadCount] = useState(0)
+  // null until the first poll resolves — distinguishes "just loaded, don't
+  // notify for whatever was already unread" from a real subsequent increase.
+  const previousFailedDeliveryUnreadCountRef = useRef<number | null>(null)
   // Defaults to expanded during SSR/first paint (localStorage isn't
   // available server-side) and syncs to the stored preference right after
   // mount — a one-frame flash beats a hydration mismatch.
@@ -52,24 +63,59 @@ function AdminLayout() {
 
   async function pollUnreadCount() {
     try {
-      const count = await getUnreadCustomerReplyCount()
-      setUnreadCount(count)
+      setUnreadCount(await getUnreadCustomerReplyCount())
     } catch {
       // Transient failure — next poll retries; the bell just won't
       // update this cycle.
     }
   }
 
+  // Separate from the bell's general pollUnreadCount above — this one is
+  // scoped to only replies on orders cancelled with reason
+  // 'failed_delivery' (see getUnreadFailedDeliveryReplyCount), and drives
+  // both the Customer Replies nav badge and the desktop notification below.
+  async function pollFailedDeliveryUnreadCount() {
+    try {
+      const count = await getUnreadFailedDeliveryReplyCount()
+      const previous = previousFailedDeliveryUnreadCountRef.current
+      if (previous !== null && count > previous) {
+        const newReplies = count - previous
+        notifySafely(
+          'New failed-delivery reply',
+          newReplies === 1
+            ? 'A customer replied to a failed-delivery email.'
+            : `${newReplies} customers replied to failed-delivery emails.`,
+        )
+      }
+      previousFailedDeliveryUnreadCountRef.current = count
+      setFailedDeliveryUnreadCount(count)
+    } catch {
+      // Transient failure — next poll retries; the badge just won't
+      // update this cycle.
+    }
+  }
+
+  // Asks once per browser (never re-prompts after a grant/deny) so a new
+  // reply can surface as a real desktop notification, not just the nav
+  // badge — the badge alone is easy to miss if staff aren't already
+  // looking at the sidebar.
+  useEffect(() => {
+    requestNotificationPermissionIfNeeded()
+  }, [])
+
   useEffect(() => {
     void pollUnreadCount()
+    void pollFailedDeliveryUnreadCount()
   }, [pathname])
   useVisibleInterval(pollUnreadCount, UNREAD_REPLIES_POLL_MS)
+  useVisibleInterval(pollFailedDeliveryUnreadCount, UNREAD_REPLIES_POLL_MS)
 
   return (
     <div className="flex min-h-screen">
       <AdminNav
         staffRole={staff.role}
         unreadCount={unreadCount}
+        failedDeliveryUnreadCount={failedDeliveryUnreadCount}
         collapsed={navCollapsed}
         onToggleCollapse={() => setNavCollapsed((v) => !v)}
         className={`hidden shrink-0 border-r lg:flex ${
@@ -89,6 +135,7 @@ function AdminLayout() {
         <AdminNav
           staffRole={staff.role}
           unreadCount={unreadCount}
+          failedDeliveryUnreadCount={failedDeliveryUnreadCount}
           onNavigate={() => setMobileNavOpen(false)}
           className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r shadow-xl transition-transform duration-200 ${
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

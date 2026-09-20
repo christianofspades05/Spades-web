@@ -57,6 +57,12 @@ export interface SendEmailInput {
    *  `from`'s inbox. Every other caller omits this and gets Resend's
    *  default (replies go to `from`). */
   replyTo?: string
+  /** Resend fetches each file itself from `path` server-to-server — never
+   *  base64-encode a file into this call, that would just move the same
+   *  serverFn-body-size problem (see createOrderEmailAttachmentUploadUrl's
+   *  own comment) into the email-sending step instead. `path` is the
+   *  public Supabase Storage URL from a signed upload. */
+  attachments?: Array<{ filename: string; path: string }>
 }
 
 /** Builds the per-order Reply-To address that routes a customer's reply
@@ -95,6 +101,9 @@ export async function sendEmail(
       subject: input.subject,
       html: input.html,
       ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+      ...(input.attachments?.length
+        ? { attachments: input.attachments }
+        : {}),
     }),
   })
 

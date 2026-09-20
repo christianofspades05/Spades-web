@@ -196,6 +196,11 @@ const UNPAID_LIKE_STATUSES = new Set(['UNPAID', 'CANCELLED', 'IN_CANCEL'])
  * fulfilled/unfulfilled flag. */
 const SHOPEE_STATUS_TO_FULFILLMENT = new Map<string, ImportedFulfillmentStatus>(
   [
+    // Paid but stuck behind PH/BR's mandatory invoice-upload step (see
+    // fetchPendingInvoiceOrderSns) — not literally "ready to ship" on
+    // Shopee's side yet, but 'pending' is the closest status this app has
+    // for "exists, paid, nothing to ship yet."
+    ['INVOICE_PENDING', 'pending'],
     ['READY_TO_SHIP', 'pending'],
     ['PROCESSED', 'packed'],
     ['SHIPPED', 'in_transit'],
@@ -304,6 +309,50 @@ async function fetchTrackingNumber(
   } catch {
     return null
   }
+}
+
+/**
+ * PH/BR-only Shopee sellers must upload a tax invoice for an order before it
+ * can proceed past checkout — while that's outstanding, Shopee holds the
+ * order in order_status 'INVOICE_PENDING', a status get_order_list's normal
+ * time-window query never returns (confirmed real live case: a customer's
+ * SPayLater payment completed on their end, but the order never appeared in
+ * this app at all, sync_logs showing zero errors — the order simply never
+ * came back from get_order_list in the first place, any time window). This
+ * is the dedicated endpoint Shopee provides specifically to surface these
+ * otherwise-invisible orders. UNVERIFIED against a live INVOICE_PENDING
+ * order yet (same caveat as this file's other first-draft endpoints) — if
+ * the field name or path turns out wrong, check sync_logs' raw response and
+ * adjust; must never fail the whole order pull over this one lookup.
+ */
+async function fetchPendingInvoiceOrderSns(
+  accessToken: string,
+  shopId: string,
+): Promise<string[]> {
+  const orderSns: string[] = []
+  let cursor = ''
+  try {
+    do {
+      const page = await callShopeeApi<{
+        order_sn_list?: string[]
+        more: boolean
+        next_cursor: string
+      }>({
+        method: 'GET',
+        path: '/api/v2/order/get_pending_buyer_invoice_order_list',
+        accessToken,
+        shopId,
+        query: { page_size: '100', cursor },
+      })
+      orderSns.push(...(page.order_sn_list ?? []))
+      cursor = page.more ? page.next_cursor : ''
+    } while (cursor)
+  } catch {
+    // Not every shop/region has invoice-pending orders (or this endpoint at
+    // all) — same as fetchTrackingNumber/fetchOrderIncome, a failure here
+    // just means these orders stay undiscovered this run, not a broken sync.
+  }
+  return orderSns
 }
 
 /** Shopee's fee/tax breakdown for an order, via the separate Escrow Detail
@@ -461,6 +510,17 @@ export const shopeeAdapter: MarketplaceAdapter = {
         for (const o of page.order_list ?? []) orderSns.add(o.order_sn)
         cursor = page.more ? page.next_cursor : ''
       } while (cursor)
+    }
+
+    // Not time-windowed like get_order_list above — this lists whatever is
+    // currently stuck awaiting an invoice upload, regardless of how old it
+    // is, so it's checked every run rather than only within `since`. See
+    // fetchPendingInvoiceOrderSns' own comment for why this call exists.
+    for (const orderSn of await fetchPendingInvoiceOrderSns(
+      accessToken,
+      shopId,
+    )) {
+      orderSns.add(orderSn)
     }
 
     if (orderSns.size === 0) return []

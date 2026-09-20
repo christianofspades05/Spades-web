@@ -16,7 +16,7 @@ import {
 import type { CartWithItems } from './internal'
 import { findValidDiscountByCode } from './discount'
 
-const MAX_QUANTITY_PER_ITEM = 20
+export const MAX_QUANTITY_PER_ITEM = 20
 
 async function getOrCreateCartId(
   admin: ReturnType<typeof getSupabaseAdminClient>,

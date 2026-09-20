@@ -29,7 +29,10 @@ interface PayPalWebhookEvent {
     id: string
     status?: string
     amount?: { currency_code: string; value: string }
-    supplementary_data?: { related_ids?: { order_id?: string } }
+    supplementary_data?: {
+      related_ids?: { order_id?: string; capture_id?: string }
+    }
+    links?: { rel: string; href: string }[]
     payer?: { email_address?: string }
     [key: string]: unknown
   }
@@ -68,7 +71,7 @@ export const Route = createFileRoute('/api/webhooks/paypal')({
         // unique. Reuses the same 'payment_provider' source Xendit's
         // webhook events already use — both are payment-provider
         // webhooks, and nothing downstream branches on which one.
-        await admin.from('webhook_events').upsert(
+        const { error: eventError } = await admin.from('webhook_events').upsert(
           {
             source: 'payment_provider',
             event_type: event.event_type,
@@ -76,13 +79,39 @@ export const Route = createFileRoute('/api/webhooks/paypal')({
             payload: event,
             status: 'processing',
           },
-          { onConflict: 'source,external_event_id' },
+          { onConflict: 'source,external_event_id,event_type' },
         )
 
+        if (eventError) throw eventError
+
         try {
-          if (event.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
-            const paypalOrderId = event.resource.supplementary_data
-              ?.related_ids?.order_id
+          if (event.event_type === 'PAYMENT.CAPTURE.REFUNDED') {
+            const { majorUnitsToCents } = await import('#/lib/utils/money')
+            const captureId =
+              event.resource.supplementary_data?.related_ids?.capture_id ??
+              event.resource.links
+                ?.find((link) => link.rel === 'up')
+                ?.href.match(
+                  /\/v2\/payments\/captures\/([A-Z0-9]+)(?:$|\?)/,
+                )?.[1]
+            if (!captureId || !event.resource.amount)
+              throw new Error(
+                'Refund capture reference or amount missing; reconcile provider event',
+              )
+            const { error } = await admin.rpc('record_gateway_refund', {
+              p_gateway: 'paypal',
+              p_reference: captureId,
+              p_refund_id: event.resource.id,
+              p_currency: event.resource.amount.currency_code,
+              p_minor_amount: majorUnitsToCents(
+                Number(event.resource.amount.value),
+                event.resource.amount.currency_code,
+              ),
+            })
+            if (error) throw error
+          } else if (event.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+            const paypalOrderId =
+              event.resource.supplementary_data?.related_ids?.order_id
             if (!paypalOrderId) {
               throw new Error(
                 `PAYMENT.CAPTURE.COMPLETED event ${event.id} had no related PayPal order id.`,
@@ -101,9 +130,8 @@ export const Route = createFileRoute('/api/webhooks/paypal')({
             // up some other way — either way, nothing left to do.
             if (reservation) {
               const { majorUnitsToCents } = await import('#/lib/utils/money')
-              const { mintOrderFromReservation } = await import(
-                '#/server/checkout/mint-order'
-              )
+              const { mintOrderFromReservation } =
+                await import('#/server/checkout/mint-order')
               // capturePayPalOrder is safe to call again here even though
               // the payment is already captured — used only to fetch the
               // capture's own id/amount in a shape mintOrderFromReservation
@@ -122,8 +150,8 @@ export const Route = createFileRoute('/api/webhooks/paypal')({
               })
             }
           } else if (event.event_type === 'PAYMENT.CAPTURE.DENIED') {
-            const paypalOrderId = event.resource.supplementary_data
-              ?.related_ids?.order_id
+            const paypalOrderId =
+              event.resource.supplementary_data?.related_ids?.order_id
             if (paypalOrderId) {
               const { data: reservation } = await admin
                 .from('checkout_reservations')

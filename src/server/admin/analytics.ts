@@ -16,6 +16,7 @@ import type { ReportTimezone } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
+import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type {
   OrderCancellationReason,
   OrderSource,
@@ -171,7 +172,7 @@ async function computeChannelSales(
       chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
         fetchAllRows((offset) =>
           admin
-            .from('returns')
+            .from('order_financial_refunds')
             .select('order_id, refund_amount_cents')
             .eq('status', 'refunded')
             .in('order_id', ids)
@@ -1010,7 +1011,7 @@ async function computeSalesAnalytics(
     chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
       fetchAllRows((offset) =>
         admin
-          .from('returns')
+          .from('order_financial_refunds')
           .select('order_id, refund_amount_cents')
           .eq('status', 'refunded')
           .in('order_id', ids)
@@ -1228,6 +1229,119 @@ const productProfitCache = createTtlCache<ProductProfitRow[]>(
   ANALYTICS_CACHE_TTL_MS,
 )
 
+interface CollectionProductInfo {
+  productName: string
+  imageUrl: string | null
+  currentStockOnHand: number
+  srpCents: number | null
+  costCents: number | null
+}
+
+/**
+ * Every product currently belonging to a collection, with the metadata
+ * needed to both scope getProductProfitBreakdown's sales query AND
+ * synthesize a zero-sales row for a product that's in the collection but
+ * didn't sell in the selected range (see getProductProfitBreakdown's own
+ * "every collection product should appear" backfill below) — for the
+ * Product Analytics page's "By Collection" tab. Deliberately NOT the
+ * storefront's own listActiveProducts/fetchCollectionListingScope path
+ * (queries.ts): that one restricts to status='active' since it's building a
+ * live shelf, but analytics needs to include a product that sold during the
+ * selected range and has since been archived. Mirrors the same manual-pin-
+ * plus-auto-match-rules logic otherwise (product_collections union
+ * matchesRules) so a collection's analytics agree with what customers
+ * actually saw.
+ */
+async function resolveCollectionProducts(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  collectionId: string,
+): Promise<Map<string, CollectionProductInfo>> {
+  const { data: collection, error: collectionError } = await admin
+    .from('collections')
+    .select('brand, match_type, rules')
+    .eq('id', collectionId)
+    .maybeSingle()
+  if (collectionError) throw collectionError
+  if (!collection) return new Map()
+
+  const [{ data: memberships, error: membershipError }, products] =
+    await Promise.all([
+      admin
+        .from('product_collections')
+        .select('product_id')
+        .eq('collection_id', collectionId),
+      fetchAllRows((offset) =>
+        admin
+          .from('products')
+          .select(
+            'id, name, images, product_type, status, tags, variants:product_variants(price_cents, cost_cents, is_pre_order, pre_order_available, inventory(quantity_available, quantity_on_hand))',
+          )
+          .eq('brand', collection.brand)
+          .range(offset, offset + 999),
+      ),
+    ])
+  if (membershipError) throw membershipError
+
+  function productInfo(p: (typeof products)[number]): CollectionProductInfo {
+    let stockOnHand = 0
+    let costSum = 0
+    let costCount = 0
+    let srpSum = 0
+    for (const v of p.variants) {
+      for (const inv of v.inventory) stockOnHand += inv.quantity_on_hand
+      if (v.cost_cents !== null) {
+        costSum += v.cost_cents
+        costCount += 1
+      }
+      srpSum += v.price_cents
+    }
+    return {
+      productName: p.name,
+      imageUrl: p.images[0] ?? null,
+      currentStockOnHand: stockOnHand,
+      costCents: costCount > 0 ? Math.round(costSum / costCount) : null,
+      srpCents:
+        p.variants.length > 0 ? Math.round(srpSum / p.variants.length) : null,
+    }
+  }
+
+  const rules = collectionRuleSchema.array().parse(collection.rules ?? [])
+  const productById = new Map(products.map((p) => [p.id, p]))
+  const result = new Map<string, CollectionProductInfo>()
+  for (const m of memberships) {
+    const p = productById.get(m.product_id)
+    if (p) result.set(p.id, productInfo(p))
+  }
+  for (const p of products) {
+    if (result.has(p.id)) continue
+    const inventoryStock = p.variants.reduce(
+      (sum, v) =>
+        sum +
+        v.inventory.reduce((s, inv) => s + inv.quantity_available, 0) +
+        (v.is_pre_order ? v.pre_order_available : 0),
+      0,
+    )
+    const lowestPriceCents = p.variants.reduce<number | null>(
+      (min, v) => (min === null || v.price_cents < min ? v.price_cents : min),
+      null,
+    )
+    const matches = matchesRules(
+      {
+        name: p.name,
+        productType: p.product_type,
+        status: p.status,
+        tags: p.tags,
+        inventoryStock,
+        lowestPriceCents,
+      },
+      rules,
+      collection.match_type,
+    )
+    if (matches) result.set(p.id, productInfo(p))
+  }
+  return result
+}
+
 export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
   .validator(
     z.object({
@@ -1238,16 +1352,24 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         .optional(),
       brand: z.string().optional(),
       tz: z.enum(['ph', 'la']).default('ph'),
+      collectionId: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }): Promise<ProductProfitRow[]> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}`
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}|${data.collectionId ?? 'all'}`
     const cached = productProfitCache.get(cacheKey)
     if (cached) return cached
 
     const admin = getSupabaseAdminClient()
+
+    const collectionProducts = data.collectionId
+      ? await resolveCollectionProducts(admin, data.collectionId)
+      : null
+    const collectionProductIds = collectionProducts
+      ? new Set(collectionProducts.keys())
+      : null
 
     const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
       data.from,
@@ -1460,6 +1582,16 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
         variant?.product_id ??
         productIdByOrphanName.get(item.product_name_snapshot) ??
         null
+      // A collection-scoped view can only ever attribute a sale to a real,
+      // resolvable product — an unresolvable snapshot-name line item has no
+      // way to confirm collection membership, so it's excluded rather than
+      // guessed into or out of scope.
+      if (
+        collectionProductIds &&
+        (productId === null || !collectionProductIds.has(productId))
+      ) {
+        continue
+      }
       // Line items with no variant AND no resolvable product (e.g. a manual
       // price adjustment, or the product itself was deleted) get grouped by
       // their own snapshot name instead of a shared product.
@@ -1506,35 +1638,64 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
       ) + 1,
     )
 
-    const result = Array.from(buckets.values())
-      .map((b) => {
-        const platformFeesCents = Math.round(b.platformFeesCents)
-        const netProfitCents =
-          b.grossSalesCents - b.costOfGoodsCents - platformFeesCents
-        return {
-          productId: b.productId,
-          productName: b.name,
-          imageUrl: b.imageUrl,
-          unitsSold: b.unitsSold,
-          grossSalesCents: b.grossSalesCents,
-          platformFeesCents,
-          netProfitCents,
-          marginPct:
-            b.grossSalesCents > 0
-              ? (netProfitCents / b.grossSalesCents) * 100
-              : null,
-          srpCents: b.srpCents,
-          costCents: b.costCents,
-          netProfitPerUnitCents:
-            b.unitsSold > 0 ? Math.round(netProfitCents / b.unitsSold) : null,
-          currentStockOnHand: b.productId
-            ? (currentStockByProduct.get(b.productId) ?? 0)
+    const rows: ProductProfitRow[] = Array.from(buckets.values()).map((b) => {
+      const platformFeesCents = Math.round(b.platformFeesCents)
+      const netProfitCents =
+        b.grossSalesCents - b.costOfGoodsCents - platformFeesCents
+      return {
+        productId: b.productId,
+        productName: b.name,
+        imageUrl: b.imageUrl,
+        unitsSold: b.unitsSold,
+        grossSalesCents: b.grossSalesCents,
+        platformFeesCents,
+        netProfitCents,
+        marginPct:
+          b.grossSalesCents > 0
+            ? (netProfitCents / b.grossSalesCents) * 100
             : null,
-          orderCount: b.orderIds.size,
-          avgOrdersPerDay: b.orderIds.size / rangeDayCount,
-        }
-      })
-      .sort((a, b) => b.netProfitCents - a.netProfitCents)
+        srpCents: b.srpCents,
+        costCents: b.costCents,
+        netProfitPerUnitCents:
+          b.unitsSold > 0 ? Math.round(netProfitCents / b.unitsSold) : null,
+        currentStockOnHand: b.productId
+          ? (currentStockByProduct.get(b.productId) ?? 0)
+          : null,
+        orderCount: b.orderIds.size,
+        avgOrdersPerDay: b.orderIds.size / rangeDayCount,
+      }
+    })
+
+    // A collection-scoped view lists every product currently in the
+    // collection, not just the ones that happened to sell in this range —
+    // otherwise a slow-moving or brand-new product would look like it
+    // doesn't exist instead of "zero sales."
+    if (collectionProducts) {
+      const soldProductIds = new Set(
+        rows.map((r) => r.productId).filter((id): id is string => id !== null),
+      )
+      for (const [productId, info] of collectionProducts) {
+        if (soldProductIds.has(productId)) continue
+        rows.push({
+          productId,
+          productName: info.productName,
+          imageUrl: info.imageUrl,
+          unitsSold: 0,
+          grossSalesCents: 0,
+          platformFeesCents: 0,
+          netProfitCents: 0,
+          marginPct: null,
+          srpCents: info.srpCents,
+          costCents: info.costCents,
+          netProfitPerUnitCents: null,
+          currentStockOnHand: info.currentStockOnHand,
+          orderCount: 0,
+          avgOrdersPerDay: 0,
+        })
+      }
+    }
+
+    const result = rows.sort((a, b) => b.netProfitCents - a.netProfitCents)
 
     productProfitCache.set(cacheKey, result)
     return result
@@ -1920,7 +2081,7 @@ async function computeOrderProfitTotals(
           chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
             fetchAllRows((offset) =>
               admin
-                .from('returns')
+                .from('order_financial_refunds')
                 .select('order_id, refund_amount_cents')
                 .eq('status', 'refunded')
                 .in('order_id', ids)
@@ -2108,7 +2269,7 @@ export const getOrderProfitList = createServerFn({ method: 'GET' })
         )
         .in('order_id', orderIds),
       admin
-        .from('returns')
+        .from('order_financial_refunds')
         .select('order_id, refund_amount_cents')
         .eq('status', 'refunded')
         .in('order_id', orderIds),

@@ -1,3 +1,5 @@
+import type { CreatorTables } from './creators'
+
 /**
  * Hand-written mirror of the Supabase schema (see supabase/migrations/0001_init_schema.sql).
  *
@@ -56,6 +58,9 @@ export interface CheckoutReservationItem {
   lineSubtotalCents: number
   lineDiscountCents: number
   lineTotalCents: number
+  chargedProductCents?: number
+  chargedDiscountCents?: number
+  unitCostCentsSnapshot?: number | null
   /** Snapshotted at checkout — whether this was reserved against pre-order
    *  stock (reserve_pre_order_stock) rather than real inventory. Determines
    *  whether mintOrderFromReservation can commit_variant_stock for this
@@ -179,7 +184,7 @@ export type ActivityActorType = 'staff' | 'customer' | 'system' | 'webhook'
 
 export interface Database {
   public: {
-    Tables: {
+    Tables: CreatorTables & {
       customers: {
         Row: {
           id: string
@@ -661,6 +666,10 @@ export interface Database {
           line_subtotal_cents: number
           line_discount_cents: number
           line_total_cents: number
+          charged_product_cents: number | null
+          charged_discount_cents: number | null
+          unit_cost_cents_snapshot: number | null
+          external_variant_id: string | null
           is_pre_order: boolean
           pre_order_stock_arrived_at: string | null
           created_at: string
@@ -1250,6 +1259,15 @@ export interface Database {
       }
     }
     Views: {
+      order_financial_refunds: {
+        Row: {
+          order_id: string
+          refund_amount_cents: number | null
+          status: string
+        }
+        Relationships: []
+      }
+
       storefront_product_listing: {
         Row: {
           id: string
@@ -1294,6 +1312,35 @@ export interface Database {
       }
     }
     Functions: {
+      record_gateway_refund: {
+        Args: {
+          p_gateway: string
+          p_reference: string
+          p_refund_id: string
+          p_currency: string
+          p_minor_amount: number
+        }
+        Returns: string
+      }
+
+      mint_checkout_order: {
+        Args: { p_reservation_id: string; p_payment: Record<string, unknown> }
+        Returns: { id: string; orderNumber: string; created: boolean }
+      }
+
+      creator_admin_command: {
+        Args: {
+          p_staff_id: string
+          p_action: string
+          p_data: Record<string, unknown>
+        }
+        Returns: string
+      }
+      reconcile_creator_order: {
+        Args: { p_order_id: string }
+        Returns: undefined
+      }
+
       reserve_variant_stock: {
         Args: {
           p_variant_id: string
