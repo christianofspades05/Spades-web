@@ -19,6 +19,7 @@ import {
   Package,
   PackageSearch,
   Plug,
+  Radio,
   Settings,
   ShoppingBag,
   Star,
@@ -533,6 +534,21 @@ export function AdminNav({
           <BadgePercent size={17} strokeWidth={2} className="shrink-0" />
           {!collapsed && 'Discounts'}
         </Link>
+
+        {['super_admin', 'admin', 'manager'].includes(staffRole) && (
+          <Link
+            to="/admin/live-product-planner"
+            onClick={onNavigate}
+            title={collapsed ? 'Live Selling' : undefined}
+            className={navLinkClassName(
+              pathname.startsWith('/admin/live-product-planner'),
+              collapsed,
+            )}
+          >
+            <Radio size={17} strokeWidth={2} className="shrink-0" />
+            {!collapsed && 'Live Selling'}
+          </Link>
+        )}
 
         {['super_admin', 'admin', 'manager'].includes(staffRole) && (
           <Link

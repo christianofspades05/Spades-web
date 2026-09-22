@@ -46,6 +46,7 @@ import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/
 import { Route as AdminPreOrdersIndexRouteImport } from './routes/admin/pre-orders/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
 import { Route as AdminMarketsIndexRouteImport } from './routes/admin/markets/index'
+import { Route as AdminLiveProductPlannerIndexRouteImport } from './routes/admin/live-product-planner/index'
 import { Route as AdminInventoryIndexRouteImport } from './routes/admin/inventory/index'
 import { Route as AdminHidePaymentsIndexRouteImport } from './routes/admin/hide-payments/index'
 import { Route as AdminEmailIndexRouteImport } from './routes/admin/email/index'
@@ -280,6 +281,12 @@ const AdminMarketsIndexRoute = AdminMarketsIndexRouteImport.update({
   path: '/markets/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminLiveProductPlannerIndexRoute =
+  AdminLiveProductPlannerIndexRouteImport.update({
+    id: '/live-product-planner/',
+    path: '/live-product-planner/',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminInventoryIndexRoute = AdminInventoryIndexRouteImport.update({
   id: '/inventory/',
   path: '/inventory/',
@@ -609,6 +616,7 @@ export interface FileRoutesByFullPath {
   '/admin/email/': typeof AdminEmailIndexRoute
   '/admin/hide-payments/': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory/': typeof AdminInventoryIndexRoute
+  '/admin/live-product-planner/': typeof AdminLiveProductPlannerIndexRoute
   '/admin/markets/': typeof AdminMarketsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/pre-orders/': typeof AdminPreOrdersIndexRoute
@@ -694,6 +702,7 @@ export interface FileRoutesByTo {
   '/admin/email': typeof AdminEmailIndexRoute
   '/admin/hide-payments': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory': typeof AdminInventoryIndexRoute
+  '/admin/live-product-planner': typeof AdminLiveProductPlannerIndexRoute
   '/admin/markets': typeof AdminMarketsIndexRoute
   '/admin/orders': typeof AdminOrdersIndexRoute
   '/admin/pre-orders': typeof AdminPreOrdersIndexRoute
@@ -782,6 +791,7 @@ export interface FileRoutesById {
   '/admin/email/': typeof AdminEmailIndexRoute
   '/admin/hide-payments/': typeof AdminHidePaymentsIndexRoute
   '/admin/inventory/': typeof AdminInventoryIndexRoute
+  '/admin/live-product-planner/': typeof AdminLiveProductPlannerIndexRoute
   '/admin/markets/': typeof AdminMarketsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/pre-orders/': typeof AdminPreOrdersIndexRoute
@@ -871,6 +881,7 @@ export interface FileRouteTypes {
     | '/admin/email/'
     | '/admin/hide-payments/'
     | '/admin/inventory/'
+    | '/admin/live-product-planner/'
     | '/admin/markets/'
     | '/admin/orders/'
     | '/admin/pre-orders/'
@@ -956,6 +967,7 @@ export interface FileRouteTypes {
     | '/admin/email'
     | '/admin/hide-payments'
     | '/admin/inventory'
+    | '/admin/live-product-planner'
     | '/admin/markets'
     | '/admin/orders'
     | '/admin/pre-orders'
@@ -1043,6 +1055,7 @@ export interface FileRouteTypes {
     | '/admin/email/'
     | '/admin/hide-payments/'
     | '/admin/inventory/'
+    | '/admin/live-product-planner/'
     | '/admin/markets/'
     | '/admin/orders/'
     | '/admin/pre-orders/'
@@ -1359,6 +1372,13 @@ declare module '@tanstack/react-router' {
       path: '/markets'
       fullPath: '/admin/markets/'
       preLoaderRoute: typeof AdminMarketsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/live-product-planner/': {
+      id: '/admin/live-product-planner/'
+      path: '/live-product-planner'
+      fullPath: '/admin/live-product-planner/'
+      preLoaderRoute: typeof AdminLiveProductPlannerIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/inventory/': {
@@ -1734,6 +1754,7 @@ interface AdminRouteChildren {
   AdminEmailIndexRoute: typeof AdminEmailIndexRoute
   AdminHidePaymentsIndexRoute: typeof AdminHidePaymentsIndexRoute
   AdminInventoryIndexRoute: typeof AdminInventoryIndexRoute
+  AdminLiveProductPlannerIndexRoute: typeof AdminLiveProductPlannerIndexRoute
   AdminMarketsIndexRoute: typeof AdminMarketsIndexRoute
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminPreOrdersIndexRoute: typeof AdminPreOrdersIndexRoute
@@ -1778,6 +1799,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminEmailIndexRoute: AdminEmailIndexRoute,
   AdminHidePaymentsIndexRoute: AdminHidePaymentsIndexRoute,
   AdminInventoryIndexRoute: AdminInventoryIndexRoute,
+  AdminLiveProductPlannerIndexRoute: AdminLiveProductPlannerIndexRoute,
   AdminMarketsIndexRoute: AdminMarketsIndexRoute,
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminPreOrdersIndexRoute: AdminPreOrdersIndexRoute,
@@ -1854,3 +1876,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}
