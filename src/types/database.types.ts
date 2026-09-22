@@ -1,4 +1,5 @@
 import type { CreatorTables } from './creators'
+import type { LivePlannerTables } from './live-planner'
 
 /**
  * Hand-written mirror of the Supabase schema (see supabase/migrations/0001_init_schema.sql).
@@ -184,7 +185,7 @@ export type ActivityActorType = 'staff' | 'customer' | 'system' | 'webhook'
 
 export interface Database {
   public: {
-    Tables: CreatorTables & {
+    Tables: CreatorTables & LivePlannerTables & {
       customers: {
         Row: {
           id: string
