@@ -16,30 +16,7 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { capturePayPalOrder } from '#/lib/paypal/client'
 import { centsToMajorUnits, majorUnitsToCents } from '#/lib/utils/money'
 import { mintOrderFromReservation } from '#/server/checkout/mint-order'
-import type {
-  CheckoutReservationItem,
-  Database,
-} from '#/types/database.types'
-
-async function releaseReservationStock(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  reservation: Database['public']['Tables']['checkout_reservations']['Row'],
-): Promise<void> {
-  await Promise.all(
-    reservation.items
-      .filter(
-        (item): item is CheckoutReservationItem & { variantId: string } =>
-          item.variantId !== null,
-      )
-      .map((item) =>
-        admin.rpc('release_variant_stock', {
-          p_variant_id: item.variantId,
-          p_quantity: item.quantity,
-        }),
-      ),
-  )
-  await admin.from('checkout_reservations').delete().eq('id', reservation.id)
-}
+import { releaseReservationStock } from '#/server/checkout/release-reservation'
 
 export type PayPalCaptureResult =
   | { status: 'paid'; orderNumber: string; amount: number; currency: string }

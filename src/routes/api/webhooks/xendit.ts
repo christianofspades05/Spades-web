@@ -27,10 +27,7 @@
  * `orders.external_order_id` and no-ops.
  */
 import { createFileRoute } from '@tanstack/react-router'
-import type {
-  CheckoutReservationItem,
-  PaymentProvider,
-} from '#/types/database.types'
+import type { PaymentProvider } from '#/types/database.types'
 
 // Dynamic imports (not top-level) are deliberate: routeTree.gen.ts imports
 // every route file — including this one — eagerly so the client can build
@@ -100,6 +97,13 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
           { onConflict: 'source,external_event_id,event_type' },
         )
 
+        // Tracks whether Xendit has told us (via this webhook or the live
+        // re-check below) that money actually changed hands, regardless of
+        // which branch ends up throwing — the catch block uses this to
+        // decide whether a failure needs a human alerted immediately versus
+        // being an ordinary abandoned-checkout non-event.
+        let moneyConfirmed = payload.status === 'PAID'
+
         try {
           // Resolve external_id against `orders` first — if a real order
           // already exists for it, this event (or an earlier PAID for the
@@ -124,8 +128,6 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 `No order or reservation found for external_id ${payload.external_id}`,
               )
             }
-
-            const items = reservation.items
 
             if (payload.status === 'PAID') {
               const { majorUnitsToCents } = await import('#/lib/utils/money')
@@ -176,6 +178,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 liveInvoice.status === 'PAID' ||
                 liveInvoice.status === 'SETTLED'
               ) {
+                moneyConfirmed = true
                 const { majorUnitsToCents } = await import('#/lib/utils/money')
                 const { mintOrderFromReservation } =
                   await import('#/server/checkout/mint-order')
@@ -193,28 +196,14 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 })
               } else {
                 // Genuinely abandoned (EXPIRED, never paid) or rejected
-                // (FAILED) — nothing was ever created in `orders`, so
-                // there's nothing to cancel, just give the stock back.
-                await Promise.all(
-                  items
-                    .filter(
-                      (
-                        item,
-                      ): item is CheckoutReservationItem & {
-                        variantId: string
-                      } => item.variantId !== null,
-                    )
-                    .map((item) =>
-                      admin.rpc('release_variant_stock', {
-                        p_variant_id: item.variantId,
-                        p_quantity: item.quantity,
-                      }),
-                    ),
+                // (FAILED) as far as this live re-check can tell — release
+                // the stock, but keep the reservation row (see
+                // release-reservation.ts) in case a still-later PAID event
+                // proves this wrong too.
+                const { releaseReservationStock } = await import(
+                  '#/server/checkout/release-reservation'
                 )
-                await admin
-                  .from('checkout_reservations')
-                  .delete()
-                  .eq('id', reservation.id)
+                await releaseReservationStock(admin, reservation)
               }
             }
           }
@@ -238,6 +227,16 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
             .eq('source', 'payment_provider')
             .eq('external_event_id', payload.id)
             .eq('event_type', payload.status)
+          if (moneyConfirmed) {
+            const { alertPaymentMintFailure } = await import(
+              '#/server/checkout/alert-payment-mint-failure'
+            )
+            await alertPaymentMintFailure({
+              provider: 'Xendit',
+              externalId: payload.external_id,
+              error: err,
+            })
+          }
           throw err
         }
 

@@ -716,6 +716,7 @@ export interface Database {
           xendit_invoice_id: string | null
           paypal_order_id: string | null
           created_at: string
+          released_at: string | null
         }
         Insert: Partial<
           Database['public']['Tables']['checkout_reservations']['Row']

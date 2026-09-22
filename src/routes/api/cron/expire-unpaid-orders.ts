@@ -62,6 +62,7 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
           .from('checkout_reservations')
           .select('*')
           .lt('created_at', cutoff)
+          .is('released_at', null)
         if (staleError) throw staleError
 
         const expired: string[] = []
@@ -69,9 +70,12 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
         const failures: { reservationId: string; error: string }[] = []
 
         for (const reservation of staleReservations) {
+          // Only true once the live re-check below confirms Xendit actually
+          // has this as paid — gates the failure alert so an ordinary
+          // transient error on a genuinely-never-paid reservation doesn't
+          // page anyone.
+          let moneyConfirmed = false
           try {
-            const items = reservation.items
-
             // Same live re-check as the Xendit webhook's own EXPIRED/FAILED
             // branch (see api/webhooks/xendit.ts) — this reservation could
             // in principle have actually been paid moments before this cron
@@ -89,6 +93,7 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
                 liveInvoice.status === 'PAID' ||
                 liveInvoice.status === 'SETTLED'
               ) {
+                moneyConfirmed = true
                 const { majorUnitsToCents } = await import('#/lib/utils/money')
                 const { mintOrderFromReservation } = await import(
                   '#/server/checkout/mint-order'
@@ -111,21 +116,10 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
             }
 
             if (!livePaid) {
-              for (const item of items) {
-                if (!item.variantId) continue
-                const { error: releaseError } = await admin.rpc(
-                  'release_variant_stock',
-                  { p_variant_id: item.variantId, p_quantity: item.quantity },
-                )
-                if (releaseError) throw releaseError
-              }
-
-              const { error: deleteError } = await admin
-                .from('checkout_reservations')
-                .delete()
-                .eq('id', reservation.id)
-              if (deleteError) throw deleteError
-
+              const { releaseReservationStock } = await import(
+                '#/server/checkout/release-reservation'
+              )
+              await releaseReservationStock(admin, reservation)
               expired.push(reservation.id)
             }
           } catch (err) {
@@ -133,6 +127,16 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
               reservationId: reservation.id,
               error: err instanceof Error ? err.message : String(err),
             })
+            if (moneyConfirmed) {
+              const { alertPaymentMintFailure } = await import(
+                '#/server/checkout/alert-payment-mint-failure'
+              )
+              await alertPaymentMintFailure({
+                provider: 'Xendit (cron backstop)',
+                externalId: reservation.id,
+                error: err,
+              })
+            }
           }
         }
 

@@ -159,26 +159,10 @@ export const Route = createFileRoute('/api/webhooks/paypal')({
                 .eq('paypal_order_id', paypalOrderId)
                 .maybeSingle()
               if (reservation) {
-                await Promise.all(
-                  reservation.items
-                    .filter(
-                      (
-                        item,
-                      ): item is (typeof reservation.items)[number] & {
-                        variantId: string
-                      } => item.variantId !== null,
-                    )
-                    .map((item) =>
-                      admin.rpc('release_variant_stock', {
-                        p_variant_id: item.variantId,
-                        p_quantity: item.quantity,
-                      }),
-                    ),
+                const { releaseReservationStock } = await import(
+                  '#/server/checkout/release-reservation'
                 )
-                await admin
-                  .from('checkout_reservations')
-                  .delete()
-                  .eq('id', reservation.id)
+                await releaseReservationStock(admin, reservation)
               }
             }
           }
