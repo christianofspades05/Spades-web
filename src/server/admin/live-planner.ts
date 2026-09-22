@@ -450,6 +450,34 @@ async function loadExposureHistory(
   }
 }
 
+/** The (still-draft) auto-selected items a prior generateBasket call for
+ *  this exact shift already produced, if any — see generateBasket's own
+ *  comment on why this feeds back into rotation pressure for the next
+ *  regenerate. Excludes the seller pick (a human choice, never rotated). */
+async function loadCurrentDraftItems(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  liveDate: string,
+  shift: LiveShiftSlot,
+): Promise<Array<[productId: string, category: LiveBasketCategory]>> {
+  const { data: shiftRow, error } = await admin
+    .from('live_shifts')
+    .select('id')
+    .eq('live_date', liveDate)
+    .eq('shift', shift)
+    .maybeSingle()
+  if (error) throw error
+  if (!shiftRow) return []
+
+  const { data: items, error: itemsError } = await admin
+    .from('live_basket_items')
+    .select('product_id, category')
+    .eq('shift_id', shiftRow.id)
+    .neq('category', 'seller_pick')
+  if (itemsError) throw itemsError
+
+  return items.map((i) => [i.product_id, i.category])
+}
+
 export const generateBasket = createServerFn({ method: 'POST' })
   .validator(
     z.object({
@@ -467,10 +495,26 @@ export const generateBasket = createServerFn({ method: 'POST' })
       .single()
     if (configError) throw configError
 
-    const [{ candidates }, history] = await Promise.all([
+    const [{ candidates }, history, justShown] = await Promise.all([
       buildCandidatePool(admin),
       loadExposureHistory(admin, data.liveDate),
+      loadCurrentDraftItems(admin, data.liveDate, data.shift),
     ])
+
+    // "Generate Different Basket" needs to actually produce a different
+    // basket: loadExposureHistory only looks at past FINALIZED shifts, so
+    // regenerating the same still-draft shift twice in a row saw identical
+    // exposure history both times and picked the identical top scorers
+    // every time — regenerating is now itself treated as "just featured"
+    // for whatever it's about to replace, pushing rotation to prefer the
+    // next-best qualified alternative instead.
+    for (const [productId, category] of justShown) {
+      history.lastFeaturedDaysAgoByProduct.set(productId, 0)
+      const byCategory =
+        history.lastFeaturedInCategoryDaysAgo.get(productId) ?? new Map()
+      byCategory.set(category, 0)
+      history.lastFeaturedInCategoryDaysAgo.set(productId, byCategory)
+    }
 
     for (const c of candidates) {
       c.lastFeaturedDaysAgo =
