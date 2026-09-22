@@ -19,7 +19,11 @@ import { slugify } from '#/lib/utils/slug'
 import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
-import { invalidateCollectionListingCache } from '#/server/products/queries'
+import {
+  invalidateCollectionListingCache,
+  invalidateProductDetailCache,
+  invalidateStorefrontListingCache,
+} from '#/server/products/queries'
 import { logStaffActivity } from './activity-log'
 import type {
   Inventory,
@@ -287,6 +291,8 @@ export const bulkUpdateProductStatus = createServerFn({ method: 'POST' })
       .in('id', data.productIds)
     if (error) throw error
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'product.bulk_status_update',
@@ -319,6 +325,8 @@ export const bulkDeleteProducts = createServerFn({ method: 'POST' })
       .in('id', data.productIds)
     if (error) throw error
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(staff, 'product.bulk_delete', 'products', null, {
       productIds: data.productIds,
     })
@@ -546,6 +554,7 @@ export const createProduct = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateStorefrontListingCache()
     await logStaffActivity(staff, 'product.create', 'products', product.id, {
       slug: data.slug,
     })
@@ -599,6 +608,8 @@ export const updateProduct = createServerFn({ method: 'POST' })
       .single()
     if (error) throw error
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(staff, 'product.update', 'products', product.id, {})
     return product
   })
@@ -825,6 +836,8 @@ export const createVariant = createServerFn({ method: 'POST' })
     })
     if (inventoryError) throw inventoryError
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'variant.create',
@@ -858,6 +871,11 @@ export const reorderVariants = createServerFn({ method: 'POST' })
     const failed = results.find((r) => r.error)
     if (failed?.error) throw failed.error
 
+    // Variant order is part of what a cached product-detail page shows
+    // (resolveProductBySlug orders variants by sort_order) — the listing
+    // page never shows per-variant order, so only the detail cache needs
+    // clearing here.
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'variant.reorder',
@@ -896,6 +914,8 @@ export const updateVariant = createServerFn({ method: 'POST' })
       .single()
     if (error) throw friendlySkuError(error, data.sku)
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'variant.update',
@@ -1119,6 +1139,8 @@ export const adjustInventory = createServerFn({ method: 'POST' })
       })
     if (movementError) throw movementError
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(staff, 'inventory.adjust', 'inventory', updated.id, {
       variantId: data.variantId,
       delta: data.quantityDelta,

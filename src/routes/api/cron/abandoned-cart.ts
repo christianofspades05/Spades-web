@@ -169,6 +169,11 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
           // is a valid lower-bound proxy — no cart_items row can predate its
           // parent cart, so a cart created after the cutoff cannot possibly
           // have been inactive long enough yet, regardless of item activity.
+          //
+          // Bounded and oldest-first: a backlog beyond this size just means
+          // the newest overdue carts in it wait for the next hourly run
+          // rather than this one — status stays 'active' either way, so
+          // nothing here is skipped forever, only delayed.
           const { data: carts, error: cartsError } = await admin
             .from('carts')
             .select(
@@ -177,6 +182,8 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
             .eq('status', 'active')
             .not('email', 'is', null)
             .lte('created_at', cutoffISO)
+            .order('created_at', { ascending: true })
+            .limit(500)
           if (cartsError) throw cartsError
 
           // Which of these carts already got THIS step's email — checked

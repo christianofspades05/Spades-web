@@ -14,6 +14,10 @@ import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { compareSizes } from '#/lib/utils/size-order'
+import {
+  invalidateProductDetailCache,
+  invalidateStorefrontListingCache,
+} from '#/server/products/queries'
 import { logStaffActivity } from './activity-log'
 import type { StaffRole } from '#/types/entities'
 
@@ -137,6 +141,8 @@ export const setPreOrderEnabled = createServerFn({ method: 'POST' })
       .eq('id', data.variantId)
     if (error) throw error
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'pre_order.set_enabled',
@@ -188,6 +194,8 @@ export const adjustPreOrderQuantity = createServerFn({ method: 'POST' })
       throw error
     }
 
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
     await logStaffActivity(
       staff,
       'pre_order.adjust_quantity',
@@ -276,6 +284,9 @@ export const receivePreOrderStock = createServerFn({ method: 'POST' })
           ),
         })
         .eq('id', data.variantId)
+
+      await invalidateStorefrontListingCache()
+      await invalidateProductDetailCache()
 
       const { data: pendingItems, error: itemsError } = await admin
         .from('order_items')

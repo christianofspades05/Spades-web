@@ -828,31 +828,25 @@ async function importOrder(
   marketplace: SyncableMarketplace,
   normalized: NormalizedOrder,
   raw: Record<string, unknown>,
+  existingOrderId: string | undefined,
 ): Promise<boolean> {
   const admin = getSupabaseAdminClient()
 
-  const { data: existing, error: existingError } = await admin
-    .from('orders')
-    .select('id')
-    .eq('source', marketplace)
-    .eq('external_order_id', normalized.externalOrderId)
-    .maybeSingle()
-  if (existingError) throw existingError
-  if (existing) {
+  if (existingOrderId) {
     if (normalized.isCancelled) {
       const cancelled = await syncPlatformCancellation(
-        existing.id,
+        existingOrderId,
         normalized.cancellationDetail,
       )
       if (cancelled) {
         await logSync(marketplace, 'sync_cancellation', 'success', {
-          orderId: existing.id,
+          orderId: existingOrderId,
           externalOrderId: normalized.externalOrderId,
         })
       }
       return false
     }
-    await syncFulfillmentInfo(existing.id, normalized.fulfillmentInfo)
+    await syncFulfillmentInfo(existingOrderId, normalized.fulfillmentInfo)
     return false
   }
 
@@ -1071,6 +1065,54 @@ export async function getExistingExternalOrderIds(
   }
 }
 
+/**
+ * Given a batch of `marketplace`'s external order ids, returns a Map of
+ * external_order_id -> internal orders.id for whichever of them already
+ * exist locally — one batched .in() lookup instead of importOrder running
+ * its own per-order .eq().maybeSingle() existence check. Distinct from
+ * getExistingExternalOrderIds above (which only needs to know existence,
+ * not the internal id, and is called by the adapter before pullOrders even
+ * returns) — this one feeds importOrder's own existing-order branch, which
+ * needs the id to update.
+ *
+ * Fails open toward correctness, not toward cost, same philosophy as
+ * getExistingExternalOrderIds: a lookup failure returns an empty Map (every
+ * order in this pull treated as new), and
+ * orders_source_external_order_id_key (0001_init_schema.sql) is what keeps
+ * that safe — a genuine duplicate then fails its insert as a logged,
+ * counted failure instead of silently creating a second order, exactly the
+ * scenario that constraint exists to prevent.
+ */
+async function getExistingOrderIdsByExternalId(
+  marketplace: SyncableMarketplace,
+  externalOrderIds: string[],
+): Promise<Map<string, string>> {
+  if (externalOrderIds.length === 0) return new Map()
+  try {
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin
+      .from('orders')
+      .select('id, external_order_id')
+      .eq('source', marketplace)
+      .in('external_order_id', externalOrderIds)
+    if (error) throw error
+    return new Map(
+      data
+        .filter(
+          (o): o is { id: string; external_order_id: string } =>
+            o.external_order_id !== null,
+        )
+        .map((o) => [o.external_order_id, o.id]),
+    )
+  } catch (err) {
+    console.error(
+      `getExistingOrderIdsByExternalId failed for ${marketplace}, falling back to treating all orders as new:`,
+      err,
+    )
+    return new Map()
+  }
+}
+
 export async function pullOrdersForMarketplace(
   marketplace: SyncableMarketplace,
   since: Date,
@@ -1085,12 +1127,46 @@ export async function pullOrdersForMarketplace(
       getExistingExternalOrderIds(marketplace, ids),
   })
 
+  // Normalizing is a pure, synchronous mapping (no network calls) — doing
+  // it up front, one raw order at a time inside its own try/catch (a
+  // malformed raw order still only fails that one order, exactly as
+  // before), lets the existing-order lookup below batch every order in
+  // this pull into one query instead of importOrder running its own
+  // lookup once per order.
+  const normalizedOrders: {
+    raw: Record<string, unknown>
+    normalized: NormalizedOrder
+  }[] = []
   let imported = 0
   let failed = 0
   for (const raw of rawOrders) {
     try {
-      const normalized = adapter.mapOrderToInternalFormat(raw)
-      const wasImported = await importOrder(marketplace, normalized, raw)
+      normalizedOrders.push({ raw, normalized: adapter.mapOrderToInternalFormat(raw) })
+    } catch (err) {
+      failed += 1
+      await logSync(
+        marketplace,
+        'pull_orders',
+        'failed',
+        { raw },
+        getErrorMessage(err),
+      )
+    }
+  }
+
+  const existingOrderIds = await getExistingOrderIdsByExternalId(
+    marketplace,
+    normalizedOrders.map((o) => o.normalized.externalOrderId),
+  )
+
+  for (const { raw, normalized } of normalizedOrders) {
+    try {
+      const wasImported = await importOrder(
+        marketplace,
+        normalized,
+        raw,
+        existingOrderIds.get(normalized.externalOrderId),
+      )
       if (wasImported) imported += 1
     } catch (err) {
       failed += 1
@@ -1238,19 +1314,31 @@ export async function reconcileNonTerminalOrders(
  * read from — see admin/analytics.ts, admin/customers.ts) is the source of
  * truth for what actually came back.
  */
+interface ExistingOrderForReturn {
+  id: string
+  customer_id: string
+}
+interface OrderItemForReturn {
+  id: string
+  variant_id: string | null
+  sku_snapshot: string | null
+  external_variant_id: string | null
+  quantity: number
+}
+interface ExistingReturnRow {
+  id: string
+  status: string
+}
+
 async function importReturn(
   marketplace: SyncableMarketplace,
   ret: NormalizedReturn,
+  order: ExistingOrderForReturn | undefined,
+  orderItems: OrderItemForReturn[] | undefined,
+  existing: ExistingReturnRow | undefined,
 ): Promise<void> {
   const admin = getSupabaseAdminClient()
 
-  const { data: order, error: orderError } = await admin
-    .from('orders')
-    .select('id, customer_id')
-    .eq('source', marketplace)
-    .eq('external_order_id', ret.externalOrderId)
-    .maybeSingle()
-  if (orderError) throw orderError
   // The order hasn't been imported locally yet (older than the order pull's
   // own lookback window, for instance) — nothing to attach this return to
   // yet. Safe to skip: the next returns pull (update_time_ge-filtered, so
@@ -1258,12 +1346,14 @@ async function importReturn(
   // order catches up.
   if (!order) return
 
-  const { data: orderItems, error: itemsError } = await admin
-    .from('order_items')
-    .select('id, variant_id, sku_snapshot, external_variant_id, quantity')
-    .eq('order_id', order.id)
-  if (itemsError) throw itemsError
-  const directMatches = orderItems.filter(
+  // Matches on either external_variant_id or the sku_snapshot fallback,
+  // and only commits to a match that's unambiguous — a repeated SKU across
+  // several line items (e.g. two of the same size ordered separately)
+  // must never guess which physical unit came back. orderItems/existing are
+  // pre-fetched in bulk by prefetchReturnLookups for the whole pull batch,
+  // not queried per-return — see that function's own comment for why.
+  const items = orderItems ?? []
+  const directMatches = items.filter(
     (item) =>
       item.external_variant_id === ret.externalVariantId ||
       item.sku_snapshot === ret.externalVariantId,
@@ -1285,7 +1375,7 @@ async function importReturn(
         .eq('marketplace_connection_id', connection.id)
         .eq('external_variant_id', ret.externalVariantId)
         .maybeSingle()
-      const candidates = orderItems.filter(
+      const candidates = items.filter(
         (item) =>
           item.variant_id === mapping?.variant_id &&
           item.quantity >= ret.quantity,
@@ -1294,13 +1384,6 @@ async function importReturn(
       if (candidates.length === 1) matchedItem = candidates[0]
     }
   }
-
-  const { data: existing, error: existingError } = await admin
-    .from('returns')
-    .select('id, status')
-    .eq('external_return_id', ret.externalReturnId)
-    .maybeSingle()
-  if (existingError) throw existingError
 
   const payload = {
     order_id: order.id,
@@ -1337,6 +1420,80 @@ async function importReturn(
   // Staff confirm received goods through receive_return, which restocks once.
 }
 
+/**
+ * Batches the three per-return lookups importReturn used to run once per
+ * return (order-by-external-id, order_items-by-order-id, returns-by-
+ * external-id) into one query each. Unlike getExistingOrderIdsByExternalId
+ * above, this deliberately does NOT fail open on error: the existing-return
+ * lookup is what stops an already-refunded return from being restocked
+ * again on a repeat pull, and a fail-open empty result there would read as
+ * "never seen before" and risk a double restock — worse than the cost this
+ * batching is meant to save. A failure here is instead caught by the caller
+ * (pullReturnsForMarketplace), which fails the whole batch and lets the
+ * next scheduled pull retry it, since nothing will have been written yet.
+ */
+async function prefetchReturnLookups(
+  marketplace: SyncableMarketplace,
+  externalOrderIds: string[],
+  externalReturnIds: string[],
+): Promise<{
+  orderByExternalId: Map<string, ExistingOrderForReturn>
+  itemsByOrderId: Map<string, OrderItemForReturn[]>
+  existingByExternalId: Map<string, ExistingReturnRow>
+}> {
+  const admin = getSupabaseAdminClient()
+
+  const orderByExternalId = new Map<string, ExistingOrderForReturn>()
+  if (externalOrderIds.length > 0) {
+    const { data: orders, error: ordersError } = await admin
+      .from('orders')
+      .select('id, external_order_id, customer_id')
+      .eq('source', marketplace)
+      .in('external_order_id', externalOrderIds)
+    if (ordersError) throw ordersError
+    for (const o of orders) {
+      if (o.external_order_id === null) continue
+      orderByExternalId.set(o.external_order_id, {
+        id: o.id,
+        customer_id: o.customer_id,
+      })
+    }
+  }
+
+  const itemsByOrderId = new Map<string, OrderItemForReturn[]>()
+  const orderIds = Array.from(new Set(Array.from(orderByExternalId.values(), (o) => o.id)))
+  if (orderIds.length > 0) {
+    const { data: items, error: itemsError } = await admin
+      .from('order_items')
+      .select('id, order_id, variant_id, sku_snapshot, external_variant_id, quantity')
+      .in('order_id', orderIds)
+    if (itemsError) throw itemsError
+    for (const item of items) {
+      const list = itemsByOrderId.get(item.order_id) ?? []
+      list.push(item)
+      itemsByOrderId.set(item.order_id, list)
+    }
+  }
+
+  const existingByExternalId = new Map<string, ExistingReturnRow>()
+  if (externalReturnIds.length > 0) {
+    const { data: returns, error: returnsError } = await admin
+      .from('returns')
+      .select('id, external_return_id, status')
+      .in('external_return_id', externalReturnIds)
+    if (returnsError) throw returnsError
+    for (const r of returns) {
+      if (r.external_return_id === null) continue
+      existingByExternalId.set(r.external_return_id, {
+        id: r.id,
+        status: r.status,
+      })
+    }
+  }
+
+  return { orderByExternalId, itemsByOrderId, existingByExternalId }
+}
+
 export async function pullReturnsForMarketplace(
   marketplace: SyncableMarketplace,
   since: Date,
@@ -1348,13 +1505,62 @@ export async function pullReturnsForMarketplace(
   const fresh = await ensureFreshConnection(connection)
   const rawReturns = await adapter.pullReturns(fresh, since)
 
+  // Gathers the ids this pull's three lookups need to batch.
+  // mapReturnToInternalFormat is pure/synchronous (no network calls), so
+  // calling it here as well as in the main loop below costs nothing but
+  // CPU; a raw return that fails to map contributes no ids here and fails
+  // again (counted, logged) in the main loop exactly as it did before
+  // batching existed.
+  const externalOrderIds = new Set<string>()
+  const externalReturnIds = new Set<string>()
+  for (const raw of rawReturns) {
+    try {
+      for (const normalized of adapter.mapReturnToInternalFormat(raw)) {
+        externalOrderIds.add(normalized.externalOrderId)
+        externalReturnIds.add(normalized.externalReturnId)
+      }
+    } catch {
+      // Re-thrown and counted in the main loop below.
+    }
+  }
+
+  let lookups: Awaited<ReturnType<typeof prefetchReturnLookups>>
+  try {
+    lookups = await prefetchReturnLookups(
+      marketplace,
+      Array.from(externalOrderIds),
+      Array.from(externalReturnIds),
+    )
+  } catch (err) {
+    // None of this pull's returns have been written yet — safe to fail the
+    // whole batch and let the next scheduled pull retry it from scratch,
+    // same outcome as every one of these returns' own query failing
+    // individually would have produced before this batching existed.
+    await logSync(
+      marketplace,
+      'pull_returns',
+      'failed',
+      { batchPrefetchFailed: true, scanned: rawReturns.length },
+      getErrorMessage(err),
+    )
+    return { scanned: rawReturns.length, processed: 0, failed: rawReturns.length }
+  }
+  const { orderByExternalId, itemsByOrderId, existingByExternalId } = lookups
+
   let processed = 0
   let failed = 0
   for (const raw of rawReturns) {
     try {
       const normalizedList = adapter.mapReturnToInternalFormat(raw)
       for (const normalized of normalizedList) {
-        await importReturn(marketplace, normalized)
+        const order = orderByExternalId.get(normalized.externalOrderId)
+        await importReturn(
+          marketplace,
+          normalized,
+          order,
+          order ? itemsByOrderId.get(order.id) : undefined,
+          existingByExternalId.get(normalized.externalReturnId),
+        )
       }
       processed += 1
     } catch (err) {

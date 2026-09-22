@@ -22,6 +22,7 @@ import {
 } from '#/server/admin/products'
 import { centsToPesos, formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { resizeImageFile } from '#/lib/utils/file'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { useUndoableState } from '#/lib/hooks/useUndoableState'
 import { useUndoRedoShortcuts } from '#/lib/hooks/useUndoRedoShortcuts'
@@ -186,12 +187,17 @@ function EditProductPage() {
     setError(null)
     const results = await Promise.allSettled(
       toUpload.map(async (file) => {
+        // 2000px comfortably covers the largest width vercel.json's
+        // images.sizes ever requests (1920) — the optimizer resizes down
+        // from here on every page view, never up, but a smaller original
+        // costs less to store and less to transform.
+        const resized = await resizeImageFile(file, 2000)
         const { path, token, publicUrl } = await createProductImageUploadUrl({
-          data: { fileName: file.name },
+          data: { fileName: resized.name },
         })
         const { error: uploadError } = await getSupabaseBrowserClient()
           .storage.from('product-images')
-          .uploadToSignedUrl(path, token, file)
+          .uploadToSignedUrl(path, token, resized)
         if (uploadError) throw uploadError
         return publicUrl
       }),

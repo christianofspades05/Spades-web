@@ -56,33 +56,29 @@ export const Route = createFileRoute('/api/cron/birthday')({
           return Response.json({ skipped: 'automation is inactive' })
         }
 
+        const today = new Date()
+        const todayMonth = today.getUTCMonth() + 1
+        const todayDate = today.getUTCDate()
+        const todayYear = today.getUTCFullYear()
+
+        // Filtered server-side by birth_month/birth_day (generated columns,
+        // see 0092_customer_birthday_date_parts.sql) instead of fetching
+        // every opted-in customer with a DOB and filtering in JS — this
+        // query now only ever returns today's actual candidates.
         const { data: candidates, error } = await admin
           .from('customers')
           .select(
             'id, email, full_name, date_of_birth, birthday_last_emailed_at',
           )
-          .not('date_of_birth', 'is', null)
           .eq('marketing_opt_in', true)
+          .eq('birth_month', todayMonth)
+          .eq('birth_day', todayDate)
         if (error) throw error
-
-        const today = new Date()
-        const todayMonth = today.getUTCMonth()
-        const todayDate = today.getUTCDate()
-        const todayYear = today.getUTCFullYear()
 
         let sent = 0
         const failures: { customerId: string; error: string }[] = []
 
         for (const customer of candidates) {
-          if (!customer.date_of_birth) continue
-          const dob = new Date(customer.date_of_birth)
-          if (
-            dob.getUTCMonth() !== todayMonth ||
-            dob.getUTCDate() !== todayDate
-          ) {
-            continue
-          }
-
           const lastSentYear = customer.birthday_last_emailed_at
             ? new Date(customer.birthday_last_emailed_at).getUTCFullYear()
             : null

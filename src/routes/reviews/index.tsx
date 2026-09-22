@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { listStorefrontReviews } from '#/server/reviews/queries'
 import { submitStoreFeedback } from '#/server/feedback/submit'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { STOREFRONT_CACHE_HEADERS } from '#/lib/utils/cache-control'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { Stars } from '#/components/storefront/Stars'
 import {
@@ -17,6 +18,7 @@ const ROTATE_INTERVAL_MS = 2000
 
 export const Route = createFileRoute('/reviews/')({
   loader: () => listStorefrontReviews(),
+  headers: () => STOREFRONT_CACHE_HEADERS,
   component: ReviewsPage,
 })
 

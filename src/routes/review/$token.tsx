@@ -6,7 +6,7 @@ import {
   submitReviews,
   uploadReviewPhoto,
 } from '#/server/reviews/public'
-import { fileToBase64 } from '#/lib/utils/file'
+import { fileToBase64, resizeImageFile } from '#/lib/utils/file'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { StarRatingInput } from '#/components/storefront/Stars'
 import {
@@ -108,12 +108,15 @@ function ReviewSubmissionPage() {
     updateDraft(productId, { uploading: true })
     setError(null)
     try {
-      const base64Data = await fileToBase64(file)
+      // 1600px is comfortably above any size a review photo is ever
+      // displayed at on the storefront — see resizeImageFile's own comment.
+      const resized = await resizeImageFile(file, 1600)
+      const base64Data = await fileToBase64(resized)
       const { url } = await uploadReviewPhoto({
         data: {
           token,
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
+          fileName: resized.name,
+          contentType: resized.type || 'application/octet-stream',
           base64Data,
         },
       })

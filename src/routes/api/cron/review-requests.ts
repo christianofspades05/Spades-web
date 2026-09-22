@@ -110,6 +110,10 @@ export const Route = createFileRoute('/api/cron/review-requests')({
           Date.now() - automation.delay_hours * 60 * 60 * 1000,
         ).toISOString()
 
+        // Bounded and oldest-first: review_request_sent only flips to true
+        // once the email actually sends, so a backlog beyond this size just
+        // leaves the newest-eligible orders in it for tomorrow's run rather
+        // than dropping them — nothing here is skipped forever.
         const { data: orders, error } = await admin
           .from('orders')
           .select('id, order_number, shipping_address')
@@ -122,6 +126,8 @@ export const Route = createFileRoute('/api/cron/review-requests')({
           // Those customers should review on the marketplace itself instead.
           .not('source', 'in', '(tiktok_shop,shopee,lazada)')
           .lte('placed_at', cutoff)
+          .order('placed_at', { ascending: true })
+          .limit(500)
         if (error) throw error
 
         let sent = 0

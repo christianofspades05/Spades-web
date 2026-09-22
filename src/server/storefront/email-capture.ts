@@ -18,16 +18,36 @@ import { sendEmail, withDisplayName } from '#/lib/email/resend'
 import { renderEmailBlocks } from '#/lib/email/blocks'
 import { mintPerRecipientDiscount } from '#/lib/email/mint-discount'
 import { logEmailSend } from '#/lib/email/log-send'
-import { createPromiseCache } from '#/lib/utils/cache'
+import { createSharedCache } from '#/lib/utils/shared-cache'
 
 const POPUP_CODE_EXPIRY_DAYS = 1
 
-// Same rationale as storefront/maintenance.ts's cache — checked on every
-// page load, rarely changes. Not brand-scoped, so a single fixed key.
-const EMAIL_CAPTURE_POPUP_CACHE_TTL_MS = 30_000
-const emailCapturePopupCache = createPromiseCache<boolean>(
-  EMAIL_CAPTURE_POPUP_CACHE_TTL_MS,
+const EMAIL_CAPTURE_POPUP_CACHE_KEY = 'email-capture-popup'
+
+// Same createSharedCache pattern as banner.ts/maintenance.ts — checked on
+// every page load sitewide (via root-loader.ts), rarely changes. Not
+// brand-scoped, so a single fixed key. Was createPromiseCache
+// (process-local, 30s), the same per-instance-duplication gap already fixed
+// for banner/maintenance/market-pricing/collection-scoping/automatic-sales —
+// this was the one that never got migrated. 300s TTL matches those, safe
+// because updateEmailAutomation (server/admin/email-automations.ts) calls
+// invalidateEmailCapturePopupCache() immediately after a successful write to
+// the 'welcome' automation.
+const EMAIL_CAPTURE_POPUP_CACHE_TTL_SECONDS = 300
+const emailCapturePopupCache = createSharedCache<boolean>(
+  EMAIL_CAPTURE_POPUP_CACHE_TTL_SECONDS,
 )
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean'
+}
+
+/** Invalidates the cached popup-enabled flag — called by
+ *  updateEmailAutomation whenever it writes to the 'welcome' automation.
+ *  Fail-open, same as the cache itself. */
+export function invalidateEmailCapturePopupCache(): Promise<void> {
+  return emailCapturePopupCache.invalidate([EMAIL_CAPTURE_POPUP_CACHE_KEY])
+}
 
 /**
  * Whether the popup should even render — the admin hasn't necessarily
@@ -39,16 +59,20 @@ const emailCapturePopupCache = createPromiseCache<boolean>(
  */
 export const resolveEmailCapturePopupEnabled = createServerOnlyFn(
   async (): Promise<boolean> => {
-    return emailCapturePopupCache.get('default', async () => {
-      const admin = getSupabaseAdminClient()
-      const { data: automation, error } = await admin
-        .from('email_automations')
-        .select('is_active, discount_id')
-        .eq('event_type', 'welcome')
-        .maybeSingle()
-      if (error) throw error
-      return Boolean(automation?.is_active && automation.discount_id)
-    })
+    return emailCapturePopupCache.get(
+      EMAIL_CAPTURE_POPUP_CACHE_KEY,
+      async () => {
+        const admin = getSupabaseAdminClient()
+        const { data: automation, error } = await admin
+          .from('email_automations')
+          .select('is_active, discount_id')
+          .eq('event_type', 'welcome')
+          .maybeSingle()
+        if (error) throw error
+        return Boolean(automation?.is_active && automation.discount_id)
+      },
+      { tags: [EMAIL_CAPTURE_POPUP_CACHE_KEY], isValid: isBoolean },
+    )
   },
 )
 

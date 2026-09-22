@@ -5,6 +5,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { fetchAllRows } from '#/lib/utils/paginate'
+import { invalidateEmailCapturePopupCache } from '#/server/storefront/email-capture'
 import { logStaffActivity } from './activity-log'
 import type { EmailAutomation } from '#/types/entities'
 
@@ -295,6 +296,10 @@ export const updateEmailAutomation = createServerFn({ method: 'POST' })
       .select('*')
       .single()
     if (error) throw error
+
+    if (automation.event_type === 'welcome') {
+      await invalidateEmailCapturePopupCache()
+    }
 
     await logStaffActivity(
       staff,

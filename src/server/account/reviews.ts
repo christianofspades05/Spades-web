@@ -117,8 +117,12 @@ export const uploadAccountReviewPhoto = createServerFn({ method: 'POST' })
     await requireDeliveredOwnOrder(admin, customer.id, data.orderId)
 
     const buffer = Buffer.from(data.base64Data, 'base64')
-    if (buffer.byteLength > 8 * 1024 * 1024) {
-      throw new Error('Photo must be smaller than 8MB')
+    // The client resizes to 1600px before upload (see review.tsx's
+    // handlePhotoSelect), so a resized photo lands well under this — this
+    // is a backstop against a client that skipped resizing, not the
+    // primary size control.
+    if (buffer.byteLength > 3 * 1024 * 1024) {
+      throw new Error('Photo must be smaller than 3MB')
     }
 
     const extension = data.fileName.includes('.')

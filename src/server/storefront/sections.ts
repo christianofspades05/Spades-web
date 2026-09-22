@@ -147,42 +147,42 @@ export const resolveStorefrontSections = createServerOnlyFn(
     const sections = await fetchStorefrontSectionsConfig(page, brand)
 
     return Promise.all(
-      sections.map(async (section) => {
-        if (section.type !== 'product_grid') {
-          return section as RenderedStorefrontSection
-        }
-        const collectionSlug = section.collections?.slug
-        if (!collectionSlug) {
-          // Section references a collection that's since been deleted or
-          // deactivated — skip it rather than showing an empty/broken block.
-          return {
-            type: 'product_grid' as const,
-            id: section.id,
-            title: section.title,
-            titleJa: section.title_ja,
-            titleKo: section.title_ko,
-            titleZh: section.title_zh,
-            linkUrl: section.link_url,
-            collectionSlug: '',
-            products: [],
-          }
-        }
-        const products = await listActiveProducts({
-          data: { collectionSlug, limit: PRODUCT_GRID_PAGE_SIZE },
-        })
-        return {
-          type: 'product_grid' as const,
-          id: section.id,
-          title: section.title,
-          titleJa: section.title_ja,
-          titleKo: section.title_ko,
-          titleZh: section.title_zh,
-          linkUrl: section.link_url,
-          collectionSlug,
-          products: products.map(toListingProduct),
-        }
-      }),
-    )
+          sections.map(async (section) => {
+            if (section.type !== 'product_grid') {
+              return section as RenderedStorefrontSection
+            }
+            const collectionSlug = section.collections?.slug
+            if (!collectionSlug) {
+              // Section references a collection that's since been deleted or
+              // deactivated — skip it rather than showing an empty/broken block.
+              return {
+                type: 'product_grid' as const,
+                id: section.id,
+                title: section.title,
+                titleJa: section.title_ja,
+                titleKo: section.title_ko,
+                titleZh: section.title_zh,
+                linkUrl: section.link_url,
+                collectionSlug: '',
+                products: [],
+              }
+            }
+            const products = await listActiveProducts({
+              data: { collectionSlug, limit: PRODUCT_GRID_PAGE_SIZE },
+            })
+            return {
+              type: 'product_grid' as const,
+              id: section.id,
+              title: section.title,
+              titleJa: section.title_ja,
+              titleKo: section.title_ko,
+              titleZh: section.title_zh,
+              linkUrl: section.link_url,
+              collectionSlug,
+              products: products.map(toListingProduct),
+            }
+          }),
+        )
   },
 )
 

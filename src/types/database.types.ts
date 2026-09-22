@@ -211,6 +211,8 @@ export interface Database {
           imported_total_spent_cents: number | null
           imported_source: string | null
           date_of_birth: string | null
+          birth_month: number | null
+          birth_day: number | null
           welcome_emailed_at: string | null
           birthday_last_emailed_at: string | null
           created_at: string
