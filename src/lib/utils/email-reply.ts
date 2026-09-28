@@ -12,7 +12,14 @@ export function stripQuotedReply(text: string): string {
   // The "On ... wrote:" header commonly hard-wraps across multiple lines
   // (a long display name/email pushes "wrote:" onto its own line), so this
   // matches across newlines rather than requiring it all on one line.
-  const headerMatch = /\n?On[\s\S]{0,400}?wrote:[ \t]*\n/i.exec(text)
+  // Anchored to a real line start (`^` or right after `\n`), not a bare
+  // substring — confirmed live: a reply of just "Pasong tamo po" was cut
+  // down to "Pas", because the case-insensitive `on` matched inside
+  // "Pasong" itself and the lazy `[\s\S]{0,400}?` had no trouble reaching
+  // the genuine "On <date> ... wrote:" header further down in the same
+  // message. Real quote headers always start their own line and are
+  // followed by whitespace, never mid-word.
+  const headerMatch = /(?:^|\n)On\s[\s\S]{0,400}?wrote:[ \t]*\n/i.exec(text)
   let cleaned = headerMatch ? text.slice(0, headerMatch.index) : text
 
   const outlookIdx = cleaned.indexOf('-----Original Message-----')
