@@ -17,6 +17,8 @@ import { PageHeader } from '#/components/admin/PageHeader'
 import { Card } from '#/components/admin/Card'
 import { Badge } from '#/components/admin/Badge'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
+import { DonutChart } from '#/components/admin/DonutChart'
+import { LineChart } from '#/components/admin/LineChart'
 import {
   buttonSecondaryClassName,
   tableCellClassName,
@@ -27,6 +29,20 @@ import {
 import type { EmailAutomation } from '#/types/entities'
 
 const CONTACTS_PAGE_SIZE = 100
+
+// Assigned by row order rather than event_type, so the four
+// abandoned-cart-delay automations (same event_type, different delays)
+// each still get a visually distinct donut slice.
+const DONUT_PALETTE = [
+  '#2c6ecb',
+  '#f59e0b',
+  '#16a34a',
+  '#dc2626',
+  '#a855f7',
+  '#0ea5e9',
+  '#78716c',
+  '#db2777',
+]
 
 const EVENT_TYPE_DESCRIPTIONS: Record<EmailAutomation['event_type'], string> = {
   welcome:
@@ -57,23 +73,23 @@ export const Route = createFileRoute('/admin/email/')({
       from: deps.from,
       to: deps.to,
     })
-    const [automations, contacts, { total }] = await Promise.all([
+    const [{ automations, overall }, contacts, { total }] = await Promise.all([
       listEmailAutomations({ data: resolved }),
       listEmailContacts({ data: { ...contactFilters, page: deps.page } }),
       getEmailContactsCount({ data: contactFilters }),
     ])
-    return { automations, contacts, total }
+    return { automations, overall, contacts, total }
   },
   component: EmailMarketingPage,
 })
 
 function EmailMarketingPage() {
-  const { automations, contacts, total } = Route.useLoaderData()
+  const { automations, overall, contacts, total } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [qInput, setQInput] = useState(search.q ?? '')
   const [automationsTab, setAutomationsTab] = useState<
-    'automations' | 'reviews'
+    'automations' | 'reviews' | 'analytics'
   >('automations')
 
   // Post-purchase review request gets its own tab — it's the only
@@ -85,6 +101,14 @@ function EmailMarketingPage() {
   const reviewAutomation = automations.find(
     (a) => a.event_type === 'post_purchase_review',
   )
+
+  const donutSlices = automations
+    .filter((a) => a.attributedRevenueCentsInRange > 0)
+    .map((a, i) => ({
+      label: a.name,
+      value: a.attributedRevenueCentsInRange,
+      color: DONUT_PALETTE[i % DONUT_PALETTE.length],
+    }))
 
   const page = search.page
   const totalPages = Math.max(1, Math.ceil(total / CONTACTS_PAGE_SIZE))
@@ -154,6 +178,17 @@ function EmailMarketingPage() {
           }`}
         >
           Review Requests
+        </button>
+        <button
+          type="button"
+          onClick={() => setAutomationsTab('analytics')}
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            automationsTab === 'analytics'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Analytics
         </button>
       </div>
 
@@ -328,6 +363,124 @@ function EmailMarketingPage() {
             </div>
           </div>
         </Card>
+      )}
+
+      {automationsTab === 'analytics' && (
+        <div className="mb-10 space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Card className="p-5">
+              <p className="text-xs font-medium text-neutral-500">
+                Email-attributed revenue
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-neutral-900">
+                {formatCentsAsPHP(overall.inRange.revenueCents)}
+              </p>
+              <p className="mt-0.5 text-xs text-neutral-400">
+                {overall.storeTotalInRange.revenueCents > 0
+                  ? `${((overall.inRange.revenueCents / overall.storeTotalInRange.revenueCents) * 100).toFixed(1)}% of store revenue`
+                  : 'No store revenue'}{' '}
+                in {formatDateRangeLabel(resolvedRange)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs font-medium text-neutral-500">
+                Email-attributed orders
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-neutral-900">
+                {overall.inRange.orderCount}
+              </p>
+              <p className="mt-0.5 text-xs text-neutral-400">
+                {overall.storeTotalInRange.orderCount > 0
+                  ? `${((overall.inRange.orderCount / overall.storeTotalInRange.orderCount) * 100).toFixed(1)}% of ${overall.storeTotalInRange.orderCount} store orders`
+                  : 'No store orders'}{' '}
+                in {formatDateRangeLabel(resolvedRange)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs font-medium text-neutral-500">
+                All-time email-attributed revenue
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-neutral-900">
+                {formatCentsAsPHP(overall.allTime.revenueCents)}
+              </p>
+              <p className="mt-0.5 text-xs text-neutral-400">
+                {overall.allTime.orderCount}{' '}
+                {overall.allTime.orderCount === 1 ? 'order' : 'orders'},
+                lifetime
+              </p>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card className="p-6">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Revenue by automation
+              </h2>
+              <p className="text-xs text-neutral-500">
+                {formatDateRangeLabel(resolvedRange)} — an order can count
+                toward more than one automation if it received several emails
+                before buying
+              </p>
+              {donutSlices.length > 0 ? (
+                <div className="mt-6 flex flex-wrap items-center gap-8">
+                  <DonutChart slices={donutSlices} />
+                  <div className="flex flex-col gap-2.5">
+                    {donutSlices.map((slice) => (
+                      <div
+                        key={slice.label}
+                        className="flex items-center gap-2"
+                      >
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: slice.color }}
+                        />
+                        <span className="text-sm text-neutral-700">
+                          {slice.label}
+                        </span>
+                        <span className="text-sm font-medium text-neutral-900">
+                          {formatCentsAsPHP(slice.value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-6 text-sm text-neutral-500">
+                  No attributed revenue in this range yet.
+                </p>
+              )}
+            </Card>
+
+            <Card className="p-6">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Email-attributed sales trend
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Revenue from orders placed in{' '}
+                {formatDateRangeLabel(resolvedRange)} that came from an email
+                sent in the 14 days before
+              </p>
+              {overall.dailyInRange.length > 0 ? (
+                <div className="mt-6">
+                  <LineChart
+                    values={overall.dailyInRange.map((d) => d.revenueCents)}
+                    labels={overall.dailyInRange.map((d) =>
+                      new Date(`${d.date}T00:00:00`).toLocaleDateString(
+                        'en-PH',
+                        { month: 'short', day: 'numeric' },
+                      ),
+                    )}
+                    formatValue={(v) => formatCentsAsPHP(v)}
+                  />
+                </div>
+              ) : (
+                <p className="mt-6 text-sm text-neutral-500">
+                  No email-attributed sales in this range yet.
+                </p>
+              )}
+            </Card>
+          </div>
+        </div>
       )}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

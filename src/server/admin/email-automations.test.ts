@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { computeAttributionStats } from './email-automations'
+import {
+  computeAttributionStats,
+  computeOverallEmailAttribution,
+} from './email-automations'
 
 const day = (n: number) => new Date(`2026-01-${String(n).padStart(2, '0')}T00:00:00.000Z`).getTime()
 
@@ -103,5 +106,110 @@ describe('computeAttributionStats', () => {
       count: 2,
       revenueCents: 12_000,
     })
+  })
+})
+
+describe('computeOverallEmailAttribution', () => {
+  it('counts an order once overall even when two different automations would each claim it', () => {
+    const order = {
+      id: 'order-1',
+      shipping_address: { email: 'buyer@example.com' },
+      placed_at: new Date(day(12)).toISOString(),
+      total_cents: 10_000,
+    }
+    const untouchedOrder = {
+      id: 'order-2',
+      shipping_address: { email: 'someone-else@example.com' },
+      placed_at: new Date(day(12)).toISOString(),
+      total_cents: 3_000,
+    }
+
+    const result = computeOverallEmailAttribution(
+      [order, untouchedOrder],
+      [
+        {
+          email_automation_id: 'auto-cart-8h',
+          recipient_email: 'buyer@example.com',
+          sent_at: new Date(day(5)).toISOString(),
+        },
+        {
+          email_automation_id: 'auto-welcome',
+          recipient_email: 'buyer@example.com',
+          sent_at: new Date(day(6)).toISOString(),
+        },
+      ],
+      day(1),
+      day(20),
+    )
+
+    // Per-automation stats would show this order twice (once per
+    // automation); the overall figure must show it once.
+    expect(result.inRange).toEqual({ orderCount: 1, revenueCents: 10_000 })
+    expect(result.allTime).toEqual({ orderCount: 1, revenueCents: 10_000 })
+    // Both orders (attributed or not) count toward the store total.
+    expect(result.storeTotalInRange).toEqual({
+      orderCount: 2,
+      revenueCents: 13_000,
+    })
+  })
+
+  it('buckets the daily trend by the order\'s placed date, not the send date', () => {
+    const result = computeOverallEmailAttribution(
+      [
+        {
+          id: 'order-1',
+          shipping_address: { email: 'a@example.com' },
+          placed_at: new Date(day(15)).toISOString(),
+          total_cents: 4_000,
+        },
+        {
+          id: 'order-2',
+          shipping_address: { email: 'a@example.com' },
+          placed_at: new Date(day(16)).toISOString(),
+          total_cents: 6_000,
+        },
+      ],
+      [
+        {
+          email_automation_id: 'auto-cart-8h',
+          recipient_email: 'a@example.com',
+          sent_at: new Date(day(10)).toISOString(),
+        },
+      ],
+      day(10),
+      day(20),
+    )
+
+    expect(result.dailyInRange).toEqual([
+      { date: '2026-01-15', revenueCents: 4_000, orderCount: 1 },
+      { date: '2026-01-16', revenueCents: 6_000, orderCount: 1 },
+    ])
+  })
+
+  it('excludes an order placed outside the range from inRange/dailyInRange but still counts it all-time', () => {
+    const result = computeOverallEmailAttribution(
+      [
+        {
+          id: 'order-1',
+          shipping_address: { email: 'a@example.com' },
+          placed_at: new Date(day(2)).toISOString(),
+          total_cents: 5_000,
+        },
+      ],
+      [
+        {
+          email_automation_id: 'auto-cart-8h',
+          recipient_email: 'a@example.com',
+          sent_at: new Date(day(1)).toISOString(),
+        },
+      ],
+      day(10),
+      day(20),
+    )
+
+    expect(result.allTime).toEqual({ orderCount: 1, revenueCents: 5_000 })
+    expect(result.inRange).toEqual({ orderCount: 0, revenueCents: 0 })
+    expect(result.dailyInRange).toEqual([])
+    expect(result.storeTotalInRange).toEqual({ orderCount: 0, revenueCents: 0 })
   })
 })

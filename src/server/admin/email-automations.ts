@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { updateEmailAutomationSchema } from '#/lib/validation/admin/email-automations'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
-import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
+import { storeRangeToUtcBounds, storeLocalDateKey } from '#/lib/utils/date-range'
 import { fetchAllRows } from '#/lib/utils/paginate'
 import { invalidateEmailCapturePopupCache } from '#/server/storefront/email-capture'
 import { logStaffActivity } from './activity-log'
@@ -169,6 +169,107 @@ export function computeAttributionStats(
   }
 }
 
+export interface DailyAttributionPoint {
+  /** Store-local (PH) YYYY-MM-DD, keyed off the order's placed_at — this
+   *  chart reads as "sales", so it buckets by when the sale happened, not
+   *  by when the marketing email went out. */
+  date: string
+  revenueCents: number
+  orderCount: number
+}
+
+export interface OverallEmailAttribution {
+  /** Every non-cancelled/failed order, across ALL automations combined,
+   *  deduped by order — unlike EmailAutomationWithStats' per-automation
+   *  totals (which intentionally let one order count under more than one
+   *  automation), this is "was this order touched by email marketing at
+   *  all," counted once regardless of how many automations could claim it. */
+  allTime: { orderCount: number; revenueCents: number }
+  /** Same dedup, restricted to orders placed within the picker's range. */
+  inRange: { orderCount: number; revenueCents: number }
+  dailyInRange: DailyAttributionPoint[]
+  /** Every non-cancelled/failed order placed in range, email-attributed or
+   *  not — the denominator for "what share of sales did email influence." */
+  storeTotalInRange: { orderCount: number; revenueCents: number }
+}
+
+/** Order-first (not send-first) attribution: for each order, did this
+ *  recipient get ANY automation's email in the 14 days before it — a
+ *  single pass per order that dedupes by construction, since each order is
+ *  only ever visited once. */
+export function computeOverallEmailAttribution(
+  orders: AttributionOrderInput[],
+  sends: AttributionSendInput[],
+  rangeStartMs: number,
+  rangeEndMs: number,
+): OverallEmailAttribution {
+  const sendTimesByEmail = new Map<string, number[]>()
+  for (const send of sends) {
+    const email = send.recipient_email.toLowerCase()
+    const list = sendTimesByEmail.get(email) ?? []
+    list.push(new Date(send.sent_at).getTime())
+    sendTimesByEmail.set(email, list)
+  }
+  for (const list of sendTimesByEmail.values()) list.sort((a, b) => a - b)
+
+  function hadQualifyingSend(email: string, placedAtMs: number): boolean {
+    const list = sendTimesByEmail.get(email.toLowerCase())
+    if (!list) return false
+    const windowStart = placedAtMs - ATTRIBUTION_WINDOW_MS
+    return list.some((t) => t >= windowStart && t <= placedAtMs)
+  }
+
+  let allTimeCount = 0
+  let allTimeRevenue = 0
+  let inRangeCount = 0
+  let inRangeRevenue = 0
+  let storeOrderCount = 0
+  let storeRevenue = 0
+  const dailyMap = new Map<string, DailyAttributionPoint>()
+
+  for (const order of orders) {
+    const address = order.shipping_address as { email?: string } | null
+    const email = address?.email
+    const placedAtMs = new Date(order.placed_at).getTime()
+    const inRange = placedAtMs >= rangeStartMs && placedAtMs <= rangeEndMs
+
+    if (inRange) {
+      storeOrderCount += 1
+      storeRevenue += order.total_cents
+    }
+
+    if (!email || !hadQualifyingSend(email, placedAtMs)) continue
+
+    allTimeCount += 1
+    allTimeRevenue += order.total_cents
+
+    if (inRange) {
+      inRangeCount += 1
+      inRangeRevenue += order.total_cents
+      const dayKey = storeLocalDateKey(order.placed_at)
+      const bucket = dailyMap.get(dayKey) ?? {
+        date: dayKey,
+        revenueCents: 0,
+        orderCount: 0,
+      }
+      bucket.revenueCents += order.total_cents
+      bucket.orderCount += 1
+      dailyMap.set(dayKey, bucket)
+    }
+  }
+
+  const dailyInRange = Array.from(dailyMap.values()).sort((a, b) =>
+    a.date.localeCompare(b.date),
+  )
+
+  return {
+    allTime: { orderCount: allTimeCount, revenueCents: allTimeRevenue },
+    inRange: { orderCount: inRangeCount, revenueCents: inRangeRevenue },
+    dailyInRange,
+    storeTotalInRange: { orderCount: storeOrderCount, revenueCents: storeRevenue },
+  }
+}
+
 export interface EmailAutomationWithStats extends EmailAutomation {
   /** Revenue attributed to this automation — every non-cancelled/failed
    *  order placed by a recipient within ATTRIBUTION_WINDOW_DAYS of one of
@@ -213,9 +314,14 @@ export interface EmailAutomationWithStats extends EmailAutomation {
 // created/deleted from the admin UI, only configured, so 'event_type' (a
 // stable sort) reads better here than 'created_at' (all 4 rows were created
 // in the same migration).
+export interface ListEmailAutomationsResult {
+  automations: EmailAutomationWithStats[]
+  overall: OverallEmailAttribution
+}
+
 export const listEmailAutomations = createServerFn({ method: 'GET' })
   .validator(z.object({ from: z.string(), to: z.string() }))
-  .handler(async ({ data }): Promise<EmailAutomationWithStats[]> => {
+  .handler(async ({ data }): Promise<ListEmailAutomationsResult> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
     const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
@@ -265,6 +371,12 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
       statsInRangeByAutomationId,
       sendStatsByAutomationId,
     } = computeAttributionStats(orders, sends, rangeStartMs, rangeEndMs)
+    const overall = computeOverallEmailAttribution(
+      orders,
+      sends,
+      rangeStartMs,
+      rangeEndMs,
+    )
 
     // post_purchase_review only — a direct order-level join (did this
     // specific order, which we know got a review request, ever get a
@@ -302,23 +414,27 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
       ).size
     }
 
-    return automations.map((automation) => {
-      const stats = statsByAutomationId.get(automation.id)
-      const statsInRange = statsInRangeByAutomationId.get(automation.id)
-      const sendStats = sendStatsByAutomationId.get(automation.id)
-      const isReviewAutomation = automation.event_type === 'post_purchase_review'
-      return {
-        ...automation,
-        attributedOrderCount: stats?.count ?? 0,
-        attributedRevenueCents: stats?.revenueCents ?? 0,
-        attributedOrderCountInRange: statsInRange?.count ?? 0,
-        attributedRevenueCentsInRange: statsInRange?.revenueCents ?? 0,
-        totalSends: sendStats?.total ?? 0,
-        sendsInRange: sendStats?.inRange ?? 0,
-        reviewsWritten: isReviewAutomation ? reviewsWritten : null,
-        reviewRequestsSent: isReviewAutomation ? reviewRequestsSent : null,
-      }
-    })
+    return {
+      automations: automations.map((automation) => {
+        const stats = statsByAutomationId.get(automation.id)
+        const statsInRange = statsInRangeByAutomationId.get(automation.id)
+        const sendStats = sendStatsByAutomationId.get(automation.id)
+        const isReviewAutomation =
+          automation.event_type === 'post_purchase_review'
+        return {
+          ...automation,
+          attributedOrderCount: stats?.count ?? 0,
+          attributedRevenueCents: stats?.revenueCents ?? 0,
+          attributedOrderCountInRange: statsInRange?.count ?? 0,
+          attributedRevenueCentsInRange: statsInRange?.revenueCents ?? 0,
+          totalSends: sendStats?.total ?? 0,
+          sendsInRange: sendStats?.inRange ?? 0,
+          reviewsWritten: isReviewAutomation ? reviewsWritten : null,
+          reviewRequestsSent: isReviewAutomation ? reviewRequestsSent : null,
+        }
+      }),
+      overall,
+    }
   })
 
 export const getEmailAutomationById = createServerFn({ method: 'GET' })
