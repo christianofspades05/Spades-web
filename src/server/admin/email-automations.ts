@@ -23,6 +23,152 @@ export interface EmailContact {
 
 const CONTACTS_PAGE_SIZE = 100
 
+const ATTRIBUTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
+export interface AttributionOrderInput {
+  id: string
+  shipping_address: unknown
+  placed_at: string
+  total_cents: number
+}
+
+export interface AttributionSendInput {
+  email_automation_id: string
+  recipient_email: string
+  sent_at: string
+}
+
+export interface AttributionStats {
+  statsByAutomationId: Map<string, { count: number; revenueCents: number }>
+  statsInRangeByAutomationId: Map<
+    string,
+    { count: number; revenueCents: number }
+  >
+  sendStatsByAutomationId: Map<string, { total: number; inRange: number }>
+}
+
+/** Pure attribution math, pulled out of listEmailAutomations below so it can
+ *  be unit-tested directly — createServerFn's compiler transform makes the
+ *  handler itself impractical to invoke from a plain vitest run. */
+export function computeAttributionStats(
+  orders: AttributionOrderInput[],
+  sends: AttributionSendInput[],
+  rangeStartMs: number,
+  rangeEndMs: number,
+): AttributionStats {
+  const ordersByEmail = new Map<
+    string,
+    { id: string; placedAtMs: number; totalCents: number }[]
+  >()
+  for (const order of orders) {
+    const address = order.shipping_address as { email?: string } | null
+    const email = address?.email?.toLowerCase()
+    if (!email) continue
+    const list = ordersByEmail.get(email) ?? []
+    list.push({
+      id: order.id,
+      placedAtMs: new Date(order.placed_at).getTime(),
+      totalCents: order.total_cents,
+    })
+    ordersByEmail.set(email, list)
+  }
+  for (const list of ordersByEmail.values()) {
+    list.sort((a, b) => a.placedAtMs - b.placedAtMs)
+  }
+
+  /** First order (if any) this email placed within ATTRIBUTION_WINDOW_MS
+   *  after sentAtMs — see EmailAutomationWithStats' own doc comment for why
+   *  this replaced discount-code matching. */
+  function firstOrderWithin(email: string, sentAtMs: number) {
+    const list = ordersByEmail.get(email.toLowerCase())
+    if (!list) return null
+    const windowEnd = sentAtMs + ATTRIBUTION_WINDOW_MS
+    return (
+      list.find((o) => o.placedAtMs >= sentAtMs && o.placedAtMs <= windowEnd) ??
+      null
+    )
+  }
+
+  const statsByAutomationId = new Map<
+    string,
+    { count: number; revenueCents: number }
+  >()
+  const statsInRangeByAutomationId = new Map<
+    string,
+    { count: number; revenueCents: number }
+  >()
+  // Grouped per automation, then walked chronologically, so a recipient who
+  // triggers the same automation twice before finally buying (e.g. an
+  // abandoned-cart email, then the cart's abandoned again days later and
+  // re-emailed) has that one eventual order credited to whichever send
+  // happened first — not double-counted once per matching send. Cross-
+  // automation attribution is intentionally NOT deduped this way (see
+  // EmailAutomationWithStats' doc comment): the same order can still
+  // legitimately count toward multiple different automations' rows.
+  const sendsByAutomationId = new Map<string, AttributionSendInput[]>()
+  for (const send of sends) {
+    const list = sendsByAutomationId.get(send.email_automation_id) ?? []
+    list.push(send)
+    sendsByAutomationId.set(send.email_automation_id, list)
+  }
+
+  for (const [automationId, automationSends] of sendsByAutomationId) {
+    const sortedSends = [...automationSends].sort(
+      (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+    )
+    const claimedOrderIds = new Set<string>()
+    for (const send of sortedSends) {
+      const sentAtMs = new Date(send.sent_at).getTime()
+      const match = firstOrderWithin(send.recipient_email, sentAtMs)
+      if (!match || claimedOrderIds.has(match.id)) continue
+      claimedOrderIds.add(match.id)
+
+      const existing = statsByAutomationId.get(automationId) ?? {
+        count: 0,
+        revenueCents: 0,
+      }
+      existing.count += 1
+      existing.revenueCents += match.totalCents
+      statsByAutomationId.set(automationId, existing)
+
+      if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
+        const existingInRange = statsInRangeByAutomationId.get(
+          automationId,
+        ) ?? { count: 0, revenueCents: 0 }
+        existingInRange.count += 1
+        existingInRange.revenueCents += match.totalCents
+        statsInRangeByAutomationId.set(automationId, existingInRange)
+      }
+    }
+  }
+
+  // Counted straight off the `sends` rows already fetched above — no extra
+  // round trip needed now that every send is already in memory for the
+  // attribution matching.
+  const sendStatsByAutomationId = new Map<
+    string,
+    { total: number; inRange: number }
+  >()
+  for (const send of sends) {
+    const existing = sendStatsByAutomationId.get(send.email_automation_id) ?? {
+      total: 0,
+      inRange: 0,
+    }
+    existing.total += 1
+    const sentAtMs = new Date(send.sent_at).getTime()
+    if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
+      existing.inRange += 1
+    }
+    sendStatsByAutomationId.set(send.email_automation_id, existing)
+  }
+
+  return {
+    statsByAutomationId,
+    statsInRangeByAutomationId,
+    sendStatsByAutomationId,
+  }
+}
+
 export interface EmailAutomationWithStats extends EmailAutomation {
   /** Revenue attributed to this automation — every non-cancelled/failed
    *  order placed by a recipient within ATTRIBUTION_WINDOW_DAYS of one of
@@ -87,8 +233,6 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
 
     const automationIds = automations.map((a) => a.id)
 
-    const ATTRIBUTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
-
     // Every non-void order's customer email + placed_at + total, all-time
     // — paginated (fetchAllRows), since a plain unbounded select silently
     // caps at PostgREST's 1000-row default once this crosses that (already
@@ -96,44 +240,17 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
     // scale; if it ever becomes a real cost, push this same aggregation
     // into a Postgres RPC instead (see 0077_visitor_analytics_aggregate_
     // functions.sql's get_visitor_totals for the precedent).
-    const orders = await fetchAllRows<{
-      shipping_address: unknown
-      placed_at: string
-      total_cents: number
-    }>((offset) =>
+    const orders = await fetchAllRows<AttributionOrderInput>((offset) =>
       admin
         .from('orders')
-        .select('shipping_address, placed_at, total_cents')
+        .select('id, shipping_address, placed_at, total_cents')
         .not('status', 'in', '(cancelled,failed)')
         .range(offset, offset + 999),
     )
 
-    const ordersByEmail = new Map<
-      string,
-      { placedAtMs: number; totalCents: number }[]
-    >()
-    for (const order of orders) {
-      const address = order.shipping_address as { email?: string } | null
-      const email = address?.email?.toLowerCase()
-      if (!email) continue
-      const list = ordersByEmail.get(email) ?? []
-      list.push({
-        placedAtMs: new Date(order.placed_at).getTime(),
-        totalCents: order.total_cents,
-      })
-      ordersByEmail.set(email, list)
-    }
-    for (const list of ordersByEmail.values()) {
-      list.sort((a, b) => a.placedAtMs - b.placedAtMs)
-    }
-
     // Every logged send across these automations, all-time — same
     // pagination reasoning as orders above (already ~8,700 rows).
-    const sends = await fetchAllRows<{
-      email_automation_id: string
-      recipient_email: string
-      sent_at: string
-    }>((offset) =>
+    const sends = await fetchAllRows<AttributionSendInput>((offset) =>
       admin
         .from('email_sends')
         .select('email_automation_id, recipient_email, sent_at')
@@ -141,71 +258,13 @@ export const listEmailAutomations = createServerFn({ method: 'GET' })
         .range(offset, offset + 999),
     )
 
-    /** First order (if any) this email placed within ATTRIBUTION_WINDOW_MS
-     *  after sentAtMs — see EmailAutomationWithStats' own doc comment for
-     *  why this replaced discount-code matching. */
-    function firstOrderWithin(email: string, sentAtMs: number) {
-      const list = ordersByEmail.get(email.toLowerCase())
-      if (!list) return null
-      const windowEnd = sentAtMs + ATTRIBUTION_WINDOW_MS
-      return (
-        list.find((o) => o.placedAtMs >= sentAtMs && o.placedAtMs <= windowEnd) ??
-        null
-      )
-    }
-
     const rangeStartMs = new Date(rangeStart).getTime()
     const rangeEndMs = new Date(rangeEnd).getTime()
-    const statsByAutomationId = new Map<
-      string,
-      { count: number; revenueCents: number }
-    >()
-    const statsInRangeByAutomationId = new Map<
-      string,
-      { count: number; revenueCents: number }
-    >()
-    for (const send of sends) {
-      const sentAtMs = new Date(send.sent_at).getTime()
-      const match = firstOrderWithin(send.recipient_email, sentAtMs)
-      if (!match) continue
-
-      const existing = statsByAutomationId.get(send.email_automation_id) ?? {
-        count: 0,
-        revenueCents: 0,
-      }
-      existing.count += 1
-      existing.revenueCents += match.totalCents
-      statsByAutomationId.set(send.email_automation_id, existing)
-
-      if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
-        const existingInRange = statsInRangeByAutomationId.get(
-          send.email_automation_id,
-        ) ?? { count: 0, revenueCents: 0 }
-        existingInRange.count += 1
-        existingInRange.revenueCents += match.totalCents
-        statsInRangeByAutomationId.set(send.email_automation_id, existingInRange)
-      }
-    }
-
-    // Counted straight off the `sends` rows already fetched above — no
-    // extra round trip needed now that every send is already in memory
-    // for the attribution matching.
-    const sendStatsByAutomationId = new Map<
-      string,
-      { total: number; inRange: number }
-    >()
-    for (const send of sends) {
-      const existing = sendStatsByAutomationId.get(send.email_automation_id) ?? {
-        total: 0,
-        inRange: 0,
-      }
-      existing.total += 1
-      const sentAtMs = new Date(send.sent_at).getTime()
-      if (sentAtMs >= rangeStartMs && sentAtMs <= rangeEndMs) {
-        existing.inRange += 1
-      }
-      sendStatsByAutomationId.set(send.email_automation_id, existing)
-    }
+    const {
+      statsByAutomationId,
+      statsInRangeByAutomationId,
+      sendStatsByAutomationId,
+    } = computeAttributionStats(orders, sends, rangeStartMs, rangeEndMs)
 
     // post_purchase_review only — a direct order-level join (did this
     // specific order, which we know got a review request, ever get a
