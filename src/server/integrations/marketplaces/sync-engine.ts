@@ -1825,6 +1825,24 @@ async function upsertVariantMappings(
 ): Promise<void> {
   const now = new Date().toISOString()
   for (const m of matches) {
+    // A relisted product gets a brand-new external_variant_id, so the
+    // upsert below (keyed on external_variant_id, matching the table's
+    // unique constraint) can't find the prior row for this variant to
+    // replace — it would insert a second row instead, leaving the old one
+    // pointing at the now-dead listing and silently failing every push
+    // forever. Confirmed live: TikTok Shop relisted "Spades Savage Instinct
+    // Boxy Crop Teee" under a new product id, the old mapping row was never
+    // cleared, and every inventory push to it errored with TikTok's
+    // "product must be DRAFT/PENDING/ACTIVATE/..." status check. Clear any
+    // other row for this (connection, variant) pair before writing the new one.
+    const { error: staleError } = await admin
+      .from('marketplace_product_mappings')
+      .delete()
+      .eq('marketplace_connection_id', connectionId)
+      .eq('variant_id', m.variantId)
+      .neq('external_variant_id', m.externalVariantId)
+    if (staleError) throw staleError
+
     const { error } = await admin.from('marketplace_product_mappings').upsert(
       {
         marketplace_connection_id: connectionId,
@@ -1854,8 +1872,9 @@ interface UnlinkedProduct {
  * as linked here even though the row exists — it was created before TikTok
  * product ids were tracked (or a push never got that far), so its product
  * can't have its inventory pushed at all until it's reconnected. Re-running
- * either auto-connect mode updates that same row in place (upsert is keyed
- * on external_variant_id, not variant_id) rather than duplicating it.
+ * either auto-connect mode replaces that same row rather than duplicating it
+ * — upsertVariantMappings clears any prior row for the (connection, variant)
+ * pair before writing, since the upsert itself is keyed on external_variant_id.
  */
 async function getUnlinkedProducts(
   admin: ReturnType<typeof getSupabaseAdminClient>,
