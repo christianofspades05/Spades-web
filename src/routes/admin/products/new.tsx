@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Upload, X } from 'lucide-react'
+import { Loader2, Upload, X } from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
 import {
   createProduct,
@@ -336,12 +336,18 @@ function NewProductPage() {
             onDragOver={handleImagesDragOver}
             onDragLeave={handleImagesDragLeave}
             onDrop={handleImagesDrop}
-            className={`-m-2 flex flex-col gap-4 rounded-lg border-2 border-dashed p-2 transition ${
+            className={`relative -m-2 flex flex-col gap-4 rounded-lg border-2 border-dashed p-2 transition ${
               isDraggingFilesOver
                 ? 'border-neutral-900 bg-neutral-50'
                 : 'border-transparent'
             }`}
           >
+            {uploading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 text-sm font-medium text-neutral-700">
+                <Loader2 size={16} className="animate-spin" />
+                Uploading…
+              </div>
+            )}
             <label className={labelClassName}>
               Image URLs (one per line)
               <textarea

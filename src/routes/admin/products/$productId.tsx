@@ -5,7 +5,15 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { Copy, GripVertical, Package, Pencil, Upload, X } from 'lucide-react'
+import {
+  Copy,
+  GripVertical,
+  Loader2,
+  Package,
+  Pencil,
+  Upload,
+  X,
+} from 'lucide-react'
 import { listAllCollections } from '#/server/admin/collections'
 import { getProductsLastActivity } from '#/server/admin/last-activity'
 import { LastUpdatedBadge } from '#/components/admin/LastUpdatedBadge'
@@ -407,12 +415,18 @@ function EditProductPage() {
                 onDragOver={handleMediaDragOver}
                 onDragLeave={handleMediaDragLeave}
                 onDrop={handleMediaDrop}
-                className={`-m-2 rounded-lg border-2 border-dashed p-2 transition ${
+                className={`relative -m-2 rounded-lg border-2 border-dashed p-2 transition ${
                   isDraggingFilesOver
                     ? 'border-neutral-900 bg-neutral-50'
                     : 'border-transparent'
                 }`}
               >
+                {uploading && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 text-sm font-medium text-neutral-700">
+                    <Loader2 size={16} className="animate-spin" />
+                    Uploading…
+                  </div>
+                )}
                 <p className="mb-3 text-sm font-semibold text-neutral-900">
                   Media{' '}
                   <span className="font-normal text-neutral-400">
