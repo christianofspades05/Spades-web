@@ -72,6 +72,7 @@ function NewProductPage() {
   const [imagesText, setImagesText] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
+  const [isDraggingFilesOver, setIsDraggingFilesOver] = useState(false)
   const [collectionIds, setCollectionIds] = useState<string[]>([])
   const [variants, setVariants] = useState<DraftVariant[]>([])
   const [pricePesos, setPricePesos] = useState(0)
@@ -99,9 +100,11 @@ function NewProductPage() {
     setVariants((prev) => prev.filter((v) => v.key !== key))
   }
 
-  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? [])
-    event.target.value = ''
+  /** Shared by the file-picker input and drag-and-drop below — dropping
+   *  image files (from Finder, or another browser tab showing an image)
+   *  directly onto the image area uploads them exactly like clicking
+   *  "Upload from computer," just without that extra click. */
+  async function uploadFiles(files: File[]) {
     if (files.length === 0) return
 
     const tooLarge = files.filter((f) => f.size > 8 * 1024 * 1024)
@@ -154,6 +157,33 @@ function NewProductPage() {
       setError(parts.join('; '))
     }
     setUploading(false)
+  }
+
+  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    await uploadFiles(files)
+  }
+
+  // Gated on `types.includes('Files')` so this only fires for an actual
+  // OS-level file drag (Finder, or an image dragged out of another browser
+  // tab) — see the identical comment on $productId.tsx's handleMediaDragOver.
+  function handleImagesDragOver(event: React.DragEvent) {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setIsDraggingFilesOver(true)
+  }
+
+  function handleImagesDragLeave(event: React.DragEvent) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setIsDraggingFilesOver(false)
+  }
+
+  async function handleImagesDrop(event: React.DragEvent) {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setIsDraggingFilesOver(false)
+    await uploadFiles(Array.from(event.dataTransfer.files))
   }
 
   function handleNameChange(value: string) {
@@ -302,28 +332,46 @@ function NewProductPage() {
               </select>
             </label>
           </div>
-          <label className={labelClassName}>
-            Image URLs (one per line)
-            <textarea
-              value={imagesText}
-              onChange={(e) => setImagesText(e.target.value)}
-              rows={3}
-              placeholder="https://…"
-              className={inputClassName}
-            />
-          </label>
-          <label className={`${buttonSecondaryClassName} w-fit cursor-pointer`}>
-            <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
-            {uploading ? 'Uploading…' : 'Upload from computer'}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileSelect}
-              disabled={uploading}
-              className="hidden"
-            />
-          </label>
+          <div
+            onDragOver={handleImagesDragOver}
+            onDragLeave={handleImagesDragLeave}
+            onDrop={handleImagesDrop}
+            className={`-m-2 flex flex-col gap-4 rounded-lg border-2 border-dashed p-2 transition ${
+              isDraggingFilesOver
+                ? 'border-neutral-900 bg-neutral-50'
+                : 'border-transparent'
+            }`}
+          >
+            <label className={labelClassName}>
+              Image URLs (one per line)
+              <textarea
+                value={imagesText}
+                onChange={(e) => setImagesText(e.target.value)}
+                rows={3}
+                placeholder="https://…"
+                className={inputClassName}
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <label
+                className={`${buttonSecondaryClassName} w-fit cursor-pointer`}
+              >
+                <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
+                {uploading ? 'Uploading…' : 'Upload from computer'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileSelect}
+                  disabled={uploading}
+                  className="hidden"
+                />
+              </label>
+              <span className="text-xs text-neutral-400">
+                or drag and drop images here
+              </span>
+            </div>
+          </div>
           <label className={labelClassName}>
             Tags
             <TagsInput tags={tags} onChange={setTags} />

@@ -134,6 +134,7 @@ function EditProductPage() {
   const [newImageUrl, setNewImageUrl] = useState('')
   const [uploading, setUploading] = useState(false)
   const [dragImageIndex, setDragImageIndex] = useState<number | null>(null)
+  const [isDraggingFilesOver, setIsDraggingFilesOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -172,9 +173,11 @@ function EditProductPage() {
     setForm({ ...form, images: next })
   }
 
-  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? [])
-    event.target.value = ''
+  /** Shared by the file-picker input and drag-and-drop below — dropping
+   *  image files (from Finder, or another browser tab showing an image)
+   *  directly onto the Media card uploads them exactly like clicking
+   *  "Upload from computer," just without that extra click. */
+  async function uploadFiles(files: File[]) {
     if (files.length === 0) return
 
     const tooLarge = files.filter((f) => f.size > 8 * 1024 * 1024)
@@ -234,6 +237,35 @@ function EditProductPage() {
       setError(parts.join('; '))
     }
     setUploading(false)
+  }
+
+  async function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    await uploadFiles(files)
+  }
+
+  // Gated on `types.includes('Files')` so this never fires for the
+  // thumbnails' own internal reorder-drag below (a same-page drag of one of
+  // our <img> divs carries no real Files, only dragImageIndex state) — only
+  // an actual OS-level file drag (Finder, or an image dragged out of another
+  // browser tab) has a 'Files' entry in dataTransfer.types.
+  function handleMediaDragOver(event: React.DragEvent) {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setIsDraggingFilesOver(true)
+  }
+
+  function handleMediaDragLeave(event: React.DragEvent) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setIsDraggingFilesOver(false)
+  }
+
+  async function handleMediaDrop(event: React.DragEvent) {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setIsDraggingFilesOver(false)
+    await uploadFiles(Array.from(event.dataTransfer.files))
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -371,80 +403,94 @@ function EditProductPage() {
             </Card>
 
             <Card className="p-6">
-              <p className="mb-3 text-sm font-semibold text-neutral-900">
-                Media{' '}
-                <span className="font-normal text-neutral-400">
-                  ({form.images.length}/{MAX_PRODUCT_IMAGES})
-                </span>
-              </p>
-              <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
-                {form.images.map((src, index) => (
-                  <div
-                    key={`${src}-${index}`}
-                    draggable
-                    onDragStart={() => setDragImageIndex(index)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => moveImage(index)}
-                    className="group relative aspect-square cursor-grab overflow-hidden rounded-md border border-neutral-200 active:cursor-grabbing"
-                  >
-                    <img
-                      src={src}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                    <span className="absolute top-1 left-1 rounded-full bg-black/60 p-1 text-white opacity-0 group-hover:opacity-100">
-                      <GripVertical size={12} />
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeImage(index)}
-                      className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white opacity-0 group-hover:opacity-100"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              {form.images.length < MAX_PRODUCT_IMAGES ? (
-                <>
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      placeholder="Image URL"
-                      className={`${inputClassName} flex-1`}
-                    />
-                    <button
-                      type="button"
-                      onClick={addImage}
-                      className={buttonSecondaryClassName}
-                    >
-                      Add
-                    </button>
-                  </div>
-                  <div className="mt-2">
-                    <label
-                      className={`${buttonSecondaryClassName} w-fit cursor-pointer`}
-                    >
-                      <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
-                      {uploading ? 'Uploading…' : 'Upload from computer'}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleFileSelect}
-                        disabled={uploading}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-3 text-sm text-neutral-400">
-                  Maximum of {MAX_PRODUCT_IMAGES} images reached — remove one to
-                  add another.
+              <div
+                onDragOver={handleMediaDragOver}
+                onDragLeave={handleMediaDragLeave}
+                onDrop={handleMediaDrop}
+                className={`-m-2 rounded-lg border-2 border-dashed p-2 transition ${
+                  isDraggingFilesOver
+                    ? 'border-neutral-900 bg-neutral-50'
+                    : 'border-transparent'
+                }`}
+              >
+                <p className="mb-3 text-sm font-semibold text-neutral-900">
+                  Media{' '}
+                  <span className="font-normal text-neutral-400">
+                    ({form.images.length}/{MAX_PRODUCT_IMAGES})
+                  </span>
                 </p>
-              )}
+                <div className="grid grid-cols-4 gap-3 sm:grid-cols-5">
+                  {form.images.map((src, index) => (
+                    <div
+                      key={`${src}-${index}`}
+                      draggable
+                      onDragStart={() => setDragImageIndex(index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => moveImage(index)}
+                      className="group relative aspect-square cursor-grab overflow-hidden rounded-md border border-neutral-200 active:cursor-grabbing"
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                      <span className="absolute top-1 left-1 rounded-full bg-black/60 p-1 text-white opacity-0 group-hover:opacity-100">
+                        <GripVertical size={12} />
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white opacity-0 group-hover:opacity-100"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {form.images.length < MAX_PRODUCT_IMAGES ? (
+                  <>
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        value={newImageUrl}
+                        onChange={(e) => setNewImageUrl(e.target.value)}
+                        placeholder="Image URL"
+                        className={`${inputClassName} flex-1`}
+                      />
+                      <button
+                        type="button"
+                        onClick={addImage}
+                        className={buttonSecondaryClassName}
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <label
+                        className={`${buttonSecondaryClassName} w-fit cursor-pointer`}
+                      >
+                        <Upload size={14} className="mr-1.5 -ml-0.5 inline" />
+                        {uploading ? 'Uploading…' : 'Upload from computer'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={handleFileSelect}
+                          disabled={uploading}
+                          className="hidden"
+                        />
+                      </label>
+                      <span className="text-xs text-neutral-400">
+                        or drag and drop images here
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-neutral-400">
+                    Maximum of {MAX_PRODUCT_IMAGES} images reached — remove
+                    one to add another.
+                  </p>
+                )}
+              </div>
             </Card>
           </div>
 
