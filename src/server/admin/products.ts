@@ -19,6 +19,7 @@ import { slugify } from '#/lib/utils/slug'
 import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
+import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
 import {
   invalidateCollectionListingCache,
   invalidateProductDetailCache,
@@ -58,21 +59,33 @@ const SORT_COLUMNS = {
   updated: 'updated_at',
 } as const
 
+/** A collection's membership is manual pins UNION rule matches (see
+ *  scoped-products.ts's own doc comment) — a collection like "Mesh Shorts"
+ *  can be pure rules with zero rows in product_collections. Confirmed live:
+ *  the admin Products page's collection filter used to check only
+ *  product_collections and reported "No products found" for every
+ *  rule-based collection, even ones with dozens of real active products
+ *  matching their rule. Reuses the same cached rule-matching resolver the
+ *  storefront/discounts/COD-restrictions already rely on, rather than a
+ *  second, incomplete implementation of the same union. */
 async function resolveCollectionProductIds(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   collectionId: string,
 ): Promise<string[]> {
-  const { data: memberships, error } = await admin
-    .from('product_collections')
-    .select('product_id')
-    .eq('collection_id', collectionId)
+  const { data: allProducts, error } = await admin.from('products').select('id')
   if (error) throw error
-  const productIds = memberships.map((m) => m.product_id)
+  const matched = await resolveCollectionScopedProductIds(
+    admin,
+    [collectionId],
+    allProducts.map((p) => p.id),
+  )
   // A collection with zero members would otherwise leave `.in('id', [])`
   // unfiltered (PostgREST treats an empty list as "no restriction"), which
   // would wrongly return every product instead of none — this placeholder
   // id can never match a real row.
-  return productIds.length ? productIds : ['00000000-0000-0000-0000-000000000000']
+  return matched.size
+    ? Array.from(matched)
+    : ['00000000-0000-0000-0000-000000000000']
 }
 
 const listAllProductsInputSchema = z.object({
@@ -227,17 +240,9 @@ export const getProductsCount = createServerFn({ method: 'GET' })
     if (data.productType) query = query.eq('product_type', data.productType)
 
     if (data.collectionId) {
-      const { data: memberships, error: membershipError } = await admin
-        .from('product_collections')
-        .select('product_id')
-        .eq('collection_id', data.collectionId)
-      if (membershipError) throw membershipError
-      const productIds = memberships.map((m) => m.product_id)
       query = query.in(
         'id',
-        productIds.length
-          ? productIds
-          : ['00000000-0000-0000-0000-000000000000'],
+        await resolveCollectionProductIds(admin, data.collectionId),
       )
     }
 
