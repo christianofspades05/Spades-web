@@ -273,6 +273,27 @@ export interface MarketplaceAdapter {
     externalOrderIds: string[],
   ) => Promise<Record<string, unknown>[]>
 
+  /**
+   * Re-fetches the fee/tax breakdown the platform deducts from the seller's
+   * payout for one already-imported order. pullOrders' per-order enrichment
+   * fetch (see its filterExistingExternalOrderIds option) only ever runs
+   * once, at first import — but a platform's own payout calculation can
+   * keep filling in additional fee lines asynchronously well after that,
+   * on its own schedule, independent of the order's own status. Confirmed
+   * live: Shopee order 260930D5QR0GXE's fee breakdown, captured same-day as
+   * the order was placed, was missing a ₱13 "Ads Sales Top Up Fee" line
+   * that only appeared in Shopee's own seller-center payment info the next
+   * day — the escrow record isn't finalized atomically. Returns null when
+   * the platform hasn't calculated anything yet (distinct from an empty
+   * array, which means "calculated, zero fees"). Optional: only
+   * implemented where a platform exposes this breakdown at all (currently
+   * Shopee) — see sync-engine.ts's reconcilePlatformFees.
+   */
+  refreshPlatformFees?: (
+    connection: MarketplaceConnection,
+    externalOrderId: string,
+  ) => Promise<{ label: string; amountCents: number }[] | null>
+
   /** Normalizes one raw platform order into our internal shape. */
   mapOrderToInternalFormat: (
     platformOrderData: Record<string, unknown>,

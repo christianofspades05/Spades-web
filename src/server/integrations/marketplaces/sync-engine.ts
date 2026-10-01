@@ -1296,6 +1296,93 @@ export async function reconcileNonTerminalOrders(
   return { scanned: orders.length, updated, failed }
 }
 
+const PLATFORM_FEES_RECONCILE_LOOKBACK_DAYS = 30
+
+/**
+ * Re-fetches the fee/tax breakdown for every recent order of `marketplace`,
+ * independent of pullOrders' first-import-only fetch. Exists because a
+ * platform's payout calculation isn't necessarily finalized all at once —
+ * confirmed live on Shopee: an order's commission/service/transaction fee
+ * and withholding tax were all present the same day it was placed, but its
+ * "Ads Sales Top Up Fee" line only appeared in Shopee's own seller-center
+ * payment info the next day, after our one-shot fetch had already run and
+ * been discarded (the existing-order branch of importOrder never reads
+ * platformFees at all). 30 days comfortably covers that kind of lag without
+ * meaningfully adding to API call volume — confirmed live at ~370 Shopee
+ * orders/30 days for this shop, trivial next to Shopee's rate limits.
+ * Skips marketplaces whose adapter doesn't implement refreshPlatformFees
+ * (no fee/payout breakdown to reconcile there at all).
+ */
+export async function reconcilePlatformFees(
+  marketplace: SyncableMarketplace,
+): Promise<{ scanned: number; updated: number; failed: number }> {
+  const adapter = getAdapter(marketplace)
+  if (!adapter.refreshPlatformFees) {
+    return { scanned: 0, updated: 0, failed: 0 }
+  }
+
+  const connection = await getActiveConnection(marketplace)
+  if (!connection) throw new MarketplaceNotConnectedError(marketplace)
+  const fresh = await ensureFreshConnection(connection)
+
+  const admin = getSupabaseAdminClient()
+  const since = new Date(
+    Date.now() - PLATFORM_FEES_RECONCILE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+  const { data: orders, error } = await admin
+    .from('orders')
+    .select('id, external_order_id, platform_fees_cents, platform_fee_breakdown')
+    .eq('source', marketplace)
+    .not('external_order_id', 'is', null)
+    .gte('placed_at', since)
+  if (error) throw error
+
+  let updated = 0
+  let failed = 0
+
+  for (const order of orders) {
+    try {
+      const fees = await adapter.refreshPlatformFees(
+        fresh,
+        order.external_order_id,
+      )
+      // null means "platform hasn't calculated a payout yet" — leave
+      // whatever's already stored untouched rather than wiping it to empty.
+      if (!fees) continue
+
+      const newTotal = fees.reduce((sum, f) => sum + f.amountCents, 0)
+      const unchanged =
+        newTotal === order.platform_fees_cents &&
+        JSON.stringify(fees) === JSON.stringify(order.platform_fee_breakdown)
+      if (unchanged) continue
+
+      const { error: updateError } = await admin
+        .from('orders')
+        .update({ platform_fees_cents: newTotal, platform_fee_breakdown: fees })
+        .eq('id', order.id)
+      if (updateError) throw updateError
+      updated += 1
+    } catch (err) {
+      failed += 1
+      await logSync(
+        marketplace,
+        'reconcile_platform_fees',
+        'failed',
+        { orderId: order.id },
+        getErrorMessage(err),
+      )
+    }
+  }
+
+  await logSync(marketplace, 'reconcile_platform_fees', 'success', {
+    scanned: orders.length,
+    updated,
+    failed,
+  })
+
+  return { scanned: orders.length, updated, failed }
+}
+
 // ---------------------------------------------------------------------------
 // Return pull
 // ---------------------------------------------------------------------------

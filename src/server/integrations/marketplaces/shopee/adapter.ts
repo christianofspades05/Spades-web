@@ -380,6 +380,32 @@ async function fetchOrderIncome(
   }
 }
 
+/** Each amount is cents-rounded independently (rather than deriving one
+ *  from the others) since Shopee's fee fields aren't guaranteed to sum
+ *  exactly to a whole-peso figure. Shared by mapOrderToInternalFormat (a
+ *  brand-new order's first fetch) and refreshPlatformFees below (an
+ *  existing order's later re-fetch) so both read this exact same set of
+ *  fields the exact same way. */
+function mapIncomeToPlatformFees(
+  income: ShopeeOrderIncome | null | undefined,
+): { label: string; amountCents: number }[] | undefined {
+  if (!income) return undefined
+  return (
+    [
+      ['Commission fee', income.commission_fee],
+      ['Service fee', income.service_fee],
+      ['Transaction fee', income.seller_transaction_fee],
+      ['Withholding tax', income.withholding_tax],
+      [
+        'Ads sales top up fee',
+        income.ads_escrow_top_up_fee_or_technical_support_fee,
+      ],
+    ] as const
+  ).flatMap(([label, amount]) =>
+    amount ? [{ label, amountCents: Math.round(amount * 100) }] : [],
+  )
+}
+
 export const shopeeAdapter: MarketplaceAdapter = {
   marketplace: 'shopee',
 
@@ -701,25 +727,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
     // Only present once Shopee has actually calculated the payout (see
     // fetchOrderIncome) — omitted (rather than a zeroed-out breakdown) for a
     // freshly-placed order so the UI can tell "no fees yet" apart from
-    // "zero fees charged." Each amount is cents-rounded independently
-    // (rather than deriving one from the others) since Shopee's fee fields
-    // aren't guaranteed to sum exactly to a whole-peso figure.
-    const platformFees = income
-      ? (
-          [
-            ['Commission fee', income.commission_fee],
-            ['Service fee', income.service_fee],
-            ['Transaction fee', income.seller_transaction_fee],
-            ['Withholding tax', income.withholding_tax],
-            [
-              'Ads sales top up fee',
-              income.ads_escrow_top_up_fee_or_technical_support_fee,
-            ],
-          ] as const
-        ).flatMap(([label, amount]) =>
-          amount ? [{ label, amountCents: Math.round(amount * 100) }] : [],
-        )
-      : undefined
+    // "zero fees charged."
+    const platformFees = mapIncomeToPlatformFees(income)
 
     return {
       externalOrderId: order.order_sn,
@@ -749,6 +758,12 @@ export const shopeeAdapter: MarketplaceAdapter = {
           }
         : null,
     }
+  },
+
+  async refreshPlatformFees(connection, externalOrderId) {
+    const { accessToken, shopId } = requireCredentials(connection)
+    const income = await fetchOrderIncome(accessToken, shopId, externalOrderId)
+    return mapIncomeToPlatformFees(income) ?? null
   },
 
   /**

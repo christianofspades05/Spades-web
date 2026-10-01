@@ -1068,3 +1068,143 @@ describe('pullReturnsForMarketplace — batches the per-return lookups', () => {
     expect(result).toEqual({ scanned: 2, processed: 2, failed: 0 })
   })
 })
+
+describe('reconcilePlatformFees', () => {
+  beforeEach(() => {
+    mockGetSupabaseAdminClient.mockReset()
+    mockGetAdapter.mockReset()
+  })
+
+  it('returns early without touching the database when the adapter has no refreshPlatformFees', async () => {
+    mockGetAdapter.mockReturnValue({})
+    mockGetSupabaseAdminClient.mockReturnValue({
+      from: () => {
+        throw new Error(
+          'admin.from should not be called when the adapter has no refreshPlatformFees',
+        )
+      },
+    })
+
+    const { reconcilePlatformFees } = await import('./sync-engine')
+    const result = await reconcilePlatformFees('shopee' as never)
+
+    expect(result).toEqual({ scanned: 0, updated: 0, failed: 0 })
+  })
+
+  it('updates only the orders whose fee breakdown actually changed, and leaves a not-yet-calculated order untouched', async () => {
+    const connection = {
+      id: 'conn-1',
+      marketplace: 'shopee',
+      status: 'active',
+      access_token_encrypted: 'token',
+      refresh_token_encrypted: 'refresh',
+      external_shop_id: 'shop-1',
+      token_expires_at: FAR_FUTURE,
+      inventory_sync_enabled: true,
+      price_sync_enabled: true,
+      price_markup_percent: 0,
+    }
+
+    const orders = [
+      {
+        id: 'order-a',
+        external_order_id: 'SN-A',
+        platform_fees_cents: 6700,
+        platform_fee_breakdown: [
+          { label: 'Commission fee', amountCents: 6700 },
+        ],
+      },
+      {
+        id: 'order-b',
+        external_order_id: 'SN-B',
+        platform_fees_cents: 6700,
+        platform_fee_breakdown: [
+          { label: 'Commission fee', amountCents: 6700 },
+        ],
+      },
+      {
+        id: 'order-c',
+        external_order_id: 'SN-C',
+        platform_fees_cents: 0,
+        platform_fee_breakdown: [],
+      },
+    ]
+
+    // SN-A: Shopee finalized a new fee line since first import — must
+    // update. SN-B: identical to what's already stored — must not update
+    // (and must not count as a failure). SN-C: Shopee hasn't calculated a
+    // payout at all yet (null) — must be left untouched, not zeroed out.
+    const refreshResultBySn: Record<
+      string,
+      { label: string; amountCents: number }[] | null
+    > = {
+      'SN-A': [
+        { label: 'Commission fee', amountCents: 6700 },
+        { label: 'Ads sales top up fee', amountCents: 1300 },
+      ],
+      'SN-B': [{ label: 'Commission fee', amountCents: 6700 }],
+      'SN-C': null,
+    }
+
+    const updateCalls: { id: string; payload: unknown }[] = []
+
+    mockGetAdapter.mockReturnValue({
+      refreshPlatformFees: async (_conn: unknown, externalOrderId: string) =>
+        refreshResultBySn[externalOrderId],
+    })
+
+    mockGetSupabaseAdminClient.mockReturnValue({
+      from(table: string) {
+        if (table === 'marketplace_connections') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: connection, error: null }),
+                }),
+              }),
+            }),
+          }
+        }
+        if (table === 'orders') {
+          return {
+            select: () => ({
+              eq: () => ({
+                not: () => ({
+                  gte: async () => ({ data: orders, error: null }),
+                }),
+              }),
+            }),
+            update: (payload: unknown) => ({
+              eq: async (_col: string, id: string) => {
+                updateCalls.push({ id, payload })
+                return { data: null, error: null }
+              },
+            }),
+          }
+        }
+        if (table === 'sync_logs') {
+          return { insert: async () => ({ data: null, error: null }) }
+        }
+        throw new Error(`unexpected table in test: ${table}`)
+      },
+    })
+
+    const { reconcilePlatformFees } = await import('./sync-engine')
+    const result = await reconcilePlatformFees('shopee' as never)
+
+    expect(result).toEqual({ scanned: 3, updated: 1, failed: 0 })
+    expect(updateCalls).toEqual([
+      {
+        id: 'order-a',
+        payload: {
+          platform_fees_cents: 8000,
+          platform_fee_breakdown: [
+            { label: 'Commission fee', amountCents: 6700 },
+            { label: 'Ads sales top up fee', amountCents: 1300 },
+          ],
+        },
+      },
+    ])
+  })
+})

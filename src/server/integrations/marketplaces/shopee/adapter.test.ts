@@ -291,3 +291,60 @@ describe('shopeeAdapter.pullOrders — invoice-pending orders', () => {
     expect(incomeCallsByOrderSn['SN-NORMAL']).toBe(1)
   })
 })
+
+describe('shopeeAdapter.refreshPlatformFees', () => {
+  beforeEach(() => {
+    mockCallShopeeApi.mockReset()
+  })
+
+  it('maps every known escrow fee field, including the Ads Sales Top Up Fee', async () => {
+    const adapter = await freshAdapter()
+    mockCallShopeeApi.mockImplementation(async ({ path }: { path: string }) => {
+      if (path === '/api/v2/payment/get_escrow_detail') {
+        return {
+          order_income: {
+            commission_fee: 67,
+            service_fee: 47,
+            seller_transaction_fee: 14,
+            withholding_tax: 2.21,
+            ads_escrow_top_up_fee_or_technical_support_fee: 13,
+          },
+        }
+      }
+      throw new Error(`Unexpected Shopee path in test: ${path}`)
+    })
+
+    const fees = await adapter.refreshPlatformFees!(
+      fakeConnection(),
+      'SN-123',
+    )
+
+    expect(fees).toEqual([
+      { label: 'Commission fee', amountCents: 6700 },
+      { label: 'Service fee', amountCents: 4700 },
+      { label: 'Transaction fee', amountCents: 1400 },
+      { label: 'Withholding tax', amountCents: 221 },
+      { label: 'Ads sales top up fee', amountCents: 1300 },
+    ])
+  })
+
+  it('returns null when Shopee has no payout calculated yet for this order', async () => {
+    const adapter = await freshAdapter()
+    mockCallShopeeApi.mockImplementation(async () => ({}))
+
+    const fees = await adapter.refreshPlatformFees!(fakeConnection(), 'SN-123')
+
+    expect(fees).toBeNull()
+  })
+
+  it('omits a fee line entirely when its amount is zero/absent, rather than showing ₱0', async () => {
+    const adapter = await freshAdapter()
+    mockCallShopeeApi.mockImplementation(async () => ({
+      order_income: { commission_fee: 67 },
+    }))
+
+    const fees = await adapter.refreshPlatformFees!(fakeConnection(), 'SN-123')
+
+    expect(fees).toEqual([{ label: 'Commission fee', amountCents: 6700 }])
+  })
+})

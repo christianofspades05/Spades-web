@@ -16,7 +16,10 @@
  * (see sync-engine.ts's dedupe on orders.external_order_id). Inventory
  * reconciliation is push-only (no "read platform inventory" method exists
  * on the adapter interface) — see sync-engine.ts's pushInventoryForVariant
- * comment on the accepted last-write-wins limitation.
+ * comment on the accepted last-write-wins limitation. reconcilePlatformFees
+ * re-checks every recent order's fee/payout breakdown too, since a
+ * platform's own payout calculation can add fee lines well after an
+ * order's first import (see that function's own doc comment).
  *
  * getSupabaseAdminClient/sync-engine are imported dynamically inside the
  * handler, not at the top level, for the same reason as
@@ -52,6 +55,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           pushInventoryForAllProducts,
           pushPriceForAllProducts,
           reconcileNonTerminalOrders,
+          reconcilePlatformFees,
         } = await import('#/server/integrations/marketplaces/sync-engine')
 
         const admin = getSupabaseAdminClient()
@@ -67,6 +71,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
         const reconcileResults: Record<string, unknown> = {}
         const priceResults: Record<string, unknown> = {}
         const staleOrderResults: Record<string, unknown> = {}
+        const feeReconcileResults: Record<string, unknown> = {}
 
         for (const connection of connections) {
           if (connection.marketplace === 'other') continue
@@ -112,6 +117,14 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
               error: err instanceof Error ? err.message : String(err),
             }
           }
+          try {
+            feeReconcileResults[connection.marketplace] =
+              await reconcilePlatformFees(connection.marketplace)
+          } catch (err) {
+            feeReconcileResults[connection.marketplace] = {
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
         }
 
         return Response.json({
@@ -121,6 +134,7 @@ export const Route = createFileRoute('/api/cron/sync-channels-daily')({
           reconcileResults,
           priceResults,
           staleOrderResults,
+          feeReconcileResults,
         })
       },
     },
