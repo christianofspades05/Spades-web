@@ -233,7 +233,15 @@ const listOrdersFilterSchema = z.object({
    *  so unlike zone/fulfillment above this needs no id-resolution step. */
   preOrder: z.enum(['yes', 'no']).optional(),
   q: z.string().optional(),
+  /** The Orders page's "Notice" button — Online Store orders placed more
+   *  than STALE_UNFULFILLED_DAYS ago with no shipment created at all yet.
+   *  Marketplace orders (TikTok Shop, Shopee, Lazada) are deliberately
+   *  excluded: their fulfillment SLA is the marketplace's own, outside our
+   *  control, so flagging those here would just be noise. */
+  staleUnfulfilled: z.boolean().optional(),
 })
+
+const STALE_UNFULFILLED_DAYS = 7
 
 /**
  * Every order id whose delivery method (see the admin Orders table's own
@@ -483,6 +491,15 @@ export const listOrders = createServerFn({ method: 'GET' })
       if (data.preOrder) {
         q = q.eq('has_pre_order_items', data.preOrder === 'yes')
       }
+      if (data.staleUnfulfilled) {
+        const cutoff = new Date(
+          Date.now() - STALE_UNFULFILLED_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString()
+        q = q
+          .eq('source', 'storefront')
+          .eq('has_shipment', false)
+          .lte('placed_at', cutoff)
+      }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
@@ -595,6 +612,15 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       if (hasShipment !== undefined) q = q.eq('has_shipment', hasShipment)
       if (data.preOrder) {
         q = q.eq('has_pre_order_items', data.preOrder === 'yes')
+      }
+      if (data.staleUnfulfilled) {
+        const cutoff = new Date(
+          Date.now() - STALE_UNFULFILLED_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString()
+        q = q
+          .eq('source', 'storefront')
+          .eq('has_shipment', false)
+          .lte('placed_at', cutoff)
       }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)

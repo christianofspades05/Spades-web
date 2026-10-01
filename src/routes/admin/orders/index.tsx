@@ -6,7 +6,12 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  TriangleAlert,
+} from 'lucide-react'
 import {
   bulkCancelOrders,
   getOrdersCount,
@@ -162,6 +167,7 @@ export const Route = createFileRoute('/admin/orders/')({
       .optional(),
     preOrder: z.enum(['yes', 'no']).optional(),
     q: z.string().optional(),
+    staleUnfulfilled: z.boolean().optional(),
     page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
@@ -181,18 +187,24 @@ export const Route = createFileRoute('/admin/orders/')({
       zone: deps.zone,
       preOrder: deps.preOrder,
       q: deps.q,
+      staleUnfulfilled: deps.staleUnfulfilled,
     }
     const overviewPromise: Promise<OrdersOverview> = getOrdersOverview({
       data: resolved,
     })
-    const [orders, { total }, overview] = await Promise.all([
-      listOrders({
-        data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
-      }),
-      getOrdersCount({ data: filters }),
-      overviewPromise,
-    ])
-    return { orders, total, overview }
+    const [orders, { total }, overview, { total: noticeCount }] =
+      await Promise.all([
+        listOrders({
+          data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
+        }),
+        getOrdersCount({ data: filters }),
+        overviewPromise,
+        // Independent of whatever filters are currently applied — this is
+        // the Notice button's own badge count, always "how many right now,"
+        // not "how many match the current filter view."
+        getOrdersCount({ data: { staleUnfulfilled: true } }),
+      ])
+    return { orders, total, overview, noticeCount }
   },
   component: OrdersPage,
 })
@@ -202,8 +214,13 @@ function OrdersPage() {
     orders,
     total,
     overview,
-  }: { orders: OrderWithCustomer[]; total: number; overview: OrdersOverview } =
-    Route.useLoaderData()
+    noticeCount,
+  }: {
+    orders: OrderWithCustomer[]
+    total: number
+    overview: OrdersOverview
+    noticeCount: number
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
@@ -463,6 +480,49 @@ function OrdersPage() {
               navigate({ search: (prev) => ({ ...prev, preOrder, page: 1 }) })
             }
           />
+          <button
+            type="button"
+            title="Online Store orders placed more than 7 days ago with no shipment created yet — marketplace orders aren't included, since their fulfillment SLA is the marketplace's own."
+            onClick={() =>
+              navigate({
+                search: (prev) =>
+                  search.staleUnfulfilled
+                    ? { ...prev, staleUnfulfilled: undefined, page: 1 }
+                    : {
+                        ...prev,
+                        staleUnfulfilled: true,
+                        status: undefined,
+                        source: undefined,
+                        fulfillment: undefined,
+                        zone: undefined,
+                        preOrder: undefined,
+                        q: undefined,
+                        page: 1,
+                      },
+              })
+            }
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              search.staleUnfulfilled
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : noticeCount > 0
+                  ? 'bg-red-50 text-red-700 hover:bg-red-100'
+                  : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+            }`}
+          >
+            <TriangleAlert size={13} />
+            Notice
+            {noticeCount > 0 && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none font-semibold ${
+                  search.staleUnfulfilled
+                    ? 'bg-white/25 text-white'
+                    : 'bg-red-600 text-white'
+                }`}
+              >
+                {noticeCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
