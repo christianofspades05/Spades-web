@@ -254,7 +254,26 @@ function ProductsPage() {
       const categories = product.collections
         .map((c) => c.collection.name)
         .join(', ')
-      return { product, available, isLowStock, categories }
+      // Active variants only — a discontinued/retired variant's old price
+      // shouldn't pull the displayed range down or up. Falls back to every
+      // variant if none are active, so a fully-inactive product still shows
+      // something instead of a blank cell.
+      const pricedVariants = product.variants.some((v) => v.is_active)
+        ? product.variants.filter((v) => v.is_active)
+        : product.variants
+      const priceCentsValues = pricedVariants.map((v) => v.price_cents)
+      const minPriceCents =
+        priceCentsValues.length > 0 ? Math.min(...priceCentsValues) : null
+      const maxPriceCents =
+        priceCentsValues.length > 0 ? Math.max(...priceCentsValues) : null
+      return {
+        product,
+        available,
+        isLowStock,
+        categories,
+        minPriceCents,
+        maxPriceCents,
+      }
     })
   }, [products])
 
@@ -563,6 +582,7 @@ function ProductsPage() {
                     />
                   </th>
                   <th className={tableHeadClassName}>Product</th>
+                  <th className={tableHeadClassName}>Price</th>
                   <th className={tableHeadClassName}>Status</th>
                   <th className={tableHeadClassName}>Inventory</th>
                   <th className={tableHeadClassName}>Collections</th>
@@ -570,72 +590,95 @@ function ProductsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ product, available, isLowStock, categories }) => {
-                  return (
-                    <tr key={product.id} className={tableRowClassName}>
-                      <td className={tableCellClassName}>
-                        <input
-                          type="checkbox"
-                          checked={selected.has(product.id)}
-                          onChange={() => toggleSelected(product.id)}
-                          className="size-4 cursor-pointer"
-                        />
-                      </td>
-                      <td className={tableCellClassName}>
-                        <div className="flex items-center gap-3">
-                          <Link
-                            to="/admin/products/$productId"
-                            params={{ productId: product.id }}
-                            className="flex items-center gap-3"
+                {rows.map(
+                  ({
+                    product,
+                    available,
+                    isLowStock,
+                    categories,
+                    minPriceCents,
+                    maxPriceCents,
+                  }) => {
+                    return (
+                      <tr key={product.id} className={tableRowClassName}>
+                        <td className={tableCellClassName}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(product.id)}
+                            onChange={() => toggleSelected(product.id)}
+                            className="size-4 cursor-pointer"
+                          />
+                        </td>
+                        <td className={tableCellClassName}>
+                          <div className="flex items-center gap-3">
+                            <Link
+                              to="/admin/products/$productId"
+                              params={{ productId: product.id }}
+                              className="flex items-center gap-3"
+                            >
+                              {product.images[0] ? (
+                                <img
+                                  src={product.images[0]}
+                                  alt=""
+                                  className="size-10 rounded-md border border-neutral-200 object-cover"
+                                />
+                              ) : (
+                                <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                                  <Package
+                                    size={16}
+                                    className="text-neutral-300"
+                                  />
+                                </div>
+                              )}
+                              <span className="font-medium text-neutral-900 hover:underline">
+                                {product.name}
+                              </span>
+                            </Link>
+                            <LastUpdatedBadge info={lastActivity[product.id]} />
+                          </div>
+                        </td>
+                        <td className={tableCellClassName}>
+                          {minPriceCents === null ? (
+                            <span className="text-neutral-400">—</span>
+                          ) : minPriceCents === maxPriceCents ? (
+                            formatCentsAsPHP(minPriceCents)
+                          ) : (
+                            `${formatCentsAsPHP(minPriceCents)}–${formatCentsAsPHP(maxPriceCents!)}`
+                          )}
+                        </td>
+                        <td className={tableCellClassName}>
+                          <StatusBadge status={product.status} kind="product" />
+                        </td>
+                        <td className={tableCellClassName}>
+                          <span
+                            className={
+                              isLowStock ? 'font-medium text-red-600' : ''
+                            }
                           >
-                            {product.images[0] ? (
-                              <img
-                                src={product.images[0]}
-                                alt=""
-                                className="size-10 rounded-md border border-neutral-200 object-cover"
-                              />
-                            ) : (
-                              <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
-                                <Package size={16} className="text-neutral-300" />
-                              </div>
-                            )}
-                            <span className="font-medium text-neutral-900 hover:underline">
-                              {product.name}
-                            </span>
-                          </Link>
-                          <LastUpdatedBadge info={lastActivity[product.id]} />
-                        </div>
-                      </td>
-                      <td className={tableCellClassName}>
-                        <StatusBadge status={product.status} kind="product" />
-                      </td>
-                      <td className={tableCellClassName}>
-                        <span
-                          className={
-                            isLowStock ? 'font-medium text-red-600' : ''
-                          }
+                            {available} in stock
+                          </span>
+                          <span className="text-neutral-500">
+                            {' '}
+                            for {product.variants.length}{' '}
+                            {product.variants.length === 1
+                              ? 'variant'
+                              : 'variants'}
+                          </span>
+                        </td>
+                        <td
+                          className={`${tableCellClassName} text-neutral-500`}
                         >
-                          {available} in stock
-                        </span>
-                        <span className="text-neutral-500">
-                          {' '}
-                          for {product.variants.length}{' '}
-                          {product.variants.length === 1
-                            ? 'variant'
-                            : 'variants'}
-                        </span>
-                      </td>
-                      <td className={`${tableCellClassName} text-neutral-500`}>
-                        {categories || 'No collections'}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} text-neutral-500 capitalize`}
-                      >
-                        {product.product_type}
-                      </td>
-                    </tr>
-                  )
-                })}
+                          {categories || 'No collections'}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} text-neutral-500 capitalize`}
+                        >
+                          {product.product_type}
+                        </td>
+                      </tr>
+                    )
+                  },
+                )}
               </tbody>
             </table>
           </div>
