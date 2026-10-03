@@ -45,6 +45,18 @@ function formatRestockDate(dateStr: string): string {
   })
 }
 
+/** Whole calendar days between the restock date and today, both taken at
+ *  local midnight — the window staff reason about sell-through over ("123
+ *  added, 40 days ago, 10 left now" lets them eyeball units moved per day
+ *  themselves from the columns already on this page). */
+function daysSinceRestock(dateStr: string): number {
+  const restockDate = new Date(`${dateStr}T00:00:00`)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diffMs = today.getTime() - restockDate.getTime()
+  return Math.max(0, Math.round(diffMs / (24 * 60 * 60 * 1000)))
+}
+
 function RestockPage() {
   const { restocks, total, page } = Route.useLoaderData()
   const navigate = Route.useNavigate()
@@ -73,6 +85,9 @@ function RestockPage() {
                   <th className={tableHeadClassName}>Product</th>
                   <th className={tableHeadClassName}>Restocked</th>
                   <th className={`${tableHeadClassName} text-right`}>
+                    Days since
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
                     Qty added
                   </th>
                   <th className={`${tableHeadClassName} text-right`}>
@@ -81,53 +96,61 @@ function RestockPage() {
                 </tr>
               </thead>
               <tbody>
-                {restocks.map((row) => (
-                  <tr
-                    key={`${row.productId}:${row.restockedAt}`}
-                    className={tableRowClassName}
-                  >
-                    <td className={tableCellClassName}>
-                      <div className="flex items-center gap-3">
-                        {row.productImage ? (
-                          <img
-                            src={row.productImage}
-                            alt=""
-                            className="size-10 rounded-md border border-neutral-200 object-cover"
-                          />
-                        ) : (
-                          <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
-                            <Package size={16} className="text-neutral-300" />
-                          </div>
-                        )}
-                        <div>
-                          <Link
-                            to="/admin/products/$productId"
-                            params={{ productId: row.productId }}
-                            className="font-medium text-neutral-900 hover:underline"
-                          >
-                            {row.productName}
-                          </Link>
-                          <p className="text-xs text-neutral-500">
-                            {row.variantCount}{' '}
-                            {row.variantCount === 1 ? 'variant' : 'variants'}{' '}
-                            restocked
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className={tableCellClassName}>
-                      {formatRestockDate(row.restockedAt)}
-                    </td>
-                    <td
-                      className={`${tableCellClassName} text-right font-medium text-emerald-600`}
+                {restocks.map((row) => {
+                  const daysSince = daysSinceRestock(row.restockedAt)
+                  return (
+                    <tr
+                      key={`${row.productId}:${row.restockedAt}`}
+                      className={tableRowClassName}
                     >
-                      +{row.quantityAdded}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.currentQuantityAvailable}
-                    </td>
-                  </tr>
-                ))}
+                      <td className={tableCellClassName}>
+                        <div className="flex items-center gap-3">
+                          {row.productImage ? (
+                            <img
+                              src={row.productImage}
+                              alt=""
+                              className="size-10 rounded-md border border-neutral-200 object-cover"
+                            />
+                          ) : (
+                            <div className="flex size-10 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                              <Package size={16} className="text-neutral-300" />
+                            </div>
+                          )}
+                          <div>
+                            <Link
+                              to="/admin/products/$productId"
+                              params={{ productId: row.productId }}
+                              className="font-medium text-neutral-900 hover:underline"
+                            >
+                              {row.productName}
+                            </Link>
+                            <p className="text-xs text-neutral-500">
+                              {row.variantCount}{' '}
+                              {row.variantCount === 1 ? 'variant' : 'variants'}{' '}
+                              restocked
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={tableCellClassName}>
+                        {formatRestockDate(row.restockedAt)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {daysSince === 0
+                          ? 'Today'
+                          : `${daysSince} ${daysSince === 1 ? 'day' : 'days'}`}
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right font-medium text-emerald-600`}
+                      >
+                        +{row.quantityAdded}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {row.currentQuantityAvailable}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
