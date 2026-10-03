@@ -21,7 +21,7 @@ import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
-import { fetchAllRows } from '#/lib/utils/paginate'
+import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import {
   invalidateCollectionListingCache,
   invalidateProductDetailCache,
@@ -1273,6 +1273,13 @@ const RESTOCKS_PAGE_SIZE_DEFAULT = 50
  *  +30/+12/+2) would otherwise have each row look small on its own. */
 const RESTOCK_MIN_TOTAL_QUANTITY = 50
 
+// Keeps every .in() id-list query below well under PostgREST's request-URL
+// length limit — see computeRestockGroups' own comment on the crash this
+// fixes. Same conservative ballpark as SEARCH_ID_CHUNK_SIZE elsewhere
+// (server/admin/orders.ts), sized down a bit since these ids are UUIDs
+// (36 chars each) rather than that file's shorter ones.
+const RESTOCK_ID_CHUNK_SIZE = 150
+
 interface RestockGroup {
   productId: string
   productName: string
@@ -1308,13 +1315,26 @@ async function computeRestockGroups(
   // product_variants, an older table that does) — embedding products off
   // product_variants instead, same pattern stock-audit.ts already relies
   // on, rather than a broken embed here.
+  //
+  // Chunked — this shop already has ~700 purchase_in rows, and a single
+  // .in() with every one of their (up to that many) distinct variant ids
+  // built a ~18,000-character request URL that blew past Supabase's HTTP
+  // header size limit (confirmed live: crashed the whole admin app with an
+  // uncaught HeadersOverflowError, not just this page) — the same class of
+  // bug this codebase has hit before with a large .in() list elsewhere
+  // (see resolveSearchMatchedOrderIds in server/admin/orders.ts).
   const variantIds = Array.from(new Set(movements.map((m) => m.variant_id)))
-  const { data: variants, error: variantsError } = await admin
-    .from('product_variants')
-    .select('id, product:products(id, name, images)')
-    .in('id', variantIds)
-  if (variantsError) throw variantsError
-  const variantById = new Map(variants.map((v) => [v.id, v]))
+  const variantChunks = await Promise.all(
+    chunkArray(variantIds, RESTOCK_ID_CHUNK_SIZE).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('product_variants')
+        .select('id, product:products(id, name, images)')
+        .in('id', chunk)
+      if (error) throw error
+      return data
+    }),
+  )
+  const variantById = new Map(variantChunks.flat().map((v) => [v.id, v]))
 
   const groups = new Map<string, RestockGroup>()
   for (const m of movements) {
@@ -1351,13 +1371,18 @@ async function computeRestockGroups(
   // above, which only covers variants that were actually restocked, not
   // every variant the product currently has.
   const productIds = Array.from(new Set(qualifying.map((g) => g.productId)))
-  const { data: allVariants, error: allVariantsError } = await admin
-    .from('product_variants')
-    .select('product_id, inventory(quantity_available)')
-    .in('product_id', productIds)
-  if (allVariantsError) throw allVariantsError
+  const allVariantChunks = await Promise.all(
+    chunkArray(productIds, RESTOCK_ID_CHUNK_SIZE).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('product_variants')
+        .select('product_id, inventory(quantity_available)')
+        .in('product_id', chunk)
+      if (error) throw error
+      return data
+    }),
+  )
   const currentQtyByProductId = new Map<string, number>()
-  for (const v of allVariants) {
+  for (const v of allVariantChunks.flat()) {
     const qty = v.inventory.at(0)?.quantity_available ?? 0
     currentQtyByProductId.set(
       v.product_id,
