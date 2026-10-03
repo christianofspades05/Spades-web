@@ -46,15 +46,24 @@ function formatRestockDate(dateStr: string): string {
 }
 
 /** Whole calendar days between the restock date and today, both taken at
- *  local midnight — the window staff reason about sell-through over ("123
- *  added, 40 days ago, 10 left now" lets them eyeball units moved per day
- *  themselves from the columns already on this page). */
+ *  local midnight. */
 function daysSinceRestock(dateStr: string): number {
   const restockDate = new Date(`${dateStr}T00:00:00`)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const diffMs = today.getTime() - restockDate.getTime()
   return Math.max(0, Math.round(diffMs / (24 * 60 * 60 * 1000)))
+}
+
+/** "Sold 18 in 28 days" — quantitySold is already computed server-side
+ *  (see RestockRow's own doc comment on the approximation and its
+ *  caveats), this just phrases it against the elapsed time. */
+function soldSummary(quantitySold: number, daysSince: number): string {
+  const dayLabel =
+    daysSince === 0
+      ? 'today'
+      : `in ${daysSince} ${daysSince === 1 ? 'day' : 'days'}`
+  return `Sold ${quantitySold} ${dayLabel}`
 }
 
 function RestockPage() {
@@ -84,9 +93,7 @@ function RestockPage() {
                 <tr>
                   <th className={tableHeadClassName}>Product</th>
                   <th className={tableHeadClassName}>Restocked</th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    Days since
-                  </th>
+                  <th className={tableHeadClassName}>Sold since</th>
                   <th className={`${tableHeadClassName} text-right`}>
                     Qty added
                   </th>
@@ -135,10 +142,8 @@ function RestockPage() {
                       <td className={tableCellClassName}>
                         {formatRestockDate(row.restockedAt)}
                       </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {daysSince === 0
-                          ? 'Today'
-                          : `${daysSince} ${daysSince === 1 ? 'day' : 'days'}`}
+                      <td className={tableCellClassName}>
+                        {soldSummary(row.quantitySold, daysSince)}
                       </td>
                       <td
                         className={`${tableCellClassName} text-right font-medium text-emerald-600`}

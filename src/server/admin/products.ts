@@ -1252,10 +1252,20 @@ export interface RestockRow {
    *  see RESTOCK_MIN_TOTAL_QUANTITY's own comment on why the threshold
    *  below is evaluated at this whole-product level, not per variant. */
   quantityAdded: number
-  /** Current total stock across every variant of this product (not just
-   *  the ones restocked this date) — matches how the Products list's own
-   *  "available" figure is computed. */
+  /** Current stock summed across exactly the variants restocked in this
+   *  event — not every variant the product has (an untouched variant's
+   *  stock has nothing to do with what THIS restock sold through), so
+   *  quantityAdded - currentQuantityAvailable is a meaningful "sold since"
+   *  figure (see quantitySold below) rather than mixing in unrelated
+   *  sizes. */
   currentQuantityAvailable: number
+  /** max(0, quantityAdded - currentQuantityAvailable) — an approximation,
+   *  not a ledger: it assumes nothing else moved these exact variants'
+   *  stock since this restock (no later restock, no return) and quietly
+   *  floors at 0 if something did push current stock back above what was
+   *  added. Good enough for "sold 18 in 28 days" at a glance; not exact
+   *  for a product restocked repeatedly in quick succession. */
+  quantitySold: number
   variantCount: number
 }
 
@@ -1312,9 +1322,11 @@ async function computeRestockGroups(
   if (movements.length === 0) return []
 
   // inventory_movements has no declared Relationships metadata (unlike
-  // product_variants, an older table that does) — embedding products off
-  // product_variants instead, same pattern stock-audit.ts already relies
-  // on, rather than a broken embed here.
+  // product_variants, an older table that does) — embedding products/
+  // inventory off product_variants instead, same pattern stock-audit.ts
+  // already relies on, rather than a broken embed here. Fetched once,
+  // covering both what each variant belongs to AND what it has in stock
+  // right now — no second query needed for current quantity.
   //
   // Chunked — this shop already has ~700 purchase_in rows, and a single
   // .in() with every one of their (up to that many) distinct variant ids
@@ -1328,7 +1340,9 @@ async function computeRestockGroups(
     chunkArray(variantIds, RESTOCK_ID_CHUNK_SIZE).map(async (chunk) => {
       const { data, error } = await admin
         .from('product_variants')
-        .select('id, product:products(id, name, images)')
+        .select(
+          'id, product:products(id, name, images), inventory(quantity_available)',
+        )
         .in('id', chunk)
       if (error) throw error
       return data
@@ -1361,45 +1375,29 @@ async function computeRestockGroups(
     }
   }
 
-  const qualifying = Array.from(groups.values()).filter(
-    (g) => g.quantityAdded >= RESTOCK_MIN_TOTAL_QUANTITY,
-  )
-  if (qualifying.length === 0) return []
-
-  // Current total stock across EVERY variant each qualifying product has
-  // today — a separate fetch, not reused from the per-movement lookup
-  // above, which only covers variants that were actually restocked, not
-  // every variant the product currently has.
-  const productIds = Array.from(new Set(qualifying.map((g) => g.productId)))
-  const allVariantChunks = await Promise.all(
-    chunkArray(productIds, RESTOCK_ID_CHUNK_SIZE).map(async (chunk) => {
-      const { data, error } = await admin
-        .from('product_variants')
-        .select('product_id, inventory(quantity_available)')
-        .in('product_id', chunk)
-      if (error) throw error
-      return data
-    }),
-  )
-  const currentQtyByProductId = new Map<string, number>()
-  for (const v of allVariantChunks.flat()) {
-    const qty = v.inventory.at(0)?.quantity_available ?? 0
-    currentQtyByProductId.set(
-      v.product_id,
-      (currentQtyByProductId.get(v.product_id) ?? 0) + qty,
-    )
-  }
-
-  return qualifying
-    .map((g) => ({
-      productId: g.productId,
-      productName: g.productName,
-      productImage: g.productImage,
-      restockedAt: g.restockedAt,
-      quantityAdded: g.quantityAdded,
-      currentQuantityAvailable: currentQtyByProductId.get(g.productId) ?? 0,
-      variantCount: g.variantIds.size,
-    }))
+  return Array.from(groups.values())
+    .filter((g) => g.quantityAdded >= RESTOCK_MIN_TOTAL_QUANTITY)
+    .map((g) => {
+      // Summed from the Set of distinct variant ids, not accumulated per
+      // movement row above — a variant touched by two separate movements
+      // the same day (e.g. a restock immediately followed by a same-day
+      // recount) would otherwise have its current stock double-counted.
+      const currentQuantityAvailable = Array.from(g.variantIds).reduce(
+        (sum, id) =>
+          sum + (variantById.get(id)?.inventory.at(0)?.quantity_available ?? 0),
+        0,
+      )
+      return {
+        productId: g.productId,
+        productName: g.productName,
+        productImage: g.productImage,
+        restockedAt: g.restockedAt,
+        quantityAdded: g.quantityAdded,
+        currentQuantityAvailable,
+        quantitySold: Math.max(0, g.quantityAdded - currentQuantityAvailable),
+        variantCount: g.variantIds.size,
+      }
+    })
     .sort((a, b) => b.restockedAt.localeCompare(a.restockedAt))
 }
 
