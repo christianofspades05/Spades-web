@@ -23,6 +23,7 @@ import {
   duplicateProduct,
   getProductById,
   getProductSalesSummary,
+  recordRestock,
   reorderVariants,
   setProductCollections,
   updateProduct,
@@ -86,7 +87,12 @@ export const Route = createFileRoute('/admin/products/$productId')({
       getProductsLastActivity({ data: { productIds: [params.productId] } }),
     ])
     if (!product) throw notFound()
-    return { product, collections, sales, lastActivity: lastActivity[product.id] }
+    return {
+      product,
+      collections,
+      sales,
+      lastActivity: lastActivity[product.id],
+    }
   },
   component: EditProductPage,
 })
@@ -500,8 +506,8 @@ function EditProductPage() {
                   </>
                 ) : (
                   <p className="mt-3 text-sm text-neutral-400">
-                    Maximum of {MAX_PRODUCT_IMAGES} images reached — remove
-                    one to add another.
+                    Maximum of {MAX_PRODUCT_IMAGES} images reached — remove one
+                    to add another.
                   </p>
                 )}
               </div>
@@ -658,6 +664,7 @@ function VariantsSection({
   onChanged: () => void
 }) {
   const [addingNew, setAddingNew] = useState(false)
+  const [restockOpen, setRestockOpen] = useState(false)
   const [variants, setVariants] = useState(product.variants)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [reorderError, setReorderError] = useState<string | null>(null)
@@ -703,17 +710,37 @@ function VariantsSection({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
           Variants
         </h2>
-        <button
-          type="button"
-          onClick={() => setAddingNew((v) => !v)}
-          className={buttonSecondaryClassName}
-        >
-          {addingNew ? 'Cancel' : 'Add variant'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setRestockOpen(true)}
+            className={buttonSecondaryClassName}
+          >
+            Restock
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddingNew((v) => !v)}
+            className={buttonSecondaryClassName}
+          >
+            {addingNew ? 'Cancel' : 'Add variant'}
+          </button>
+        </div>
       </div>
 
       {reorderError && (
         <p className="mb-2 text-sm text-red-600">{reorderError}</p>
+      )}
+
+      {restockOpen && (
+        <RestockModal
+          variants={variants}
+          onClose={() => setRestockOpen(false)}
+          onRestocked={() => {
+            setRestockOpen(false)
+            onChanged()
+          }}
+        />
       )}
 
       <div className={tableWrapperClassName}>
@@ -765,6 +792,143 @@ function VariantsSection({
         </div>
       )}
     </>
+  )
+}
+
+/** Today in the viewer's own local time, as YYYY-MM-DD — the sensible
+ *  default for "when did this stock arrive," not a UTC-shifted date that
+ *  could read as tomorrow or yesterday depending on the staff member's
+ *  timezone relative to the server's. */
+function todayLocalDateInputValue(): string {
+  const now = new Date()
+  const offsetMs = now.getTimezoneOffset() * 60_000
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10)
+}
+
+function RestockModal({
+  variants,
+  onClose,
+  onRestocked,
+}: {
+  variants: Array<ProductVariant & { inventory: Inventory[] }>
+  onClose: () => void
+  onRestocked: () => void
+}) {
+  const [variantId, setVariantId] = useState(variants[0]?.id ?? '')
+  const [quantity, setQuantity] = useState('')
+  const [occurredAt, setOccurredAt] = useState(todayLocalDateInputValue())
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    const parsedQuantity = Number(quantity)
+    if (!variantId) {
+      setError('Pick a variant.')
+      return
+    }
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
+      setError('Enter a quantity greater than 0.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      await recordRestock({
+        data: {
+          variantId,
+          quantity: parsedQuantity,
+          occurredAt,
+          note: note.trim() || undefined,
+        },
+      })
+      onRestocked()
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-md p-6">
+        <h2 className="mb-1 text-base font-semibold text-neutral-900">
+          Restock
+        </h2>
+        <p className="mb-4 text-sm text-neutral-500">
+          Logs stock coming in — adds to on-hand immediately and shows up on the
+          Restock page.
+        </p>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <label className={labelClassName}>
+            Variant
+            <select
+              value={variantId}
+              onChange={(e) => setVariantId(e.target.value)}
+              className={inputClassName}
+            >
+              {variants.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {variantLabel(v)}
+                  {v.sku ? ` — ${v.sku}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex gap-3">
+            <label className={`flex-1 ${labelClassName}`}>
+              Quantity
+              <input
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+            <label className={`flex-1 ${labelClassName}`}>
+              Date restocked
+              <input
+                type="date"
+                required
+                value={occurredAt}
+                onChange={(e) => setOccurredAt(e.target.value)}
+                className={inputClassName}
+              />
+            </label>
+          </div>
+          <label className={labelClassName}>
+            Note (optional)
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. supplier/PO reference"
+              className={inputClassName}
+            />
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={buttonSecondaryClassName}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className={buttonPrimaryClassName}
+            >
+              {submitting ? 'Saving…' : 'Save restock'}
+            </button>
+          </div>
+        </form>
+      </Card>
+    </div>
   )
 }
 

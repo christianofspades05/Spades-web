@@ -39,6 +39,7 @@ const PRODUCTS_SUB_LINKS = [
   { to: '/admin/collections', label: 'Collections' },
   { to: '/admin/inventory', label: 'Inventory' },
   { to: '/admin/stock-audit', label: 'Stock Audit' },
+  { to: '/admin/restock', label: 'Restock' },
   { to: '/admin/pre-orders', label: 'Pre-Orders' },
 ] as const
 
@@ -659,7 +660,9 @@ export function AdminNav({
               Customer Replies
               {failedDeliveryUnreadCount > 0 && (
                 <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
-                  {failedDeliveryUnreadCount > 9 ? '9+' : failedDeliveryUnreadCount}
+                  {failedDeliveryUnreadCount > 9
+                    ? '9+'
+                    : failedDeliveryUnreadCount}
                 </span>
               )}
             </span>

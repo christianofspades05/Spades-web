@@ -6,6 +6,7 @@ import {
   inventoryAdjustmentSchema,
   productInputSchema,
   quickEditVariantSchema,
+  restockSchema,
   setProductCollectionsSchema,
   updateProductSchema,
   updateVariantSchema,
@@ -640,8 +641,14 @@ async function uniqueSlug(
 /** Postgres reports SKU collisions as a raw "duplicate key value violates
  *  unique constraint" error with no mention of which SKU — rephrase it into
  *  something a staff member can act on. Other errors pass through as-is. */
-function friendlySkuError(error: { code?: string; message: string }, sku: string) {
-  if (error.code === '23505' && error.message.includes('product_variants_sku_key')) {
+function friendlySkuError(
+  error: { code?: string; message: string },
+  sku: string,
+) {
+  if (
+    error.code === '23505' &&
+    error.message.includes('product_variants_sku_key')
+  ) {
     return new Error(`SKU "${sku}" is already used by another variant.`)
   }
   return error
@@ -1028,7 +1035,8 @@ export const getVariantsForOrderEdit = createServerFn({ method: 'GET' })
 
     return variants.map((v) => ({
       id: v.id,
-      label: [v.size, v.color, v.style].filter(Boolean).join(' / ') || 'Default',
+      label:
+        [v.size, v.color, v.style].filter(Boolean).join(' / ') || 'Default',
       sku: v.sku,
       priceCents: v.price_cents,
       isActive: v.is_active,
@@ -1165,3 +1173,170 @@ export const adjustInventory = createServerFn({ method: 'POST' })
 
     return updated
   })
+
+/**
+ * Logs a restock — always a positive addition to on-hand stock, always
+ * movement_type 'purchase_in', with a staff-chosen date (see restockSchema's
+ * own comment on why that's a separate field from created_at). Shares
+ * adjustInventory's on-hand update, just without that function's
+ * negative-delta branch — a pure addition can never trip the
+ * inventory_reserved_le_on_hand constraint, so there's nothing to catch here.
+ */
+export const recordRestock = createServerFn({ method: 'POST' })
+  .validator(restockSchema)
+  .handler(async ({ data }): Promise<Inventory> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: current, error: readError } = await admin
+      .from('inventory')
+      .select('*')
+      .eq('variant_id', data.variantId)
+      .eq('location_code', 'main')
+      .single()
+    if (readError) throw readError
+
+    const { data: updated, error: updateError } = await admin
+      .from('inventory')
+      .update({ quantity_on_hand: current.quantity_on_hand + data.quantity })
+      .eq('id', current.id)
+      .select('*')
+      .single()
+    if (updateError) throw updateError
+
+    const { error: movementError } = await admin
+      .from('inventory_movements')
+      .insert({
+        variant_id: data.variantId,
+        location_code: 'main',
+        movement_type: 'purchase_in',
+        quantity_delta: data.quantity,
+        occurred_at: data.occurredAt,
+        note: data.note ?? null,
+        created_by: staff.auth_user_id,
+      })
+    if (movementError) throw movementError
+
+    await invalidateStorefrontListingCache()
+    await invalidateProductDetailCache()
+    await logStaffActivity(
+      staff,
+      'inventory.restock',
+      'inventory',
+      updated.id,
+      {
+        variantId: data.variantId,
+        quantity: data.quantity,
+        occurredAt: data.occurredAt,
+        newQuantity: updated.quantity_on_hand,
+      },
+    )
+
+    await pushInventoryForVariant(data.variantId).catch(() => {})
+
+    return updated
+  })
+
+export interface RestockRow {
+  id: string
+  variantId: string
+  productId: string
+  productName: string
+  productImage: string | null
+  sku: string | null
+  size: string | null
+  color: string | null
+  style: string | null
+  quantityAdded: number
+  /** YYYY-MM-DD — the movement's own occurred_at when staff set one via the
+   *  Restock flow, else the date it was logged (created_at), covering
+   *  'purchase_in' rows written by the older generic adjustInventory path
+   *  too (see that function's own comment) — every stock-in event shows up
+   *  here regardless of which UI entry point logged it. */
+  restockedAt: string
+  currentQuantityAvailable: number
+  note: string | null
+}
+
+const RESTOCKS_PAGE_SIZE_DEFAULT = 50
+
+export const listRestocks = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      page: z.number().int().min(1).default(1),
+      pageSize: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(RESTOCKS_PAGE_SIZE_DEFAULT),
+    }),
+  )
+  .handler(async ({ data }): Promise<RestockRow[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const offset = (data.page - 1) * data.pageSize
+
+    const { data: movements, error } = await admin
+      .from('inventory_movements')
+      .select('id, variant_id, quantity_delta, occurred_at, created_at, note')
+      .eq('movement_type', 'purchase_in')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + data.pageSize - 1)
+    if (error) throw error
+    if (movements.length === 0) return []
+
+    // inventory_movements has no declared Relationships metadata (unlike
+    // product_variants, an older table that does) — embedding products/
+    // inventory straight off product_variants instead, same pattern
+    // stock-audit.ts already relies on, rather than a broken embed here.
+    const variantIds = Array.from(new Set(movements.map((m) => m.variant_id)))
+    const { data: variants, error: variantsError } = await admin
+      .from('product_variants')
+      .select(
+        'id, sku, size, color, style, product:products(id, name, images), inventory(quantity_available)',
+      )
+      .in('id', variantIds)
+    if (variantsError) throw variantsError
+    const variantById = new Map(variants.map((v) => [v.id, v]))
+
+    // A variant/product deleted after the movement was logged (cascades per
+    // 0001_init_schema.sql's foreign keys) has nothing left to join —
+    // skipped rather than shown with blank fields, since the restock can no
+    // longer be acted on anyway.
+    return movements.flatMap((m) => {
+      const variant = variantById.get(m.variant_id)
+      if (!variant) return []
+      return [
+        {
+          id: m.id,
+          variantId: variant.id,
+          productId: variant.product.id,
+          productName: variant.product.name,
+          productImage: variant.product.images[0] ?? null,
+          sku: variant.sku,
+          size: variant.size,
+          color: variant.color,
+          style: variant.style,
+          quantityAdded: m.quantity_delta,
+          restockedAt: m.occurred_at ?? m.created_at.slice(0, 10),
+          currentQuantityAvailable:
+            variant.inventory.at(0)?.quantity_available ?? 0,
+          note: m.note,
+        },
+      ]
+    })
+  })
+
+export const getRestocksCount = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<{ total: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const { count, error } = await admin
+      .from('inventory_movements')
+      .select('id', { count: 'exact', head: true })
+      .eq('movement_type', 'purchase_in')
+    if (error) throw error
+    return { total: count ?? 0 }
+  },
+)

@@ -42,6 +42,7 @@ import { Route as AdminStorefrontIndexRouteImport } from './routes/admin/storefr
 import { Route as AdminStockAuditIndexRouteImport } from './routes/admin/stock-audit/index'
 import { Route as AdminSettingsIndexRouteImport } from './routes/admin/settings/index'
 import { Route as AdminReviewsIndexRouteImport } from './routes/admin/reviews/index'
+import { Route as AdminRestockIndexRouteImport } from './routes/admin/restock/index'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
 import { Route as AdminPreOrdersIndexRouteImport } from './routes/admin/pre-orders/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
@@ -259,6 +260,11 @@ const AdminSettingsIndexRoute = AdminSettingsIndexRouteImport.update({
 const AdminReviewsIndexRoute = AdminReviewsIndexRouteImport.update({
   id: '/reviews/',
   path: '/reviews/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminRestockIndexRoute = AdminRestockIndexRouteImport.update({
+  id: '/restock/',
+  path: '/restock/',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminProductsIndexRoute = AdminProductsIndexRouteImport.update({
@@ -621,6 +627,7 @@ export interface FileRoutesByFullPath {
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/pre-orders/': typeof AdminPreOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
+  '/admin/restock/': typeof AdminRestockIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/admin/stock-audit/': typeof AdminStockAuditIndexRoute
@@ -707,6 +714,7 @@ export interface FileRoutesByTo {
   '/admin/orders': typeof AdminOrdersIndexRoute
   '/admin/pre-orders': typeof AdminPreOrdersIndexRoute
   '/admin/products': typeof AdminProductsIndexRoute
+  '/admin/restock': typeof AdminRestockIndexRoute
   '/admin/reviews': typeof AdminReviewsIndexRoute
   '/admin/settings': typeof AdminSettingsIndexRoute
   '/admin/stock-audit': typeof AdminStockAuditIndexRoute
@@ -796,6 +804,7 @@ export interface FileRoutesById {
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/pre-orders/': typeof AdminPreOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
+  '/admin/restock/': typeof AdminRestockIndexRoute
   '/admin/reviews/': typeof AdminReviewsIndexRoute
   '/admin/settings/': typeof AdminSettingsIndexRoute
   '/admin/stock-audit/': typeof AdminStockAuditIndexRoute
@@ -886,6 +895,7 @@ export interface FileRouteTypes {
     | '/admin/orders/'
     | '/admin/pre-orders/'
     | '/admin/products/'
+    | '/admin/restock/'
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/admin/stock-audit/'
@@ -972,6 +982,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/pre-orders'
     | '/admin/products'
+    | '/admin/restock'
     | '/admin/reviews'
     | '/admin/settings'
     | '/admin/stock-audit'
@@ -1060,6 +1071,7 @@ export interface FileRouteTypes {
     | '/admin/orders/'
     | '/admin/pre-orders/'
     | '/admin/products/'
+    | '/admin/restock/'
     | '/admin/reviews/'
     | '/admin/settings/'
     | '/admin/stock-audit/'
@@ -1344,6 +1356,13 @@ declare module '@tanstack/react-router' {
       path: '/reviews'
       fullPath: '/admin/reviews/'
       preLoaderRoute: typeof AdminReviewsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/restock/': {
+      id: '/admin/restock/'
+      path: '/restock'
+      fullPath: '/admin/restock/'
+      preLoaderRoute: typeof AdminRestockIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/products/': {
@@ -1759,6 +1778,7 @@ interface AdminRouteChildren {
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminPreOrdersIndexRoute: typeof AdminPreOrdersIndexRoute
   AdminProductsIndexRoute: typeof AdminProductsIndexRoute
+  AdminRestockIndexRoute: typeof AdminRestockIndexRoute
   AdminReviewsIndexRoute: typeof AdminReviewsIndexRoute
   AdminSettingsIndexRoute: typeof AdminSettingsIndexRoute
   AdminStockAuditIndexRoute: typeof AdminStockAuditIndexRoute
@@ -1804,6 +1824,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminPreOrdersIndexRoute: AdminPreOrdersIndexRoute,
   AdminProductsIndexRoute: AdminProductsIndexRoute,
+  AdminRestockIndexRoute: AdminRestockIndexRoute,
   AdminReviewsIndexRoute: AdminReviewsIndexRoute,
   AdminSettingsIndexRoute: AdminSettingsIndexRoute,
   AdminStockAuditIndexRoute: AdminStockAuditIndexRoute,

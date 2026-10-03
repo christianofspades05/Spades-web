@@ -96,6 +96,15 @@ export const inventoryAdjustmentSchema = z.object({
   note: z.string().trim().max(500).optional(),
 })
 
+export const restockSchema = z.object({
+  variantId: z.string().uuid(),
+  quantity: z.number().int().positive('Must be greater than 0'),
+  /** Bare YYYY-MM-DD — a restock is a day-level event (staff backdating "it
+   *  arrived Monday, I'm logging it Wednesday"), not a precise timestamp. */
+  occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  note: z.string().trim().max(500).optional(),
+})
+
 export type ProductInput = z.infer<typeof productInputSchema>
 export type UpdateProductInput = z.infer<typeof updateProductSchema>
 export type DuplicateProductInput = z.infer<typeof duplicateProductSchema>
@@ -106,6 +115,7 @@ export type SetProductCollectionsInput = z.infer<
   typeof setProductCollectionsSchema
 >
 export type InventoryAdjustmentInput = z.infer<typeof inventoryAdjustmentSchema>
+export type RestockInput = z.infer<typeof restockSchema>
 export type ProductImageUploadUrlInput = z.infer<
   typeof productImageUploadUrlSchema
 >
