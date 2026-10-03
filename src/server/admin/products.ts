@@ -21,6 +21,7 @@ import { normalizeSearchTerm } from '#/lib/utils/search'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { resolveCollectionScopedProductIds } from '#/server/collections/scoped-products'
+import { fetchAllRows } from '#/lib/utils/paginate'
 import {
   invalidateCollectionListingCache,
   invalidateProductDetailCache,
@@ -1238,27 +1239,144 @@ export const recordRestock = createServerFn({ method: 'POST' })
   })
 
 export interface RestockRow {
-  id: string
-  variantId: string
   productId: string
   productName: string
   productImage: string | null
-  sku: string | null
-  size: string | null
-  color: string | null
-  style: string | null
-  quantityAdded: number
-  /** YYYY-MM-DD — the movement's own occurred_at when staff set one via the
-   *  Restock flow, else the date it was logged (created_at), covering
-   *  'purchase_in' rows written by the older generic adjustInventory path
-   *  too (see that function's own comment) — every stock-in event shows up
-   *  here regardless of which UI entry point logged it. */
+  /** YYYY-MM-DD — the movements' own occurred_at when staff set one via the
+   *  Restock flow, else the date logged (created_at), covering 'purchase_in'
+   *  rows written by the older generic adjustInventory path too (see that
+   *  function's own comment) — every stock-in event feeds into this
+   *  regardless of which UI entry point logged it. */
   restockedAt: string
+  /** Summed across every variant restocked for this product on this date —
+   *  see RESTOCK_MIN_TOTAL_QUANTITY's own comment on why the threshold
+   *  below is evaluated at this whole-product level, not per variant. */
+  quantityAdded: number
+  /** Current total stock across every variant of this product (not just
+   *  the ones restocked this date) — matches how the Products list's own
+   *  "available" figure is computed. */
   currentQuantityAvailable: number
-  note: string | null
+  variantCount: number
 }
 
 const RESTOCKS_PAGE_SIZE_DEFAULT = 50
+
+/** Staff recounting stock (correcting a miscounted size) also writes a
+ *  positive purchase_in movement, same as a real restock — indistinguishable
+ *  at the single-row level. Confirmed live: this shop's actual data cleanly
+ *  separates into ~1-9 unit single-variant corrections and 50-300+ unit
+ *  multi-variant restocks, nothing in between — so a genuine bulk restock's
+ *  same-day, whole-product total reliably clears this threshold while a
+ *  recount's correction essentially never does. Evaluated per (product,
+ *  date), summing every variant restocked that day — never per individual
+ *  variant, since a real restock split across six sizes (e.g. +9/+32/+38/
+ *  +30/+12/+2) would otherwise have each row look small on its own. */
+const RESTOCK_MIN_TOTAL_QUANTITY = 50
+
+interface RestockGroup {
+  productId: string
+  productName: string
+  productImage: string | null
+  restockedAt: string
+  quantityAdded: number
+  variantIds: Set<string>
+}
+
+/** Shared by listRestocks/getRestocksCount so they group and threshold
+ *  identically — see RestockRow/RESTOCK_MIN_TOTAL_QUANTITY's own comments.
+ *  Re-run per call rather than cached: at this shop's current ~700-row
+ *  purchase_in volume, a full recompute is cheap, and a restock/recount
+ *  just logged should show up immediately, not after some TTL. */
+async function computeRestockGroups(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+): Promise<RestockRow[]> {
+  const movements = await fetchAllRows<{
+    variant_id: string
+    quantity_delta: number
+    occurred_at: string | null
+    created_at: string
+  }>((offset) =>
+    admin
+      .from('inventory_movements')
+      .select('variant_id, quantity_delta, occurred_at, created_at')
+      .eq('movement_type', 'purchase_in')
+      .range(offset, offset + 999),
+  )
+  if (movements.length === 0) return []
+
+  // inventory_movements has no declared Relationships metadata (unlike
+  // product_variants, an older table that does) — embedding products off
+  // product_variants instead, same pattern stock-audit.ts already relies
+  // on, rather than a broken embed here.
+  const variantIds = Array.from(new Set(movements.map((m) => m.variant_id)))
+  const { data: variants, error: variantsError } = await admin
+    .from('product_variants')
+    .select('id, product:products(id, name, images)')
+    .in('id', variantIds)
+  if (variantsError) throw variantsError
+  const variantById = new Map(variants.map((v) => [v.id, v]))
+
+  const groups = new Map<string, RestockGroup>()
+  for (const m of movements) {
+    const variant = variantById.get(m.variant_id)
+    // A variant/product deleted after the movement was logged (cascades per
+    // 0001_init_schema.sql's foreign keys) has nothing left to join —
+    // skipped, since the restock can no longer be acted on anyway.
+    if (!variant) continue
+    const restockedAt = m.occurred_at ?? m.created_at.slice(0, 10)
+    const key = `${variant.product.id}:${restockedAt}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.quantityAdded += m.quantity_delta
+      existing.variantIds.add(variant.id)
+    } else {
+      groups.set(key, {
+        productId: variant.product.id,
+        productName: variant.product.name,
+        productImage: variant.product.images[0] ?? null,
+        restockedAt,
+        quantityAdded: m.quantity_delta,
+        variantIds: new Set([variant.id]),
+      })
+    }
+  }
+
+  const qualifying = Array.from(groups.values()).filter(
+    (g) => g.quantityAdded >= RESTOCK_MIN_TOTAL_QUANTITY,
+  )
+  if (qualifying.length === 0) return []
+
+  // Current total stock across EVERY variant each qualifying product has
+  // today — a separate fetch, not reused from the per-movement lookup
+  // above, which only covers variants that were actually restocked, not
+  // every variant the product currently has.
+  const productIds = Array.from(new Set(qualifying.map((g) => g.productId)))
+  const { data: allVariants, error: allVariantsError } = await admin
+    .from('product_variants')
+    .select('product_id, inventory(quantity_available)')
+    .in('product_id', productIds)
+  if (allVariantsError) throw allVariantsError
+  const currentQtyByProductId = new Map<string, number>()
+  for (const v of allVariants) {
+    const qty = v.inventory.at(0)?.quantity_available ?? 0
+    currentQtyByProductId.set(
+      v.product_id,
+      (currentQtyByProductId.get(v.product_id) ?? 0) + qty,
+    )
+  }
+
+  return qualifying
+    .map((g) => ({
+      productId: g.productId,
+      productName: g.productName,
+      productImage: g.productImage,
+      restockedAt: g.restockedAt,
+      quantityAdded: g.quantityAdded,
+      currentQuantityAvailable: currentQtyByProductId.get(g.productId) ?? 0,
+      variantCount: g.variantIds.size,
+    }))
+    .sort((a, b) => b.restockedAt.localeCompare(a.restockedAt))
+}
 
 export const listRestocks = createServerFn({ method: 'GET' })
   .validator(
@@ -1275,68 +1393,16 @@ export const listRestocks = createServerFn({ method: 'GET' })
   .handler(async ({ data }): Promise<RestockRow[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
+    const groups = await computeRestockGroups(admin)
     const offset = (data.page - 1) * data.pageSize
-
-    const { data: movements, error } = await admin
-      .from('inventory_movements')
-      .select('id, variant_id, quantity_delta, occurred_at, created_at, note')
-      .eq('movement_type', 'purchase_in')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + data.pageSize - 1)
-    if (error) throw error
-    if (movements.length === 0) return []
-
-    // inventory_movements has no declared Relationships metadata (unlike
-    // product_variants, an older table that does) — embedding products/
-    // inventory straight off product_variants instead, same pattern
-    // stock-audit.ts already relies on, rather than a broken embed here.
-    const variantIds = Array.from(new Set(movements.map((m) => m.variant_id)))
-    const { data: variants, error: variantsError } = await admin
-      .from('product_variants')
-      .select(
-        'id, sku, size, color, style, product:products(id, name, images), inventory(quantity_available)',
-      )
-      .in('id', variantIds)
-    if (variantsError) throw variantsError
-    const variantById = new Map(variants.map((v) => [v.id, v]))
-
-    // A variant/product deleted after the movement was logged (cascades per
-    // 0001_init_schema.sql's foreign keys) has nothing left to join —
-    // skipped rather than shown with blank fields, since the restock can no
-    // longer be acted on anyway.
-    return movements.flatMap((m) => {
-      const variant = variantById.get(m.variant_id)
-      if (!variant) return []
-      return [
-        {
-          id: m.id,
-          variantId: variant.id,
-          productId: variant.product.id,
-          productName: variant.product.name,
-          productImage: variant.product.images[0] ?? null,
-          sku: variant.sku,
-          size: variant.size,
-          color: variant.color,
-          style: variant.style,
-          quantityAdded: m.quantity_delta,
-          restockedAt: m.occurred_at ?? m.created_at.slice(0, 10),
-          currentQuantityAvailable:
-            variant.inventory.at(0)?.quantity_available ?? 0,
-          note: m.note,
-        },
-      ]
-    })
+    return groups.slice(offset, offset + data.pageSize)
   })
 
 export const getRestocksCount = createServerFn({ method: 'GET' }).handler(
   async (): Promise<{ total: number }> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
-    const { count, error } = await admin
-      .from('inventory_movements')
-      .select('id', { count: 'exact', head: true })
-      .eq('movement_type', 'purchase_in')
-    if (error) throw error
-    return { total: count ?? 0 }
+    const groups = await computeRestockGroups(admin)
+    return { total: groups.length }
   },
 )

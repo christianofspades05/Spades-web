@@ -34,16 +34,6 @@ export const Route = createFileRoute('/admin/restock/')({
   component: RestockPage,
 })
 
-function variantLabel(row: {
-  size: string | null
-  color: string | null
-  style: string | null
-}): string {
-  return (
-    [row.size, row.color, row.style].filter(Boolean).join(' / ') || 'Default'
-  )
-}
-
 /** restockedAt is a bare YYYY-MM-DD — parsed as local midnight (not UTC),
  *  so it always displays as the same calendar day staff picked/logged,
  *  regardless of the viewer's timezone offset. */
@@ -92,7 +82,10 @@ function RestockPage() {
               </thead>
               <tbody>
                 {restocks.map((row) => (
-                  <tr key={row.id} className={tableRowClassName}>
+                  <tr
+                    key={`${row.productId}:${row.restockedAt}`}
+                    className={tableRowClassName}
+                  >
                     <td className={tableCellClassName}>
                       <div className="flex items-center gap-3">
                         {row.productImage ? (
@@ -115,22 +108,15 @@ function RestockPage() {
                             {row.productName}
                           </Link>
                           <p className="text-xs text-neutral-500">
-                            {variantLabel(row)}
-                            {row.sku && (
-                              <span className="text-neutral-400">
-                                {' '}
-                                · {row.sku}
-                              </span>
-                            )}
+                            {row.variantCount}{' '}
+                            {row.variantCount === 1 ? 'variant' : 'variants'}{' '}
+                            restocked
                           </p>
                         </div>
                       </div>
                     </td>
                     <td className={tableCellClassName}>
                       {formatRestockDate(row.restockedAt)}
-                      {row.note && (
-                        <p className="text-xs text-neutral-400">{row.note}</p>
-                      )}
                     </td>
                     <td
                       className={`${tableCellClassName} text-right font-medium text-emerald-600`}
