@@ -6,12 +6,7 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  TriangleAlert,
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-react'
 import {
   bulkCancelOrders,
   getOrdersCount,
@@ -168,6 +163,7 @@ export const Route = createFileRoute('/admin/orders/')({
     preOrder: z.enum(['yes', 'no']).optional(),
     q: z.string().optional(),
     staleUnfulfilled: z.boolean().optional(),
+    staleTiktokAwaitingShipment: z.boolean().optional(),
     page: z.number().int().min(1).catch(1),
     range: z.enum(DATE_RANGE_PRESETS).catch('today'),
     from: z.string().optional(),
@@ -188,23 +184,30 @@ export const Route = createFileRoute('/admin/orders/')({
       preOrder: deps.preOrder,
       q: deps.q,
       staleUnfulfilled: deps.staleUnfulfilled,
+      staleTiktokAwaitingShipment: deps.staleTiktokAwaitingShipment,
     }
     const overviewPromise: Promise<OrdersOverview> = getOrdersOverview({
       data: resolved,
     })
-    const [orders, { total }, overview, { total: noticeCount }] =
-      await Promise.all([
-        listOrders({
-          data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
-        }),
-        getOrdersCount({ data: filters }),
-        overviewPromise,
-        // Independent of whatever filters are currently applied — this is
-        // the Notice button's own badge count, always "how many right now,"
-        // not "how many match the current filter view."
-        getOrdersCount({ data: { staleUnfulfilled: true } }),
-      ])
-    return { orders, total, overview, noticeCount }
+    const [
+      orders,
+      { total },
+      overview,
+      { total: noticeCount },
+      { total: tiktokNoticeCount },
+    ] = await Promise.all([
+      listOrders({
+        data: { ...filters, page: deps.page, pageSize: PAGE_SIZE },
+      }),
+      getOrdersCount({ data: filters }),
+      overviewPromise,
+      // Independent of whatever filters are currently applied — these are
+      // the two Notice buttons' own badge counts, always "how many right
+      // now," not "how many match the current filter view."
+      getOrdersCount({ data: { staleUnfulfilled: true } }),
+      getOrdersCount({ data: { staleTiktokAwaitingShipment: true } }),
+    ])
+    return { orders, total, overview, noticeCount, tiktokNoticeCount }
   },
   component: OrdersPage,
 })
@@ -215,11 +218,13 @@ function OrdersPage() {
     total,
     overview,
     noticeCount,
+    tiktokNoticeCount,
   }: {
     orders: OrderWithCustomer[]
     total: number
     overview: OrdersOverview
     noticeCount: number
+    tiktokNoticeCount: number
   } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
@@ -491,6 +496,7 @@ function OrdersPage() {
                     : {
                         ...prev,
                         staleUnfulfilled: true,
+                        staleTiktokAwaitingShipment: undefined,
                         status: undefined,
                         source: undefined,
                         fulfillment: undefined,
@@ -520,6 +526,54 @@ function OrdersPage() {
                 }`}
               >
                 {noticeCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            title="TikTok Shop orders placed more than 36 hours ago still awaiting shipment arrangement — easy to lose track of since they sit outside the Online Store fulfillment workflow staff check by habit."
+            onClick={() =>
+              navigate({
+                search: (prev) =>
+                  search.staleTiktokAwaitingShipment
+                    ? {
+                        ...prev,
+                        staleTiktokAwaitingShipment: undefined,
+                        page: 1,
+                      }
+                    : {
+                        ...prev,
+                        staleTiktokAwaitingShipment: true,
+                        staleUnfulfilled: undefined,
+                        status: undefined,
+                        source: undefined,
+                        fulfillment: undefined,
+                        zone: undefined,
+                        preOrder: undefined,
+                        q: undefined,
+                        page: 1,
+                      },
+              })
+            }
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              search.staleTiktokAwaitingShipment
+                ? 'bg-amber-600 text-white hover:bg-amber-700'
+                : tiktokNoticeCount > 0
+                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+            }`}
+          >
+            <TriangleAlert size={13} />
+            TikTok Notice
+            {tiktokNoticeCount > 0 && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none font-semibold ${
+                  search.staleTiktokAwaitingShipment
+                    ? 'bg-white/25 text-white'
+                    : 'bg-amber-600 text-white'
+                }`}
+              >
+                {tiktokNoticeCount}
               </span>
             )}
           </button>

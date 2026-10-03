@@ -239,9 +239,35 @@ const listOrdersFilterSchema = z.object({
    *  excluded: their fulfillment SLA is the marketplace's own, outside our
    *  control, so flagging those here would just be noise. */
   staleUnfulfilled: z.boolean().optional(),
+  /** The Orders page's "TikTok Notice" button — TikTok Shop orders placed
+   *  more than STALE_TIKTOK_AWAITING_SHIPMENT_HOURS ago still sitting in
+   *  TikTok's AWAITING_SHIPMENT status (our 'pending' shipment status,
+   *  shown elsewhere as "Awaiting Shipment" — TikTok Seller Center's own
+   *  "awaiting arrangement," i.e. staff still needs to arrange/print the
+   *  shipping label). Unlike staleUnfulfilled above, this one exists
+   *  specifically because staff can forget a TikTok order sits outside the
+   *  Online Store fulfillment workflow they check by habit. */
+  staleTiktokAwaitingShipment: z.boolean().optional(),
 })
 
 const STALE_UNFULFILLED_DAYS = 7
+const STALE_TIKTOK_AWAITING_SHIPMENT_HOURS = 36
+
+/**
+ * Order ids currently sitting with a 'pending' shipment (TikTok's
+ * AWAITING_SHIPMENT / "awaiting arrangement") — reuses
+ * resolveFulfillmentOrderIds' own shipments lookup rather than duplicating
+ * it, since that's already how the plain "Awaiting Shipment" fulfillment
+ * filter answers the same question.
+ */
+async function resolveStaleTiktokAwaitingIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  staleTiktokAwaitingShipment: boolean | undefined,
+): Promise<{ includeIds?: string[] }> {
+  if (!staleTiktokAwaitingShipment) return {}
+  const { includeIds } = await resolveFulfillmentOrderIds(admin, 'pending')
+  return { includeIds: includeIds ?? [] }
+}
 
 /**
  * Every order id whose delivery method (see the admin Orders table's own
@@ -458,6 +484,15 @@ export const listOrders = createServerFn({ method: 'GET' })
     )
     if (zoneIncludeIds && zoneIncludeIds.length === 0) return []
 
+    const { includeIds: tiktokAwaitingIncludeIds } =
+      await resolveStaleTiktokAwaitingIds(
+        admin,
+        data.staleTiktokAwaitingShipment,
+      )
+    if (tiktokAwaitingIncludeIds && tiktokAwaitingIncludeIds.length === 0) {
+      return []
+    }
+
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
@@ -500,11 +535,18 @@ export const listOrders = createServerFn({ method: 'GET' })
           .eq('has_shipment', false)
           .lte('placed_at', cutoff)
       }
+      if (data.staleTiktokAwaitingShipment) {
+        const cutoff = new Date(
+          Date.now() - STALE_TIKTOK_AWAITING_SHIPMENT_HOURS * 60 * 60 * 1000,
+        ).toISOString()
+        q = q.eq('source', 'tiktok_shop').lte('placed_at', cutoff)
+      }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
       if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
+      if (tiktokAwaitingIncludeIds) q = q.in('id', tiktokAwaitingIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }
@@ -593,6 +635,15 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     )
     if (zoneIncludeIds && zoneIncludeIds.length === 0) return { total: 0 }
 
+    const { includeIds: tiktokAwaitingIncludeIds } =
+      await resolveStaleTiktokAwaitingIds(
+        admin,
+        data.staleTiktokAwaitingShipment,
+      )
+    if (tiktokAwaitingIncludeIds && tiktokAwaitingIncludeIds.length === 0) {
+      return { total: 0 }
+    }
+
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
@@ -622,11 +673,18 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
           .eq('has_shipment', false)
           .lte('placed_at', cutoff)
       }
+      if (data.staleTiktokAwaitingShipment) {
+        const cutoff = new Date(
+          Date.now() - STALE_TIKTOK_AWAITING_SHIPMENT_HOURS * 60 * 60 * 1000,
+        ).toISOString()
+        q = q.eq('source', 'tiktok_shop').lte('placed_at', cutoff)
+      }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
       if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
+      if (tiktokAwaitingIncludeIds) q = q.in('id', tiktokAwaitingIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }
