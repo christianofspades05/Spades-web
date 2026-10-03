@@ -600,7 +600,9 @@ function LowVisitorsTab({
             Low Visitors
           </h2>
           <p className="text-xs text-neutral-500">
-            Active products with below-average product page views this range
+            Active, in-stock products with below-average product page views this
+            range — out-of-stock products are excluded, since they can&apos;t be
+            sold regardless of traffic
           </p>
         </div>
         <div className="text-right">
@@ -613,7 +615,7 @@ function LowVisitorsTab({
 
       {products.length === 0 ? (
         <p className="mt-5 text-sm text-neutral-500">
-          No products below average right now.
+          No in-stock products below average right now.
         </p>
       ) : (
         <div className={`${tableWrapperClassName} mt-5`}>
@@ -626,6 +628,7 @@ function LowVisitorsTab({
                   <th className={`${tableHeadClassName} text-right`}>
                     vs. average
                   </th>
+                  <th className={`${tableHeadClassName} text-right`}>Stock</th>
                 </tr>
               </thead>
               <tbody>
@@ -650,6 +653,11 @@ function LowVisitorsTab({
                       {averageViews > 0
                         ? `${Math.round((p.viewCount / averageViews) * 100)}%`
                         : '—'}
+                    </td>
+                    <td
+                      className={`${tableCellClassName} text-right text-neutral-500`}
+                    >
+                      {p.currentStockOnHand}
                     </td>
                   </tr>
                 ))}

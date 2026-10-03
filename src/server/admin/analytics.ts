@@ -2163,16 +2163,20 @@ export interface ProductViewRow {
   productName: string
   imageUrl: string | null
   viewCount: number
+  currentStockOnHand: number
 }
 
 export interface LowVisitorProductsResult {
-  /** Mean views-per-product across every active product in scope for this
-   *  range (zero-filled for a product with no product_view rows at all) —
-   *  the threshold `products` below is filtered against. */
+  /** Mean views-per-product across every in-stock active product in scope
+   *  for this range (zero-filled for a product with no product_view rows
+   *  at all) — the threshold `products` below is filtered against. */
   averageViews: number
-  /** Active products whose view count is below averageViews, ascending by
-   *  view count (the least-viewed first) — includes products with zero
-   *  views, which is exactly the case this tab exists to surface. */
+  /** In-stock active products whose view count is below averageViews,
+   *  ascending by view count (the least-viewed first) — includes products
+   *  with zero views, which is exactly the case this tab exists to
+   *  surface. Out-of-stock products are excluded entirely (see the
+   *  function's own doc comment) rather than just flagged, since they
+   *  can't be sold regardless of how much traffic they get. */
   products: ProductViewRow[]
 }
 
@@ -2190,12 +2194,14 @@ const lowVisitorProductsCache = createTtlCache<LowVisitorProductsResult>(
  * breakdowns are (see get_product_view_counts,
  * 0100_product_view_counts.sql) rather than pulling every row into Node.
  *
- * Scoped to active products only — a draft/archived product was never
- * reachable on the storefront and would always read as 0 views, which
- * would just be noise dragging the average down rather than a real
- * visibility problem to act on. Online Store traffic only, by construction
- * (storefront_visits is only ever written by the storefront's own page
- * loads) — no channel filter, matching getVisitorAnalytics' same reasoning.
+ * Scoped to active, in-stock products only — a draft/archived product was
+ * never reachable on the storefront and would always read as 0 views, and
+ * an out-of-stock one can't be sold no matter how much traffic it gets, so
+ * neither belongs in "needs more visibility" or in the average that
+ * threshold is measured against. Online Store traffic only, by
+ * construction (storefront_visits is only ever written by the storefront's
+ * own page loads) — no channel filter, matching getVisitorAnalytics' same
+ * reasoning.
  */
 export const getLowVisitorProducts = createServerFn({ method: 'GET' })
   .validator(
@@ -2228,7 +2234,9 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
         fetchAllRows((offset) => {
           let query = admin
             .from('products')
-            .select('id, name, images')
+            .select(
+              'id, name, images, variants:product_variants(inventory(quantity_on_hand))',
+            )
             .eq('status', 'active')
             .range(offset, offset + 999)
           if (data.brand) query = query.eq('brand', data.brand)
@@ -2241,21 +2249,30 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
       viewRows.map((r) => [r.product_id, Number(r.view_count)]),
     )
 
-    const allRows: ProductViewRow[] = activeProducts.map((p) => ({
-      productId: p.id,
-      productName: p.name,
-      imageUrl: p.images[0] ?? null,
-      viewCount: viewCountByProductId.get(p.id) ?? 0,
-    }))
+    const inStockRows: ProductViewRow[] = activeProducts
+      .map((p) => ({
+        productId: p.id,
+        productName: p.name,
+        imageUrl: p.images[0] ?? null,
+        viewCount: viewCountByProductId.get(p.id) ?? 0,
+        currentStockOnHand: p.variants.reduce(
+          (sum, v) =>
+            sum +
+            v.inventory.reduce((s, inv) => s + inv.quantity_on_hand, 0),
+          0,
+        ),
+      }))
+      .filter((r) => r.currentStockOnHand > 0)
 
     const averageViews =
-      allRows.length > 0
-        ? allRows.reduce((sum, r) => sum + r.viewCount, 0) / allRows.length
+      inStockRows.length > 0
+        ? inStockRows.reduce((sum, r) => sum + r.viewCount, 0) /
+          inStockRows.length
         : 0
 
     const result: LowVisitorProductsResult = {
       averageViews,
-      products: allRows
+      products: inStockRows
         .filter((r) => r.viewCount < averageViews)
         .sort((a, b) => a.viewCount - b.viewCount),
     }
