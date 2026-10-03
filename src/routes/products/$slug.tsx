@@ -103,6 +103,19 @@ function ProductPage() {
       ),
       currency: target,
     })
+    // Feeds the admin Product Analytics "Low Visitors" tab — a distinct
+    // 'product_view' event (not the generic 'page_view' VisitTracker.tsx
+    // already fires on this same route change), so it's additive and never
+    // touches the existing page_view-based Visitors/Home dashboard numbers.
+    void recordVisit({
+      data: {
+        visitorId: getOrCreateVisitorId(),
+        path: pathname,
+        eventType: 'product_view',
+        productId: product.id,
+        brand: storefrontScope.brand,
+      },
+    })
     // Only re-fire if the visitor lands on a different product's page —
     // deliberately excludes currency/rates so switching currency mid-visit
     // doesn't double-count this event; it just reflects whatever currency

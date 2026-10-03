@@ -2,12 +2,14 @@ import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Package } from 'lucide-react'
 import {
+  getLowVisitorProducts,
   getProductProfitBreakdown,
   getProductVelocitySignals,
 } from '#/server/admin/analytics'
 import type {
   ProductProfitRow,
   ProductVelocitySignal,
+  ProductViewRow,
 } from '#/server/admin/analytics'
 import { listAllCollections } from '#/server/admin/collections'
 import { formatCentsAsPHP } from '#/lib/utils/money'
@@ -54,7 +56,7 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
     channel: z
       .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
-    tab: z.enum(['overview', 'byCollection']).catch('overview'),
+    tab: z.enum(['overview', 'byCollection', 'lowVisitors']).catch('overview'),
     collectionId: z.string().uuid().optional(),
   }),
   loaderDeps: ({ search }) => search,
@@ -63,25 +65,37 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
       from: deps.from,
       to: deps.to,
     })
-    const [topSellers, velocity, collections, collectionTopSellers] =
-      await Promise.all([
-        getProductProfitBreakdown({
-          data: { ...resolved, brand: deps.brand, channel: deps.channel },
-        }),
-        getProductVelocitySignals({ data: { brand: deps.brand } }),
-        listAllCollections(),
-        deps.collectionId
-          ? getProductProfitBreakdown({
-              data: {
-                ...resolved,
-                brand: deps.brand,
-                channel: deps.channel,
-                collectionId: deps.collectionId,
-              },
-            })
-          : Promise.resolve(null),
-      ])
-    return { topSellers, velocity, collections, collectionTopSellers }
+    const [
+      topSellers,
+      velocity,
+      collections,
+      collectionTopSellers,
+      lowVisitors,
+    ] = await Promise.all([
+      getProductProfitBreakdown({
+        data: { ...resolved, brand: deps.brand, channel: deps.channel },
+      }),
+      getProductVelocitySignals({ data: { brand: deps.brand } }),
+      listAllCollections(),
+      deps.collectionId
+        ? getProductProfitBreakdown({
+            data: {
+              ...resolved,
+              brand: deps.brand,
+              channel: deps.channel,
+              collectionId: deps.collectionId,
+            },
+          })
+        : Promise.resolve(null),
+      getLowVisitorProducts({ data: { ...resolved, brand: deps.brand } }),
+    ])
+    return {
+      topSellers,
+      velocity,
+      collections,
+      collectionTopSellers,
+      lowVisitors,
+    }
   },
   component: ProductAnalyticsPage,
 })
@@ -109,8 +123,13 @@ function ProductThumbnail({
 }
 
 function ProductAnalyticsPage() {
-  const { topSellers, velocity, collections, collectionTopSellers } =
-    Route.useLoaderData()
+  const {
+    topSellers,
+    velocity,
+    collections,
+    collectionTopSellers,
+    lowVisitors,
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -241,7 +260,27 @@ function ProductAnalyticsPage() {
         >
           By Collection
         </button>
+        <button
+          type="button"
+          onClick={() =>
+            navigate({ search: (prev) => ({ ...prev, tab: 'lowVisitors' }) })
+          }
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            search.tab === 'lowVisitors'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Low Visitors
+        </button>
       </div>
+
+      {search.tab === 'lowVisitors' && (
+        <LowVisitorsTab
+          averageViews={lowVisitors.averageViews}
+          products={lowVisitors.products}
+        />
+      )}
 
       {search.tab === 'byCollection' && (
         <CollectionAnalyticsTab
@@ -260,282 +299,366 @@ function ProductAnalyticsPage() {
 
       {search.tab === 'overview' && (
         <>
-      <Card className="p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-900">
-              Top Selling Products
-            </h2>
-            <p className="text-xs text-neutral-500">Ranked by units sold</p>
-          </div>
-          <DateRangePicker
-            preset={search.range}
-            from={search.from ?? resolveDateRange(search.range, {}).from}
-            to={search.to ?? resolveDateRange(search.range, {}).to}
-            onChange={handleRangeChange}
-          />
-        </div>
-
-        <div className="mt-4">
-          <ProductUnitsBarChart
-            bars={top10.map((p) => ({
-              label: p.productName,
-              unitsSold: p.unitsSold,
-            }))}
-          />
-        </div>
-
-        {top10.length > 0 && (
-          <div className="mt-5 flex flex-col gap-3 md:hidden">
-            {top10.map((p) => (
-              <ProductProfitCard
-                key={p.productId ?? p.productName}
-                product={p}
+          <Card className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-neutral-900">
+                  Top Selling Products
+                </h2>
+                <p className="text-xs text-neutral-500">Ranked by units sold</p>
+              </div>
+              <DateRangePicker
+                preset={search.range}
+                from={search.from ?? resolveDateRange(search.range, {}).from}
+                to={search.to ?? resolveDateRange(search.range, {}).to}
+                onChange={handleRangeChange}
               />
-            ))}
-          </div>
-        )}
-
-        {top10.length > 0 && (
-          <div className={`${tableWrapperClassName} mt-5 hidden md:block`}>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className={tableHeadClassName}>Product</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Units sold
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Avg orders/day
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Current qty
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Gross sales
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Net profit
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {top10.map((p) => (
-                    <tr
-                      key={p.productId ?? p.productName}
-                      className={tableRowClassName}
-                    >
-                      <td className={`${tableCellClassName} font-medium`}>
-                        <div className="flex items-center gap-3">
-                          <ProductThumbnail imageUrl={p.imageUrl} />
-                          {p.productName}
-                        </div>
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.unitsSold}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.avgOrdersPerDay.toFixed(1)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.currentStockOnHand ?? '—'}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(p.grossSalesCents)}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} text-right text-emerald-600`}
-                      >
-                        {formatCentsAsPHP(p.netProfitCents)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
-          </div>
-        )}
 
-        {top10.length === 0 && (
-          <p className="mt-5 text-sm text-neutral-400">
-            No sales in this range.
-          </p>
-        )}
-      </Card>
-
-      <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Restock Decisions
-        </h2>
-        <p className="text-xs text-neutral-500">
-          Products selling {RESTOCK_MIN_AVG_PER_DAY}+ units/day while
-          well-stocked (50+ on hand), now under {RESTOCK_MAX_CURRENT_STOCK}{' '}
-          units — last 30 days
-        </p>
-
-        {restock.length > 0 ? (
-          <div className={`${tableWrapperClassName} mt-5`}>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className={tableHeadClassName}>Product</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Current stock
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Avg orders/day
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Suggested restock
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {restock.map((p) => (
-                    <tr key={p.productId} className={tableRowClassName}>
-                      <td className={`${tableCellClassName} font-medium`}>
-                        <div className="flex items-center gap-3">
-                          <ProductThumbnail imageUrl={p.imageUrl} />
-                          {p.productName}
-                        </div>
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.currentStockOnHand}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.avgUnitsPerDayWhenWellStocked.toFixed(1)}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} text-right font-semibold text-emerald-600`}
-                      >
-                        {Math.round(
-                          p.avgUnitsPerDayWhenWellStocked *
-                            RESTOCK_DAYS_OF_COVER,
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="mt-4">
+              <ProductUnitsBarChart
+                bars={top10.map((p) => ({
+                  label: p.productName,
+                  unitsSold: p.unitsSold,
+                }))}
+              />
             </div>
-          </div>
-        ) : (
-          <p className="mt-5 text-sm text-neutral-400">
-            No products currently need restocking.
-          </p>
-        )}
-      </Card>
 
-      <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Cash Cow Products
-        </h2>
-        <p className="text-xs text-neutral-500">
-          Steady performers — {CASH_COW_MIN_AVG_PER_DAY}–
-          {CASH_COW_MAX_AVG_PER_DAY} orders/day on average, last 30 days
-        </p>
+            {top10.length > 0 && (
+              <div className="mt-5 flex flex-col gap-3 md:hidden">
+                {top10.map((p) => (
+                  <ProductProfitCard
+                    key={p.productId ?? p.productName}
+                    product={p}
+                  />
+                ))}
+              </div>
+            )}
 
-        {cashCows.length > 0 ? (
-          <div className={`${tableWrapperClassName} mt-5`}>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className={tableHeadClassName}>Product</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Avg orders/day
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Current stock
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cashCows.map((p) => (
-                    <tr key={p.productId} className={tableRowClassName}>
-                      <td className={`${tableCellClassName} font-medium`}>
-                        <div className="flex items-center gap-3">
-                          <ProductThumbnail imageUrl={p.imageUrl} />
-                          {p.productName}
-                        </div>
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.avgUnitsPerDay.toFixed(1)}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.currentStockOnHand}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <p className="mt-5 text-sm text-neutral-400">
-            No cash cow products in this range.
-          </p>
-        )}
-      </Card>
+            {top10.length > 0 && (
+              <div className={`${tableWrapperClassName} mt-5 hidden md:block`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className={tableHeadClassName}>Product</th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Units sold
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Avg orders/day
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Current qty
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Gross sales
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Net profit
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {top10.map((p) => (
+                        <tr
+                          key={p.productId ?? p.productName}
+                          className={tableRowClassName}
+                        >
+                          <td className={`${tableCellClassName} font-medium`}>
+                            <div className="flex items-center gap-3">
+                              <ProductThumbnail imageUrl={p.imageUrl} />
+                              {p.productName}
+                            </div>
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.unitsSold}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.avgOrdersPerDay.toFixed(1)}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.currentStockOnHand ?? '—'}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {formatCentsAsPHP(p.grossSalesCents)}
+                          </td>
+                          <td
+                            className={`${tableCellClassName} text-right text-emerald-600`}
+                          >
+                            {formatCentsAsPHP(p.netProfitCents)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
-      <Card className="mt-4 border-amber-200 bg-amber-50/40 p-5">
-        <h2 className="text-sm font-semibold text-amber-900">
-          Clearance Sale Candidates
-        </h2>
-        <p className="text-xs text-amber-700">
-          {CLEARANCE_MAX_AVG_PER_DAY} order/day or fewer with{' '}
-          {CLEARANCE_MIN_CURRENT_STOCK}+ units on hand — last 30 days
-        </p>
+            {top10.length === 0 && (
+              <p className="mt-5 text-sm text-neutral-400">
+                No sales in this range.
+              </p>
+            )}
+          </Card>
 
-        {clearance.length > 0 ? (
-          <div className={`${tableWrapperClassName} mt-5 border-amber-200`}>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className={tableHeadClassName}>Product</th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Avg orders/day
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Current stock
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clearance.map((p) => (
-                    <tr key={p.productId} className={tableRowClassName}>
-                      <td className={`${tableCellClassName} font-medium`}>
-                        <div className="flex items-center gap-3">
-                          <ProductThumbnail imageUrl={p.imageUrl} />
-                          {p.productName}
-                        </div>
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.avgUnitsPerDay.toFixed(1)}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} text-right font-semibold text-amber-700`}
-                      >
-                        {p.currentStockOnHand}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <p className="mt-5 text-sm text-amber-700/70">
-            No clearance candidates right now.
-          </p>
-        )}
-      </Card>
+          <Card className="mt-4 p-5">
+            <h2 className="text-sm font-semibold text-neutral-900">
+              Restock Decisions
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Products selling {RESTOCK_MIN_AVG_PER_DAY}+ units/day while
+              well-stocked (50+ on hand), now under {RESTOCK_MAX_CURRENT_STOCK}{' '}
+              units — last 30 days
+            </p>
+
+            {restock.length > 0 ? (
+              <div className={`${tableWrapperClassName} mt-5`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className={tableHeadClassName}>Product</th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Current stock
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Avg orders/day
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Suggested restock
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {restock.map((p) => (
+                        <tr key={p.productId} className={tableRowClassName}>
+                          <td className={`${tableCellClassName} font-medium`}>
+                            <div className="flex items-center gap-3">
+                              <ProductThumbnail imageUrl={p.imageUrl} />
+                              {p.productName}
+                            </div>
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.currentStockOnHand}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.avgUnitsPerDayWhenWellStocked.toFixed(1)}
+                          </td>
+                          <td
+                            className={`${tableCellClassName} text-right font-semibold text-emerald-600`}
+                          >
+                            {Math.round(
+                              p.avgUnitsPerDayWhenWellStocked *
+                                RESTOCK_DAYS_OF_COVER,
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-5 text-sm text-neutral-400">
+                No products currently need restocking.
+              </p>
+            )}
+          </Card>
+
+          <Card className="mt-4 p-5">
+            <h2 className="text-sm font-semibold text-neutral-900">
+              Cash Cow Products
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Steady performers — {CASH_COW_MIN_AVG_PER_DAY}–
+              {CASH_COW_MAX_AVG_PER_DAY} orders/day on average, last 30 days
+            </p>
+
+            {cashCows.length > 0 ? (
+              <div className={`${tableWrapperClassName} mt-5`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className={tableHeadClassName}>Product</th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Avg orders/day
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Current stock
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashCows.map((p) => (
+                        <tr key={p.productId} className={tableRowClassName}>
+                          <td className={`${tableCellClassName} font-medium`}>
+                            <div className="flex items-center gap-3">
+                              <ProductThumbnail imageUrl={p.imageUrl} />
+                              {p.productName}
+                            </div>
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.avgUnitsPerDay.toFixed(1)}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.currentStockOnHand}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-5 text-sm text-neutral-400">
+                No cash cow products in this range.
+              </p>
+            )}
+          </Card>
+
+          <Card className="mt-4 border-amber-200 bg-amber-50/40 p-5">
+            <h2 className="text-sm font-semibold text-amber-900">
+              Clearance Sale Candidates
+            </h2>
+            <p className="text-xs text-amber-700">
+              {CLEARANCE_MAX_AVG_PER_DAY} order/day or fewer with{' '}
+              {CLEARANCE_MIN_CURRENT_STOCK}+ units on hand — last 30 days
+            </p>
+
+            {clearance.length > 0 ? (
+              <div className={`${tableWrapperClassName} mt-5 border-amber-200`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className={tableHeadClassName}>Product</th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Avg orders/day
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Current stock
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clearance.map((p) => (
+                        <tr key={p.productId} className={tableRowClassName}>
+                          <td className={`${tableCellClassName} font-medium`}>
+                            <div className="flex items-center gap-3">
+                              <ProductThumbnail imageUrl={p.imageUrl} />
+                              {p.productName}
+                            </div>
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.avgUnitsPerDay.toFixed(1)}
+                          </td>
+                          <td
+                            className={`${tableCellClassName} text-right font-semibold text-amber-700`}
+                          >
+                            {p.currentStockOnHand}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-5 text-sm text-amber-700/70">
+                No clearance candidates right now.
+              </p>
+            )}
+          </Card>
         </>
       )}
     </div>
+  )
+}
+
+/** Product Analytics "Low Visitors" tab — active products whose
+ *  product-page view count (see getLowVisitorProducts' own doc comment on
+ *  where 'product_view' events come from) falls below the average across
+ *  every active product in the current range/brand scope. Low views and
+ *  low sales are different problems: a product with plenty of views but no
+ *  sales has a conversion problem, while one that shows up here has a
+ *  visibility problem — nobody's even finding the page. */
+function LowVisitorsTab({
+  averageViews,
+  products,
+}: {
+  averageViews: number
+  products: ProductViewRow[]
+}) {
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Low Visitors
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Active products with below-average product page views this range
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xl font-semibold text-neutral-900">
+            {averageViews.toFixed(1)}
+          </p>
+          <p className="text-xs text-neutral-400">average views per product</p>
+        </div>
+      </div>
+
+      {products.length === 0 ? (
+        <p className="mt-5 text-sm text-neutral-500">
+          No products below average right now.
+        </p>
+      ) : (
+        <div className={`${tableWrapperClassName} mt-5`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={tableHeadClassName}>Product</th>
+                  <th className={`${tableHeadClassName} text-right`}>Views</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    vs. average
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((p) => (
+                  <tr key={p.productId} className={tableRowClassName}>
+                    <td className={`${tableCellClassName} font-medium`}>
+                      <div className="flex items-center gap-3">
+                        <ProductThumbnail imageUrl={p.imageUrl} />
+                        {p.productName}
+                      </div>
+                    </td>
+                    <td
+                      className={`${tableCellClassName} text-right font-semibold ${
+                        p.viewCount === 0 ? 'text-red-600' : 'text-amber-700'
+                      }`}
+                    >
+                      {p.viewCount}
+                    </td>
+                    <td
+                      className={`${tableCellClassName} text-right text-neutral-500`}
+                    >
+                      {averageViews > 0
+                        ? `${Math.round((p.viewCount / averageViews) * 100)}%`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -561,9 +684,7 @@ function CollectionAnalyticsTab({
     custom?: { from: string; to: string },
   ) => void
 }) {
-  const rows = [...(topSellers ?? [])].sort(
-    (a, b) => b.unitsSold - a.unitsSold,
-  )
+  const rows = [...(topSellers ?? [])].sort((a, b) => b.unitsSold - a.unitsSold)
 
   return (
     <Card className="p-5">

@@ -2158,6 +2158,111 @@ export const getProductVelocitySignals = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface ProductViewRow {
+  productId: string
+  productName: string
+  imageUrl: string | null
+  viewCount: number
+}
+
+export interface LowVisitorProductsResult {
+  /** Mean views-per-product across every active product in scope for this
+   *  range (zero-filled for a product with no product_view rows at all) —
+   *  the threshold `products` below is filtered against. */
+  averageViews: number
+  /** Active products whose view count is below averageViews, ascending by
+   *  view count (the least-viewed first) — includes products with zero
+   *  views, which is exactly the case this tab exists to surface. */
+  products: ProductViewRow[]
+}
+
+const lowVisitorProductsCache = createTtlCache<LowVisitorProductsResult>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+/**
+ * Product Analytics "Low Visitors" tab — active products getting
+ * below-average storefront product-page views, so staff can see what's not
+ * getting found/clicked (distinct from low sales, which could mean "seen
+ * but not bought" rather than "never seen"). Views come from the
+ * 'product_view' storefront_visits event (routes/products/$slug.tsx),
+ * aggregated in Postgres the same way getVisitorAnalytics' countries/cities
+ * breakdowns are (see get_product_view_counts,
+ * 0100_product_view_counts.sql) rather than pulling every row into Node.
+ *
+ * Scoped to active products only — a draft/archived product was never
+ * reachable on the storefront and would always read as 0 views, which
+ * would just be noise dragging the average down rather than a real
+ * visibility problem to act on. Online Store traffic only, by construction
+ * (storefront_visits is only ever written by the storefront's own page
+ * loads) — no channel filter, matching getVisitorAnalytics' same reasoning.
+ */
+export const getLowVisitorProducts = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.enum(STOREFRONT_BRANDS).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<LowVisitorProductsResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}`
+    const cached = lowVisitorProductsCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(
+      data.from,
+      data.to,
+    )
+
+    const [{ data: viewRows, error: viewError }, activeProducts] =
+      await Promise.all([
+        admin.rpc('get_product_view_counts', {
+          p_from: rangeStart,
+          p_to: rangeEnd,
+          p_brand: data.brand ?? null,
+        }),
+        fetchAllRows((offset) => {
+          let query = admin
+            .from('products')
+            .select('id, name, images')
+            .eq('status', 'active')
+            .range(offset, offset + 999)
+          if (data.brand) query = query.eq('brand', data.brand)
+          return query
+        }),
+      ])
+    if (viewError) throw viewError
+
+    const viewCountByProductId = new Map(
+      viewRows.map((r) => [r.product_id, Number(r.view_count)]),
+    )
+
+    const allRows: ProductViewRow[] = activeProducts.map((p) => ({
+      productId: p.id,
+      productName: p.name,
+      imageUrl: p.images[0] ?? null,
+      viewCount: viewCountByProductId.get(p.id) ?? 0,
+    }))
+
+    const averageViews =
+      allRows.length > 0
+        ? allRows.reduce((sum, r) => sum + r.viewCount, 0) / allRows.length
+        : 0
+
+    const result: LowVisitorProductsResult = {
+      averageViews,
+      products: allRows
+        .filter((r) => r.viewCount < averageViews)
+        .sort((a, b) => a.viewCount - b.viewCount),
+    }
+    lowVisitorProductsCache.set(cacheKey, result)
+    return result
+  })
+
 export interface OrderProfitItemRow {
   productName: string
   variantLabel: string | null

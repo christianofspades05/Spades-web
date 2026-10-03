@@ -1,6 +1,15 @@
 import { z } from 'zod'
 
-export const EVENT_TYPES = ['page_view', 'checkout_start'] as const
+// product_view is distinct from the generic 'page_view' VisitTracker.tsx
+// fires on every route change (which never carries a productId) — kept
+// separate rather than reusing 'page_view' with productId attached, so it
+// can never affect the existing Visitors/Home-dashboard page_view counts
+// that already depend on the current page_view volume staying what it is.
+export const EVENT_TYPES = [
+  'page_view',
+  'product_view',
+  'checkout_start',
+] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
 export const recordVisitSchema = z.object({

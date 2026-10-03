@@ -1450,6 +1450,14 @@ export interface Database {
         }
         Returns: { bucket_key: string; unique_visitors: number }[]
       }
+      get_product_view_counts: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_brand?: string | null
+        }
+        Returns: { product_id: string; view_count: number }[]
+      }
       get_product_last_activity: {
         Args: { product_ids: string[] }
         Returns: {
