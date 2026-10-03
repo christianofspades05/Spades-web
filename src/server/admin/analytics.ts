@@ -2169,7 +2169,10 @@ export interface ProductViewRow {
 export interface LowVisitorProductsResult {
   /** Mean views-per-product across every in-stock active product in scope
    *  for this range (zero-filled for a product with no product_view rows
-   *  at all) — the threshold `products` below is filtered against. */
+   *  at all) — the threshold `products` below is filtered against. When
+   *  collectionId is set, this is scoped to just that collection's
+   *  products, so each collection's tab compares against its own baseline
+   *  rather than the whole catalog's. */
   averageViews: number
   /** In-stock active products whose view count is below averageViews,
    *  ascending by view count (the least-viewed first) — includes products
@@ -2202,6 +2205,11 @@ const lowVisitorProductsCache = createTtlCache<LowVisitorProductsResult>(
  * construction (storefront_visits is only ever written by the storefront's
  * own page loads) — no channel filter, matching getVisitorAnalytics' same
  * reasoning.
+ *
+ * An optional collectionId scopes both the candidate list and the average
+ * it's measured against to one collection (manual pins + rule matches —
+ * see resolveCollectionProducts), so a "Graphic Tees" tab compares graphic
+ * tees against each other instead of against the whole catalog.
  */
 export const getLowVisitorProducts = createServerFn({ method: 'GET' })
   .validator(
@@ -2209,12 +2217,13 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
       from: z.string(),
       to: z.string(),
       brand: z.enum(STOREFRONT_BRANDS).optional(),
+      collectionId: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }): Promise<LowVisitorProductsResult> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}`
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}|${data.collectionId ?? 'all'}`
     const cached = lowVisitorProductsCache.get(cacheKey)
     if (cached) return cached
 
@@ -2224,25 +2233,33 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
       data.to,
     )
 
-    const [{ data: viewRows, error: viewError }, activeProducts] =
-      await Promise.all([
-        admin.rpc('get_product_view_counts', {
-          p_from: rangeStart,
-          p_to: rangeEnd,
-          p_brand: data.brand ?? null,
-        }),
-        fetchAllRows((offset) => {
-          let query = admin
-            .from('products')
-            .select(
-              'id, name, images, variants:product_variants(inventory(quantity_on_hand))',
-            )
-            .eq('status', 'active')
-            .range(offset, offset + 999)
-          if (data.brand) query = query.eq('brand', data.brand)
-          return query
-        }),
-      ])
+    const [
+      { data: viewRows, error: viewError },
+      activeProducts,
+      collectionProductIds,
+    ] = await Promise.all([
+      admin.rpc('get_product_view_counts', {
+        p_from: rangeStart,
+        p_to: rangeEnd,
+        p_brand: data.brand ?? null,
+      }),
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('products')
+          .select(
+            'id, name, images, variants:product_variants(inventory(quantity_on_hand))',
+          )
+          .eq('status', 'active')
+          .range(offset, offset + 999)
+        if (data.brand) query = query.eq('brand', data.brand)
+        return query
+      }),
+      data.collectionId
+        ? resolveCollectionProducts(admin, data.collectionId).then(
+            (m) => new Set(m.keys()),
+          )
+        : Promise.resolve(null),
+    ])
     if (viewError) throw viewError
 
     const viewCountByProductId = new Map(
@@ -2250,6 +2267,7 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
     )
 
     const inStockRows: ProductViewRow[] = activeProducts
+      .filter((p) => !collectionProductIds || collectionProductIds.has(p.id))
       .map((p) => ({
         productId: p.id,
         productName: p.name,
@@ -2257,8 +2275,7 @@ export const getLowVisitorProducts = createServerFn({ method: 'GET' })
         viewCount: viewCountByProductId.get(p.id) ?? 0,
         currentStockOnHand: p.variants.reduce(
           (sum, v) =>
-            sum +
-            v.inventory.reduce((s, inv) => s + inv.quantity_on_hand, 0),
+            sum + v.inventory.reduce((s, inv) => s + inv.quantity_on_hand, 0),
           0,
         ),
       }))

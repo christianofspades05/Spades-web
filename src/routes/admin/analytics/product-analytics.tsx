@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Package } from 'lucide-react'
@@ -21,6 +22,7 @@ import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { ProductUnitsBarChart } from '#/components/admin/ProductUnitsBarChart'
 import { ProductProfitCard } from '#/components/admin/ProductProfitCard'
 import {
+  buttonSecondaryClassName,
   inputClassName,
   tableCellClassName,
   tableHeadClassName,
@@ -58,6 +60,7 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
       .optional(),
     tab: z.enum(['overview', 'byCollection', 'lowVisitors']).catch('overview'),
     collectionId: z.string().uuid().optional(),
+    lvCollectionId: z.string().uuid().optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -87,7 +90,13 @@ export const Route = createFileRoute('/admin/analytics/product-analytics')({
             },
           })
         : Promise.resolve(null),
-      getLowVisitorProducts({ data: { ...resolved, brand: deps.brand } }),
+      getLowVisitorProducts({
+        data: {
+          ...resolved,
+          brand: deps.brand,
+          collectionId: deps.lvCollectionId,
+        },
+      }),
     ])
     return {
       topSellers,
@@ -279,6 +288,11 @@ function ProductAnalyticsPage() {
         <LowVisitorsTab
           averageViews={lowVisitors.averageViews}
           products={lowVisitors.products}
+          collections={collections}
+          collectionId={search.lvCollectionId}
+          onSelectCollection={(lvCollectionId) =>
+            navigate({ search: (prev) => ({ ...prev, lvCollectionId }) })
+          }
         />
       )}
 
@@ -585,13 +599,37 @@ function ProductAnalyticsPage() {
  *  low sales are different problems: a product with plenty of views but no
  *  sales has a conversion problem, while one that shows up here has a
  *  visibility problem — nobody's even finding the page. */
+const LOW_VISITORS_PAGE_SIZE = 10
+
 function LowVisitorsTab({
   averageViews,
   products,
+  collections,
+  collectionId,
+  onSelectCollection,
 }: {
   averageViews: number
   products: ProductViewRow[]
+  collections: { id: string; name: string }[]
+  collectionId: string | undefined
+  onSelectCollection: (collectionId: string | undefined) => void
 }) {
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(
+    1,
+    Math.ceil(products.length / LOW_VISITORS_PAGE_SIZE),
+  )
+  const currentPage = Math.min(page, pageCount)
+  const pagedProducts = products.slice(
+    (currentPage - 1) * LOW_VISITORS_PAGE_SIZE,
+    currentPage * LOW_VISITORS_PAGE_SIZE,
+  )
+
+  function selectCollection(nextCollectionId: string | undefined) {
+    setPage(1)
+    onSelectCollection(nextCollectionId)
+  }
+
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -609,62 +647,126 @@ function LowVisitorsTab({
           <p className="text-xl font-semibold text-neutral-900">
             {averageViews.toFixed(1)}
           </p>
-          <p className="text-xs text-neutral-400">average views per product</p>
+          <p className="text-xs text-neutral-400">
+            average views per product{collectionId ? ' in this collection' : ''}
+          </p>
         </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-1 border-b border-neutral-200 pb-px">
+        <button
+          type="button"
+          onClick={() => selectCollection(undefined)}
+          className={`rounded-t-md border-b-2 px-3 pb-2 text-xs font-semibold tracking-wide whitespace-nowrap transition ${
+            !collectionId
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          All Products
+        </button>
+        {collections.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => selectCollection(c.id)}
+            className={`rounded-t-md border-b-2 px-3 pb-2 text-xs font-semibold tracking-wide whitespace-nowrap transition ${
+              collectionId === c.id
+                ? 'border-neutral-900 text-neutral-900'
+                : 'border-transparent text-neutral-400 hover:text-neutral-600'
+            }`}
+          >
+            {c.name}
+          </button>
+        ))}
       </div>
 
       {products.length === 0 ? (
         <p className="mt-5 text-sm text-neutral-500">
-          No in-stock products below average right now.
+          {collectionId
+            ? 'No in-stock products below average in this collection right now.'
+            : 'No in-stock products below average right now.'}
         </p>
       ) : (
-        <div className={`${tableWrapperClassName} mt-5`}>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className={tableHeadClassName}>Product</th>
-                  <th className={`${tableHeadClassName} text-right`}>Views</th>
-                  <th className={`${tableHeadClassName} text-right`}>
-                    vs. average
-                  </th>
-                  <th className={`${tableHeadClassName} text-right`}>Stock</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((p) => (
-                  <tr key={p.productId} className={tableRowClassName}>
-                    <td className={`${tableCellClassName} font-medium`}>
-                      <div className="flex items-center gap-3">
-                        <ProductThumbnail imageUrl={p.imageUrl} />
-                        {p.productName}
-                      </div>
-                    </td>
-                    <td
-                      className={`${tableCellClassName} text-right font-semibold ${
-                        p.viewCount === 0 ? 'text-red-600' : 'text-amber-700'
-                      }`}
-                    >
-                      {p.viewCount}
-                    </td>
-                    <td
-                      className={`${tableCellClassName} text-right text-neutral-500`}
-                    >
-                      {averageViews > 0
-                        ? `${Math.round((p.viewCount / averageViews) * 100)}%`
-                        : '—'}
-                    </td>
-                    <td
-                      className={`${tableCellClassName} text-right text-neutral-500`}
-                    >
-                      {p.currentStockOnHand}
-                    </td>
+        <>
+          <div className={`${tableWrapperClassName} mt-5`}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={tableHeadClassName}>Product</th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Views
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      vs. average
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
+                      Stock
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pagedProducts.map((p) => (
+                    <tr key={p.productId} className={tableRowClassName}>
+                      <td className={`${tableCellClassName} font-medium`}>
+                        <div className="flex items-center gap-3">
+                          <ProductThumbnail imageUrl={p.imageUrl} />
+                          {p.productName}
+                        </div>
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right font-semibold ${
+                          p.viewCount === 0 ? 'text-red-600' : 'text-amber-700'
+                        }`}
+                      >
+                        {p.viewCount}
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right text-neutral-500`}
+                      >
+                        {averageViews > 0
+                          ? `${Math.round((p.viewCount / averageViews) * 100)}%`
+                          : '—'}
+                      </td>
+                      <td
+                        className={`${tableCellClassName} text-right text-neutral-500`}
+                      >
+                        {p.currentStockOnHand}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {pageCount > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Page {currentPage} of {pageCount}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(currentPage - 1)}
+                  className={`${buttonSecondaryClassName} ${currentPage <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage(currentPage + 1)}
+                  className={`${buttonSecondaryClassName} ${currentPage >= pageCount ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </Card>
   )
