@@ -9,7 +9,14 @@ allowBuilds:
 # instance than the rest of the app during client-side navigation, so
 # useRouteContext() intermittently returned undefined mid-transition.
 overrides:
-  '@tanstack/router-core': 1.171.15
+  '@tanstack/router-core': 1.171.34
+# @tanstack/react-start@1.168.60 patches a critical reflected-XSS advisory
+# (GHSA-qx66-fv34-fjm8) in server-function responses — Vercel outright
+# refuses to build any version in the vulnerable range (1.143.12-1.168.59),
+# so this isn't optional. Published 2026-09-30, within whatever
+# minimumReleaseAge window is configured for this project's installs —
+# excluded the same way the Supabase pins below already are, so the
+# install doesn't block on a freshness policy for a security patch.
 minimumReleaseAgeExclude:
   - '@supabase/auth-js@2.110.4'
   - '@supabase/functions-js@2.110.4'
@@ -17,3 +24,8 @@ minimumReleaseAgeExclude:
   - '@supabase/realtime-js@2.110.4'
   - '@supabase/storage-js@2.110.4'
   - '@supabase/supabase-js@2.110.4'
+  - '@tanstack/react-start@1.168.60'
+  - '@tanstack/react-router@1.170.41'
+  - '@tanstack/router-core@1.171.34'
+  - '@tanstack/react-router-ssr-query@1.167.3'
+  - '@tanstack/react-router-devtools@1.167.2'
