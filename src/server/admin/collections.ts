@@ -211,6 +211,10 @@ export const previewCollectionRules = createServerFn({ method: 'POST' })
           return (a.lowestPriceCents ?? 0) - (b.lowestPriceCents ?? 0)
         case 'price_desc':
           return (b.lowestPriceCents ?? 0) - (a.lowestPriceCents ?? 0)
+        case 'inventory_asc':
+          return a.inventoryStock - b.inventoryStock
+        case 'inventory_desc':
+          return b.inventoryStock - a.inventoryStock
         case 'created_asc':
           return (
             new Date(a.product.created_at).getTime() -

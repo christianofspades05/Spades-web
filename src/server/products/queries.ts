@@ -125,9 +125,7 @@ function getActiveProductsForBrand(
   const promise = (async () => {
     const { data: products, error } = await supabase
       .from('products')
-      .select(
-        '*, variants:product_variants(*, inventory(quantity_available))',
-      )
+      .select('*, variants:product_variants(*, inventory(quantity_available))')
       .eq('status', 'active')
       .eq('brand', brand)
       .overrideTypes<ProductWithStock[], { merge: false }>()
@@ -178,6 +176,7 @@ function sortProducts(
   const withPrice = products.map((p) => ({
     product: p,
     price: lowestPriceCentsOf(p) ?? 0,
+    inventory: inventoryStockOf(p),
   }))
   withPrice.sort((a, b) => {
     switch (sortBy) {
@@ -189,6 +188,10 @@ function sortProducts(
         return a.price - b.price
       case 'price_desc':
         return b.price - a.price
+      case 'inventory_asc':
+        return a.inventory - b.inventory
+      case 'inventory_desc':
+        return b.inventory - a.inventory
       case 'created_asc':
         return (
           new Date(a.product.created_at).getTime() -
@@ -361,7 +364,10 @@ export const listActiveProducts = createServerFn({ method: 'GET' })
       )
       if (!collection) return []
 
-      const products = await getActiveProductsForBrand(supabase, collection.brand)
+      const products = await getActiveProductsForBrand(
+        supabase,
+        collection.brand,
+      )
 
       // Manually pinned products always stay in, regardless of `rules` — they
       // lead the list in their drag order, then rule-matched products fill in
@@ -543,9 +549,8 @@ export const getProductBySlug = createServerFn({ method: 'GET' })
       brand: z.enum(STOREFRONT_BRANDS),
     }),
   )
-  .handler(
-    ({ data }): Promise<ProductBySlugResult> =>
-      resolveProductBySlug(data.slug, data.brand),
+  .handler(({ data }): Promise<ProductBySlugResult> =>
+    resolveProductBySlug(data.slug, data.brand),
   )
 
 interface StorefrontListingResult {
@@ -781,9 +786,8 @@ export const listRelatedProducts = createServerFn({ method: 'GET' })
       brand: z.enum(STOREFRONT_BRANDS),
     }),
   )
-  .handler(
-    ({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> =>
-      resolveRelatedProducts(data),
+  .handler(({ data }): Promise<(StorefrontListingProduct & WithSalePrice)[]> =>
+    resolveRelatedProducts(data),
   )
 
 /** Distinct product_type values among active products, for the home page category nav. */

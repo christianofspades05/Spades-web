@@ -125,6 +125,8 @@ export const SORT_OPTIONS = [
   'price_desc',
   'created_desc',
   'created_asc',
+  'inventory_asc',
+  'inventory_desc',
 ] as const
 export type SortOption = (typeof SORT_OPTIONS)[number]
 
@@ -135,4 +137,6 @@ export const SORT_LABELS: Record<SortOption, string> = {
   price_desc: 'Price (high to low)',
   created_desc: 'Newest first',
   created_asc: 'Oldest first',
+  inventory_asc: 'Inventory (low to high)',
+  inventory_desc: 'Inventory (high to low)',
 }
