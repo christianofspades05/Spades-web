@@ -57,6 +57,8 @@ export const variantInputSchema = z.object({
   pricePesos: z.number().min(0),
   compareAtPricePesos: z.number().min(0).optional(),
   costPesos: z.number().min(0).optional(),
+  /** AB's manufacturing cost — see product_variants.ab_cost_cents. */
+  abCostPesos: z.number().min(0).optional(),
   weightGrams: z.number().int().min(0).optional(),
   barcode: z.string().trim().max(100).optional(),
   isActive: z.boolean().default(true),
@@ -76,6 +78,7 @@ export const quickEditVariantSchema = z.object({
   id: z.string().uuid(),
   sku: z.string().trim().max(100),
   costPesos: z.number().min(0).optional(),
+  abCostPesos: z.number().min(0).optional(),
 })
 
 export const setProductCollectionsSchema = z.object({

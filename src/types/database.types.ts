@@ -394,6 +394,12 @@ export interface Database {
           price_cents: number
           compare_at_price_cents: number | null
           cost_cents: number | null
+          /** Manufacturing cost from the staff's other (sister) company,
+           *  "AB" — see 0099_ab_cost.sql. Distinct from cost_cents (what
+           *  Spades pays AB / books as its own COGS); AB Profit =
+           *  cost_cents - ab_cost_cents. Null for a product not
+           *  AB-manufactured. */
+          ab_cost_cents: number | null
           weight_grams: number | null
           barcode: string | null
           is_active: boolean

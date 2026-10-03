@@ -833,6 +833,10 @@ export const createVariant = createServerFn({ method: 'POST' })
             : null,
         cost_cents:
           data.costPesos !== undefined ? pesosToCents(data.costPesos) : null,
+        ab_cost_cents:
+          data.abCostPesos !== undefined
+            ? pesosToCents(data.abCostPesos)
+            : null,
         weight_grams: data.weightGrams ?? null,
         barcode: data.barcode ?? null,
         is_active: data.isActive,
@@ -918,6 +922,10 @@ export const updateVariant = createServerFn({ method: 'POST' })
             : null,
         cost_cents:
           data.costPesos !== undefined ? pesosToCents(data.costPesos) : null,
+        ab_cost_cents:
+          data.abCostPesos !== undefined
+            ? pesosToCents(data.abCostPesos)
+            : null,
         weight_grams: data.weightGrams ?? null,
         barcode: data.barcode ?? null,
         is_active: data.isActive,
@@ -953,6 +961,10 @@ export const updateVariantQuickEdit = createServerFn({ method: 'POST' })
         cost_cents:
           data.costPesos !== undefined
             ? pesosToCents(data.costPesos)
+            : undefined,
+        ab_cost_cents:
+          data.abCostPesos !== undefined
+            ? pesosToCents(data.abCostPesos)
             : undefined,
       })
       .eq('id', data.id)

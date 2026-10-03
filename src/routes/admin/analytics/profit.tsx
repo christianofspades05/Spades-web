@@ -3,11 +3,14 @@ import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
+  getAbProfitBreakdown,
   getOrderProfitList,
   getProductProfitBreakdown,
   getSalesByChannel,
 } from '#/server/admin/analytics'
 import type {
+  AbProfitRow,
+  AbProfitSummary,
   OrderProfitListTotals,
   OrderProfitRow,
 } from '#/server/admin/analytics'
@@ -81,6 +84,7 @@ function reportTimezoneOffsetLabel(tz: 'ph' | 'la'): string {
 
 export const Route = createFileRoute('/admin/analytics/profit')({
   validateSearch: z.object({
+    tab: z.enum(['overview', 'abProfit']).catch('overview'),
     range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
     from: z.string().optional(),
     to: z.string().optional(),
@@ -112,7 +116,7 @@ export const Route = createFileRoute('/admin/analytics/profit')({
       from: deps.from,
       to: deps.to,
     })
-    const [sales, products, orderProfit] = await Promise.all([
+    const [sales, products, orderProfit, abProfit] = await Promise.all([
       getSalesByChannel({
         data: {
           ...resolved,
@@ -142,14 +146,27 @@ export const Route = createFileRoute('/admin/analytics/profit')({
           tz: deps.tz,
         },
       }),
+      getAbProfitBreakdown({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          brand: deps.brand,
+          tz: deps.tz,
+        },
+      }),
     ])
-    return { sales, products, orderProfit }
+    return { sales, products, orderProfit, abProfit }
   },
   component: ProfitPage,
 })
 
 function ProfitPage() {
-  const { sales: result, products, orderProfit } = Route.useLoaderData()
+  const {
+    sales: result,
+    products,
+    orderProfit,
+    abProfit,
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -238,8 +255,8 @@ function ProfitPage() {
               {(Object.keys(REPORT_TIMEZONE_NAMES) as ('ph' | 'la')[]).map(
                 (tz) => (
                   <option key={tz} value={tz}>
-                    {REPORT_TIMEZONE_NAMES[tz]} (
-                    {reportTimezoneOffsetLabel(tz)})
+                    {REPORT_TIMEZONE_NAMES[tz]} ({reportTimezoneOffsetLabel(tz)}
+                    )
                   </option>
                 ),
               )}
@@ -303,95 +320,471 @@ function ProfitPage() {
         }
       />
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-5">
-          <p className="text-xs text-neutral-500">Gross Profit</p>
-          <p className="mt-1 text-xl font-semibold text-emerald-600">
-            {formatCentsAsPHP(result.totals.netProfitCents)}
-          </p>
-          {grossProfitChange !== null && (
-            <p
-              className={`mt-0.5 text-xs ${
-                grossProfitChange >= 0 ? 'text-emerald-600' : 'text-red-600'
-              }`}
-            >
-              {grossProfitChange >= 0 ? '+' : ''}
-              {grossProfitChange}% vs previous period
+      <div className="mb-6 flex items-center gap-1 border-b border-neutral-200">
+        <button
+          type="button"
+          onClick={() =>
+            navigate({ search: (prev) => ({ ...prev, tab: 'overview' }) })
+          }
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            search.tab === 'overview'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            navigate({ search: (prev) => ({ ...prev, tab: 'abProfit' }) })
+          }
+          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+            search.tab === 'abProfit'
+              ? 'border-neutral-900 text-neutral-900'
+              : 'border-transparent text-neutral-400 hover:text-neutral-600'
+          }`}
+        >
+          AB Profit
+        </button>
+      </div>
+
+      {search.tab === 'abProfit' && (
+        <AbProfitTab summary={abProfit.summary} products={abProfit.products} />
+      )}
+
+      {search.tab === 'overview' && (
+        <>
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Card className="p-5">
+              <p className="text-xs text-neutral-500">Gross Profit</p>
+              <p className="mt-1 text-xl font-semibold text-emerald-600">
+                {formatCentsAsPHP(result.totals.netProfitCents)}
+              </p>
+              {grossProfitChange !== null && (
+                <p
+                  className={`mt-0.5 text-xs ${
+                    grossProfitChange >= 0 ? 'text-emerald-600' : 'text-red-600'
+                  }`}
+                >
+                  {grossProfitChange >= 0 ? '+' : ''}
+                  {grossProfitChange}% vs previous period
+                </p>
+              )}
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs text-neutral-500">Net Profit</p>
+              <p className="mt-1 text-xl font-semibold text-emerald-600">
+                {formatCentsAsPHP(result.totals.netProfitCents)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs text-neutral-500">Gross Margin</p>
+              <p className="mt-1 text-xl font-semibold text-neutral-900">
+                {result.totals.marginPct !== null
+                  ? `${result.totals.marginPct.toFixed(1)}%`
+                  : '—'}
+              </p>
+            </Card>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Profit Over Time
+              </h2>
+              <p className="text-xs text-neutral-500">Net profit by day</p>
+              <div className="mt-4">
+                <TrendLineChart
+                  data={profitTrendData}
+                  formatValue={formatCentsAsPHP}
+                  syncId="profit-trends"
+                />
+              </div>
+            </Card>
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold text-neutral-900">
+                Profit Margin Trend
+              </h2>
+              <p className="text-xs text-neutral-500">Gross margin % by day</p>
+              <div className="mt-4">
+                <TrendLineChart
+                  data={marginTrendData}
+                  formatValue={(v) => `${v.toFixed(1)}%`}
+                  syncId="profit-trends"
+                  color="#171717"
+                />
+              </div>
+            </Card>
+          </div>
+
+          <Card className="mt-4 p-5">
+            <h2 className="text-sm font-semibold text-neutral-900">
+              Top Products
+            </h2>
+            <p className="text-xs text-neutral-500">Ranked by net profit</p>
+            <div className="mt-4">
+              <ProductProfitBarChart
+                bars={topProducts.map((p) => ({
+                  label: p.productName,
+                  netProfitCents: p.netProfitCents,
+                }))}
+                formatValue={formatCentsAsPHP}
+              />
+            </div>
+
+            {pagedProducts.length > 0 && (
+              <div className="mt-5 flex flex-col gap-3 md:hidden">
+                {pagedProducts.map((p) => (
+                  <ProductProfitCard
+                    key={p.productId ?? p.productName}
+                    product={p}
+                  />
+                ))}
+              </div>
+            )}
+
+            {products.length > 0 && (
+              <div className={`${tableWrapperClassName} mt-5 hidden md:block`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr>
+                        <th className={tableHeadClassName}>Product</th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Units sold
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Total gross sales
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Total net profit
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Margin %
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Product SRP
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Product cost
+                        </th>
+                        <th className={`${tableHeadClassName} text-right`}>
+                          Net profit/unit
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedProducts.map((p) => (
+                        <tr
+                          key={p.productId ?? p.productName}
+                          className={tableRowClassName}
+                        >
+                          <td className={`${tableCellClassName} font-medium`}>
+                            {p.productName}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.unitsSold}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {formatCentsAsPHP(p.grossSalesCents)}
+                          </td>
+                          <td
+                            className={`${tableCellClassName} text-right text-emerald-600`}
+                          >
+                            {formatCentsAsPHP(p.netProfitCents)}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.marginPct !== null
+                              ? `${p.marginPct.toFixed(1)}%`
+                              : '—'}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.srpCents !== null
+                              ? formatCentsAsPHP(p.srpCents)
+                              : '—'}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.costCents !== null
+                              ? formatCentsAsPHP(p.costCents)
+                              : '—'}
+                          </td>
+                          <td className={`${tableCellClassName} text-right`}>
+                            {p.netProfitPerUnitCents !== null
+                              ? formatCentsAsPHP(p.netProfitPerUnitCents)
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {productsPageCount > 1 && (
+              <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
+                <p>
+                  Showing {(currentProductsPage - 1) * PRODUCTS_PAGE_SIZE + 1}–
+                  {Math.min(
+                    currentProductsPage * PRODUCTS_PAGE_SIZE,
+                    products.length,
+                  )}{' '}
+                  of {products.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={currentProductsPage <= 1}
+                    onClick={() => setProductsPage((p) => p - 1)}
+                    className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-neutral-400">
+                    Page {currentProductsPage} of {productsPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentProductsPage >= productsPageCount}
+                    onClick={() => setProductsPage((p) => p + 1)}
+                    className={`${buttonSecondaryClassName} disabled:opacity-40`}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <Card className="mt-4 p-6">
+            <h2 className="text-sm font-semibold text-neutral-900">
+              Net Profit by Channel
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Gross sales minus cost of goods sold
             </p>
-          )}
+
+            <div className="mt-6 flex flex-wrap items-center gap-10">
+              <DonutChart slices={slices} />
+              <div className="flex flex-col gap-3">
+                {result.channels.map((c) => (
+                  <div
+                    key={c.source}
+                    className="flex items-center justify-between gap-8"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: CHANNEL_COLORS[c.source] }}
+                      />
+                      <span className="text-sm text-neutral-700">
+                        {SOURCE_LABELS[c.source]}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-emerald-600">
+                        {formatCentsAsPHP(c.netProfitCents)}
+                      </p>
+                      <p className="text-xs text-neutral-400">
+                        {c.marginPct !== null
+                          ? `${c.marginPct.toFixed(1)}% margin`
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {result.channels.length === 0 && (
+                  <p className="text-sm text-neutral-400">
+                    No sales in this range.
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {result.channels.map((c) => {
+              const prev = prevBySource.get(c.source)
+              const profitChange = prev
+                ? percentChange(c.netProfitCents, prev.netProfitCents)
+                : null
+              return (
+                <Card key={c.source} className="p-5">
+                  <span className="inline-block rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600">
+                    {SOURCE_LABELS[c.source]}
+                  </span>
+
+                  <div className="mt-4">
+                    <p className="text-xs text-neutral-500">Net Profit</p>
+                    <p className="mt-1 text-xl font-semibold text-emerald-600">
+                      {formatCentsAsPHP(c.netProfitCents)}
+                    </p>
+                    {profitChange !== null && (
+                      <p
+                        className={`mt-0.5 text-xs ${
+                          profitChange >= 0
+                            ? 'text-emerald-600'
+                            : 'text-red-600'
+                        }`}
+                      >
+                        {profitChange >= 0 ? '+' : ''}
+                        {profitChange}% vs previous period
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-neutral-500">Gross Sales</p>
+                      <p className="mt-1 text-sm font-semibold text-neutral-900">
+                        {formatCentsAsPHP(c.grossSalesCents)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Net Sales</p>
+                      <p className="mt-1 text-sm font-semibold text-neutral-900">
+                        {formatCentsAsPHP(c.netSalesCents)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Margin</p>
+                      <p className="mt-1 text-sm font-semibold text-neutral-900">
+                        {c.marginPct !== null
+                          ? `${c.marginPct.toFixed(1)}%`
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Cost of Goods</p>
+                      <p className="mt-1 text-sm font-semibold text-neutral-900">
+                        {formatCentsAsPHP(c.costOfGoodsCents)}
+                      </p>
+                    </div>
+                    {c.platformFeesCents > 0 && (
+                      <div>
+                        <p className="text-xs text-neutral-500">
+                          Platform Fees
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-900">
+                          {formatCentsAsPHP(c.platformFeesCents)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+
+          <OrderProfitSection
+            result={orderProfit}
+            page={search.orderPage}
+            pageSize={ORDER_PROFIT_PAGE_SIZE}
+            onPageChange={(page) =>
+              navigate({ search: (prev) => ({ ...prev, orderPage: page }) })
+            }
+            searchTerm={search.orderSearch ?? ''}
+            onSearchChange={(orderSearch) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  orderSearch: orderSearch || undefined,
+                  orderPage: 1,
+                }),
+              })
+            }
+            status={search.orderStatus}
+            onStatusChange={(orderStatus) =>
+              navigate({
+                search: (prev) => ({ ...prev, orderStatus, orderPage: 1 }),
+              })
+            }
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+const AB_PROFIT_PAGE_SIZE = 10
+
+/** AB Profit = cost_cents (what Spades pays AB, Spades' own COGS) minus
+ *  ab_cost_cents (what it actually cost AB to manufacture) — AB's own
+ *  margin on the internal sale, not Spades' retail margin. A product never
+ *  appears here until both costs are filled in for at least one of its
+ *  sold variants in range (see getAbProfitBreakdown's own doc comment). */
+function AbProfitTab({
+  summary,
+  products,
+}: {
+  summary: AbProfitSummary
+  products: AbProfitRow[]
+}) {
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(
+    1,
+    Math.ceil(products.length / AB_PROFIT_PAGE_SIZE),
+  )
+  const currentPage = Math.min(page, pageCount)
+  const pagedProducts = products.slice(
+    (currentPage - 1) * AB_PROFIT_PAGE_SIZE,
+    currentPage * AB_PROFIT_PAGE_SIZE,
+  )
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Spades COGS</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(summary.spadesCogsCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">What Spades pays AB</p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs text-neutral-500">Net Profit</p>
-          <p className="mt-1 text-xl font-semibold text-emerald-600">
-            {formatCentsAsPHP(result.totals.netProfitCents)}
+          <p className="text-xs text-neutral-500">AB Cost</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(summary.abCostCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            AB&apos;s manufacturing cost
           </p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs text-neutral-500">Gross Margin</p>
+          <p className="text-xs text-neutral-500">AB Profit</p>
+          <p
+            className={`mt-1 text-xl font-semibold ${summary.abProfitCents >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+          >
+            {formatCentsAsPHP(summary.abProfitCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {summary.unitsSold} units across {summary.productCount}{' '}
+            {summary.productCount === 1 ? 'product' : 'products'}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">AB Margin</p>
           <p className="mt-1 text-xl font-semibold text-neutral-900">
-            {result.totals.marginPct !== null
-              ? `${result.totals.marginPct.toFixed(1)}%`
+            {summary.abMarginPct !== null
+              ? `${summary.abMarginPct.toFixed(1)}%`
               : '—'}
           </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            AB profit ÷ what Spades pays AB
+          </p>
         </Card>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-neutral-900">
-            Profit Over Time
-          </h2>
-          <p className="text-xs text-neutral-500">Net profit by day</p>
-          <div className="mt-4">
-            <TrendLineChart
-              data={profitTrendData}
-              formatValue={formatCentsAsPHP}
-              syncId="profit-trends"
-            />
-          </div>
-        </Card>
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-neutral-900">
-            Profit Margin Trend
-          </h2>
-          <p className="text-xs text-neutral-500">Gross margin % by day</p>
-          <div className="mt-4">
-            <TrendLineChart
-              data={marginTrendData}
-              formatValue={(v) => `${v.toFixed(1)}%`}
-              syncId="profit-trends"
-              color="#171717"
-            />
-          </div>
-        </Card>
-      </div>
-
-      <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-neutral-900">Top Products</h2>
-        <p className="text-xs text-neutral-500">Ranked by net profit</p>
-        <div className="mt-4">
-          <ProductProfitBarChart
-            bars={topProducts.map((p) => ({
-              label: p.productName,
-              netProfitCents: p.netProfitCents,
-            }))}
-            formatValue={formatCentsAsPHP}
-          />
-        </div>
-
-        {pagedProducts.length > 0 && (
-          <div className="mt-5 flex flex-col gap-3 md:hidden">
-            {pagedProducts.map((p) => (
-              <ProductProfitCard
-                key={p.productId ?? p.productName}
-                product={p}
-              />
-            ))}
-          </div>
-        )}
-
-        {products.length > 0 && (
-          <div className={`${tableWrapperClassName} mt-5 hidden md:block`}>
+      {products.length === 0 ? (
+        <p className="mt-4 rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500">
+          No AB Profit to show for this range — set both Cost and AB Cost on a
+          product&apos;s variants (Products &gt; edit product, or bulk edit) to
+          see it here.
+        </p>
+      ) : (
+        <>
+          <div className={`${tableWrapperClassName} mt-4`}>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -401,63 +794,55 @@ function ProfitPage() {
                       Units sold
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
-                      Total gross sales
+                      Spades COGS
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
-                      Total net profit
+                      AB Cost
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
-                      Margin %
+                      AB Profit
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
-                      Product SRP
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Product cost
-                    </th>
-                    <th className={`${tableHeadClassName} text-right`}>
-                      Net profit/unit
+                      AB Margin
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedProducts.map((p) => (
-                    <tr
-                      key={p.productId ?? p.productName}
-                      className={tableRowClassName}
-                    >
-                      <td className={`${tableCellClassName} font-medium`}>
-                        {p.productName}
+                    <tr key={p.productId} className={tableRowClassName}>
+                      <td className={tableCellClassName}>
+                        <div className="flex items-center gap-3">
+                          {p.imageUrl ? (
+                            <img
+                              src={p.imageUrl}
+                              alt=""
+                              className="size-9 rounded-md border border-neutral-200 object-cover"
+                            />
+                          ) : (
+                            <div className="size-9 rounded-md border border-neutral-200 bg-neutral-50" />
+                          )}
+                          <span className="font-medium text-neutral-900">
+                            {p.productName}
+                          </span>
+                        </div>
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {p.unitsSold}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
-                        {formatCentsAsPHP(p.grossSalesCents)}
+                        {formatCentsAsPHP(p.spadesCogsCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {formatCentsAsPHP(p.abCostCents)}
                       </td>
                       <td
-                        className={`${tableCellClassName} text-right text-emerald-600`}
+                        className={`${tableCellClassName} text-right font-medium ${p.abProfitCents >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                       >
-                        {formatCentsAsPHP(p.netProfitCents)}
+                        {formatCentsAsPHP(p.abProfitCents)}
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
-                        {p.marginPct !== null
-                          ? `${p.marginPct.toFixed(1)}%`
-                          : '—'}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.srpCents !== null
-                          ? formatCentsAsPHP(p.srpCents)
-                          : '—'}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.costCents !== null
-                          ? formatCentsAsPHP(p.costCents)
-                          : '—'}
-                      </td>
-                      <td className={`${tableCellClassName} text-right`}>
-                        {p.netProfitPerUnitCents !== null
-                          ? formatCentsAsPHP(p.netProfitPerUnitCents)
+                        {p.abMarginPct !== null
+                          ? `${p.abMarginPct.toFixed(1)}%`
                           : '—'}
                       </td>
                     </tr>
@@ -466,181 +851,34 @@ function ProfitPage() {
               </table>
             </div>
           </div>
-        )}
 
-        {productsPageCount > 1 && (
-          <div className="mt-3 flex items-center justify-between text-sm text-neutral-500">
-            <p>
-              Showing {(currentProductsPage - 1) * PRODUCTS_PAGE_SIZE + 1}–
-              {Math.min(
-                currentProductsPage * PRODUCTS_PAGE_SIZE,
-                products.length,
-              )}{' '}
-              of {products.length}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={currentProductsPage <= 1}
-                onClick={() => setProductsPage((p) => p - 1)}
-                className={`${buttonSecondaryClassName} disabled:opacity-40`}
-              >
-                Previous
-              </button>
-              <span className="text-xs text-neutral-400">
-                Page {currentProductsPage} of {productsPageCount}
-              </span>
-              <button
-                type="button"
-                disabled={currentProductsPage >= productsPageCount}
-                onClick={() => setProductsPage((p) => p + 1)}
-                className={`${buttonSecondaryClassName} disabled:opacity-40`}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card className="mt-4 p-6">
-        <h2 className="text-sm font-semibold text-neutral-900">
-          Net Profit by Channel
-        </h2>
-        <p className="text-xs text-neutral-500">
-          Gross sales minus cost of goods sold
-        </p>
-
-        <div className="mt-6 flex flex-wrap items-center gap-10">
-          <DonutChart slices={slices} />
-          <div className="flex flex-col gap-3">
-            {result.channels.map((c) => (
-              <div
-                key={c.source}
-                className="flex items-center justify-between gap-8"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ backgroundColor: CHANNEL_COLORS[c.source] }}
-                  />
-                  <span className="text-sm text-neutral-700">
-                    {SOURCE_LABELS[c.source]}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-emerald-600">
-                    {formatCentsAsPHP(c.netProfitCents)}
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    {c.marginPct !== null
-                      ? `${c.marginPct.toFixed(1)}% margin`
-                      : '—'}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {result.channels.length === 0 && (
-              <p className="text-sm text-neutral-400">
-                No sales in this range.
+          {pageCount > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
+              <p>
+                Page {currentPage} of {pageCount}
               </p>
-            )}
-          </div>
-        </div>
-      </Card>
-
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {result.channels.map((c) => {
-          const prev = prevBySource.get(c.source)
-          const profitChange = prev
-            ? percentChange(c.netProfitCents, prev.netProfitCents)
-            : null
-          return (
-            <Card key={c.source} className="p-5">
-              <span className="inline-block rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600">
-                {SOURCE_LABELS[c.source]}
-              </span>
-
-              <div className="mt-4">
-                <p className="text-xs text-neutral-500">Net Profit</p>
-                <p className="mt-1 text-xl font-semibold text-emerald-600">
-                  {formatCentsAsPHP(c.netProfitCents)}
-                </p>
-                {profitChange !== null && (
-                  <p
-                    className={`mt-0.5 text-xs ${
-                      profitChange >= 0 ? 'text-emerald-600' : 'text-red-600'
-                    }`}
-                  >
-                    {profitChange >= 0 ? '+' : ''}
-                    {profitChange}% vs previous period
-                  </p>
-                )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(currentPage - 1)}
+                  className={`${buttonSecondaryClassName} ${currentPage <= 1 ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage(currentPage + 1)}
+                  className={`${buttonSecondaryClassName} ${currentPage >= pageCount ? 'pointer-events-none opacity-40' : ''}`}
+                >
+                  Next
+                </button>
               </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-neutral-500">Gross Sales</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.grossSalesCents)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-500">Net Sales</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.netSalesCents)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-500">Margin</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {c.marginPct !== null ? `${c.marginPct.toFixed(1)}%` : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-500">Cost of Goods</p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-900">
-                    {formatCentsAsPHP(c.costOfGoodsCents)}
-                  </p>
-                </div>
-                {c.platformFeesCents > 0 && (
-                  <div>
-                    <p className="text-xs text-neutral-500">Platform Fees</p>
-                    <p className="mt-1 text-sm font-semibold text-neutral-900">
-                      {formatCentsAsPHP(c.platformFeesCents)}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          )
-        })}
-      </div>
-
-      <OrderProfitSection
-        result={orderProfit}
-        page={search.orderPage}
-        pageSize={ORDER_PROFIT_PAGE_SIZE}
-        onPageChange={(page) =>
-          navigate({ search: (prev) => ({ ...prev, orderPage: page }) })
-        }
-        searchTerm={search.orderSearch ?? ''}
-        onSearchChange={(orderSearch) =>
-          navigate({
-            search: (prev) => ({
-              ...prev,
-              orderSearch: orderSearch || undefined,
-              orderPage: 1,
-            }),
-          })
-        }
-        status={search.orderStatus}
-        onStatusChange={(orderStatus) =>
-          navigate({
-            search: (prev) => ({ ...prev, orderStatus, orderPage: 1 }),
-          })
-        }
-      />
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -960,6 +960,9 @@ function VariantRow({
   const [costPesos, setCostPesos] = useState(
     variant.cost_cents !== null ? centsToPesos(variant.cost_cents) : '',
   )
+  const [abCostPesos, setAbCostPesos] = useState(
+    variant.ab_cost_cents !== null ? centsToPesos(variant.ab_cost_cents) : '',
+  )
   const [priceSaving, setPriceSaving] = useState(false)
   const [detailsSaving, setDetailsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -979,6 +982,7 @@ function VariantRow({
           style: style || undefined,
           pricePesos,
           costPesos: costPesos === '' ? undefined : Number(costPesos),
+          abCostPesos: abCostPesos === '' ? undefined : Number(abCostPesos),
           isActive,
         },
       })
@@ -1005,6 +1009,7 @@ function VariantRow({
           style: style || undefined,
           pricePesos,
           costPesos: costPesos === '' ? undefined : Number(costPesos),
+          abCostPesos: abCostPesos === '' ? undefined : Number(abCostPesos),
           isActive,
         },
       })
@@ -1141,6 +1146,21 @@ function VariantRow({
                   className={`${inputClassName} w-28`}
                 />
               </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+                AB Cost per item (PHP)
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={abCostPesos}
+                  onChange={(e) =>
+                    setAbCostPesos(
+                      e.target.value === '' ? '' : Number(e.target.value),
+                    )
+                  }
+                  className={`${inputClassName} w-28`}
+                />
+              </label>
               <label className="flex items-center gap-2 text-xs font-medium text-neutral-700">
                 <input
                   type="checkbox"
@@ -1177,6 +1197,7 @@ function NewVariantForm({
   const [style, setStyle] = useState('')
   const [pricePesos, setPricePesos] = useState(0)
   const [costPesos, setCostPesos] = useState<number | ''>('')
+  const [abCostPesos, setAbCostPesos] = useState<number | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -1194,6 +1215,7 @@ function NewVariantForm({
           style: style || undefined,
           pricePesos,
           costPesos: costPesos === '' ? undefined : costPesos,
+          abCostPesos: abCostPesos === '' ? undefined : abCostPesos,
           isActive: true,
         },
       })
@@ -1264,6 +1286,21 @@ function NewVariantForm({
           value={costPesos}
           onChange={(e) =>
             setCostPesos(e.target.value === '' ? '' : Number(e.target.value))
+          }
+          className={`${inputClassName} w-28`}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-medium text-neutral-700">
+        AB Cost per item (PHP)
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={abCostPesos}
+          onChange={(e) =>
+            setAbCostPesos(
+              e.target.value === '' ? '' : Number(e.target.value),
+            )
           }
           className={`${inputClassName} w-28`}
         />

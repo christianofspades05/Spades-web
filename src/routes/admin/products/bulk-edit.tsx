@@ -30,7 +30,7 @@ import {
 import type { ProductStatus } from '#/types/entities'
 
 const PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const
-type FillField = 'pricePesos' | 'costPesos' | 'qty'
+type FillField = 'pricePesos' | 'costPesos' | 'abCostPesos' | 'qty'
 const FILL_ROW_ATTR = 'data-fill-row-index'
 
 export const Route = createFileRoute('/admin/products/bulk-edit')({
@@ -60,6 +60,8 @@ interface VariantEdit {
   size: string
   pricePesos: number
   costPesos: number | ''
+  /** AB's manufacturing cost — see product_variants.ab_cost_cents. */
+  abCostPesos: number | ''
   qty: number
 }
 
@@ -112,6 +114,8 @@ function BulkEditPage() {
             size: v.size ?? '',
             pricePesos: centsToPesos(v.price_cents),
             costPesos: v.cost_cents !== null ? centsToPesos(v.cost_cents) : '',
+            abCostPesos:
+              v.ab_cost_cents !== null ? centsToPesos(v.ab_cost_cents) : '',
             qty: v.inventory[0]?.quantity_on_hand ?? 0,
           },
         ]),
@@ -263,6 +267,10 @@ function BulkEditPage() {
                 (original.cost_cents !== null
                   ? centsToPesos(original.cost_cents)
                   : '') ||
+              edit.abCostPesos !==
+                (original.ab_cost_cents !== null
+                  ? centsToPesos(original.ab_cost_cents)
+                  : '') ||
               edit.size !== (original.size ?? '') ||
               edit.sku !== (original.sku ?? '')
             ) {
@@ -276,6 +284,8 @@ function BulkEditPage() {
                   style: original.style ?? undefined,
                   pricePesos: edit.pricePesos,
                   costPesos: edit.costPesos === '' ? undefined : edit.costPesos,
+                  abCostPesos:
+                    edit.abCostPesos === '' ? undefined : edit.abCostPesos,
                   isActive: original.is_active,
                 },
               })
@@ -336,9 +346,9 @@ function BulkEditPage() {
       />
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
       <p className="mb-3 text-xs text-neutral-500">
-        Tip: drag the small square at the corner of a Price, Available qty, or
-        Cost box down to copy it into the rows below — like a spreadsheet fill
-        handle.
+        Tip: drag the small square at the corner of a Price, Available qty,
+        Cost, or AB Cost box down to copy it into the rows below — like a
+        spreadsheet fill handle.
       </p>
 
       <div className={tableWrapperClassName}>
@@ -354,6 +364,7 @@ function BulkEditPage() {
                 <th className={tableHeadClassName}>Price</th>
                 <th className={tableHeadClassName}>Available qty</th>
                 <th className={tableHeadClassName}>Cost</th>
+                <th className={tableHeadClassName}>AB Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -421,7 +432,7 @@ function BulkEditPage() {
                           }
                         />
                       </td>
-                      <td className={tableCellClassName} colSpan={3} />
+                      <td className={tableCellClassName} colSpan={4} />
                     </tr>
                     {product.variants.map((variant) => {
                       const vEdit = variantEdits[variant.id]
@@ -544,6 +555,37 @@ function BulkEditPage() {
                                 onStart={() =>
                                   setDrag({
                                     field: 'costPesos',
+                                    startIndex: rowIndex,
+                                    currentIndex: rowIndex,
+                                  })
+                                }
+                              />
+                            </div>
+                          </td>
+                          <td
+                            className={`${tableCellClassName} ${inRange('abCostPesos') ? 'bg-blue-50' : ''}`}
+                          >
+                            <div className="relative inline-flex items-center gap-1">
+                              <span className="text-neutral-400">₱</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={vEdit.abCostPesos}
+                                onChange={(e) =>
+                                  updateVariantEdit(variant.id, {
+                                    abCostPesos:
+                                      e.target.value === ''
+                                        ? ''
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                className={`${inputClassName} w-24`}
+                              />
+                              <FillHandle
+                                onStart={() =>
+                                  setDrag({
+                                    field: 'abCostPesos',
                                     startIndex: rowIndex,
                                     currentIndex: rowIndex,
                                   })

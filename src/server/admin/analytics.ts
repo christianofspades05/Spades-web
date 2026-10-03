@@ -1701,6 +1701,248 @@ export const getProductProfitBreakdown = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface AbProfitRow {
+  productId: string
+  productName: string
+  imageUrl: string | null
+  unitsSold: number
+  /** What Spades pays for these units — product_variants.cost_cents × qty,
+   *  the same figure the rest of this page calls "Cost of Goods." From
+   *  AB's side, this is AB's own revenue on the internal sale. */
+  spadesCogsCents: number
+  /** What it actually cost AB to manufacture these units —
+   *  product_variants.ab_cost_cents × qty. */
+  abCostCents: number
+  /** spadesCogsCents - abCostCents — AB's own profit on what it charges
+   *  Spades, not Spades' retail margin (that's the regular Profit tab). */
+  abProfitCents: number
+  /** abProfitCents ÷ spadesCogsCents — AB's margin on its internal sale
+   *  price to Spades, not on Spades' eventual retail price. */
+  abMarginPct: number | null
+}
+
+export interface AbProfitSummary {
+  unitsSold: number
+  spadesCogsCents: number
+  abCostCents: number
+  abProfitCents: number
+  abMarginPct: number | null
+  /** Distinct products that had BOTH cost_cents and ab_cost_cents set on
+   *  at least one sold variant in range — i.e. products this breakdown
+   *  could actually account for. */
+  productCount: number
+}
+
+export interface AbProfitResult {
+  summary: AbProfitSummary
+  products: AbProfitRow[]
+}
+
+const EMPTY_AB_PROFIT_SUMMARY: AbProfitSummary = {
+  unitsSold: 0,
+  spadesCogsCents: 0,
+  abCostCents: 0,
+  abProfitCents: 0,
+  abMarginPct: null,
+  productCount: 0,
+}
+
+const abProfitCache = createTtlCache<AbProfitResult>(ANALYTICS_CACHE_TTL_MS)
+
+/**
+ * AB Profit tab — "AB" is the staff's other (sister) manufacturing company.
+ * product_variants.cost_cents is what Spades pays AB and books as its own
+ * COGS (used everywhere else on this page); ab_cost_cents is what it
+ * actually cost AB to make the unit. AB Profit = cost_cents - ab_cost_cents,
+ * i.e. AB's own margin on the internal sale — a completely different
+ * question from Spades' retail profit (the rest of this page).
+ *
+ * Deliberately simpler than getProductProfitBreakdown above: no platform-fee
+ * splitting (AB's manufacturing margin has nothing to do with which
+ * marketplace the unit eventually sold on), no orphaned-variant name
+ * resolution or stock-based cost averaging/fallback — a sale whose variant
+ * is missing OR has either cost left blank is just excluded from this
+ * breakdown entirely (never defaulted to 0, which would misrepresent either
+ * a free internal transfer or a 100% AB margin that was never actually set).
+ */
+export const getAbProfitBreakdown = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      brand: z.string().optional(),
+      tz: z.enum(['ph', 'la']).default('ph'),
+    }),
+  )
+  .handler(async ({ data }): Promise<AbProfitResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.tz}`
+    const cached = abProfitCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+    const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
+      data.from,
+      data.to,
+      data.tz,
+    )
+
+    const orders = await fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('id, status')
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (data.channel) query = query.eq('source', data.channel)
+      if (data.brand) query = query.eq('brand', data.brand)
+      return query
+    })
+    const liveOrderIds = orders
+      .filter((o) => !VOID_STATUSES.has(o.status))
+      .map((o) => o.id)
+    if (liveOrderIds.length === 0) {
+      const empty: AbProfitResult = {
+        summary: EMPTY_AB_PROFIT_SUMMARY,
+        products: [],
+      }
+      abProfitCache.set(cacheKey, empty)
+      return empty
+    }
+
+    const itemChunks = await Promise.all(
+      chunkArray(liveOrderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('order_items')
+            .select('variant_id, quantity')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const items = itemChunks
+      .flat()
+      .filter(
+        (i): i is { variant_id: string; quantity: number } =>
+          i.variant_id !== null,
+      )
+
+    const variantIds = Array.from(new Set(items.map((i) => i.variant_id)))
+    const variantChunks = await Promise.all(
+      chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('product_variants')
+            .select('id, product_id, cost_cents, ab_cost_cents')
+            .in('id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const variantById = new Map(variantChunks.flat().map((v) => [v.id, v]))
+
+    const productIdsNeeded = Array.from(
+      new Set(
+        Array.from(variantById.values())
+          .filter((v) => v.cost_cents !== null && v.ab_cost_cents !== null)
+          .map((v) => v.product_id),
+      ),
+    )
+    if (productIdsNeeded.length === 0) {
+      const empty: AbProfitResult = {
+        summary: EMPTY_AB_PROFIT_SUMMARY,
+        products: [],
+      }
+      abProfitCache.set(cacheKey, empty)
+      return empty
+    }
+    const productChunks = await Promise.all(
+      chunkArray(productIdsNeeded, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('products')
+            .select('id, name, images')
+            .in('id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    const productById = new Map(productChunks.flat().map((p) => [p.id, p]))
+
+    interface Bucket {
+      productId: string
+      unitsSold: number
+      spadesCogsCents: number
+      abCostCents: number
+    }
+    const buckets = new Map<string, Bucket>()
+    for (const item of items) {
+      const variant = variantById.get(item.variant_id)
+      if (
+        !variant ||
+        variant.cost_cents === null ||
+        variant.ab_cost_cents === null
+      ) {
+        continue
+      }
+      const bucket = buckets.get(variant.product_id) ?? {
+        productId: variant.product_id,
+        unitsSold: 0,
+        spadesCogsCents: 0,
+        abCostCents: 0,
+      }
+      bucket.unitsSold += item.quantity
+      bucket.spadesCogsCents += variant.cost_cents * item.quantity
+      bucket.abCostCents += variant.ab_cost_cents * item.quantity
+      buckets.set(variant.product_id, bucket)
+    }
+
+    const rows: AbProfitRow[] = Array.from(buckets.values())
+      .map((b) => {
+        const abProfitCents = b.spadesCogsCents - b.abCostCents
+        const product = productById.get(b.productId)
+        return {
+          productId: b.productId,
+          productName: product?.name ?? 'Unknown product',
+          imageUrl: product?.images[0] ?? null,
+          unitsSold: b.unitsSold,
+          spadesCogsCents: b.spadesCogsCents,
+          abCostCents: b.abCostCents,
+          abProfitCents,
+          abMarginPct:
+            b.spadesCogsCents > 0
+              ? (abProfitCents / b.spadesCogsCents) * 100
+              : null,
+        }
+      })
+      .sort((a, b) => b.abProfitCents - a.abProfitCents)
+
+    const summary = rows.reduce<AbProfitSummary>(
+      (acc, r) => ({
+        unitsSold: acc.unitsSold + r.unitsSold,
+        spadesCogsCents: acc.spadesCogsCents + r.spadesCogsCents,
+        abCostCents: acc.abCostCents + r.abCostCents,
+        abProfitCents: acc.abProfitCents + r.abProfitCents,
+        abMarginPct: null,
+        productCount: acc.productCount + 1,
+      }),
+      { ...EMPTY_AB_PROFIT_SUMMARY },
+    )
+    summary.abMarginPct =
+      summary.spadesCogsCents > 0
+        ? (summary.abProfitCents / summary.spadesCogsCents) * 100
+        : null
+
+    const result: AbProfitResult = { summary, products: rows }
+    abProfitCache.set(cacheKey, result)
+    return result
+  })
+
 const VELOCITY_LOOKBACK_DAYS = 30
 const VELOCITY_WELL_STOCKED_THRESHOLD = 50
 // The only movement types that ever change inventory.quantity_on_hand —
