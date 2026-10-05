@@ -65,6 +65,14 @@ export interface LiveShiftRow {
   finalized_by: string | null
   started_at: string | null
   completed_at: string | null
+  /** FIFO-capped rotation memory for "Generate Different Basket" — product
+   *  ids from roughly the last few regenerates of this exact shift, hard-
+   *  excluded from the next regenerate's candidacy (see generateBasket's
+   *  own comment on why a single-generation memory still let a thin
+   *  category ping-pong between the same two baskets). Cleared implicitly
+   *  by starting fresh on a new live_date/shift row — never read once a
+   *  shift is finalized. */
+  recently_shown_product_ids: string[]
   created_at: string
   updated_at: string
 }

@@ -552,35 +552,15 @@ async function loadExposureHistory(
   }
 }
 
-/** The (still-draft) auto-selected items a prior generateBasket call for
- *  this exact shift already produced, if any — see generateBasket's own
- *  comment on why this feeds back into rotation pressure for the next
- *  regenerate. The seller_pick exclusion here is a no-op today (nothing
- *  assigns that category anymore — see SCORED_CATEGORIES/generateBasket),
- *  kept only in case a historical row from before it was removed exists. */
-async function loadCurrentDraftItems(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  liveDate: string,
-  shift: LiveShiftSlot,
-): Promise<Array<[productId: string, category: LiveBasketCategory]>> {
-  const { data: shiftRow, error } = await admin
-    .from('live_shifts')
-    .select('id')
-    .eq('live_date', liveDate)
-    .eq('shift', shift)
-    .maybeSingle()
-  if (error) throw error
-  if (!shiftRow) return []
-
-  const { data: items, error: itemsError } = await admin
-    .from('live_basket_items')
-    .select('product_id, category')
-    .eq('shift_id', shiftRow.id)
-    .neq('category', 'seller_pick')
-  if (itemsError) throw itemsError
-
-  return items.map((i) => [i.product_id, i.category])
-}
+// How many regenerates' worth of picks "Generate Different Basket" remembers
+// and hard-excludes — see generateBasket's own comment on why a single
+// generation of memory wasn't enough (it let a thin category ping-pong
+// between the same two baskets: A, B, A, B, ...). Deep enough that a
+// regenerate streak shows real variety before anything can repeat, but
+// still a sliding window (oldest entries evicted first) rather than a
+// permanent exclusion, so a category with a naturally small candidate pool
+// (e.g. 'restock') isn't locked out for the rest of the shift.
+const ROTATION_MEMORY_GENERATIONS = 3
 
 export const generateBasket = createServerFn({ method: 'POST' })
   .validator(
@@ -599,40 +579,47 @@ export const generateBasket = createServerFn({ method: 'POST' })
       .single()
     if (configError) throw configError
 
-    const [{ candidates }, history, justShown] = await Promise.all([
+    // Upserted up front, before scoring — not at the end, like a plain
+    // "create the row for what we're about to insert" would — specifically
+    // so recently_shown_product_ids (this shift's rotation memory from
+    // earlier regenerates) can be read before candidates are filtered.
+    // Regenerating an existing draft just resets its items, not the row
+    // itself (unique on live_date+shift).
+    const { data: shiftRow, error: shiftError } = await admin
+      .from('live_shifts')
+      .upsert(
+        {
+          live_date: data.liveDate,
+          shift: data.shift,
+          status: 'draft',
+          created_by: staff.id,
+        },
+        { onConflict: 'live_date,shift' },
+      )
+      .select('*')
+      .single()
+    if (shiftError) throw shiftError
+
+    const [{ candidates }, history] = await Promise.all([
       buildCandidatePool(admin),
       loadExposureHistory(admin, data.liveDate),
-      loadCurrentDraftItems(admin, data.liveDate, data.shift),
     ])
 
     // "Generate Different Basket" needs to actually produce a different
-    // basket: loadExposureHistory only looks at past FINALIZED shifts, so
-    // regenerating the same still-draft shift twice in a row saw identical
-    // exposure history both times and picked the identical top scorers
-    // every time — regenerating is now itself treated as "just featured"
-    // for whatever it's about to replace, pushing rotation to prefer the
-    // next-best qualified alternative instead.
-    for (const [productId, category] of justShown) {
-      history.lastFeaturedDaysAgoByProduct.set(productId, 0)
-      const byCategory =
-        history.lastFeaturedInCategoryDaysAgo.get(productId) ?? new Map()
-      byCategory.set(category, 0)
-      history.lastFeaturedInCategoryDaysAgo.set(productId, byCategory)
-    }
-    // The rotation-pressure nudge above wasn't a strong enough guarantee on
-    // its own: a category with only a couple of genuinely strong candidates
-    // (or a 0-day cooldown_days setting, like 'priority') could still
-    // re-select the exact same product even after the -35 penalty, since
-    // nothing stops it from simply out-scoring its (weaker) alternatives
-    // anyway — confirmed live, "priority" has zero cooldown protection and
-    // relies on this score push alone. Hard-excluding every product that
-    // was in the basket a moment ago (locked products excepted — see
-    // `locked` below, a staff decision this never overrides) makes
-    // "Generate Different Basket" an actual guarantee rather than just a
-    // strong hint, for every slot, not only the ones with real cooldown.
-    const justShownProductIds = new Set(
-      justShown.map(([productId]) => productId),
-    )
+    // basket every time, not just alternate between the same two options.
+    // An earlier version of this only remembered the single most recent
+    // draft (as a score penalty, then later as a hard exclude) — enough to
+    // change the NEXT regenerate, but nothing stopped the ONE after that
+    // from landing right back on the original picks once they'd aged out
+    // of that one-generation memory. Confirmed live: a shift regenerated
+    // 4 times visibly alternated between exactly two baskets (1st/3rd
+    // identical, 2nd/4th identical). recently_shown_product_ids instead
+    // remembers roughly the last ROTATION_MEMORY_GENERATIONS generations
+    // (updated below, after this generation's picks are chosen), so a
+    // product only becomes eligible again once it's actually aged out of
+    // that sliding window — locked products excepted (see `locked` below,
+    // a staff decision this never overrides).
+    const recentlyShownIds = new Set(shiftRow.recently_shown_product_ids)
 
     for (const c of candidates) {
       c.lastFeaturedDaysAgo =
@@ -662,7 +649,7 @@ export const generateBasket = createServerFn({ method: 'POST' })
 
     const locked = eligible.filter((c) => c.manualLiveLock)
     const scoreable = eligible.filter(
-      (c) => !c.manualLiveLock && !justShownProductIds.has(c.productId),
+      (c) => !c.manualLiveLock && !recentlyShownIds.has(c.productId),
     )
 
     const poolMaxVelocity = Math.max(
@@ -752,22 +739,26 @@ export const generateBasket = createServerFn({ method: 'POST' })
       if (queues.every((q) => q.length === 0)) break
     }
 
-    // Upsert the shift row (unique on live_date+shift — regenerating an
-    // existing draft just resets it rather than creating a duplicate).
-    const { data: shiftRow, error: shiftError } = await admin
+    // Slide the rotation-memory window forward: this generation's picks go
+    // on the end, oldest ids drop off the front once the cap is exceeded.
+    // A Set preserves insertion order, so spreading the old list (oldest
+    // first) before the new picks keeps eviction order correct; a locked
+    // product that was already remembered keeps its original (older)
+    // position rather than resetting it — harmless, since locked products
+    // bypass the recentlyShownIds exclusion entirely regardless.
+    const rotationMemoryCap =
+      AUTO_CATEGORIES_SLOT_COUNT * ROTATION_MEMORY_GENERATIONS
+    const newRecentlyShown = Array.from(
+      new Set([
+        ...shiftRow.recently_shown_product_ids,
+        ...interleaved.map((s) => s.productId),
+      ]),
+    ).slice(-rotationMemoryCap)
+    const { error: rotationMemoryError } = await admin
       .from('live_shifts')
-      .upsert(
-        {
-          live_date: data.liveDate,
-          shift: data.shift,
-          status: 'draft',
-          created_by: staff.id,
-        },
-        { onConflict: 'live_date,shift' },
-      )
-      .select('*')
-      .single()
-    if (shiftError) throw shiftError
+      .update({ recently_shown_product_ids: newRecentlyShown })
+      .eq('id', shiftRow.id)
+    if (rotationMemoryError) throw rotationMemoryError
 
     // Regenerating replaces every item in the basket.
     const { error: deleteError } = await admin
