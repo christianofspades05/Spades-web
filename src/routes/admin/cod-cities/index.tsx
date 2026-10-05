@@ -41,7 +41,7 @@ function CodCitiesPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="COD Restrictions"
-        subtitle="Block Cash on Delivery for specific cities/municipalities with a history of high returns or failed deliveries from our couriers."
+        subtitle="Block Cash on Delivery for specific cities/municipalities with a history of high returns or failed deliveries from our couriers. Not absolute — a returning customer with at least one paid order successfully delivered, and no failed deliveries, is still allowed COD even in a blocked city."
         action={
           !showForm && (
             <button

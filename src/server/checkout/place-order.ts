@@ -147,19 +147,22 @@ export const placeOrder = createServerFn({ method: 'POST' })
 
       // Staff-maintained list of cities/municipalities with a history of
       // high return/failed-delivery rates from couriers — same
-      // never-trust-the-client principle as the checks above.
+      // never-trust-the-client principle as the checks above. Not an
+      // absolute block: a customer with a proven delivery track record
+      // (see cod-trust.ts) is still allowed COD even here.
       if (data.paymentProvider === 'cod' && data.contact.country === 'PH') {
-        const { checkCodRestrictedCity } = await import(
+        const { resolveCodCityEligibility } = await import(
           '#/server/checkout/cod-city-restriction'
         )
-        const cityRestriction = await checkCodRestrictedCity(admin, {
+        const cityEligibility = await resolveCodCityEligibility(admin, {
+          email: data.contact.email,
           region: data.contact.region ?? '',
           province: data.contact.province,
           city: data.contact.city,
         })
-        if (cityRestriction.restricted) {
+        if (cityEligibility.restricted) {
           throw new Error(
-            cityRestriction.reason ??
+            cityEligibility.reason ??
               'Cash on Delivery is not available in your area. Please pay online instead.',
           )
         }

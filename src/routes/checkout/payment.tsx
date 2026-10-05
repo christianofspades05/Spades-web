@@ -17,7 +17,7 @@ import {
 import { formatRegionLabel, ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
-import { getActiveCodRestrictedCities } from '#/server/checkout/cod-city-restriction'
+import { checkCodCityEligibility } from '#/server/checkout/cod-city-restriction'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { formatCentsAsPHP } from '#/lib/utils/money'
@@ -32,7 +32,6 @@ export const Route = createFileRoute('/checkout/payment')({
   loader: async () => ({
     marketMarkups: await getActiveMarketMarkups(),
     marketShipping: await getActiveMarketShipping(),
-    codRestrictedCities: await getActiveCodRestrictedCities(),
   }),
   component: PaymentPage,
 })
@@ -40,8 +39,7 @@ export const Route = createFileRoute('/checkout/payment')({
 type PaymentMethod = 'cod' | 'online'
 
 function PaymentPage() {
-  const { marketMarkups, marketShipping, codRestrictedCities } =
-    Route.useLoaderData()
+  const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
   const { t } = useLanguage()
   const {
@@ -62,16 +60,44 @@ function PaymentPage() {
   )
 
   const isLalamove = info.shippingMethod === 'lalamove'
-  // Matches place-order.ts's own normalization (via withSubmittableProvince)
-  // so an NCR address — which has no real province in the PSGC data — still
-  // matches a restriction stored against NCR's 'Metro Manila' fallback.
-  const submittableProvince = ncrProvinceFallback(info.region, info.province)
-  const restrictedCity = codRestrictedCities.find(
-    (c) =>
-      c.region === info.region &&
-      c.province === submittableProvince &&
-      c.city === info.city,
-  )
+
+  // A city-level COD block isn't static any more — a customer with a
+  // proven delivery track record (see cod-trust.ts) can still get COD
+  // there, and that can only be known by asking the server per (email,
+  // address), not by matching against a preloaded city list client-side.
+  const [cityRestriction, setCityRestriction] = useState<{
+    restricted: boolean
+    reason: string | null
+  } | null>(null)
+  useEffect(() => {
+    if (info.country !== 'PH' || !info.email || !info.city || !info.province) {
+      setCityRestriction(null)
+      return
+    }
+    let cancelled = false
+    // Matches place-order.ts's own normalization (via withSubmittableProvince)
+    // so an NCR address — which has no real province in the PSGC data —
+    // still matches a restriction stored against NCR's 'Metro Manila'
+    // fallback.
+    checkCodCityEligibility({
+      data: {
+        email: info.email,
+        region: info.region,
+        province: ncrProvinceFallback(info.region, info.province),
+        city: info.city,
+      },
+    })
+      .then((result) => {
+        if (!cancelled) setCityRestriction(result)
+      })
+      .catch(() => {
+        if (!cancelled) setCityRestriction(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [info.country, info.email, info.region, info.province, info.city])
+
   // Shown next to a disabled (not hidden) COD option so the customer knows
   // why, rather than it just silently not being there.
   const codDisabledReason =
@@ -79,8 +105,8 @@ function PaymentPage() {
       ? 'Cash on Delivery is not available — please pay online.'
       : isLalamove
         ? 'Not available for Lalamove delivery — online payment only.'
-        : restrictedCity
-          ? (restrictedCity.reason ??
+        : cityRestriction?.restricted
+          ? (cityRestriction.reason ??
             'Cash on Delivery is not available in your area.')
           : !codAvailable
             ? (codUnavailableReason ??
