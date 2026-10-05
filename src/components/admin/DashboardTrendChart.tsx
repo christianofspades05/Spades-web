@@ -11,6 +11,11 @@ export interface TrendChartPoint {
   label: string
   current: number
   previous: number
+  /** The previous period's own date/label for this point (e.g. "2026-09-28"
+   *  for a current point of "2026-10-04") — shown in the tooltip instead of
+   *  the generic "previous period" when the caller supplies it, so staff
+   *  can see exactly which day is being compared against. */
+  previousLabel?: string
 }
 
 function TrendTooltip({
@@ -32,13 +37,19 @@ function TrendTooltip({
     <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs shadow-md">
       <p className="font-medium text-neutral-900">{point.label}</p>
       <div className="mt-1 flex items-center gap-1.5">
-        <span className="size-1.5 rounded-full" style={{ backgroundColor: color }} />
+        <span
+          className="size-1.5 rounded-full"
+          style={{ backgroundColor: color }}
+        />
         <span className="text-neutral-700">{formatValue(point.current)}</span>
       </div>
       <div className="mt-0.5 flex items-center gap-1.5">
         <span className="size-1.5 rounded-full bg-neutral-300" />
         <span className="text-neutral-500">
-          {formatValue(point.previous)} previous period
+          {formatValue(point.previous)}{' '}
+          {point.previousLabel
+            ? `on ${point.previousLabel}`
+            : 'previous period'}
         </span>
       </div>
       {change !== null && (
@@ -79,7 +90,9 @@ export function TrendLineChart({
         margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
       >
         <CartesianGrid stroke="#f0f0f0" vertical={false} />
-        <Tooltip content={<TrendTooltip formatValue={formatValue} color={color} />} />
+        <Tooltip
+          content={<TrendTooltip formatValue={formatValue} color={color} />}
+        />
         <Line
           type="monotone"
           dataKey="previous"

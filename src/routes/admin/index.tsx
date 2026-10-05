@@ -15,6 +15,7 @@ import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
   DATE_RANGE_PRESETS,
   percentChange,
+  previousPeriod,
   resolveDateRange,
 } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
@@ -131,29 +132,42 @@ export const Route = createFileRoute('/admin/')({
       from: deps.from,
       to: deps.to,
     })
-    const [analytics, salesByChannel, salesByCustomerType, conversionByCountry] =
-      await Promise.all([
-        getDashboardAnalytics({
-          data: { ...resolved, brand: deps.brand, channel: deps.channel },
-        }),
-        getSalesByChannel({
-          data: { ...resolved, brand: deps.brand, channel: deps.channel },
-        }),
-        getSalesByCustomerType({
-          data: { ...resolved, brand: deps.brand, channel: deps.channel },
-        }),
-        getConversionRateByCountry({
-          data: { ...resolved, brand: deps.brand },
-        }),
-      ])
-    return { analytics, salesByChannel, salesByCustomerType, conversionByCountry }
+    const [
+      analytics,
+      salesByChannel,
+      salesByCustomerType,
+      conversionByCountry,
+    ] = await Promise.all([
+      getDashboardAnalytics({
+        data: { ...resolved, brand: deps.brand, channel: deps.channel },
+      }),
+      getSalesByChannel({
+        data: { ...resolved, brand: deps.brand, channel: deps.channel },
+      }),
+      getSalesByCustomerType({
+        data: { ...resolved, brand: deps.brand, channel: deps.channel },
+      }),
+      getConversionRateByCountry({
+        data: { ...resolved, brand: deps.brand },
+      }),
+    ])
+    return {
+      analytics,
+      salesByChannel,
+      salesByCustomerType,
+      conversionByCountry,
+    }
   },
   component: AdminPage,
 })
 
 function AdminPage() {
-  const { analytics, salesByChannel, salesByCustomerType, conversionByCountry } =
-    Route.useLoaderData()
+  const {
+    analytics,
+    salesByChannel,
+    salesByCustomerType,
+    conversionByCountry,
+  } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const customerEconomics = useCustomerEconomics(search.brand)
@@ -201,30 +215,55 @@ function AdminPage() {
         )
       : null
 
-  const salesChartData = analytics.daily.map((d) => ({
+  // The previous period's own date for each trend point, so the tooltip can
+  // say "on 2026-09-28" instead of the generic "previous period" — daily[i]
+  // and the previous period's i-th day are index-aligned (both bucketed
+  // the same way server-side, see dashboard.ts's bucketPeriod), so the
+  // previous date for point i is just the previous range's start date plus
+  // i days. Only meaningful for a day-bucketed (multi-day) range — a
+  // single-day "Today" view buckets by hour instead, where there's no one
+  // previous *date* per point to show.
+  const isSingleDayRange = analytics.range.from === analytics.range.to
+  const previousRangeStart = previousPeriod(
+    analytics.range.from,
+    analytics.range.to,
+  ).from
+  function previousLabelFor(index: number): string | undefined {
+    if (isSingleDayRange) return undefined
+    const d = new Date(`${previousRangeStart}T00:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + index)
+    return d.toISOString().slice(0, 10)
+  }
+
+  const salesChartData = analytics.daily.map((d, i) => ({
     label: d.date,
     current: d.salesCents,
     previous: d.previousSalesCents,
+    previousLabel: previousLabelFor(i),
   }))
-  const ordersChartData = analytics.daily.map((d) => ({
+  const ordersChartData = analytics.daily.map((d, i) => ({
     label: d.date,
     current: d.orders,
     previous: d.previousOrders,
+    previousLabel: previousLabelFor(i),
   }))
-  const visitorsChartData = analytics.daily.map((d) => ({
+  const visitorsChartData = analytics.daily.map((d, i) => ({
     label: d.date,
     current: d.visitors,
     previous: d.previousVisitors,
+    previousLabel: previousLabelFor(i),
   }))
-  const conversionChartData = analytics.daily.map((d) => ({
+  const conversionChartData = analytics.daily.map((d, i) => ({
     label: d.date,
     current: d.conversionRate ?? 0,
     previous: d.previousConversionRate ?? 0,
+    previousLabel: previousLabelFor(i),
   }))
-  const aovChartData = analytics.daily.map((d) => ({
+  const aovChartData = analytics.daily.map((d, i) => ({
     label: d.date,
     current: d.aovCents ?? 0,
     previous: d.previousAovCents ?? 0,
+    previousLabel: previousLabelFor(i),
   }))
 
   const salesByChannelSlices = salesByChannel.channels.map((c) => ({
@@ -501,8 +540,8 @@ function AdminPage() {
                 1st-time vs. Repeat Customers
               </h2>
               <p className="text-xs text-neutral-500">
-                Sales split by whether the customer had already ordered
-                before this range
+                Sales split by whether the customer had already ordered before
+                this range
               </p>
             </div>
             {salesByCustomerType.retentionRatePct !== null && (
@@ -575,8 +614,8 @@ function AdminPage() {
             Cash on Delivery vs. Online Payment
           </h2>
           <p className="text-xs text-neutral-500">
-            Online Store customers only — TikTok/Shopee/Lazada never offer
-            COD through us
+            Online Store customers only — TikTok/Shopee/Lazada never offer COD
+            through us
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-10">
@@ -646,10 +685,10 @@ function AdminPage() {
           Conversion Rate by Country
         </h2>
         <p className="text-xs text-neutral-500">
-          Only countries with at least one real order in this range are
-          shown — a country that only ever sends page views with no orders
-          is almost always non-customer/bot traffic, not a market worth
-          reading a rate for.
+          Only countries with at least one real order in this range are shown —
+          a country that only ever sends page views with no orders is almost
+          always non-customer/bot traffic, not a market worth reading a rate
+          for.
         </p>
 
         <div className={`${tableWrapperClassName} mt-4`}>
@@ -677,9 +716,7 @@ function AdminPage() {
                 <tbody>
                   {conversionByCountry.map((row) => (
                     <tr key={row.country} className={tableRowClassName}>
-                      <td className={tableCellClassName}>
-                        {row.countryName}
-                      </td>
+                      <td className={tableCellClassName}>{row.countryName}</td>
                       <td className={`${tableCellClassName} text-right`}>
                         {row.visitors}
                       </td>
@@ -708,12 +745,12 @@ function AdminPage() {
         browser ids seen on the storefront during the selected period — visits
         before this feature shipped aren't counted retroactively. Conversion
         rate is online-store orders ÷ unique visitors. Average order value is
-        sales ÷ orders over the selected range. Dashed lines show the
-        previous period for comparison. Average customer lifetime value,
-        repeat purchase rate, and average orders per customer are all
-        computed over the same customer population — everyone who's spent
-        more than ₱0, all-time, not affected by the date range above. Repeat
-        purchase rate is the share of those customers with 2 or more orders.
+        sales ÷ orders over the selected range. Dashed lines show the previous
+        period for comparison. Average customer lifetime value, repeat purchase
+        rate, and average orders per customer are all computed over the same
+        customer population — everyone who's spent more than ₱0, all-time, not
+        affected by the date range above. Repeat purchase rate is the share of
+        those customers with 2 or more orders.
       </p>
     </div>
   )
