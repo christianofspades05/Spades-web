@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { getCancelledAndReturns } from '#/server/admin/analytics'
-import type { CancelledReturnsResult } from '#/server/admin/analytics'
+import {
+  getCancelledAndReturns,
+  getReturnIntelligence,
+} from '#/server/admin/analytics'
+import type {
+  CancelledReturnsResult,
+  ReturnIntelligenceLocationRow,
+  ReturnIntelligenceResult,
+  RiskLevel,
+} from '#/server/admin/analytics'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
@@ -12,7 +20,72 @@ import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
 import { BarChart } from '#/components/admin/BarChart'
 import { TrendLineChart } from '#/components/admin/DashboardTrendChart'
+import {
+  inputClassName,
+  tableCellClassName,
+  tableHeadClassName,
+  tableRowClassName,
+  tableWrapperClassName,
+} from '#/components/admin/ui'
 import type { OrderCancellationReason, OrderSource } from '#/types/entities'
+
+const MIN_SAMPLE_OPTIONS = [5, 10, 20, 30, 50] as const
+
+const RISK_LABELS: Record<RiskLevel, string> = {
+  green: 'Normal COD',
+  yellow: 'Monitor',
+  orange: 'COD Confirmation',
+  red: 'Prepaid Recommended',
+  insufficient_data: 'Not enough data',
+}
+
+const RISK_BADGE_CLASSES: Record<RiskLevel, string> = {
+  green: 'bg-emerald-100 text-emerald-700',
+  yellow: 'bg-amber-100 text-amber-700',
+  orange: 'bg-orange-100 text-orange-700',
+  red: 'bg-red-100 text-red-700',
+  insufficient_data: 'bg-neutral-100 text-neutral-500',
+}
+
+function formatPct(value: number | null, digits = 1): string {
+  return value === null ? '—' : `${value.toFixed(digits)}%`
+}
+
+function DeltaBadge({
+  current,
+  previous,
+  /** Return-rate-shaped metrics are "bad when up" — an increase gets red,
+   *  a decrease gets green. Pass false for a metric where up is good. */
+  badWhenUp = true,
+  suffix = 'pts',
+}: {
+  current: number | null
+  previous: number | null | undefined
+  badWhenUp?: boolean
+  suffix?: string
+}) {
+  if (current === null || previous === null || previous === undefined) {
+    return null
+  }
+  const delta = current - previous
+  const rounded = Math.round(delta * 10) / 10
+  if (rounded === 0) {
+    return (
+      <p className="mt-0.5 text-xs text-neutral-400">
+        No change vs previous period
+      </p>
+    )
+  }
+  const improving = badWhenUp ? rounded < 0 : rounded > 0
+  return (
+    <p
+      className={`mt-0.5 text-xs ${improving ? 'text-emerald-600' : 'text-red-600'}`}
+    >
+      {rounded > 0 ? '↑' : '↓'} {Math.abs(rounded).toFixed(1)} {suffix} vs
+      previous period
+    </p>
+  )
+}
 
 type DrillDown =
   | {
@@ -72,30 +145,54 @@ export const Route = createFileRoute('/admin/analytics/cancelled-returns')({
       .enum(['storefront', 'tiktok_shop', 'shopee', 'lazada'])
       .optional(),
     compare: z.boolean().catch(false),
+    minSample: z
+      .union([
+        z.literal(5),
+        z.literal(10),
+        z.literal(20),
+        z.literal(30),
+        z.literal(50),
+      ])
+      .catch(10),
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => {
+  loader: async ({ deps }) => {
     const resolved = resolveDateRange(deps.range, {
       from: deps.from,
       to: deps.to,
     })
-    return getCancelledAndReturns({
-      data: {
-        ...resolved,
-        channel: deps.channel,
-        comparePrevious: deps.compare,
-      },
-    })
+    const [cancelledAndReturns, returnIntelligence] = await Promise.all([
+      getCancelledAndReturns({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          comparePrevious: deps.compare,
+        },
+      }),
+      getReturnIntelligence({
+        data: {
+          ...resolved,
+          channel: deps.channel,
+          comparePrevious: true,
+          minMaturedSample: deps.minSample,
+        },
+      }),
+    ])
+    return { cancelledAndReturns, returnIntelligence }
   },
   component: CancelledReturnsPage,
 })
 
 function CancelledReturnsPage() {
-  const result = Route.useLoaderData()
+  const loaderData = Route.useLoaderData()
+  const result = loaderData.cancelledAndReturns
+  const returnIntelligence = loaderData.returnIntelligence
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null)
-  const [pageTab, setPageTab] = useState<'overview' | 'crossPeriod'>('overview')
+  const [pageTab, setPageTab] = useState<
+    'executive' | 'reasons' | 'geographic' | 'codRisk' | 'crossPeriod'
+  >('executive')
 
   function handleRangeChange(
     preset: DateRangePreset,
@@ -183,39 +280,71 @@ function CancelledReturnsPage() {
         }
       />
 
-      <div className="mb-4 flex items-center gap-1 border-b border-neutral-200">
-        <button
-          type="button"
-          onClick={() => setPageTab('overview')}
-          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
-            pageTab === 'overview'
-              ? 'border-neutral-900 text-neutral-900'
-              : 'border-transparent text-neutral-400 hover:text-neutral-600'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          type="button"
-          onClick={() => setPageTab('crossPeriod')}
-          className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
-            pageTab === 'crossPeriod'
-              ? 'border-neutral-900 text-neutral-900'
-              : 'border-transparent text-neutral-400 hover:text-neutral-600'
-          }`}
-        >
-          Cross Period Returns
-          {result.crossPeriod.cancelledCount + result.crossPeriod.returnsCount >
-            0 && (
-            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 normal-case">
-              {result.crossPeriod.cancelledCount +
-                result.crossPeriod.returnsCount}
-            </span>
-          )}
-        </button>
+      <div className="mb-4 flex flex-wrap items-center gap-1 border-b border-neutral-200">
+        {(
+          [
+            { key: 'executive', label: 'Executive Overview' },
+            { key: 'geographic', label: 'Geographic Risk' },
+            { key: 'codRisk', label: 'COD Risk' },
+            { key: 'reasons', label: 'Reasons & Channels' },
+            {
+              key: 'crossPeriod',
+              label: 'Cross Period Returns',
+              badge:
+                result.crossPeriod.cancelledCount +
+                  result.crossPeriod.returnsCount || undefined,
+            },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setPageTab(tab.key)}
+            className={`border-b-2 px-3 pb-2 text-xs font-semibold tracking-wider uppercase transition ${
+              pageTab === tab.key
+                ? 'border-neutral-900 text-neutral-900'
+                : 'border-transparent text-neutral-400 hover:text-neutral-600'
+            }`}
+          >
+            {tab.label}
+            {'badge' in tab && tab.badge !== undefined && (
+              <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 normal-case">
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {pageTab === 'overview' && (
+      {returnIntelligence.dataNotes.length > 0 && (
+        <DataQualityNotice notes={returnIntelligence.dataNotes} />
+      )}
+
+      {pageTab === 'executive' && (
+        <ExecutiveOverviewTab result={returnIntelligence} />
+      )}
+
+      {pageTab === 'geographic' && (
+        <GeographicTab
+          result={returnIntelligence}
+          minSample={search.minSample}
+          onMinSampleChange={(minSample) =>
+            navigate({ search: (prev) => ({ ...prev, minSample }) })
+          }
+        />
+      )}
+
+      {pageTab === 'codRisk' && (
+        <CodRiskTab
+          result={returnIntelligence}
+          minSample={search.minSample}
+          onMinSampleChange={(minSample) =>
+            navigate({ search: (prev) => ({ ...prev, minSample }) })
+          }
+        />
+      )}
+
+      {pageTab === 'reasons' && (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card className="p-5">
@@ -702,5 +831,562 @@ function ReturnsDrillDownTable({
         </tbody>
       </table>
     </div>
+  )
+}
+
+function DataQualityNotice({ notes }: { notes: string[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Card className="mb-4 border-amber-200 bg-amber-50/60 p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="text-xs font-semibold text-amber-800">
+          Data quality notes — read before trusting a number on this page
+        </span>
+        <span className="text-xs text-amber-700">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <ul className="mt-3 list-disc space-y-1.5 pl-4 text-xs text-amber-800">
+          {notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+function MinSampleControl({
+  value,
+  onChange,
+}: {
+  value: (typeof MIN_SAMPLE_OPTIONS)[number]
+  onChange: (value: (typeof MIN_SAMPLE_OPTIONS)[number]) => void
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-medium text-neutral-600">
+      Minimum matured orders
+      <select
+        value={value}
+        onChange={(e) =>
+          onChange(
+            Number(e.target.value) as (typeof MIN_SAMPLE_OPTIONS)[number],
+          )
+        }
+        className={`${inputClassName} w-auto py-1.5 text-xs`}
+      >
+        {MIN_SAMPLE_OPTIONS.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function ExecutiveOverviewTab({
+  result,
+}: {
+  result: ReturnIntelligenceResult
+}) {
+  const k = result.kpis
+  const prev = result.previousKpis
+
+  const trendData = result.trend.map((point, i) => ({
+    label: point.date,
+    current: point.returnRatePct ?? 0,
+    previous: result.previousTrend?.[i]?.returnRatePct ?? 0,
+  }))
+  const salesTrendData = result.trend.map((point, i) => ({
+    label: point.date,
+    current: point.returnedSalesCents,
+    previous: result.previousTrend?.[i]?.returnedSalesCents ?? 0,
+  }))
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Total Orders</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {k.totalOrders}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Matured Orders</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {k.maturedOrders}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Delivered + Returned only — excludes in-transit and pre-shipment
+            cancellations
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Delivered Orders</p>
+          <p className="mt-1 text-xl font-semibold text-emerald-600">
+            {k.deliveredOrders}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Returned Orders</p>
+          <p className="mt-1 text-xl font-semibold text-red-600">
+            {k.returnedOrders}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {k.rtsOrders} RTS + {k.buyerReturnOrders} buyer return
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">For Return / Pending RTS</p>
+          <p className="mt-1 text-xl font-semibold text-amber-600">
+            {k.pendingReturnOrders}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            At-risk, not yet final
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Overall Return Rate</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatPct(k.returnRatePct)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            of {k.maturedOrders} matured orders
+          </p>
+          <DeltaBadge
+            current={k.returnRatePct}
+            previous={prev?.returnRatePct}
+          />
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">
+            Failed Delivery Sales Value
+          </p>
+          <p className="mt-1 text-xl font-semibold text-red-600">
+            {formatCentsAsPHP(k.returnedSalesCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Estimated Return Cost</p>
+          <p className="mt-1 text-xl font-semibold text-red-600">
+            {formatCentsAsPHP(k.estimatedReturnCostCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Estimate — see data notes
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Avg Returned Order Value</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(k.avgReturnedOrderValueCents)}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">COD Return Rate</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatPct(k.codReturnRatePct)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            of {k.codMaturedOrders} matured COD orders
+          </p>
+          <DeltaBadge
+            current={k.codReturnRatePct}
+            previous={prev?.codReturnRatePct}
+          />
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Prepaid Return Rate</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatPct(k.prepaidReturnRatePct)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            of {k.prepaidMaturedOrders} matured prepaid orders
+          </p>
+          <DeltaBadge
+            current={k.prepaidReturnRatePct}
+            previous={prev?.prepaidReturnRatePct}
+          />
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">
+            Return Cost vs Previous Period
+          </p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(k.estimatedReturnCostCents)}
+          </p>
+          {prev && (
+            <p
+              className={`mt-0.5 text-xs ${
+                k.estimatedReturnCostCents <= prev.estimatedReturnCostCents
+                  ? 'text-emerald-600'
+                  : 'text-red-600'
+              }`}
+            >
+              was {formatCentsAsPHP(prev.estimatedReturnCostCents)}
+            </p>
+          )}
+        </Card>
+      </div>
+
+      <Card className="mt-4 p-5">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Return Rate Over Time
+        </h2>
+        <p className="text-xs text-neutral-500">
+          Daily return rate — current vs previous period
+        </p>
+        <div className="mt-4">
+          <TrendLineChart
+            data={trendData}
+            formatValue={(v) => `${v.toFixed(1)}%`}
+            color="#dc2626"
+          />
+        </div>
+      </Card>
+
+      <Card className="mt-4 p-5">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Returned Sales Value Over Time
+        </h2>
+        <p className="text-xs text-neutral-500">
+          Whether the financial damage from returns is growing
+        </p>
+        <div className="mt-4">
+          <TrendLineChart
+            data={salesTrendData}
+            formatValue={(v) => formatCentsAsPHP(v)}
+            color="#dc2626"
+          />
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function RiskBadge({ level }: { level: RiskLevel }) {
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${RISK_BADGE_CLASSES[level]}`}
+    >
+      {RISK_LABELS[level]}
+    </span>
+  )
+}
+
+type LocationSort =
+  | 'returnRate'
+  | 'returnedOrders'
+  | 'returnedSales'
+  | 'returnCost'
+  | 'totalOrders'
+
+function sortLocations(
+  rows: ReturnIntelligenceLocationRow[],
+  sort: LocationSort,
+): ReturnIntelligenceLocationRow[] {
+  const sorted = [...rows]
+  switch (sort) {
+    case 'returnedOrders':
+      return sorted.sort((a, b) => b.returnedOrders - a.returnedOrders)
+    case 'returnedSales':
+      return sorted.sort((a, b) => b.returnedSalesCents - a.returnedSalesCents)
+    case 'returnCost':
+      return sorted.sort(
+        (a, b) => b.estimatedReturnCostCents - a.estimatedReturnCostCents,
+      )
+    case 'totalOrders':
+      return sorted.sort((a, b) => b.totalOrders - a.totalOrders)
+    case 'returnRate':
+    default:
+      return sorted.sort(
+        (a, b) => (b.returnRatePct ?? -1) - (a.returnRatePct ?? -1),
+      )
+  }
+}
+
+function LocationTable({ rows }: { rows: ReturnIntelligenceLocationRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-neutral-400">
+        No orders with usable location data in this range.
+      </p>
+    )
+  }
+  return (
+    <div className={`${tableWrapperClassName} mt-4`}>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className={tableHeadClassName}>Location</th>
+              <th className={`${tableHeadClassName} text-right`}>Orders</th>
+              <th className={`${tableHeadClassName} text-right`}>Matured</th>
+              <th className={`${tableHeadClassName} text-right`}>Delivered</th>
+              <th className={`${tableHeadClassName} text-right`}>Returned</th>
+              <th className={`${tableHeadClassName} text-right`}>For Return</th>
+              <th className={`${tableHeadClassName} text-right`}>
+                Return Rate
+              </th>
+              <th className={`${tableHeadClassName} text-right`}>
+                Returned Sales
+              </th>
+              <th className={`${tableHeadClassName} text-right`}>
+                COD Return Rate
+              </th>
+              <th className={`${tableHeadClassName} text-right`}>
+                Avg Order Value
+              </th>
+              <th className={`${tableHeadClassName} text-right`}>
+                Est. Return Cost
+              </th>
+              <th className={tableHeadClassName}>Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.location} className={tableRowClassName}>
+                <td className={`${tableCellClassName} font-medium`}>
+                  {row.location}
+                  {row.parentProvince && (
+                    <span className="ml-1.5 text-xs font-normal text-neutral-400">
+                      {row.parentProvince}
+                    </span>
+                  )}
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {row.totalOrders}
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {row.maturedOrders}
+                </td>
+                <td
+                  className={`${tableCellClassName} text-right text-emerald-600`}
+                >
+                  {row.deliveredOrders}
+                </td>
+                <td className={`${tableCellClassName} text-right text-red-600`}>
+                  {row.returnedOrders}
+                </td>
+                <td
+                  className={`${tableCellClassName} text-right text-amber-600`}
+                >
+                  {row.pendingReturnOrders}
+                </td>
+                <td
+                  className={`${tableCellClassName} text-right font-semibold`}
+                >
+                  {formatPct(row.returnRatePct)}
+                  <span className="ml-1 text-xs font-normal text-neutral-400">
+                    (n={row.maturedOrders})
+                  </span>
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {formatCentsAsPHP(row.returnedSalesCents)}
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {formatPct(row.codReturnRatePct)}
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {formatCentsAsPHP(row.avgOrderValueCents)}
+                </td>
+                <td className={`${tableCellClassName} text-right`}>
+                  {formatCentsAsPHP(row.estimatedReturnCostCents)}
+                </td>
+                <td className={tableCellClassName}>
+                  <RiskBadge level={row.riskLevel} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function GeographicTab({
+  result,
+  minSample,
+  onMinSampleChange,
+}: {
+  result: ReturnIntelligenceResult
+  minSample: (typeof MIN_SAMPLE_OPTIONS)[number]
+  onMinSampleChange: (value: (typeof MIN_SAMPLE_OPTIONS)[number]) => void
+}) {
+  const [geoTab, setGeoTab] = useState<'provinces' | 'cities'>('provinces')
+  const [sort, setSort] = useState<LocationSort>('returnRate')
+  const [search, setSearch] = useState('')
+
+  const rawRows = geoTab === 'provinces' ? result.provinces : result.cities
+  const filtered = search
+    ? rawRows.filter((r) =>
+        r.location.toLowerCase().includes(search.toLowerCase()),
+      )
+    : rawRows
+  const rows = sortLocations(filtered, sort)
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Geographic Return Intelligence
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Ranked by return rate, not raw count — a location needs at least{' '}
+            {minSample} matured orders to get a risk rating.
+          </p>
+        </div>
+        <MinSampleControl value={minSample} onChange={onMinSampleChange} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-neutral-200 p-0.5">
+          {(['provinces', 'cities'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setGeoTab(tab)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                geoTab === tab
+                  ? 'bg-neutral-900 text-white'
+                  : 'text-neutral-500 hover:bg-neutral-50'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Search ${geoTab}…`}
+          className={`${inputClassName} w-56`}
+        />
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as LocationSort)}
+          className={`${inputClassName} w-auto`}
+        >
+          <option value="returnRate">Sort: Highest return rate</option>
+          <option value="returnedOrders">Sort: Most returns</option>
+          <option value="returnedSales">Sort: Highest returned value</option>
+          <option value="returnCost">Sort: Highest return cost</option>
+          <option value="totalOrders">Sort: Most orders</option>
+        </select>
+      </div>
+
+      {geoTab === 'cities' && (
+        <p className="mt-3 text-xs text-neutral-400">
+          Cities are Online Store only — TikTok Shop's address data doesn't go
+          below province level, and Shopee's is fully masked. See data notes
+          above.
+        </p>
+      )}
+
+      <LocationTable rows={rows} />
+    </Card>
+  )
+}
+
+function CodRiskTab({
+  result,
+  minSample,
+  onMinSampleChange,
+}: {
+  result: ReturnIntelligenceResult
+  minSample: (typeof MIN_SAMPLE_OPTIONS)[number]
+  onMinSampleChange: (value: (typeof MIN_SAMPLE_OPTIONS)[number]) => void
+}) {
+  const rows = [...result.provinces].sort(
+    (a, b) => (b.codReturnRatePct ?? -1) - (a.codReturnRatePct ?? -1),
+  )
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            COD Risk Map
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Recommendations only — nothing here disables COD automatically.
+            Green &lt;10% · Yellow 10–20% · Orange 20–30% · Red &gt;30%,
+            provinces only, requires at least {minSample} matured orders.
+          </p>
+        </div>
+        <MinSampleControl value={minSample} onChange={onMinSampleChange} />
+      </div>
+
+      <div className={`${tableWrapperClassName} mt-4`}>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className={tableHeadClassName}>Province</th>
+                <th className={`${tableHeadClassName} text-right`}>
+                  Return Rate
+                </th>
+                <th className={`${tableHeadClassName} text-right`}>
+                  Sample Size
+                </th>
+                <th className={`${tableHeadClassName} text-right`}>
+                  COD Return Rate
+                </th>
+                <th className={`${tableHeadClassName} text-right`}>
+                  Returned COD Value
+                </th>
+                <th className={tableHeadClassName}>Risk Level</th>
+                <th className={tableHeadClassName}>Recommended Policy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.location} className={tableRowClassName}>
+                  <td className={`${tableCellClassName} font-medium`}>
+                    {row.location}
+                  </td>
+                  <td className={`${tableCellClassName} text-right`}>
+                    {formatPct(row.returnRatePct)}
+                  </td>
+                  <td
+                    className={`${tableCellClassName} text-right text-neutral-500`}
+                  >
+                    {row.maturedOrders}
+                  </td>
+                  <td className={`${tableCellClassName} text-right`}>
+                    {formatPct(row.codReturnRatePct)}
+                  </td>
+                  <td className={`${tableCellClassName} text-right`}>
+                    {formatCentsAsPHP(row.returnedSalesCents)}
+                  </td>
+                  <td className={tableCellClassName}>
+                    <RiskBadge level={row.riskLevel} />
+                  </td>
+                  <td className={`${tableCellClassName} text-neutral-600`}>
+                    {RISK_LABELS[row.riskLevel]}
+                  </td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="py-8 text-center text-sm text-neutral-400"
+                  >
+                    No province-level data in this range.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Card>
   )
 }

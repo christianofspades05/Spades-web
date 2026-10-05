@@ -756,6 +756,518 @@ export const getCancelledAndReturns = createServerFn({ method: 'GET' })
     return { ...current, previousDaily }
   })
 
+// ============================================================================
+// Return Intelligence — geographic/COD/financial return-RATE analytics,
+// distinct from computeCancelledAndReturns above (which only counts, never
+// rates). Business-logic decisions baked in here, from the Phase 1 audit:
+//
+// - "Matured" = delivered + rts + buyerReturn. Pre-shipment cancellations
+//   (customer_request/out_of_stock/payment_expired, and the plain-cancel
+//   slice of platform_cancelled) are excluded entirely from the
+//   denominator — an order cancelled before it ever shipped never had a
+//   chance to be delivered or fail delivery, so it doesn't belong in a
+//   return-rate calculation either way.
+// - "Returned" (the rate's numerator) = RTS failed delivery (parcel never
+//   reached the buyer) UNION a completed (status='refunded') buyer-
+//   initiated post-delivery return. "For Return" (requested/approved/
+//   received, not yet refunded) is tracked separately as a pending/at-risk
+//   count, never folded into the rate.
+// - Online Store shipments are essentially never marked 'delivered' in this
+//   system today (confirmed live: 1 of 3,386 non-cancelled storefront
+//   shipments) — there's no proof-of-delivery step. An Online Store order
+//   is instead treated as delivered once STOREFRONT_MATURITY_DAYS have
+//   passed since placed_at with no cancellation/return — an inference, not
+//   a captured fact, surfaced to staff as such rather than silently
+//   presented as real delivery confirmation.
+// - TikTok Shop's cancellation_detail = 'Package delivery failed' (a
+//   platform_cancelled sub-case) is reclassified as RTS — TikTok has no
+//   dedicated failed-delivery cancellation reason; this is the closest
+//   real signal it provides. Shopee never populates cancellation_detail,
+//   so Shopee RTS isn't separable from an ordinary buyer cancellation and
+//   reads as 0 rather than being guessed.
+// - Geography: Online Store's shipping_address carries real province/city/
+//   barangay. TikTok Shop's `province` field is actually a PH region
+//   ("Calabarzon") and its `city` field is actually a province ("Cavite")
+//   — confirmed against the real list of 17 PH regions — so TikTok rows
+//   are reported at province granularity using its own `city` field
+//   (relabeled), never presented as true city-level data. Shopee's address
+//   fields are always the literal string "****" (fully masked by its own
+//   API) and are excluded from every geographic breakdown.
+// ============================================================================
+
+/** How long an Online Store order goes with no real delivery confirmation
+ *  before it's inferred delivered — see this section's own top comment. */
+const STOREFRONT_MATURITY_DAYS = 14
+
+/** A clearly-labeled assumption, not a captured cost: no outbound/return
+ *  shipping or packaging cost is tracked anywhere in the schema for the
+ *  standard (non-Lalamove) courier flow that covers the overwhelming
+ *  majority of orders. Shown in the UI with this same caveat rather than
+ *  presented as a real figure. */
+const ESTIMATED_RETURN_COST_PER_ORDER_CENTS = 15000
+
+type ReturnOutcome =
+  | 'delivered'
+  | 'rts'
+  | 'buyerReturn'
+  | 'pendingReturn'
+  | 'preShipmentCancel'
+  | 'immature'
+
+const MATURED_OUTCOMES = new Set<ReturnOutcome>([
+  'delivered',
+  'rts',
+  'buyerReturn',
+])
+const RETURNED_OUTCOMES = new Set<ReturnOutcome>(['rts', 'buyerReturn'])
+
+interface OrderOutcomeRow {
+  id: string
+  source: OrderSource
+  placedAt: string
+  totalCents: number
+  isCod: boolean
+  /** Province-granularity location, normalized per-channel — see this
+   *  section's top comment. Null when the channel provides none (Shopee)
+   *  or the field was blank on this order. */
+  province: string | null
+  /** True city-granularity — only ever populated for Online Store. */
+  city: string | null
+  outcome: ReturnOutcome
+}
+
+function classifyOrderOutcome(
+  order: {
+    status: OrderStatus
+    cancellation_reason: OrderCancellationReason | null
+    cancellation_detail: string | null
+    placed_at: string
+    source: OrderSource
+  },
+  shipmentStatus: string | null,
+  returnStatuses: string[],
+  nowMs: number,
+): ReturnOutcome {
+  if (order.status === 'cancelled') {
+    const isRts =
+      order.cancellation_reason === 'failed_delivery' ||
+      (order.cancellation_reason === 'platform_cancelled' &&
+        order.cancellation_detail === 'Package delivery failed')
+    return isRts ? 'rts' : 'preShipmentCancel'
+  }
+  if (returnStatuses.includes('refunded')) return 'buyerReturn'
+  if (
+    returnStatuses.some((s) =>
+      ['requested', 'approved', 'received'].includes(s),
+    )
+  ) {
+    return 'pendingReturn'
+  }
+  if (shipmentStatus === 'delivered') return 'delivered'
+  if (order.source === 'storefront') {
+    const ageDays = (nowMs - new Date(order.placed_at).getTime()) / 86_400_000
+    if (ageDays >= STOREFRONT_MATURITY_DAYS) return 'delivered'
+  }
+  return 'immature'
+}
+
+/** See this section's top comment on why TikTok's own `city`/`province`
+ *  fields are relabeled rather than trusted at face value, and why Shopee
+ *  is excluded outright. */
+function resolveEffectiveLocation(
+  source: OrderSource,
+  address: Record<string, unknown>,
+): { province: string | null; city: string | null } {
+  const field = (key: string): string | null => {
+    const v = address[key]
+    const trimmed = typeof v === 'string' ? v.trim() : ''
+    return trimmed && trimmed !== '****' ? trimmed : null
+  }
+  if (source === 'storefront' || source === 'admin') {
+    return { province: field('province'), city: field('city') }
+  }
+  if (source === 'tiktok_shop') {
+    return { province: field('city'), city: null }
+  }
+  return { province: null, city: null }
+}
+
+async function fetchOrderOutcomes(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  from: string,
+  to: string,
+  channelFilter: OrderSource | undefined,
+  brandFilter: string | undefined,
+): Promise<OrderOutcomeRow[]> {
+  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
+
+  const orders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select(
+        'id, source, status, cancellation_reason, cancellation_detail, placed_at, total_cents, is_cod, shipping_address',
+      )
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (channelFilter) query = query.eq('source', channelFilter)
+    if (brandFilter) query = query.eq('brand', brandFilter)
+    return query
+  })
+  if (orders.length === 0) return []
+
+  const orderIds = orders.map((o) => o.id)
+  const [shipmentChunks, returnChunks] = await Promise.all([
+    Promise.all(
+      chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('shipments')
+            .select('order_id, status')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    ),
+    Promise.all(
+      chunkArray(orderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('returns')
+            .select('order_id, status')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    ),
+  ])
+  // A storefront order's own shipment can in principle get more than one
+  // row over its life (rare, but upsertShipment keys on order_id so this
+  // shouldn't happen) — last one wins, consistent with "current state."
+  const shipmentStatusByOrderId = new Map(
+    shipmentChunks.flat().map((s) => [s.order_id, s.status]),
+  )
+  const returnStatusesByOrderId = new Map<string, string[]>()
+  for (const r of returnChunks.flat()) {
+    const list = returnStatusesByOrderId.get(r.order_id) ?? []
+    list.push(r.status)
+    returnStatusesByOrderId.set(r.order_id, list)
+  }
+
+  const nowMs = Date.now()
+  return orders.map((order) => {
+    const outcome = classifyOrderOutcome(
+      order,
+      shipmentStatusByOrderId.get(order.id) ?? null,
+      returnStatusesByOrderId.get(order.id) ?? [],
+      nowMs,
+    )
+    const { province, city } = resolveEffectiveLocation(
+      order.source,
+      order.shipping_address,
+    )
+    return {
+      id: order.id,
+      source: order.source,
+      placedAt: order.placed_at,
+      totalCents: order.total_cents,
+      isCod: order.is_cod,
+      province,
+      city,
+      outcome,
+    }
+  })
+}
+
+export interface ReturnIntelligenceKpis {
+  totalOrders: number
+  maturedOrders: number
+  deliveredOrders: number
+  returnedOrders: number
+  rtsOrders: number
+  buyerReturnOrders: number
+  pendingReturnOrders: number
+  preShipmentCancelOrders: number
+  /** null when there are zero matured orders to divide by — never shown as 0%. */
+  returnRatePct: number | null
+  returnedSalesCents: number
+  estimatedReturnCostCents: number
+  avgReturnedOrderValueCents: number
+  codMaturedOrders: number
+  codReturnedOrders: number
+  codReturnRatePct: number | null
+  prepaidMaturedOrders: number
+  prepaidReturnedOrders: number
+  prepaidReturnRatePct: number | null
+}
+
+function computeKpis(outcomes: OrderOutcomeRow[]): ReturnIntelligenceKpis {
+  const matured = outcomes.filter((o) => MATURED_OUTCOMES.has(o.outcome))
+  const returned = matured.filter((o) => RETURNED_OUTCOMES.has(o.outcome))
+  const cod = matured.filter((o) => o.isCod)
+  const codReturned = cod.filter((o) => RETURNED_OUTCOMES.has(o.outcome))
+  const prepaid = matured.filter((o) => !o.isCod)
+  const prepaidReturned = prepaid.filter((o) =>
+    RETURNED_OUTCOMES.has(o.outcome),
+  )
+  const returnedSalesCents = returned.reduce((sum, o) => sum + o.totalCents, 0)
+
+  return {
+    totalOrders: outcomes.length,
+    maturedOrders: matured.length,
+    deliveredOrders: outcomes.filter((o) => o.outcome === 'delivered').length,
+    returnedOrders: returned.length,
+    rtsOrders: outcomes.filter((o) => o.outcome === 'rts').length,
+    buyerReturnOrders: outcomes.filter((o) => o.outcome === 'buyerReturn')
+      .length,
+    pendingReturnOrders: outcomes.filter((o) => o.outcome === 'pendingReturn')
+      .length,
+    preShipmentCancelOrders: outcomes.filter(
+      (o) => o.outcome === 'preShipmentCancel',
+    ).length,
+    returnRatePct:
+      matured.length > 0 ? (returned.length / matured.length) * 100 : null,
+    returnedSalesCents,
+    estimatedReturnCostCents:
+      returned.length * ESTIMATED_RETURN_COST_PER_ORDER_CENTS,
+    avgReturnedOrderValueCents:
+      returned.length > 0
+        ? Math.round(returnedSalesCents / returned.length)
+        : 0,
+    codMaturedOrders: cod.length,
+    codReturnedOrders: codReturned.length,
+    codReturnRatePct:
+      cod.length > 0 ? (codReturned.length / cod.length) * 100 : null,
+    prepaidMaturedOrders: prepaid.length,
+    prepaidReturnedOrders: prepaidReturned.length,
+    prepaidReturnRatePct:
+      prepaid.length > 0
+        ? (prepaidReturned.length / prepaid.length) * 100
+        : null,
+  }
+}
+
+export interface ReturnIntelligenceTrendPoint {
+  date: string
+  maturedOrders: number
+  returnedOrders: number
+  returnRatePct: number | null
+  returnedSalesCents: number
+}
+
+function computeTrend(
+  outcomes: OrderOutcomeRow[],
+  from: string,
+  to: string,
+): ReturnIntelligenceTrendPoint[] {
+  const byDay = new Map<string, OrderOutcomeRow[]>()
+  for (
+    const d = new Date(`${from}T00:00:00Z`);
+    d <= new Date(`${to}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    byDay.set(d.toISOString().slice(0, 10), [])
+  }
+  for (const o of outcomes) {
+    const key = storeLocalDateKey(o.placedAt)
+    const list = byDay.get(key)
+    if (list) list.push(o)
+  }
+  return Array.from(byDay.entries()).map(([date, dayOutcomes]) => {
+    const kpis = computeKpis(dayOutcomes)
+    return {
+      date,
+      maturedOrders: kpis.maturedOrders,
+      returnedOrders: kpis.returnedOrders,
+      returnRatePct: kpis.returnRatePct,
+      returnedSalesCents: kpis.returnedSalesCents,
+    }
+  })
+}
+
+export type RiskLevel =
+  'green' | 'yellow' | 'orange' | 'red' | 'insufficient_data'
+
+function riskLevelFor(
+  returnRatePct: number | null,
+  maturedOrders: number,
+  minMaturedSample: number,
+): RiskLevel {
+  if (returnRatePct === null || maturedOrders < minMaturedSample) {
+    return 'insufficient_data'
+  }
+  if (returnRatePct >= 30) return 'red'
+  if (returnRatePct >= 20) return 'orange'
+  if (returnRatePct >= 10) return 'yellow'
+  return 'green'
+}
+
+export interface ReturnIntelligenceLocationRow {
+  location: string
+  /** For a city row, which province it belongs to (null for a province
+   *  row, or when the channel can't supply one — e.g. a TikTok province
+   *  row has no finer breakdown available). */
+  parentProvince: string | null
+  totalOrders: number
+  maturedOrders: number
+  deliveredOrders: number
+  returnedOrders: number
+  pendingReturnOrders: number
+  returnRatePct: number | null
+  returnedSalesCents: number
+  codMaturedOrders: number
+  codReturnedOrders: number
+  codReturnRatePct: number | null
+  avgOrderValueCents: number
+  estimatedReturnCostCents: number
+  riskLevel: RiskLevel
+}
+
+function aggregateByLocation(
+  outcomes: OrderOutcomeRow[],
+  keyFn: (
+    o: OrderOutcomeRow,
+  ) => { location: string; parentProvince: string | null } | null,
+  minMaturedSample: number,
+): ReturnIntelligenceLocationRow[] {
+  const buckets = new Map<string, OrderOutcomeRow[]>()
+  const parentByLocation = new Map<string, string | null>()
+  for (const o of outcomes) {
+    const key = keyFn(o)
+    if (!key) continue
+    const list = buckets.get(key.location) ?? []
+    list.push(o)
+    buckets.set(key.location, list)
+    parentByLocation.set(key.location, key.parentProvince)
+  }
+
+  return Array.from(buckets.entries()).map(([location, rows]) => {
+    const kpis = computeKpis(rows)
+    const totalSalesCents = rows.reduce((sum, o) => sum + o.totalCents, 0)
+    return {
+      location,
+      parentProvince: parentByLocation.get(location) ?? null,
+      totalOrders: rows.length,
+      maturedOrders: kpis.maturedOrders,
+      deliveredOrders: kpis.deliveredOrders,
+      returnedOrders: kpis.returnedOrders,
+      pendingReturnOrders: kpis.pendingReturnOrders,
+      returnRatePct: kpis.returnRatePct,
+      returnedSalesCents: kpis.returnedSalesCents,
+      codMaturedOrders: kpis.codMaturedOrders,
+      codReturnedOrders: kpis.codReturnedOrders,
+      codReturnRatePct: kpis.codReturnRatePct,
+      avgOrderValueCents:
+        rows.length > 0 ? Math.round(totalSalesCents / rows.length) : 0,
+      estimatedReturnCostCents: kpis.estimatedReturnCostCents,
+      riskLevel: riskLevelFor(
+        kpis.returnRatePct,
+        kpis.maturedOrders,
+        minMaturedSample,
+      ),
+    }
+  })
+}
+
+export interface ReturnIntelligenceResult {
+  range: { from: string; to: string }
+  kpis: ReturnIntelligenceKpis
+  previousKpis: ReturnIntelligenceKpis | null
+  trend: ReturnIntelligenceTrendPoint[]
+  /** Same shape as trend, aligned by index (day 1 of this period against
+   *  day 1 of the equal-length prior period) — null when comparePrevious
+   *  wasn't requested. */
+  previousTrend: ReturnIntelligenceTrendPoint[] | null
+  provinces: ReturnIntelligenceLocationRow[]
+  cities: ReturnIntelligenceLocationRow[]
+  /** Surfaced in the UI as a small data-quality notice — see this
+   *  section's top comment for the full reasoning behind each one. */
+  dataNotes: string[]
+}
+
+const RETURN_INTELLIGENCE_DATA_NOTES = [
+  'Online Store orders have almost no real "delivered" confirmation in this system — an order is inferred delivered once 14 days pass with no cancellation or return. Marketplace orders use the platform’s own delivered status, which is reliable.',
+  'TikTok Shop RTS is inferred from a "Package delivery failed" cancellation detail; Shopee never provides this detail, so Shopee RTS reads as 0 rather than being guessed.',
+  'Shopee hides buyer city/province/barangay entirely (always masked) and is excluded from every geographic breakdown below.',
+  'TikTok Shop\'s own "province" field is actually a region and its "city" field is actually a province — shown here at province granularity using the corrected field, never as true city-level data.',
+  'Estimated Return Cost is a flat assumption per returned order (no shipping/packaging cost is tracked in the system) — treat it as directional, not exact.',
+]
+
+const returnIntelligenceCache = createTtlCache<ReturnIntelligenceResult>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+export const getReturnIntelligence = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      channel: z
+        .enum(['storefront', 'admin', 'tiktok_shop', 'shopee', 'lazada'])
+        .optional(),
+      brand: z.string().optional(),
+      comparePrevious: z.boolean().default(true),
+      minMaturedSample: z.number().int().min(1).default(10),
+    }),
+  )
+  .handler(async ({ data }): Promise<ReturnIntelligenceResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.channel ?? 'all'}|${data.brand ?? 'all'}|${data.comparePrevious}|${data.minMaturedSample}`
+    const cached = returnIntelligenceCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+
+    const outcomes = await fetchOrderOutcomes(
+      admin,
+      data.from,
+      data.to,
+      data.channel,
+      data.brand,
+    )
+
+    let previousKpis: ReturnIntelligenceKpis | null = null
+    let previousTrend: ReturnIntelligenceTrendPoint[] | null = null
+    if (data.comparePrevious) {
+      const prev = previousPeriod(data.from, data.to)
+      const prevOutcomes = await fetchOrderOutcomes(
+        admin,
+        prev.from,
+        prev.to,
+        data.channel,
+        data.brand,
+      )
+      previousKpis = computeKpis(prevOutcomes)
+      previousTrend = computeTrend(prevOutcomes, prev.from, prev.to)
+    }
+
+    const result: ReturnIntelligenceResult = {
+      range: { from: data.from, to: data.to },
+      kpis: computeKpis(outcomes),
+      previousKpis,
+      trend: computeTrend(outcomes, data.from, data.to),
+      previousTrend,
+      provinces: aggregateByLocation(
+        outcomes,
+        (o) =>
+          o.province ? { location: o.province, parentProvince: null } : null,
+        data.minMaturedSample,
+      ).sort((a, b) => (b.returnRatePct ?? -1) - (a.returnRatePct ?? -1)),
+      cities: aggregateByLocation(
+        outcomes,
+        (o) =>
+          o.city && o.source === 'storefront'
+            ? { location: o.city, parentProvince: o.province }
+            : null,
+        data.minMaturedSample,
+      ).sort((a, b) => (b.returnRatePct ?? -1) - (a.returnRatePct ?? -1)),
+      dataNotes: RETURN_INTELLIGENCE_DATA_NOTES,
+    }
+    returnIntelligenceCache.set(cacheKey, result)
+    return result
+  })
+
 export const getSalesByChannel = createServerFn({ method: 'GET' })
   .validator(
     z.object({
