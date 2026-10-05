@@ -254,22 +254,6 @@ const STALE_UNFULFILLED_DAYS = 7
 const STALE_TIKTOK_AWAITING_SHIPMENT_HOURS = 36
 
 /**
- * Order ids currently sitting with a 'pending' shipment (TikTok's
- * AWAITING_SHIPMENT / "awaiting arrangement") — reuses
- * resolveFulfillmentOrderIds' own shipments lookup rather than duplicating
- * it, since that's already how the plain "Awaiting Shipment" fulfillment
- * filter answers the same question.
- */
-async function resolveStaleTiktokAwaitingIds(
-  admin: ReturnType<typeof getSupabaseAdminClient>,
-  staleTiktokAwaitingShipment: boolean | undefined,
-): Promise<{ includeIds?: string[] }> {
-  if (!staleTiktokAwaitingShipment) return {}
-  const { includeIds } = await resolveFulfillmentOrderIds(admin, 'pending')
-  return { includeIds: includeIds ?? [] }
-}
-
-/**
  * Every order id whose delivery method (see the admin Orders table's own
  * "Delivery method" column) matches the requested zone — computed the
  * exact same way that column is rendered (shippingZoneForRegion, plus the
@@ -484,20 +468,26 @@ export const listOrders = createServerFn({ method: 'GET' })
     )
     if (zoneIncludeIds && zoneIncludeIds.length === 0) return []
 
-    const { includeIds: tiktokAwaitingIncludeIds } =
-      await resolveStaleTiktokAwaitingIds(
-        admin,
-        data.staleTiktokAwaitingShipment,
-      )
-    if (tiktokAwaitingIncludeIds && tiktokAwaitingIncludeIds.length === 0) {
-      return []
-    }
-
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
       : null
     if (matchedOrderIds && matchedOrderIds.length === 0) return []
+
+    // staleTiktokAwaitingShipment's own candidate set runs into the
+    // hundreds (unlike staleUnfulfilled's has_shipment boolean column,
+    // there's no equivalent plain column for "has a pending shipment"), far
+    // past what an `.in('id', ids)` filter can safely carry in one request
+    // URL (same class of crash fixed once already on the Restock page) —
+    // so instead of pre-resolving ids, this inner-joins shipments and
+    // filters the join itself, same technique already used by
+    // getUnreadFailedDeliveryReplyCount (order-emails.ts). The join only
+    // switches to !inner when this filter is active — doing it
+    // unconditionally would silently drop every shipment-less order from
+    // the default, unfiltered Orders view.
+    const shipmentsEmbed = data.staleTiktokAwaitingShipment
+      ? 'shipments!inner(status, carrier, tracking_number)'
+      : 'shipments(status, carrier, tracking_number)'
 
     // A fresh builder per call — `.in('id', chunk)` needs its own base query
     // for each chunk below, rather than accumulating onto one shared
@@ -507,7 +497,7 @@ export const listOrders = createServerFn({ method: 'GET' })
       let q = admin
         .from('orders')
         .select(
-          '*, customer:customers(id, email, full_name), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id), payments(status, created_at), shipments(status, carrier, tracking_number)',
+          `*, customer:customers(id, email, full_name), order_items(id, product_name_snapshot, variant_label_snapshot, quantity, variant_id), payments(status, created_at), ${shipmentsEmbed}`,
         )
         .order('placed_at', { ascending: false })
 
@@ -539,14 +529,16 @@ export const listOrders = createServerFn({ method: 'GET' })
         const cutoff = new Date(
           Date.now() - STALE_TIKTOK_AWAITING_SHIPMENT_HOURS * 60 * 60 * 1000,
         ).toISOString()
-        q = q.eq('source', 'tiktok_shop').lte('placed_at', cutoff)
+        q = q
+          .eq('source', 'tiktok_shop')
+          .lte('placed_at', cutoff)
+          .eq('shipments.status', 'pending')
       }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
       if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
-      if (tiktokAwaitingIncludeIds) q = q.in('id', tiktokAwaitingIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }
@@ -635,15 +627,6 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     )
     if (zoneIncludeIds && zoneIncludeIds.length === 0) return { total: 0 }
 
-    const { includeIds: tiktokAwaitingIncludeIds } =
-      await resolveStaleTiktokAwaitingIds(
-        admin,
-        data.staleTiktokAwaitingShipment,
-      )
-    if (tiktokAwaitingIncludeIds && tiktokAwaitingIncludeIds.length === 0) {
-      return { total: 0 }
-    }
-
     const search = data.q?.trim()
     const matchedOrderIds = search
       ? await resolveSearchMatchedOrderIds(admin, search)
@@ -651,7 +634,15 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
     if (matchedOrderIds && matchedOrderIds.length === 0) return { total: 0 }
 
     function buildQuery(idChunk?: string[]) {
-      let q = admin.from('orders').select('id', { count: 'exact', head: true })
+      // Same inner-join-the-filter technique as listOrders' buildQuery
+      // above (see its own comment) — the candidate set here runs into the
+      // hundreds, too large for an `.in('id', ids)` filter to carry safely.
+      let q = data.staleTiktokAwaitingShipment
+        ? admin.from('orders').select('id, shipments!inner(status)', {
+            count: 'exact',
+            head: true,
+          })
+        : admin.from('orders').select('id', { count: 'exact', head: true })
 
       if (data.status) {
         q = q.eq('status', data.status)
@@ -677,14 +668,16 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
         const cutoff = new Date(
           Date.now() - STALE_TIKTOK_AWAITING_SHIPMENT_HOURS * 60 * 60 * 1000,
         ).toISOString()
-        q = q.eq('source', 'tiktok_shop').lte('placed_at', cutoff)
+        q = q
+          .eq('source', 'tiktok_shop')
+          .lte('placed_at', cutoff)
+          .eq('shipments.status', 'pending')
       }
       if (excludeIds && excludeIds.length > 0) {
         q = q.not('id', 'in', `(${excludeIds.join(',')})`)
       }
       if (includeIds) q = q.in('id', includeIds)
       if (zoneIncludeIds) q = q.in('id', zoneIncludeIds)
-      if (tiktokAwaitingIncludeIds) q = q.in('id', tiktokAwaitingIncludeIds)
       if (idChunk) q = q.in('id', idChunk)
       return q
     }
