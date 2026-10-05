@@ -41,7 +41,7 @@ function CodCitiesPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="COD Restrictions"
-        subtitle="Block Cash on Delivery for specific cities/municipalities with a history of high returns or failed deliveries from our couriers. Not absolute — a returning customer with at least one paid order successfully delivered, and no failed deliveries, is still allowed COD even in a blocked city."
+        subtitle="Block Cash on Delivery for specific cities/municipalities with a history of high returns or failed deliveries from our couriers."
         action={
           !showForm && (
             <button
@@ -54,6 +54,36 @@ function CodCitiesPage() {
           )
         }
       />
+
+      <Card className="mt-4 border-neutral-300 bg-neutral-50 p-5">
+        <p className="text-sm font-semibold text-neutral-900">How this works</p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-neutral-700">
+          <li>
+            A city on this list hides Cash on Delivery for checkouts shipping
+            there — the customer sees "Pay Online" only.
+          </li>
+          <li>
+            <span className="font-medium text-neutral-900">Exception:</span>{' '}
+            it's not an absolute block. If the customer has at least one
+            earlier order that was <span className="font-medium">paid
+            online</span> (not COD) and reached{' '}
+            <span className="font-medium">Delivered</span>, Cash on Delivery
+            is offered to them again even in a blocked city.
+          </li>
+          <li>
+            That exception never applies if the customer has ever had a
+            delivery <span className="font-medium">fail</span> (an order
+            cancelled for a failed delivery) — one failed delivery cancels
+            the trust permanently, no matter how many successful orders came
+            before or after it.
+          </li>
+          <li>
+            A brand-new customer, or one whose only history is unpaid,
+            cancelled, or still in transit, does not qualify — the
+            exception has to be earned by a completed paid order first.
+          </li>
+        </ul>
+      </Card>
 
       {showForm && (
         <AddCityForm
