@@ -40,6 +40,7 @@ const CATEGORY_LABELS: Record<LiveBasketCategory, string> = {
   priority: '🆕 Priority / New',
   inventory_push: '📦 Inventory Push',
   test: '🧪 Test',
+  restock: '🚚 Just Restocked',
   seller_pick: "👑 Seller's Pick",
 }
 
@@ -75,8 +76,7 @@ export const Route = createFileRoute('/admin/live-product-planner/')({
 })
 
 function LiveProductPlannerPage() {
-  const { liveDate, shift, todaysShifts, currentShift } =
-    Route.useLoaderData()
+  const { liveDate, shift, todaysShifts, currentShift } = Route.useLoaderData()
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
 
@@ -165,10 +165,7 @@ function LiveProductPlannerPage() {
             disabled={generating}
             className={`${buttonPrimaryClassName} mt-5 gap-2`}
           >
-            <RefreshCw
-              size={16}
-              className={generating ? 'animate-spin' : ''}
-            />
+            <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
             {items.length > 0
               ? generating
                 ? 'Regenerating…'
@@ -266,9 +263,7 @@ function LiveProductPlannerPage() {
 function VarietySummaryCard({
   summary,
 }: {
-  summary: NonNullable<
-    Awaited<ReturnType<typeof getShift>>
-  >['varietySummary']
+  summary: NonNullable<Awaited<ReturnType<typeof getShift>>>['varietySummary']
 }) {
   if (!summary) return null
   return (
@@ -439,9 +434,7 @@ function SellerPickSearch({
         />
       </div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      {loading && (
-        <p className="mt-2 text-xs text-neutral-400">Searching…</p>
-      )}
+      {loading && <p className="mt-2 text-xs text-neutral-400">Searching…</p>}
       {debouncedQuery && results.length > 0 && (
         <ul className="mt-2 flex max-h-60 flex-col gap-1 overflow-y-auto">
           {results.map((p) => (
@@ -558,9 +551,7 @@ function ReplaceItemDialog({
           Reason
           <select
             value={reason}
-            onChange={(e) =>
-              setReason(e.target.value as LiveReplacementReason)
-            }
+            onChange={(e) => setReason(e.target.value as LiveReplacementReason)}
             className={inputClassName}
           >
             {REPLACEMENT_REASONS.map((r) => (

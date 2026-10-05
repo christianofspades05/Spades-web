@@ -1,0 +1,11 @@
+-- Adds a 'restock' category to the LIVE Product Planner's basket, so a
+-- product that just got a genuine bulk restock (not a recount — see
+-- RESTOCK_MIN_TOTAL_QUANTITY's own comment in server/admin/products.ts)
+-- gets dedicated LIVE exposure while it's fresh, independent of the
+-- existing 'inventory_push' category (which targets the opposite signal:
+-- slow-moving stock that's been sitting a while).
+--
+-- Kept as its own migration, separate from 0102's config update: Postgres
+-- doesn't allow a brand-new enum value to be used (even indirectly, via a
+-- later statement) within the same transaction that added it.
+alter type live_basket_category add value 'restock';

@@ -37,6 +37,12 @@ export interface ProductCandidate {
   /** How many times this product has appeared specifically in the 'test'
    *  category, ever — independent of consecutiveDaysFeatured. */
   testAppearanceCount: number
+  /** Days since this product's most recent *genuine* restock (same
+   *  (product, day) >=RESTOCK_MIN_TOTAL_QUANTITY-units definition the
+   *  Restock page uses — see computeRestockGroups in
+   *  server/admin/products.ts) — null if it hasn't had one within the
+   *  lookback window the caller queries. */
+  daysSinceRestock: number | null
 }
 
 export interface ScoreFactors {
@@ -46,6 +52,7 @@ export interface ScoreFactors {
   momentum: number
   daysOfStock: number
   strategicPriority: number
+  restockRecency: number
 }
 
 /** The exact shape persisted to live_basket_items.score_snapshot — a
@@ -81,6 +88,13 @@ export interface ScoredCandidate {
 
 const HEALTHY_SIZE_STOCK_UNITS = 5
 const INVENTORY_HEALTH_TARGET_RUNWAY_DAYS = 14
+/** A restock stops counting as "fresh" once it's this many days old — the
+ *  'restock' category's whole reason to exist (new stock worth announcing)
+ *  fades fast, unlike inventory_push's slow-moving-stock signal. The
+ *  caller (buildCandidatePool) queries a wider lookback than this to
+ *  account for staff backdating a restock's logged date, but nothing past
+ *  this window ever scores above 0 here. */
+export const RESTOCK_FRESHNESS_WINDOW_DAYS = 7
 /** Momentum ratio is clamped to [-1, +2] (100% decline to 200% growth)
  *  before being mapped onto the 0-1 factor scale — a single outlier week
  *  (e.g. one huge order) shouldn't send momentum off an unbounded scale. */
@@ -133,17 +147,16 @@ export function computeDaysOfStock(
   return currentStockOnHand / velocityUnitsPerDay
 }
 
-function momentumScore(
-  recentVelocity: number,
-  priorVelocity: number,
-): number {
+function momentumScore(recentVelocity: number, priorVelocity: number): number {
   if (priorVelocity <= 0) return recentVelocity > 0 ? 1 : 0.5
   const ratio = (recentVelocity - priorVelocity) / priorVelocity
   const clamped = clamp(ratio, MOMENTUM_RATIO_MIN, MOMENTUM_RATIO_MAX)
   // Maps [-1, +2] linearly onto [0, 1] — 0% change (ratio=0) lands at 1/3,
   // not the middle, since holding steady is only mildly positive, not
   // neutral: momentum specifically rewards growth.
-  return (clamped - MOMENTUM_RATIO_MIN) / (MOMENTUM_RATIO_MAX - MOMENTUM_RATIO_MIN)
+  return (
+    (clamped - MOMENTUM_RATIO_MIN) / (MOMENTUM_RATIO_MAX - MOMENTUM_RATIO_MIN)
+  )
 }
 
 function inventoryHealthScore(
@@ -163,12 +176,19 @@ function inventoryHealthScore(
   )
 }
 
+/** 1.0 for a same-day restock, decaying linearly to 0 by
+ *  RESTOCK_FRESHNESS_WINDOW_DAYS — null (no qualifying restock in the
+ *  caller's lookback window) scores 0, same as "too old to count." */
+function restockRecencyScore(daysSinceRestock: number | null): number {
+  if (daysSinceRestock === null) return 0
+  return clamp(1 - daysSinceRestock / RESTOCK_FRESHNESS_WINDOW_DAYS, 0, 1)
+}
+
 function isNewProduct(
   createdAt: string,
   newProductProtectionDays: number,
 ): boolean {
-  const ageDays =
-    (Date.now() - new Date(createdAt).getTime()) / 86_400_000
+  const ageDays = (Date.now() - new Date(createdAt).getTime()) / 86_400_000
   return ageDays <= newProductProtectionDays
 }
 
@@ -250,9 +270,8 @@ export function scoreCandidate(
             candidate.recentVelocityUnitsPerDay,
           ),
     strategicPriority:
-      candidate.manualPriority || newProduct || candidate.anchorProduct
-        ? 1
-        : 0,
+      candidate.manualPriority || newProduct || candidate.anchorProduct ? 1 : 0,
+    restockRecency: restockRecencyScore(candidate.daysSinceRestock),
   }
 
   const rawScore = weights
@@ -279,7 +298,13 @@ export function scoreCandidate(
     factors,
     isNewProduct: newProduct,
     isAnchor: candidate.anchorProduct,
-    reason: explainSelection(category, factors, newProduct, daysOfStock),
+    reason: explainSelection(
+      category,
+      factors,
+      newProduct,
+      daysOfStock,
+      candidate.daysSinceRestock,
+    ),
   }
 }
 
@@ -288,6 +313,7 @@ function explainSelection(
   factors: ScoreFactors,
   newProduct: boolean,
   daysOfStock: number | null,
+  daysSinceRestock: number | null,
 ): string {
   switch (category) {
     case 'proven':
@@ -304,6 +330,10 @@ function explainSelection(
       return factors.velocity < 0.3
         ? 'Limited LIVE exposure so far — needs more data to judge real demand.'
         : 'Uncertain conversion history — worth testing further.'
+    case 'restock':
+      return daysSinceRestock !== null
+        ? `Restocked ${daysSinceRestock === 0 ? 'today' : daysSinceRestock === 1 ? '1 day ago' : `${daysSinceRestock} days ago`} — fresh inventory worth featuring while it's new.`
+        : 'Recently restocked — fresh inventory worth featuring.'
     case 'seller_pick':
       return "Selected directly by the LIVE seller's own judgment."
   }
@@ -395,7 +425,8 @@ export function computeVarietySummary(
     newCount,
     repeatedCount: repeated.length,
     totalCount,
-    varietyScorePct: totalCount > 0 ? Math.round((newCount / totalCount) * 100) : 0,
+    varietyScorePct:
+      totalCount > 0 ? Math.round((newCount / totalCount) * 100) : 0,
     sevenDayUniqueProductCount: sevenDayProductIds.size,
     repeated: repeatedWithReason,
   }

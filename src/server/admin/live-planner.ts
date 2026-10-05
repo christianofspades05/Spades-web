@@ -10,13 +10,19 @@ import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
-import { daysAgo, storeLocalDateKey, storeRangeToUtcBounds } from '#/lib/utils/date-range'
+import {
+  daysAgo,
+  storeLocalDateKey,
+  storeRangeToUtcBounds,
+} from '#/lib/utils/date-range'
 import { logStaffActivity } from './activity-log'
+import { RESTOCK_MIN_TOTAL_QUANTITY } from './products'
 import {
   computeSizeHealth,
   scoreCandidate,
   selectCategorySlots,
   computeVarietySummary,
+  RESTOCK_FRESHNESS_WINDOW_DAYS,
 } from '#/lib/live-planner/scoring'
 import type {
   ProductCandidate,
@@ -39,6 +45,7 @@ const SCORED_CATEGORIES: Array<Exclude<LiveBasketCategory, 'seller_pick'>> = [
   'priority',
   'inventory_push',
   'test',
+  'restock',
 ]
 
 const VELOCITY_WINDOW_DAYS = 30
@@ -69,7 +76,9 @@ const updateConfigSchema = z.object({
   target_new_vs_yesterday: z.number().int().min(0).optional(),
   max_daily_carryover: z.number().int().min(0).optional(),
   slot_counts: z.record(z.string(), z.number().int().min(0)).optional(),
-  scoring_weights: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+  scoring_weights: z
+    .record(z.string(), z.record(z.string(), z.number()))
+    .optional(),
   rotation_penalty: z.record(z.string(), z.number()).optional(),
   cooldown_days: z.record(z.string(), z.number().int().min(0)).optional(),
 })
@@ -96,7 +105,13 @@ export const updateLivePlannerConfig = createServerFn({ method: 'POST' })
       } as Partial<LivePlannerConfigRow>)
       .eq('id', current.id)
     if (error) throw error
-    await logStaffActivity(staff, 'live_planner.update_config', 'live_planner_config', current.id, data)
+    await logStaffActivity(
+      staff,
+      'live_planner.update_config',
+      'live_planner_config',
+      current.id,
+      data,
+    )
   })
 
 export const setProductLiveFlags = createServerFn({ method: 'POST' })
@@ -115,16 +130,30 @@ export const setProductLiveFlags = createServerFn({ method: 'POST' })
     const { error } = await admin.from('product_live_flags').upsert(
       {
         product_id: data.productId,
-        ...(data.liveEligible !== undefined && { live_eligible: data.liveEligible }),
-        ...(data.manualLiveLock !== undefined && { manual_live_lock: data.manualLiveLock }),
-        ...(data.manualPriority !== undefined && { manual_priority: data.manualPriority }),
-        ...(data.anchorProduct !== undefined && { anchor_product: data.anchorProduct }),
+        ...(data.liveEligible !== undefined && {
+          live_eligible: data.liveEligible,
+        }),
+        ...(data.manualLiveLock !== undefined && {
+          manual_live_lock: data.manualLiveLock,
+        }),
+        ...(data.manualPriority !== undefined && {
+          manual_priority: data.manualPriority,
+        }),
+        ...(data.anchorProduct !== undefined && {
+          anchor_product: data.anchorProduct,
+        }),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'product_id' },
     )
     if (error) throw error
-    await logStaffActivity(staff, 'live_planner.set_product_flags', 'products', data.productId, data)
+    await logStaffActivity(
+      staff,
+      'live_planner.set_product_flags',
+      'products',
+      data.productId,
+      data,
+    )
   })
 
 export interface LiveBasketItemView {
@@ -154,7 +183,13 @@ export interface LiveShiftView {
   varietySummary: ReturnType<typeof computeVarietySummary> | null
 }
 
-const AUTO_CATEGORIES_SLOT_COUNT = 11 // 12 minus the manually-added seller pick
+const AUTO_CATEGORIES_SLOT_COUNT = 13 // 14 minus the manually-added seller pick
+// How far back to look for the raw purchase_in movements the restock
+// signal is built from — wider than RESTOCK_FRESHNESS_WINDOW_DAYS (the
+// decay cutoff a restock actually stops scoring at) by a buffer, to catch
+// a restock staff backdated well after it physically arrived
+// (recordRestock's "staff-chosen date" — see server/admin/products.ts).
+const RESTOCK_QUERY_LOOKBACK_DAYS = RESTOCK_FRESHNESS_WINDOW_DAYS + 14
 
 /**
  * Every input the scoring engine needs for every currently-active,
@@ -181,7 +216,10 @@ async function buildCandidatePool(
   )
 
   const flagRows = await fetchAllRows((offset) =>
-    admin.from('product_live_flags').select('*').range(offset, offset + 999),
+    admin
+      .from('product_live_flags')
+      .select('*')
+      .range(offset, offset + 999),
   )
   const flagsByProduct = new Map(flagRows.map((f) => [f.product_id, f]))
 
@@ -216,14 +254,31 @@ async function buildCandidatePool(
     windowStartDay,
     today,
   )
-  const orders = await fetchAllRows((query) =>
-    admin
-      .from('orders')
-      .select('id, placed_at, status')
-      .gte('placed_at', windowStart)
-      .lte('placed_at', windowEnd)
-      .range(query, query + 999),
+  const restockWindowStartDay = daysAgo(RESTOCK_QUERY_LOOKBACK_DAYS)
+  const { start: restockWindowStart } = storeRangeToUtcBounds(
+    restockWindowStartDay,
+    today,
   )
+
+  // Neither query depends on the other — run concurrently.
+  const [orders, restockMovements] = await Promise.all([
+    fetchAllRows((query) =>
+      admin
+        .from('orders')
+        .select('id, placed_at, status')
+        .gte('placed_at', windowStart)
+        .lte('placed_at', windowEnd)
+        .range(query, query + 999),
+    ),
+    fetchAllRows((offset) =>
+      admin
+        .from('inventory_movements')
+        .select('variant_id, quantity_delta, occurred_at, created_at')
+        .eq('movement_type', 'purchase_in')
+        .gte('created_at', restockWindowStart)
+        .range(offset, offset + 999),
+    ),
+  ])
   const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
   const dayByOrderId = new Map(
     liveOrders.map((o) => [o.id, storeLocalDateKey(o.placed_at)]),
@@ -253,13 +308,45 @@ async function buildCandidatePool(
     }
   }
 
-  function unitsInWindow(variantId: string, fromDaysAgo: number, toDaysAgo: number): number {
+  function unitsInWindow(
+    variantId: string,
+    fromDaysAgo: number,
+    toDaysAgo: number,
+  ): number {
     const byDay = unitsByVariantAndDay.get(variantId)
     if (!byDay) return 0
     let sum = 0
-    for (let n = toDaysAgo; n <= fromDaysAgo; n++) sum += byDay.get(daysAgo(n)) ?? 0
+    for (let n = toDaysAgo; n <= fromDaysAgo; n++)
+      sum += byDay.get(daysAgo(n)) ?? 0
     return sum
   }
+
+  // "Recently restocked" candidates — the same (product, day)
+  // >=RESTOCK_MIN_TOTAL_QUANTITY whole-product threshold the Restock page
+  // uses to tell a genuine bulk restock apart from a staff recount (see
+  // computeRestockGroups, server/admin/products.ts), reusing
+  // variantToProduct above instead of a second variant->product query.
+  const restockTotalsByProductDay = new Map<string, number>()
+  for (const m of restockMovements) {
+    const productId = variantToProduct.get(m.variant_id)
+    if (!productId) continue
+    const restockedAt = m.occurred_at ?? m.created_at.slice(0, 10)
+    const key = `${productId}:${restockedAt}`
+    restockTotalsByProductDay.set(
+      key,
+      (restockTotalsByProductDay.get(key) ?? 0) + m.quantity_delta,
+    )
+  }
+  const latestQualifyingRestockDateByProduct = new Map<string, string>()
+  for (const [key, total] of restockTotalsByProductDay) {
+    if (total < RESTOCK_MIN_TOTAL_QUANTITY) continue
+    const [productId, date] = key.split(':')
+    const current = latestQualifyingRestockDateByProduct.get(productId)
+    if (!current || date > current) {
+      latestQualifyingRestockDateByProduct.set(productId, date)
+    }
+  }
+  const todayMs = new Date(`${today}T00:00:00Z`).getTime()
 
   const sizeHealthByProduct = new Map<string, number>()
   const candidates: ProductCandidate[] = []
@@ -268,7 +355,11 @@ async function buildCandidatePool(
     const sizeHealthScore = computeSizeHealth(
       variants.map((v) => ({
         quantityAvailable: v.quantityAvailable,
-        historicalUnitsSold: unitsInWindow(v.variantId, VELOCITY_WINDOW_DAYS, 1),
+        historicalUnitsSold: unitsInWindow(
+          v.variantId,
+          VELOCITY_WINDOW_DAYS,
+          1,
+        ),
       })),
     )
     sizeHealthByProduct.set(product.id, sizeHealthScore)
@@ -281,6 +372,16 @@ async function buildCandidatePool(
       (sum, v) => sum + unitsInWindow(v.variantId, 14, 8),
       0,
     )
+
+    const latestRestockDate = latestQualifyingRestockDateByProduct.get(
+      product.id,
+    )
+    const daysSinceRestock = latestRestockDate
+      ? Math.floor(
+          (todayMs - new Date(`${latestRestockDate}T00:00:00Z`).getTime()) /
+            86_400_000,
+        )
+      : null
 
     const flags = flagsByProduct.get(product.id)
     candidates.push({
@@ -296,6 +397,7 @@ async function buildCandidatePool(
       manualLiveLock: flags?.manual_live_lock ?? false,
       manualPriority: flags?.manual_priority ?? false,
       anchorProduct: flags?.anchor_product ?? false,
+      daysSinceRestock,
       lastFeaturedDaysAgo: null, // filled in by the caller from basket history
       consecutiveDaysFeatured: 0, // filled in by the caller from basket history
       testAppearanceCount: 0, // filled in by the caller from basket history
@@ -386,8 +488,7 @@ async function loadExposureHistory(
     dates.add(liveDateOfRow)
     datesByProduct.set(row.product_id, dates)
 
-    const byCategory =
-      categoryDatesByProduct.get(row.product_id) ?? new Map()
+    const byCategory = categoryDatesByProduct.get(row.product_id) ?? new Map()
     const catDates = byCategory.get(row.category) ?? new Set()
     catDates.add(liveDateOfRow)
     byCategory.set(row.category, catDates)
@@ -557,7 +658,10 @@ export const generateBasket = createServerFn({ method: 'POST' })
           : 0,
       ),
     )
-    const pool = { maxVelocity: poolMaxVelocity, maxDaysOfStock: poolMaxDaysOfStock }
+    const pool = {
+      maxVelocity: poolMaxVelocity,
+      maxDaysOfStock: poolMaxDaysOfStock,
+    }
 
     const slotCounts = config.slot_counts
     const selectedByCategory = new Map<LiveBasketCategory, ScoredCandidate[]>()
@@ -587,13 +691,17 @@ export const generateBasket = createServerFn({ method: 'POST' })
       const cooldownDays = config.cooldown_days[category]
       const candidatesForCategory = scoreable.filter((c) => {
         if (usedProductIds.has(c.productId)) return false
-        if (category === 'test' && c.testAppearanceCount >= config.max_test_appearances) {
+        if (
+          category === 'test' &&
+          c.testAppearanceCount >= config.max_test_appearances
+        ) {
           return false
         }
         const lastInCategory = history.lastFeaturedInCategoryDaysAgo
           .get(c.productId)
           ?.get(category)
-        if (lastInCategory !== undefined && lastInCategory < cooldownDays) return false
+        if (lastInCategory !== undefined && lastInCategory < cooldownDays)
+          return false
         return true
       })
 
@@ -679,11 +787,17 @@ export const generateBasket = createServerFn({ method: 'POST' })
       .insert(itemsToInsert)
     if (insertError) throw insertError
 
-    await logStaffActivity(staff, 'live_planner.generate_basket', 'live_shifts', shiftRow.id, {
-      liveDate: data.liveDate,
-      shift: data.shift,
-      itemCount: itemsToInsert.length,
-    })
+    await logStaffActivity(
+      staff,
+      'live_planner.generate_basket',
+      'live_shifts',
+      shiftRow.id,
+      {
+        liveDate: data.liveDate,
+        shift: data.shift,
+        itemCount: itemsToInsert.length,
+      },
+    )
 
     return getShiftView(admin, shiftRow.id)
   })
@@ -780,7 +894,12 @@ async function getShiftView(
 }
 
 export const getShift = createServerFn({ method: 'GET' })
-  .validator(z.object({ liveDate: z.string(), shift: z.enum(['10am_2pm', '6pm_10pm', '10pm_2am']) }))
+  .validator(
+    z.object({
+      liveDate: z.string(),
+      shift: z.enum(['10am_2pm', '6pm_10pm', '10pm_2am']),
+    }),
+  )
   .handler(async ({ data }): Promise<LiveShiftView | null> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
@@ -797,48 +916,54 @@ export const getShift = createServerFn({ method: 'GET' })
 
 export const listTodaysShifts = createServerFn({ method: 'GET' })
   .validator(z.object({ liveDate: z.string() }))
-  .handler(async ({ data }): Promise<
-    Array<{ shift: LiveShiftSlot; status: string | null; itemCount: number }>
-  > => {
-    await requireStaff()
-    const admin = getSupabaseAdminClient()
-    const { data: shiftRows, error } = await admin
-      .from('live_shifts')
-      .select('id, shift, status')
-      .eq('live_date', data.liveDate)
-    if (error) throw error
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      Array<{ shift: LiveShiftSlot; status: string | null; itemCount: number }>
+    > => {
+      await requireStaff()
+      const admin = getSupabaseAdminClient()
+      const { data: shiftRows, error } = await admin
+        .from('live_shifts')
+        .select('id, shift, status')
+        .eq('live_date', data.liveDate)
+      if (error) throw error
 
-    const shiftIds = shiftRows.map((s) => s.id)
-    const { data: itemRows, error: itemsError } =
-      shiftIds.length === 0
-        ? { data: [], error: null }
-        : await admin
-            .from('live_basket_items')
-            .select('shift_id')
-            .in('shift_id', shiftIds)
-    if (itemsError) throw itemsError
-    const itemCountByShiftId = new Map<string, number>()
-    for (const item of itemRows) {
-      itemCountByShiftId.set(
-        item.shift_id,
-        (itemCountByShiftId.get(item.shift_id) ?? 0) + 1,
-      )
-    }
-
-    const byShift = new Map(shiftRows.map((r) => [r.shift, r]))
-    const allShifts: LiveShiftSlot[] = ['10am_2pm', '6pm_10pm', '10pm_2am']
-    return allShifts.map((shift) => {
-      const row = byShift.get(shift)
-      return {
-        shift,
-        status: row?.status ?? null,
-        itemCount: row ? (itemCountByShiftId.get(row.id) ?? 0) : 0,
+      const shiftIds = shiftRows.map((s) => s.id)
+      const { data: itemRows, error: itemsError } =
+        shiftIds.length === 0
+          ? { data: [], error: null }
+          : await admin
+              .from('live_basket_items')
+              .select('shift_id')
+              .in('shift_id', shiftIds)
+      if (itemsError) throw itemsError
+      const itemCountByShiftId = new Map<string, number>()
+      for (const item of itemRows) {
+        itemCountByShiftId.set(
+          item.shift_id,
+          (itemCountByShiftId.get(item.shift_id) ?? 0) + 1,
+        )
       }
-    })
-  })
+
+      const byShift = new Map(shiftRows.map((r) => [r.shift, r]))
+      const allShifts: LiveShiftSlot[] = ['10am_2pm', '6pm_10pm', '10pm_2am']
+      return allShifts.map((shift) => {
+        const row = byShift.get(shift)
+        return {
+          shift,
+          status: row?.status ?? null,
+          itemCount: row ? (itemCountByShiftId.get(row.id) ?? 0) : 0,
+        }
+      })
+    },
+  )
 
 export const setSellerPick = createServerFn({ method: 'POST' })
-  .validator(z.object({ shiftId: z.string().uuid(), productId: z.string().uuid() }))
+  .validator(
+    z.object({ shiftId: z.string().uuid(), productId: z.string().uuid() }),
+  )
   .handler(async ({ data }) => {
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
@@ -855,9 +980,15 @@ export const setSellerPick = createServerFn({ method: 'POST' })
       recommended_order: AUTO_CATEGORIES_SLOT_COUNT + 1,
     })
     if (error) throw error
-    await logStaffActivity(staff, 'live_planner.set_seller_pick', 'live_shifts', data.shiftId, {
-      productId: data.productId,
-    })
+    await logStaffActivity(
+      staff,
+      'live_planner.set_seller_pick',
+      'live_shifts',
+      data.shiftId,
+      {
+        productId: data.productId,
+      },
+    )
   })
 
 export const replaceBasketItem = createServerFn({ method: 'POST' })
@@ -890,7 +1021,8 @@ export const replaceBasketItem = createServerFn({ method: 'POST' })
       .from('live_basket_items')
       .update({
         product_id: data.replacementProductId,
-        original_product_id: existing.original_product_id ?? existing.product_id,
+        original_product_id:
+          existing.original_product_id ?? existing.product_id,
         is_replacement: true,
         replacement_reason: data.reason,
         replaced_by: staff.id,
@@ -898,7 +1030,13 @@ export const replaceBasketItem = createServerFn({ method: 'POST' })
       })
       .eq('id', data.itemId)
     if (error) throw error
-    await logStaffActivity(staff, 'live_planner.replace_item', 'live_basket_items', data.itemId, data)
+    await logStaffActivity(
+      staff,
+      'live_planner.replace_item',
+      'live_basket_items',
+      data.itemId,
+      data,
+    )
   })
 
 export const finalizeShift = createServerFn({ method: 'POST' })
@@ -908,8 +1046,18 @@ export const finalizeShift = createServerFn({ method: 'POST' })
     const admin = getSupabaseAdminClient()
     const { error } = await admin
       .from('live_shifts')
-      .update({ status: 'finalized', finalized_by: staff.id, updated_at: new Date().toISOString() })
+      .update({
+        status: 'finalized',
+        finalized_by: staff.id,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', data.shiftId)
     if (error) throw error
-    await logStaffActivity(staff, 'live_planner.finalize_shift', 'live_shifts', data.shiftId, {})
+    await logStaffActivity(
+      staff,
+      'live_planner.finalize_shift',
+      'live_shifts',
+      data.shiftId,
+      {},
+    )
   })

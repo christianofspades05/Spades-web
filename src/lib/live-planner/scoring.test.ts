@@ -21,6 +21,7 @@ function fakeConfig(
       priority: 3,
       inventory_push: 2,
       test: 2,
+      restock: 2,
       seller_pick: 1,
     },
     scoring_weights: {
@@ -31,6 +32,7 @@ function fakeConfig(
         momentum: 10,
         daysOfStock: 10,
         strategicPriority: 5,
+        restockRecency: 0,
       },
       priority: {
         velocity: 10,
@@ -39,6 +41,7 @@ function fakeConfig(
         momentum: 10,
         daysOfStock: 5,
         strategicPriority: 45,
+        restockRecency: 0,
       },
       inventory_push: {
         velocity: 15,
@@ -47,6 +50,7 @@ function fakeConfig(
         momentum: 5,
         daysOfStock: 40,
         strategicPriority: 5,
+        restockRecency: 0,
       },
       test: {
         velocity: 15,
@@ -55,6 +59,16 @@ function fakeConfig(
         momentum: 20,
         daysOfStock: 5,
         strategicPriority: 25,
+        restockRecency: 0,
+      },
+      restock: {
+        velocity: 10,
+        inventoryHealth: 15,
+        sizeAvailability: 20,
+        momentum: 0,
+        daysOfStock: 0,
+        strategicPriority: 5,
+        restockRecency: 50,
       },
     },
     new_product_protection_days: 7,
@@ -78,6 +92,7 @@ function fakeConfig(
       priority: 0,
       inventory_push: 2,
       test: 4,
+      restock: 1,
       seller_pick: 0,
     },
     updated_at: new Date().toISOString(),
@@ -85,7 +100,9 @@ function fakeConfig(
   }
 }
 
-function fakeCandidate(overrides?: Partial<ProductCandidate>): ProductCandidate {
+function fakeCandidate(
+  overrides?: Partial<ProductCandidate>,
+): ProductCandidate {
   return {
     productId: 'p1',
     productName: 'Test Product',
@@ -102,6 +119,7 @@ function fakeCandidate(overrides?: Partial<ProductCandidate>): ProductCandidate 
     lastFeaturedDaysAgo: null,
     consecutiveDaysFeatured: 0,
     testAppearanceCount: 0,
+    daysSinceRestock: null,
     ...overrides,
   }
 }
@@ -246,6 +264,48 @@ describe('scoreCandidate', () => {
     const pushScored = scoreCandidate(highStock, 'inventory_push', config, pool)
     expect(pushScored.factors.daysOfStock).toBeCloseTo(1, 1)
   })
+
+  it('scores restockRecency at full strength for a same-day restock, decaying to 0 past the freshness window', () => {
+    const config = fakeConfig()
+    const pool = { maxVelocity: 10, maxDaysOfStock: 100 }
+
+    const justRestocked = fakeCandidate({ daysSinceRestock: 0 })
+    const staleRestock = fakeCandidate({ daysSinceRestock: 30 })
+    const neverRestocked = fakeCandidate({ daysSinceRestock: null })
+
+    expect(
+      scoreCandidate(justRestocked, 'restock', config, pool).factors
+        .restockRecency,
+    ).toBe(1)
+    expect(
+      scoreCandidate(staleRestock, 'restock', config, pool).factors
+        .restockRecency,
+    ).toBe(0)
+    expect(
+      scoreCandidate(neverRestocked, 'restock', config, pool).factors
+        .restockRecency,
+    ).toBe(0)
+  })
+
+  it('ranks a fresh restock above an older one in the restock category', () => {
+    const config = fakeConfig()
+    const pool = { maxVelocity: 10, maxDaysOfStock: 100 }
+
+    const fresh = fakeCandidate({
+      productId: 'fresh',
+      daysSinceRestock: 1,
+    })
+    const older = fakeCandidate({
+      productId: 'older',
+      daysSinceRestock: 6,
+    })
+
+    const freshScored = scoreCandidate(fresh, 'restock', config, pool)
+    const olderScored = scoreCandidate(older, 'restock', config, pool)
+
+    expect(freshScored.rawScore).toBeGreaterThan(olderScored.rawScore)
+    expect(freshScored.reason).toContain('1 day ago')
+  })
 })
 
 describe('selectCategorySlots', () => {
@@ -266,6 +326,7 @@ describe('selectCategorySlots', () => {
           momentum: 1,
           daysOfStock: 1,
           strategicPriority: 0,
+          restockRecency: 0,
         },
         isNewProduct: false,
         isAnchor: false,
@@ -286,6 +347,7 @@ describe('selectCategorySlots', () => {
           momentum: 1,
           daysOfStock: 1,
           strategicPriority: 0,
+          restockRecency: 0,
         },
         isNewProduct: false,
         isAnchor: false,
@@ -306,6 +368,7 @@ describe('selectCategorySlots', () => {
           momentum: 0.2,
           daysOfStock: 0.2,
           strategicPriority: 0,
+          restockRecency: 0,
         },
         isNewProduct: false,
         isAnchor: false,
@@ -344,6 +407,7 @@ describe('selectCategorySlots', () => {
           momentum: 1,
           daysOfStock: 1,
           strategicPriority: 0,
+          restockRecency: 0,
         },
         isNewProduct: false,
         isAnchor: false,
@@ -364,6 +428,7 @@ describe('selectCategorySlots', () => {
           momentum: 0.1,
           daysOfStock: 0.1,
           strategicPriority: 0,
+          restockRecency: 0,
         },
         isNewProduct: false,
         isAnchor: false,
@@ -421,8 +486,16 @@ describe('computeVarietySummary', () => {
     expect(summary.varietyScorePct).toBe(33)
     expect(summary.sevenDayUniqueProductCount).toBe(5)
     expect(summary.repeated).toEqual([
-      { productId: 'a', productName: 'Anchor Product', reason: 'Anchor / strong recent performance' },
-      { productId: 'b', productName: 'New Product', reason: 'New release protection' },
+      {
+        productId: 'a',
+        productName: 'Anchor Product',
+        reason: 'Anchor / strong recent performance',
+      },
+      {
+        productId: 'b',
+        productName: 'New Product',
+        reason: 'New release protection',
+      },
     ])
   })
 })

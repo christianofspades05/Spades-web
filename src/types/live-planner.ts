@@ -1,10 +1,6 @@
 export type LiveShiftSlot = '10am_2pm' | '6pm_10pm' | '10pm_2am'
 export type LiveBasketCategory =
-  | 'proven'
-  | 'priority'
-  | 'inventory_push'
-  | 'test'
-  | 'seller_pick'
+  'proven' | 'priority' | 'inventory_push' | 'test' | 'restock' | 'seller_pick'
 export type LiveShiftStatus = 'draft' | 'finalized' | 'live' | 'completed'
 export type LiveReplacementReason =
   | 'viewer_request'
@@ -37,6 +33,7 @@ export interface LivePlannerConfigRow {
       momentum: number
       daysOfStock: number
       strategicPriority: number
+      restockRecency: number
     }
   >
   new_product_protection_days: number

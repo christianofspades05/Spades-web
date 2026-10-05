@@ -1292,8 +1292,12 @@ const RESTOCKS_PAGE_SIZE_DEFAULT = 50
  *  recount's correction essentially never does. Evaluated per (product,
  *  date), summing every variant restocked that day — never per individual
  *  variant, since a real restock split across six sizes (e.g. +9/+32/+38/
- *  +30/+12/+2) would otherwise have each row look small on its own. */
-const RESTOCK_MIN_TOTAL_QUANTITY = 50
+ *  +30/+12/+2) would otherwise have each row look small on its own.
+ *  Exported so the LIVE Product Planner's "recently restocked" signal
+ *  (server/admin/live-planner.ts) uses this exact same threshold rather
+ *  than risking a second, silently-drifting definition of "a real
+ *  restock." */
+export const RESTOCK_MIN_TOTAL_QUANTITY = 50
 
 // Keeps every .in() id-list query below well under PostgREST's request-URL
 // length limit — see computeRestockGroups' own comment on the crash this
