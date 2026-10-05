@@ -167,6 +167,25 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     const isSingleDay = data.from === data.to
     const brand = data.brand ?? null
 
+    // A multi-day range ending on today includes a handful of hours of
+    // real data for today, compared bucket-for-bucket against a FULL
+    // previous-period day — which made today's trend point (and the
+    // top-level previous-period totals) look like a cliff that isn't
+    // real, just "today isn't over yet" (confirmed live: a day with 162
+    // real previous-period orders made a 22-orders-so-far today read as an
+    // 86% drop). Not an issue for a single-day "Today" view — comparing
+    // partial-today against all of yesterday is the expected, well-
+    // understood shape there, so this is scoped to the multi-day case only.
+    const todayKey = storeLocalDateKey(new Date().toISOString())
+    const excludeTodayFromComparison = !isSingleDay && data.to === todayKey
+    const comparisonPrevEnd = excludeTodayFromComparison
+      ? (() => {
+          const d = new Date(`${prev.to}T00:00:00Z`)
+          d.setUTCDate(d.getUTCDate() - 1)
+          return d.toISOString().slice(0, 10)
+        })()
+      : prev.to
+
     // Visitor counts are aggregated in Postgres (get_visitor_totals/
     // get_visitor_bucket_counts) rather than pulled row-by-row into Node —
     // storefront_visits can run into the hundreds of thousands of rows for
@@ -231,6 +250,21 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     if (currentVisitorBuckets.error) throw currentVisitorBuckets.error
     if (previousVisitorBuckets.error) throw previousVisitorBuckets.error
 
+    // Only fetched when today's in-progress bucket is being excluded from
+    // the comparison (see excludeTodayFromComparison above) — the one
+    // extra round trip a plain sum over previousVisitorCountsByKey can't
+    // substitute for, since summing per-day unique-visitor counts would
+    // double-count a visitor who showed up on more than one of those days,
+    // unlike this RPC's own proper range-wide dedup.
+    const comparisonVisitorTotals = excludeTodayFromComparison
+      ? await admin.rpc('get_visitor_totals', {
+          p_from: prevStart,
+          p_to: storeRangeToUtcBounds(prev.from, comparisonPrevEnd).end,
+          p_brand: brand,
+        })
+      : previousVisitorTotals
+    if (comparisonVisitorTotals.error) throw comparisonVisitorTotals.error
+
     const currentVisitorCountsByKey = new Map(
       currentVisitorBuckets.data.map((r) => [r.bucket_key, r.unique_visitors]),
     )
@@ -255,7 +289,15 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       data.channel,
     )
 
-    const daily: DailyPoint[] = currentBuckets.map((point, i) => {
+    // Drops today's own bucket from the trend entirely when it's still in
+    // progress (see excludeTodayFromComparison above) rather than plotting
+    // a last point that's an apples-to-oranges comparison no matter how
+    // it's labeled — every other bucket is a complete day on both sides
+    // and keeps comparing normally.
+    const trendBuckets = excludeTodayFromComparison
+      ? currentBuckets.slice(0, -1)
+      : currentBuckets
+    const daily: DailyPoint[] = trendBuckets.map((point, i) => {
       const prevPoint = previousBuckets.at(i)
       return {
         date: point.label,
@@ -292,13 +334,22 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       }
     }
 
-    const previousSalesCents = previousOrders
+    // Excludes the previous period's last day once it has no partial-today
+    // counterpart to be compared against (see excludeTodayFromComparison
+    // above) — otherwise the top-level "previous" totals below would still
+    // carry one extra full day current doesn't, understating the
+    // comparison the same way the trend's last point used to.
+    const comparisonPreviousOrders = excludeTodayFromComparison
+      ? previousOrders.filter((o) => storeLocalDateKey(o.placed_at) !== prev.to)
+      : previousOrders
+
+    const previousSalesCents = comparisonPreviousOrders
       .filter((o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source))
       .reduce((sum, o) => sum + o.total_cents, 0)
 
     const uniqueVisitors = currentVisitorTotals.data[0]?.unique_visitors ?? 0
     const previousUniqueVisitors =
-      previousVisitorTotals.data[0]?.unique_visitors ?? 0
+      comparisonVisitorTotals.data[0]?.unique_visitors ?? 0
 
     // Excludes cancelled/failed orders — an abandoned online-payment
     // checkout (never actually paid; see api/cron/expire-unpaid-orders.ts)
@@ -307,7 +358,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     const ordersCount = currentOrders.filter(
       (o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source),
     ).length
-    const previousOrdersCount = previousOrders.filter(
+    const previousOrdersCount = comparisonPreviousOrders.filter(
       (o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source),
     ).length
 
@@ -318,19 +369,18 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     const storefrontOrdersCount = currentOrders.filter(
       (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
     ).length
-    const previousStorefrontOrdersCount = previousOrders.filter(
+    const previousStorefrontOrdersCount = comparisonPreviousOrders.filter(
       (o) => o.source === 'storefront' && !VOID_STATUSES.has(o.status),
     ).length
     const conversionRate =
-      uniqueVisitors > 0
-        ? (storefrontOrdersCount / uniqueVisitors) * 100
-        : null
+      uniqueVisitors > 0 ? (storefrontOrdersCount / uniqueVisitors) * 100 : null
     const previousConversionRate =
       previousUniqueVisitors > 0
         ? (previousStorefrontOrdersCount / previousUniqueVisitors) * 100
         : null
 
-    const aovCents = ordersCount > 0 ? Math.round(salesCents / ordersCount) : null
+    const aovCents =
+      ordersCount > 0 ? Math.round(salesCents / ordersCount) : null
     const previousAovCents =
       previousOrdersCount > 0
         ? Math.round(previousSalesCents / previousOrdersCount)
