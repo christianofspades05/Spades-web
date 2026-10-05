@@ -1,9 +1,10 @@
 /**
- * TikTok LIVE Product Planner — recommends and tracks the 12-product
- * basket for each 4-hour LIVE shift. The scoring/rotation math itself lives
- * in #/lib/live-planner/scoring.ts as pure, unit-tested functions; this
- * file's job is only to assemble their inputs from the database and
- * persist the result.
+ * TikTok LIVE Product Planner — recommends and tracks the 13-product
+ * basket for each 4-hour LIVE shift, fully auto-generated (no manual
+ * seller-pick slot — see 0103_live_planner_remove_seller_pick.sql). The
+ * scoring/rotation math itself lives in #/lib/live-planner/scoring.ts as
+ * pure, unit-tested functions; this file's job is only to assemble their
+ * inputs from the database and persist the result.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
@@ -183,7 +184,7 @@ export interface LiveShiftView {
   varietySummary: ReturnType<typeof computeVarietySummary> | null
 }
 
-const AUTO_CATEGORIES_SLOT_COUNT = 13 // 14 minus the manually-added seller pick
+const AUTO_CATEGORIES_SLOT_COUNT = 13 // every slot is auto-generated — see 0103_live_planner_remove_seller_pick.sql
 // How far back to look for the raw purchase_in movements the restock
 // signal is built from — wider than RESTOCK_FRESHNESS_WINDOW_DAYS (the
 // decay cutoff a restock actually stops scoring at) by a buffer, to catch
@@ -554,7 +555,9 @@ async function loadExposureHistory(
 /** The (still-draft) auto-selected items a prior generateBasket call for
  *  this exact shift already produced, if any — see generateBasket's own
  *  comment on why this feeds back into rotation pressure for the next
- *  regenerate. Excludes the seller pick (a human choice, never rotated). */
+ *  regenerate. The seller_pick exclusion here is a no-op today (nothing
+ *  assigns that category anymore — see SCORED_CATEGORIES/generateBasket),
+ *  kept only in case a historical row from before it was removed exists. */
 async function loadCurrentDraftItems(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   liveDate: string,
@@ -616,6 +619,20 @@ export const generateBasket = createServerFn({ method: 'POST' })
       byCategory.set(category, 0)
       history.lastFeaturedInCategoryDaysAgo.set(productId, byCategory)
     }
+    // The rotation-pressure nudge above wasn't a strong enough guarantee on
+    // its own: a category with only a couple of genuinely strong candidates
+    // (or a 0-day cooldown_days setting, like 'priority') could still
+    // re-select the exact same product even after the -35 penalty, since
+    // nothing stops it from simply out-scoring its (weaker) alternatives
+    // anyway — confirmed live, "priority" has zero cooldown protection and
+    // relies on this score push alone. Hard-excluding every product that
+    // was in the basket a moment ago (locked products excepted — see
+    // `locked` below, a staff decision this never overrides) makes
+    // "Generate Different Basket" an actual guarantee rather than just a
+    // strong hint, for every slot, not only the ones with real cooldown.
+    const justShownProductIds = new Set(
+      justShown.map(([productId]) => productId),
+    )
 
     for (const c of candidates) {
       c.lastFeaturedDaysAgo =
@@ -644,7 +661,9 @@ export const generateBasket = createServerFn({ method: 'POST' })
     })
 
     const locked = eligible.filter((c) => c.manualLiveLock)
-    const scoreable = eligible.filter((c) => !c.manualLiveLock)
+    const scoreable = eligible.filter(
+      (c) => !c.manualLiveLock && !justShownProductIds.has(c.productId),
+    )
 
     const poolMaxVelocity = Math.max(
       1,
@@ -750,14 +769,11 @@ export const generateBasket = createServerFn({ method: 'POST' })
       .single()
     if (shiftError) throw shiftError
 
-    // Regenerating replaces every non-seller-pick item; the seller pick (if
-    // already chosen) survives a regenerate since it's a human decision,
-    // not part of the algorithm's own output.
+    // Regenerating replaces every item in the basket.
     const { error: deleteError } = await admin
       .from('live_basket_items')
       .delete()
       .eq('shift_id', shiftRow.id)
-      .neq('category', 'seller_pick')
     if (deleteError) throw deleteError
 
     const itemsToInsert = interleaved.map((s, index) => ({
@@ -959,37 +975,6 @@ export const listTodaysShifts = createServerFn({ method: 'GET' })
       })
     },
   )
-
-export const setSellerPick = createServerFn({ method: 'POST' })
-  .validator(
-    z.object({ shiftId: z.string().uuid(), productId: z.string().uuid() }),
-  )
-  .handler(async ({ data }) => {
-    const staff = await requireStaff(MANAGE_ROLES)
-    const admin = getSupabaseAdminClient()
-    const { error: deleteError } = await admin
-      .from('live_basket_items')
-      .delete()
-      .eq('shift_id', data.shiftId)
-      .eq('category', 'seller_pick')
-    if (deleteError) throw deleteError
-    const { error } = await admin.from('live_basket_items').insert({
-      shift_id: data.shiftId,
-      product_id: data.productId,
-      category: 'seller_pick',
-      recommended_order: AUTO_CATEGORIES_SLOT_COUNT + 1,
-    })
-    if (error) throw error
-    await logStaffActivity(
-      staff,
-      'live_planner.set_seller_pick',
-      'live_shifts',
-      data.shiftId,
-      {
-        productId: data.productId,
-      },
-    )
-  })
 
 export const replaceBasketItem = createServerFn({ method: 'POST' })
   .validator(

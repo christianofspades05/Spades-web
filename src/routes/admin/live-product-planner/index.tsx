@@ -1,20 +1,18 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Radio, RefreshCw, Search } from 'lucide-react'
+import { Radio, RefreshCw } from 'lucide-react'
 import {
   finalizeShift,
   generateBasket,
   getShift,
   listTodaysShifts,
   replaceBasketItem,
-  setSellerPick,
 } from '#/server/admin/live-planner'
 import type { LiveBasketItemView } from '#/server/admin/live-planner'
 import { searchProductsForPicker } from '#/server/admin/products'
 import type { ProductPickerResult } from '#/server/admin/products'
 import { daysAgo } from '#/lib/utils/date-range'
-import { useDebouncedValue } from '#/lib/hooks/useDebouncedValue'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
@@ -41,6 +39,8 @@ const CATEGORY_LABELS: Record<LiveBasketCategory, string> = {
   inventory_push: '📦 Inventory Push',
   test: '🧪 Test',
   restock: '🚚 Just Restocked',
+  // No longer assigned by anything — kept only so a historical row (there
+  // are none currently) would still render a label instead of crashing.
   seller_pick: "👑 Seller's Pick",
 }
 
@@ -83,7 +83,6 @@ function LiveProductPlannerPage() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [replacingItemId, setReplacingItemId] = useState<string | null>(null)
-  const [showSellerPickSearch, setShowSellerPickSearch] = useState(false)
 
   async function handleGenerate() {
     setGenerating(true)
@@ -99,8 +98,6 @@ function LiveProductPlannerPage() {
   }
 
   const items = currentShift?.items ?? []
-  const sellerPick = items.find((i) => i.category === 'seller_pick')
-  const autoItems = items.filter((i) => i.category !== 'seller_pick')
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -112,7 +109,7 @@ function LiveProductPlannerPage() {
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {SHIFT_OPTIONS.map((opt) => {
           const shiftInfo = todaysShifts.find((s) => s.shift === opt.value)
-          const ready = (shiftInfo?.itemCount ?? 0) >= 11
+          const ready = (shiftInfo?.itemCount ?? 0) >= 13
           return (
             <button
               key={opt.value}
@@ -172,7 +169,7 @@ function LiveProductPlannerPage() {
                 : 'Generate Different Basket'
               : generating
                 ? 'Generating…'
-                : 'Generate 12-Product Basket'}
+                : 'Generate 13-Product Basket'}
           </button>
           {currentShift && (
             <span className="mt-5 text-xs text-neutral-500">
@@ -196,7 +193,7 @@ function LiveProductPlannerPage() {
         </Card>
       ) : (
         <div className="mt-4 flex flex-col gap-3">
-          {autoItems.map((item) => (
+          {items.map((item) => (
             <BasketItemCard
               key={item.id}
               item={item}
@@ -204,41 +201,7 @@ function LiveProductPlannerPage() {
             />
           ))}
 
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="flex size-9 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-xs font-semibold text-amber-700">
-                  12
-                </span>
-                <div>
-                  <p className="text-xs font-semibold tracking-wide text-amber-700 uppercase">
-                    {CATEGORY_LABELS.seller_pick}
-                  </p>
-                  <p className="text-sm font-medium text-neutral-900">
-                    {sellerPick ? sellerPick.productName : 'Not yet chosen'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSellerPickSearch((v) => !v)}
-                className={buttonSecondaryClassName}
-              >
-                {sellerPick ? 'Change' : 'Choose'}
-              </button>
-            </div>
-            {showSellerPickSearch && currentShift && (
-              <SellerPickSearch
-                shiftId={currentShift.id}
-                onPicked={async () => {
-                  setShowSellerPickSearch(false)
-                  await router.invalidate()
-                }}
-              />
-            )}
-          </Card>
-
-          {currentShift && currentShift.status === 'draft' && sellerPick && (
+          {currentShift && currentShift.status === 'draft' && (
             <div className="mt-2 flex justify-end">
               <FinalizeButton shiftId={currentShift.id} />
             </div>
@@ -380,86 +343,6 @@ function BasketItemCard({
         </button>
       </div>
     </Card>
-  )
-}
-
-function SellerPickSearch({
-  shiftId,
-  onPicked,
-}: {
-  shiftId: string
-  onPicked: () => void
-}) {
-  const [query, setQuery] = useState('')
-  const debouncedQuery = useDebouncedValue(query, 300)
-  const [results, setResults] = useState<ProductPickerResult[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleSearch(q: string) {
-    setLoading(true)
-    try {
-      setResults(await searchProductsForPicker({ data: { q } }))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handlePick(productId: string) {
-    setError(null)
-    try {
-      await setSellerPick({ data: { shiftId, productId } })
-      onPicked()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    }
-  }
-
-  return (
-    <div className="mt-3 border-t border-neutral-100 pt-3">
-      <div className="relative">
-        <Search
-          size={15}
-          className="absolute top-2.5 left-2.5 text-neutral-400"
-        />
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            void handleSearch(e.target.value)
-          }}
-          placeholder="Search the catalog…"
-          className={`${inputClassName} w-full pl-8`}
-          autoFocus
-        />
-      </div>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      {loading && <p className="mt-2 text-xs text-neutral-400">Searching…</p>}
-      {debouncedQuery && results.length > 0 && (
-        <ul className="mt-2 flex max-h-60 flex-col gap-1 overflow-y-auto">
-          {results.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => handlePick(p.id)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-50"
-              >
-                {p.image ? (
-                  <img
-                    src={p.image}
-                    alt=""
-                    className="size-8 rounded-md border border-neutral-200 object-cover"
-                  />
-                ) : (
-                  <div className="size-8 rounded-md border border-neutral-200 bg-neutral-50" />
-                )}
-                {p.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }
 
