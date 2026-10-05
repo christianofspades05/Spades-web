@@ -929,6 +929,29 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['cod_restrictions']['Row']>
         Relationships: []
       }
+      cod_restricted_cities: {
+        Row: {
+          id: string
+          region: string
+          province: string
+          city: string
+          reason: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['cod_restricted_cities']['Row']
+        > & {
+          region: string
+          province: string
+          city: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['cod_restricted_cities']['Row']
+        >
+        Relationships: []
+      }
       markets: {
         Row: {
           id: string

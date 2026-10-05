@@ -51,3 +51,15 @@ export function formatRegionLabel(region: string): string {
   const [, main, inner] = match
   return `${titleCasePhrase(main)} (${titleCasePhrase(inner)})`
 }
+
+export const NCR_REGION_KEY = 'NATIONAL CAPITAL REGION (NCR)'
+
+/** NCR has no real province in the PSGC data (see PHAddressFields) — every
+ *  place that stores or matches a (region, province, city) triple needs the
+ *  same fallback ('Metro Manila'), or an NCR address picked one way (e.g.
+ *  the admin's COD-restricted-cities list) silently fails to match the same
+ *  address normalized another way (checkout's own address snapshot, via
+ *  CheckoutContext's withSubmittableProvince). */
+export function ncrProvinceFallback(region: string, province: string): string {
+  return province || (region === NCR_REGION_KEY ? 'Metro Manila' : province)
+}

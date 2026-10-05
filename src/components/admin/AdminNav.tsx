@@ -15,6 +15,7 @@ import {
   LayoutTemplate,
   LogOut,
   Mail,
+  MapPinOff,
   MessageCircle,
   Package,
   PackageSearch,
@@ -667,6 +668,19 @@ export function AdminNav({
               )}
             </span>
           )}
+        </Link>
+
+        <Link
+          to="/admin/cod-cities"
+          onClick={onNavigate}
+          title={collapsed ? 'COD Restrictions' : undefined}
+          className={navLinkClassName(
+            pathname.startsWith('/admin/cod-cities'),
+            collapsed,
+          )}
+        >
+          <MapPinOff size={17} strokeWidth={2} className="shrink-0" />
+          {!collapsed && 'COD Restrictions'}
         </Link>
       </nav>
 

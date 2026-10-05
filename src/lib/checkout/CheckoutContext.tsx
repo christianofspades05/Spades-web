@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { COUNTRY_DEFAULT_LANGUAGE } from '#/lib/i18n/translations'
+import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 
 export interface CheckoutInfo {
   email: string
@@ -81,10 +82,10 @@ function readStoredInfo(geoCountry: string | null): CheckoutInfo {
 
 /** NCR has no real province in the PSGC data (see PHAddressFields) — fill in a sensible label before this goes anywhere that requires one (validation, the order's address snapshot). */
 export function withSubmittableProvince(info: CheckoutInfo): CheckoutInfo {
-  if (info.province || info.region !== 'NATIONAL CAPITAL REGION (NCR)') {
-    return info
+  return {
+    ...info,
+    province: ncrProvinceFallback(info.region, info.province),
   }
-  return { ...info, province: 'Metro Manila' }
 }
 
 /** True once the contact + delivery address fields are all filled in. */

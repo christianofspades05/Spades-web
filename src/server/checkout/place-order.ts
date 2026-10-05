@@ -145,6 +145,26 @@ export const placeOrder = createServerFn({ method: 'POST' })
         )
       }
 
+      // Staff-maintained list of cities/municipalities with a history of
+      // high return/failed-delivery rates from couriers — same
+      // never-trust-the-client principle as the checks above.
+      if (data.paymentProvider === 'cod' && data.contact.country === 'PH') {
+        const { checkCodRestrictedCity } = await import(
+          '#/server/checkout/cod-city-restriction'
+        )
+        const cityRestriction = await checkCodRestrictedCity(admin, {
+          region: data.contact.region ?? '',
+          province: data.contact.province,
+          city: data.contact.city,
+        })
+        if (cityRestriction.restricted) {
+          throw new Error(
+            cityRestriction.reason ??
+              'Cash on Delivery is not available in your area. Please pay online instead.',
+          )
+        }
+      }
+
       // Lalamove is Spades/Metro-Manila-only, unavailable Saturday from 4PM
       // onwards or on Sundays, and online-payment-only — same
       // never-trust-the-client principle as the COD check above.

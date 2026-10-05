@@ -14,9 +14,10 @@ import {
   getActiveMarketMarkups,
   getActiveMarketShipping,
 } from '#/server/storefront/market-pricing'
-import { formatRegionLabel } from '#/lib/utils/ph-region'
+import { formatRegionLabel, ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
+import { getActiveCodRestrictedCities } from '#/server/checkout/cod-city-restriction'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { formatCentsAsPHP } from '#/lib/utils/money'
@@ -31,6 +32,7 @@ export const Route = createFileRoute('/checkout/payment')({
   loader: async () => ({
     marketMarkups: await getActiveMarketMarkups(),
     marketShipping: await getActiveMarketShipping(),
+    codRestrictedCities: await getActiveCodRestrictedCities(),
   }),
   component: PaymentPage,
 })
@@ -38,7 +40,8 @@ export const Route = createFileRoute('/checkout/payment')({
 type PaymentMethod = 'cod' | 'online'
 
 function PaymentPage() {
-  const { marketMarkups, marketShipping } = Route.useLoaderData()
+  const { marketMarkups, marketShipping, codRestrictedCities } =
+    Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
   const { t } = useLanguage()
   const {
@@ -59,6 +62,16 @@ function PaymentPage() {
   )
 
   const isLalamove = info.shippingMethod === 'lalamove'
+  // Matches place-order.ts's own normalization (via withSubmittableProvince)
+  // so an NCR address — which has no real province in the PSGC data — still
+  // matches a restriction stored against NCR's 'Metro Manila' fallback.
+  const submittableProvince = ncrProvinceFallback(info.region, info.province)
+  const restrictedCity = codRestrictedCities.find(
+    (c) =>
+      c.region === info.region &&
+      c.province === submittableProvince &&
+      c.city === info.city,
+  )
   // Shown next to a disabled (not hidden) COD option so the customer knows
   // why, rather than it just silently not being there.
   const codDisabledReason =
@@ -66,10 +79,13 @@ function PaymentPage() {
       ? 'Cash on Delivery is not available — please pay online.'
       : isLalamove
         ? 'Not available for Lalamove delivery — online payment only.'
-        : !codAvailable
-          ? (codUnavailableReason ??
-            'Cash on Delivery is not available for items in your cart.')
-          : null
+        : restrictedCity
+          ? (restrictedCity.reason ??
+            'Cash on Delivery is not available in your area.')
+          : !codAvailable
+            ? (codUnavailableReason ??
+              'Cash on Delivery is not available for items in your cart.')
+            : null
 
   useEffect(() => {
     // Lalamove is online-payment-only, same as any other COD restriction —

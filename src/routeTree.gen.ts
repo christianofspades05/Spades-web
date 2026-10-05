@@ -46,6 +46,7 @@ import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytic
 import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
+import { Route as AdminCodCitiesIndexRouteImport } from './routes/admin/cod-cities/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
 import { Route as AdminCreatorsIndexRouteImport } from './routes/admin/creators/index'
@@ -286,6 +287,11 @@ const AdminChannelsMarketplaceRoute =
     path: '/channels/$marketplace',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminCodCitiesIndexRoute = AdminCodCitiesIndexRouteImport.update({
+  id: '/cod-cities/',
+  path: '/cod-cities/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCollectionsIndexRoute = AdminCollectionsIndexRouteImport.update({
   id: '/collections/',
   path: '/collections/',
@@ -614,6 +620,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
+  '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
@@ -701,6 +708,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
+  '/admin/cod-cities': typeof AdminCodCitiesIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
   '/admin/creators': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies': typeof AdminCustomerRepliesIndexRoute
@@ -791,6 +799,7 @@ export interface FileRoutesById {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
+  '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
@@ -882,6 +891,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
+    | '/admin/cod-cities/'
     | '/admin/collections/'
     | '/admin/creators/'
     | '/admin/customer-replies/'
@@ -969,6 +979,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels'
+    | '/admin/cod-cities'
     | '/admin/collections'
     | '/admin/creators'
     | '/admin/customer-replies'
@@ -1058,6 +1069,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/admin/channels/'
+    | '/admin/cod-cities/'
     | '/admin/collections/'
     | '/admin/creators/'
     | '/admin/customer-replies/'
@@ -1384,6 +1396,13 @@ declare module '@tanstack/react-router' {
       path: '/channels/$marketplace'
       fullPath: '/admin/channels/$marketplace'
       preLoaderRoute: typeof AdminChannelsMarketplaceRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/cod-cities/': {
+      id: '/admin/cod-cities/'
+      path: '/cod-cities'
+      fullPath: '/admin/cod-cities/'
+      preLoaderRoute: typeof AdminCodCitiesIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/collections/': {
@@ -1765,6 +1784,7 @@ interface AdminRouteChildren {
   AdminProductsBulkEditRoute: typeof AdminProductsBulkEditRoute
   AdminProductsNewRoute: typeof AdminProductsNewRoute
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
+  AdminCodCitiesIndexRoute: typeof AdminCodCitiesIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
   AdminCreatorsIndexRoute: typeof AdminCreatorsIndexRoute
   AdminCustomerRepliesIndexRoute: typeof AdminCustomerRepliesIndexRoute
@@ -1811,6 +1831,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsBulkEditRoute: AdminProductsBulkEditRoute,
   AdminProductsNewRoute: AdminProductsNewRoute,
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
+  AdminCodCitiesIndexRoute: AdminCodCitiesIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
   AdminCreatorsIndexRoute: AdminCreatorsIndexRoute,
   AdminCustomerRepliesIndexRoute: AdminCustomerRepliesIndexRoute,
