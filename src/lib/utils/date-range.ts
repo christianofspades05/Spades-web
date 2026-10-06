@@ -261,19 +261,38 @@ export function resolveDateRange(
   }
 }
 
-/** The immediately-preceding period of equal length, for trend comparisons. */
+/** `dateKey` shifted back exactly one calendar month, clamping the day of
+ *  month to whatever the target month actually has (Oct 31 -> Sep 30, not
+ *  a rollover into October) — same "same date, one month back" rule a
+ *  person means by "vs. last month." */
+function oneMonthEarlier(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  let targetYear = year
+  let targetMonthIndex = month - 1 - 1 // `month` is 1-indexed; -1 more to go back a month
+  if (targetMonthIndex < 0) {
+    targetMonthIndex += 12
+    targetYear -= 1
+  }
+  // Day 0 of the *next* month is the last day of the target month.
+  const daysInTargetMonth = new Date(
+    Date.UTC(targetYear, targetMonthIndex + 1, 0),
+  ).getUTCDate()
+  const targetDay = Math.min(day, daysInTargetMonth)
+  return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
+}
+
+/** The same calendar dates one month earlier, for trend comparisons — Oct
+ *  1-6 compares to Sep 1-6, not "whichever 6 days immediately precede Oct
+ *  1" (which used to land on an arbitrary-looking Sep 25-30 — confirmed
+ *  live as a source of confusion: a day landing on, say, Sep 29 reads as
+ *  unrelated to the Oct 5 it was actually paired with). A range spanning a
+ *  full calendar month (e.g. "This Month") can come back a day or two
+ *  shorter than the current range when the target month has fewer days
+ *  (Oct 1-31 -> Sep 1-30) — every caller already tolerates a
+ *  shorter/misaligned previous range (optional-chained lookups), same as
+ *  it already had to for a leap-year February. */
 export function previousPeriod(from: string, to: string): ResolvedDateRange {
-  const fromDate = new Date(`${from}T00:00:00Z`)
-  const toDate = new Date(`${to}T00:00:00Z`)
-  const lengthDays =
-    Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1
-
-  const prevTo = new Date(fromDate)
-  prevTo.setUTCDate(prevTo.getUTCDate() - 1)
-  const prevFrom = new Date(prevTo)
-  prevFrom.setUTCDate(prevFrom.getUTCDate() - (lengthDays - 1))
-
-  return { from: toISODate(prevFrom), to: toISODate(prevTo) }
+  return { from: oneMonthEarlier(from), to: oneMonthEarlier(to) }
 }
 
 /** % change from `previous` to `current`, rounded to 1 decimal. `null` when previous is 0 (undefined trend). */
