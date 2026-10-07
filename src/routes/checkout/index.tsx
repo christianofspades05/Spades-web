@@ -89,7 +89,12 @@ function LalamoveDeliveryPicker() {
     info.lalamoveDropoffLat != null && info.lalamoveDropoffLng != null
       ? { lat: info.lalamoveDropoffLat, lng: info.lalamoveDropoffLng }
       : null
-  const searchHint = [info.addressLine1, info.barangay, info.city, info.province]
+  const searchHint = [
+    info.addressLine1,
+    info.barangay,
+    info.city,
+    info.province,
+  ]
     .filter(Boolean)
     .join(', ')
 
@@ -149,8 +154,8 @@ function LalamoveDeliveryPicker() {
               : 'Drop a pin above to get an estimated delivery fee.'}
       </p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Orders placed 4PM–11:59PM are booked the next day at 10AM. Orders
-        placed 12AM–9:59AM are booked starting 10AM.
+        Orders placed 4PM–11:59PM are booked the next day at 10AM. Orders placed
+        12AM–9:59AM are booked starting 10AM.
       </p>
     </div>
   )
@@ -159,7 +164,7 @@ function LalamoveDeliveryPicker() {
 function CheckoutPage() {
   const { marketMarkups, marketShipping } = Route.useLoaderData()
   const { storefrontScope } = Route.useRouteContext()
-  const { currency, rates, formatPrice } = useCurrency()
+  const { currency, rates, ratesLoaded, formatPrice } = useCurrency()
   const { t } = useLanguage()
   const {
     cart,
@@ -179,6 +184,13 @@ function CheckoutPage() {
   const firedInitiateCheckout = useRef(false)
   useEffect(() => {
     if (isLoading || !cart || cart.items.length === 0) return
+    // Wait for exchange rates too, not just the cart — firing before rates
+    // load makes effectiveCurrency() silently fall back to PHP while the
+    // visitor's actual selected currency (and every displayed price) is
+    // something else, reporting a mismatched (value, currency) pair to the
+    // pixel. The ref below is a one-shot latch, so a premature fire here
+    // can't be corrected by a later re-render.
+    if (!ratesLoaded) return
     if (firedInitiateCheckout.current) return
     firedInitiateCheckout.current = true
     const target = effectiveCurrency(currency, rates)
@@ -192,7 +204,15 @@ function CheckoutPage() {
       ),
       currency: target,
     })
-  }, [isLoading, cart, rawSubtotalCents, discountCents, currency, rates])
+  }, [
+    isLoading,
+    cart,
+    rawSubtotalCents,
+    discountCents,
+    currency,
+    rates,
+    ratesLoaded,
+  ])
 
   const lalamoveRegionEligible = isLalamoveRegionEligible({
     brand: storefrontScope.brand,
@@ -288,7 +308,9 @@ function CheckoutPage() {
 
   const discount = cart.discount
   function formatDiscountRate(type: string, value: number): string {
-    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
+    return type === 'fixed_amount'
+      ? `${formatPrice(value)} off`
+      : `${value}% off`
   }
   const discountLabel = discount
     ? discount.type === 'free_shipping'
@@ -380,7 +402,9 @@ function CheckoutPage() {
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold">{t.checkout.delivery}</h2>
+            <h2 className="mb-4 text-lg font-semibold">
+              {t.checkout.delivery}
+            </h2>
             <div className="space-y-4">
               <div className={labelClassName}>
                 {t.checkout.country}
@@ -611,7 +635,9 @@ function CheckoutPage() {
                   )}
                 </span>
                 <span className="font-medium text-neutral-900 dark:text-white">
-                  {shippingCents === 0 ? t.checkout.free : formatPrice(shippingCents)}
+                  {shippingCents === 0
+                    ? t.checkout.free
+                    : formatPrice(shippingCents)}
                 </span>
               </div>
             )}

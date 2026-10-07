@@ -22,6 +22,14 @@ interface CurrencyContextValue {
   currency: Currency
   setCurrency: (next: Currency) => void
   rates: ExchangeRates
+  /** False until the exchange-rates bootstrap fetch below has resolved at
+   *  least once. Before that, `rates` is `{}` and `effectiveCurrency`/
+   *  `convertCents` silently fall back to PHP — fine for display (PHP is a
+   *  correct price), but callers that report a (value, currency) pair to an
+   *  external system (e.g. the Meta Pixel InitiateCheckout event) must wait
+   *  for this to be true first, or they'll report PHP-denominated values
+   *  tagged with whatever currency the visitor actually has selected. */
+  ratesLoaded: boolean
   /** Converts + formats in one call — the one-line swap for
    *  `formatCentsAsPHP(x)` call sites throughout the storefront. */
   formatPrice: (cents: number) => string
@@ -75,6 +83,7 @@ export function CurrencyProvider({
 }) {
   const [currency, setCurrencyState] = useState<Currency>('PHP')
   const [rates, setRates] = useState<ExchangeRates>({})
+  const [ratesLoaded, setRatesLoaded] = useState(false)
   const [marketMarkups, setMarketMarkups] = useState<MarketMarkups>({})
   const [marketShipping, setMarketShipping] = useState<MarketShippingByCountry>(
     {},
@@ -95,11 +104,14 @@ export function CurrencyProvider({
   // that one piece's own failure) exactly as before; only the number of
   // round trips changed.
   useEffect(() => {
-    getCurrencyMarketBootstrap().then((bootstrap) => {
-      setRates(bootstrap.rates)
-      setMarketMarkups(bootstrap.markups)
-      setMarketShipping(bootstrap.shipping)
-    })
+    getCurrencyMarketBootstrap()
+      .then((bootstrap) => {
+        setRates(bootstrap.rates)
+        setMarketMarkups(bootstrap.markups)
+        setMarketShipping(bootstrap.shipping)
+      })
+      .catch(() => {})
+      .finally(() => setRatesLoaded(true))
   }, [])
 
   function setCurrency(next: Currency) {
@@ -145,6 +157,7 @@ export function CurrencyProvider({
         currency,
         setCurrency,
         rates,
+        ratesLoaded,
         formatPrice,
         formatPriceWithMarkup,
         freeShippingProgressForBrowsing,
