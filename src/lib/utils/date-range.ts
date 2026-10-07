@@ -281,17 +281,113 @@ function oneMonthEarlier(dateKey: string): string {
   return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`
 }
 
-/** The same calendar dates one month earlier, for trend comparisons — Oct
- *  1-6 compares to Sep 1-6, not "whichever 6 days immediately precede Oct
- *  1" (which used to land on an arbitrary-looking Sep 25-30 — confirmed
- *  live as a source of confusion: a day landing on, say, Sep 29 reads as
- *  unrelated to the Oct 5 it was actually paired with). A range spanning a
- *  full calendar month (e.g. "This Month") can come back a day or two
- *  shorter than the current range when the target month has fewer days
- *  (Oct 1-31 -> Sep 1-30) — every caller already tolerates a
- *  shorter/misaligned previous range (optional-chained lookups), same as
- *  it already had to for a leap-year February. */
+function oneDayEarlier(dateKey: string): string {
+  const d = new Date(`${dateKey}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return toISODate(d)
+}
+
+function daysBetweenInclusive(from: string, to: string): number {
+  const fromDate = new Date(`${from}T00:00:00Z`)
+  const toDate = new Date(`${to}T00:00:00Z`)
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1
+}
+
+/** The N days immediately before `from` (N = the current range's own
+ *  length) — a rolling "Last N Days" window's natural comparison: the N
+ *  days before *this* N days, not the same calendar dates a month back. */
+function immediatelyPrecedingBlock(
+  from: string,
+  to: string,
+): ResolvedDateRange {
+  const prevTo = oneDayEarlier(from)
+  const prevFromDate = new Date(`${prevTo}T00:00:00Z`)
+  prevFromDate.setUTCDate(
+    prevFromDate.getUTCDate() - (daysBetweenInclusive(from, to) - 1),
+  )
+  return { from: toISODate(prevFromDate), to: prevTo }
+}
+
+function monthKeyOf(dateKey: string): string {
+  return dateKey.slice(0, 7) // YYYY-MM
+}
+
+function firstOfMonthKey(dateKey: string): string {
+  return `${monthKeyOf(dateKey)}-01`
+}
+
+function lastOfMonthKey(dateKey: string): string {
+  const [year, month] = dateKey.split('-').map(Number)
+  // Day 0 of next month = last day of this month.
+  return toISODate(new Date(Date.UTC(year, month, 0)))
+}
+
+/** The 1st of the calendar month immediately before `dateKey`'s own month,
+ *  regardless of `dateKey`'s own day — used for the two "whole calendar
+ *  month" shapes below, where the day-of-month clamping oneMonthEarlier
+ *  does for a specific date isn't what's wanted. */
+function firstOfPrecedingMonthKey(dateKey: string): string {
+  const [year, month] = dateKey.split('-').map(Number)
+  let targetYear = year
+  let targetMonthIndex = month - 1 - 1
+  if (targetMonthIndex < 0) {
+    targetMonthIndex += 12
+    targetYear -= 1
+  }
+  return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}-01`
+}
+
+/**
+ * For trend comparisons, matched against the exact shape of [from, to] —
+ * confirmed with the owner which comparison each shape should get, since
+ * no single rule covers all of them sensibly:
+ *
+ * - A single day (e.g. "Today", or any one specific day) compares to the
+ *   day immediately before it — "vs. yesterday" is the universal, expected
+ *   comparison at day granularity.
+ * - A rolling window ending today whose length is exactly 7, 30, or 90
+ *   days ("Last 7/30/90 Days") compares to the immediately preceding
+ *   window of that same length — "last 7 days" means the 7 days before
+ *   *this* 7 days, not the same calendar dates a month back.
+ * - A whole calendar month (either "This Month" — the 1st of the current
+ *   month through today — or a complete past month like "Last Month"
+ *   itself) compares to the whole calendar month before it, so "This
+ *   Month" always compares to "Last Month" and "Last Month" compares to
+ *   the month before that.
+ * - Anything else (a custom range, e.g. picking Oct 1-6 by hand) compares
+ *   to the same calendar dates one month earlier — Oct 1-6 compares to Sep
+ *   1-6, not "whichever 6 days immediately precede Oct 1" (which used to
+ *   land on an arbitrary-looking Sep 25-30 — confirmed live as a source of
+ *   confusion: a day landing on, say, Sep 29 reads as unrelated to the Oct
+ *   5 it was actually paired with). A range spanning a full calendar month
+ *   can come back a day or two shorter than the current range when the
+ *   target month has fewer days (Oct 1-31 -> Sep 1-30) — every caller
+ *   already tolerates a shorter/misaligned previous range (optional-
+ *   chained lookups), same as it already had to for a leap-year February.
+ */
 export function previousPeriod(from: string, to: string): ResolvedDateRange {
+  if (from === to) {
+    const prevDay = oneDayEarlier(from)
+    return { from: prevDay, to: prevDay }
+  }
+
+  const today = toISODate(storeNow())
+  if (to === today) {
+    const spanDays = daysBetweenInclusive(from, to)
+    if (spanDays === 7 || spanDays === 30 || spanDays === 90) {
+      return immediatelyPrecedingBlock(from, to)
+    }
+  }
+
+  const isWholeCalendarMonth =
+    from === firstOfMonthKey(from) &&
+    (to === lastOfMonthKey(from) ||
+      (to === today && monthKeyOf(from) === monthKeyOf(today)))
+  if (isWholeCalendarMonth) {
+    const prevMonthFirst = firstOfPrecedingMonthKey(from)
+    return { from: prevMonthFirst, to: lastOfMonthKey(prevMonthFirst) }
+  }
+
   return { from: oneMonthEarlier(from), to: oneMonthEarlier(to) }
 }
 
