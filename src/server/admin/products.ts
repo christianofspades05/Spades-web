@@ -1301,17 +1301,27 @@ export interface RestockRow {
   quantityAdded: number
   /** Current stock summed across exactly the variants restocked in this
    *  event — not every variant the product has (an untouched variant's
-   *  stock has nothing to do with what THIS restock sold through), so
-   *  quantityAdded - currentQuantityAvailable is a meaningful "sold since"
-   *  figure (see quantitySold below) rather than mixing in unrelated
-   *  sizes. */
+   *  stock has nothing to do with what THIS restock sold through). Shown
+   *  as a current-stock figure; quantitySold below is NOT derived from
+   *  this (see its own comment on why that used to be the bug). */
   currentQuantityAvailable: number
-  /** max(0, quantityAdded - currentQuantityAvailable) — an approximation,
-   *  not a ledger: it assumes nothing else moved these exact variants'
-   *  stock since this restock (no later restock, no return) and quietly
-   *  floors at 0 if something did push current stock back above what was
-   *  added. Good enough for "sold 18 in 28 days" at a glance; not exact
-   *  for a product restocked repeatedly in quick succession. */
+  /** Real units sold since this restock — summed straight from the
+   *  sale_committed ledger (inventory_movements) for these exact variants,
+   *  after this restock's own timestamp, not derived from current stock.
+   *
+   *  Used to be `max(0, quantityAdded - currentQuantityAvailable)`, which
+   *  silently broke (usually under-reporting, sometimes flooring to 0
+   *  despite real sales) whenever anything else touched these variants'
+   *  stock after the restock: a return, a later restock/recount, a
+   *  marketplace sync adjustment, or — the common case — the restock
+   *  simply topping up shelves that weren't at zero to begin with (that
+   *  leftover baseline stock was never subtracted, so it read as
+   *  unsold). The ledger sum has none of those failure modes.
+   *
+   *  Still an approximation only when the SAME variant was restocked more
+   *  than once in quick succession — an earlier restock's window and a
+   *  later one's can overlap, so a sale after the later restock may get
+   *  counted under both. Fine for "sold 18 in 28 days" at a glance. */
   quantitySold: number
   variantCount: number
 }
@@ -1348,6 +1358,10 @@ interface RestockGroup {
   restockedAt: string
   quantityAdded: number
   variantIds: Set<string>
+  /** Latest created_at among this group's own purchase_in rows — the cutoff
+   *  used below to find sale_committed movements that happened after this
+   *  restock, rather than before it. */
+  lastMovementAt: string
 }
 
 /** Shared by listRestocks/getRestocksCount so they group and threshold
@@ -1414,6 +1428,9 @@ async function computeRestockGroups(
     if (existing) {
       existing.quantityAdded += m.quantity_delta
       existing.variantIds.add(variant.id)
+      if (m.created_at > existing.lastMovementAt) {
+        existing.lastMovementAt = m.created_at
+      }
     } else {
       groups.set(key, {
         productId: variant.product.id,
@@ -1422,12 +1439,56 @@ async function computeRestockGroups(
         restockedAt,
         quantityAdded: m.quantity_delta,
         variantIds: new Set([variant.id]),
+        lastMovementAt: m.created_at,
       })
     }
   }
 
-  return Array.from(groups.values())
-    .filter((g) => g.quantityAdded >= RESTOCK_MIN_TOTAL_QUANTITY)
+  const restockGroups = Array.from(groups.values()).filter(
+    (g) => g.quantityAdded >= RESTOCK_MIN_TOTAL_QUANTITY,
+  )
+
+  // Real "sold since restock" has to come from the sale ledger, not from
+  // current stock (see quantitySold's own comment) — fetched only for
+  // variants that actually appear in a real restock above, chunked the
+  // same way as the product/inventory lookup above and for the same
+  // reason (a large .in() list can blow past PostgREST's URL limit).
+  // Paginated per chunk too — this shop already has ~9,000 sale_committed
+  // rows total, so an unbounded select here hits PostgREST's default
+  // 1000-row cap and silently truncates (confirmed live: a variant with
+  // real sales after its restock read back as having none, since all of
+  // its rows happened to fall past row 1000 in whatever order Postgres
+  // returned them) — the exact bug fetchAllRows exists to prevent.
+  const restockedVariantIds = Array.from(
+    new Set(restockGroups.flatMap((g) => Array.from(g.variantIds))),
+  )
+  const saleMovementChunks = await Promise.all(
+    chunkArray(restockedVariantIds, RESTOCK_ID_CHUNK_SIZE).map((chunk) =>
+      fetchAllRows<{
+        variant_id: string
+        quantity_delta: number
+        created_at: string
+      }>((offset) =>
+        admin
+          .from('inventory_movements')
+          .select('variant_id, quantity_delta, created_at')
+          .eq('movement_type', 'sale_committed')
+          .in('variant_id', chunk)
+          .range(offset, offset + 999),
+      ),
+    ),
+  )
+  const saleMovementsByVariant = new Map<
+    string,
+    { quantityDelta: number; createdAt: string }[]
+  >()
+  for (const row of saleMovementChunks.flat()) {
+    const list = saleMovementsByVariant.get(row.variant_id) ?? []
+    list.push({ quantityDelta: row.quantity_delta, createdAt: row.created_at })
+    saleMovementsByVariant.set(row.variant_id, list)
+  }
+
+  return restockGroups
     .map((g) => {
       // Summed from the Set of distinct variant ids, not accumulated per
       // movement row above — a variant touched by two separate movements
@@ -1438,6 +1499,13 @@ async function computeRestockGroups(
           sum + (variantById.get(id)?.inventory.at(0)?.quantity_available ?? 0),
         0,
       )
+      const quantitySold = Array.from(g.variantIds).reduce((sum, id) => {
+        const sales = saleMovementsByVariant.get(id) ?? []
+        const soldForVariant = sales
+          .filter((s) => s.createdAt > g.lastMovementAt)
+          .reduce((s, sale) => s - sale.quantityDelta, 0)
+        return sum + soldForVariant
+      }, 0)
       return {
         productId: g.productId,
         productName: g.productName,
@@ -1445,7 +1513,7 @@ async function computeRestockGroups(
         restockedAt: g.restockedAt,
         quantityAdded: g.quantityAdded,
         currentQuantityAvailable,
-        quantitySold: Math.max(0, g.quantityAdded - currentQuantityAvailable),
+        quantitySold,
         variantCount: g.variantIds.size,
       }
     })
