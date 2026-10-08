@@ -1075,21 +1075,56 @@ export const setProductCollections = createServerFn({ method: 'POST' })
       .eq('product_id', data.productId)
     if (previousError) throw previousError
     const previousCollectionIds = previousRows.map((r) => r.collection_id)
+    const nextCollectionIds = new Set(data.collectionIds)
 
-    const { error: deleteError } = await admin
-      .from('product_collections')
-      .delete()
-      .eq('product_id', data.productId)
-    if (deleteError) throw deleteError
+    // Only touch rows for collections actually being left or joined — each
+    // collection's own edit page lets staff drag products into a specific
+    // order (sort_order), persisted per (product_id, collection_id). Wiping
+    // and reinserting every row here (as this used to do) reset that order
+    // to "index among the collections checked on THIS form" every time any
+    // unrelated field on the product was saved, silently undoing drag work
+    // done on the collection page.
+    const removedCollectionIds = previousCollectionIds.filter(
+      (id) => !nextCollectionIds.has(id),
+    )
+    const addedCollectionIds = data.collectionIds.filter(
+      (id) => !previousCollectionIds.includes(id),
+    )
 
-    if (data.collectionIds.length > 0) {
+    if (removedCollectionIds.length > 0) {
+      const { error: deleteError } = await admin
+        .from('product_collections')
+        .delete()
+        .eq('product_id', data.productId)
+        .in('collection_id', removedCollectionIds)
+      if (deleteError) throw deleteError
+    }
+
+    if (addedCollectionIds.length > 0) {
+      // Append each newly-joined collection at the end of its own existing
+      // order, same as addProductToCollection — never interleaved into the
+      // middle of an order staff already set by hand.
+      const maxSortOrders = await Promise.all(
+        addedCollectionIds.map(async (collectionId) => {
+          const { data: existing, error: maxError } = await admin
+            .from('product_collections')
+            .select('sort_order')
+            .eq('collection_id', collectionId)
+            .order('sort_order', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (maxError) throw maxError
+          return (existing?.sort_order ?? -1) + 1
+        }),
+      )
+
       const { error: insertError } = await admin
         .from('product_collections')
         .insert(
-          data.collectionIds.map((collectionId, index) => ({
+          addedCollectionIds.map((collectionId, index) => ({
             product_id: data.productId,
             collection_id: collectionId,
-            sort_order: index,
+            sort_order: maxSortOrders[index],
           })),
         )
       if (insertError) throw insertError
