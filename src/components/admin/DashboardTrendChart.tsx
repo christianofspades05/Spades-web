@@ -9,7 +9,11 @@ import { percentChange } from '#/lib/utils/date-range'
 
 export interface TrendChartPoint {
   label: string
-  current: number
+  /** Null for an hour on "Today" that hasn't happened yet — renders as a
+   *  gap (the line simply stops there) rather than a misleading drop to 0,
+   *  since Recharts' default connectNulls=false already breaks the line on
+   *  a null point without any extra prop. */
+  current: number | null
   previous: number
   /** The previous period's own date/label for this point (e.g. "2026-09-28"
    *  for a current point of "2026-10-04") — shown in the tooltip instead of
@@ -31,7 +35,8 @@ function TrendTooltip({
 }) {
   if (!active || !payload?.[0]) return null
   const point = payload[0].payload
-  const change = percentChange(point.current, point.previous)
+  const change =
+    point.current !== null ? percentChange(point.current, point.previous) : null
 
   return (
     <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs shadow-md">
@@ -41,7 +46,11 @@ function TrendTooltip({
           className="size-1.5 rounded-full"
           style={{ backgroundColor: color }}
         />
-        <span className="text-neutral-700">{formatValue(point.current)}</span>
+        <span className="text-neutral-700">
+          {point.current === null
+            ? "Hasn't happened yet"
+            : formatValue(point.current)}
+        </span>
       </div>
       <div className="mt-0.5 flex items-center gap-1.5">
         <span className="size-1.5 rounded-full bg-neutral-300" />

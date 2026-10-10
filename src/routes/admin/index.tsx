@@ -255,13 +255,13 @@ function AdminPage() {
   }))
   const conversionChartData = analytics.daily.map((d, i) => ({
     label: d.date,
-    current: d.conversionRate ?? 0,
+    current: d.isFuture ? null : (d.conversionRate ?? 0),
     previous: d.previousConversionRate ?? 0,
     previousLabel: previousLabelFor(i),
   }))
   const aovChartData = analytics.daily.map((d, i) => ({
     label: d.date,
-    current: d.aovCents ?? 0,
+    current: d.isFuture ? null : (d.aovCents ?? 0),
     previous: d.previousAovCents ?? 0,
     previousLabel: previousLabelFor(i),
   }))
@@ -338,7 +338,7 @@ function AdminPage() {
                 {formatCentsAsPHP(analytics.sales.cents)}
               </p>
               <MetricSparkline
-                values={analytics.daily.map((d) => d.salesCents)}
+                values={analytics.daily.map((d) => d.salesCents ?? 0)}
                 color={SALES_COLOR}
               />
             </div>
@@ -362,7 +362,7 @@ function AdminPage() {
                 {analytics.orders.count}
               </p>
               <MetricSparkline
-                values={analytics.daily.map((d) => d.orders)}
+                values={analytics.daily.map((d) => d.orders ?? 0)}
                 color={ORDERS_COLOR}
               />
             </div>

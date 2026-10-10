@@ -5,6 +5,7 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import {
   previousPeriod,
   storeLocalDateKey,
+  storeLocalHour,
   storeLocalHourKey,
   storeRangeToUtcBounds,
 } from '#/lib/utils/date-range'
@@ -18,6 +19,12 @@ interface BucketPoint {
   salesCents: number
   visitors: number
   storefrontOrders: number
+  /** True for an hour bucket on "Today" that hasn't happened yet (store-
+   *  local time) — distinct from an elapsed hour that genuinely had zero
+   *  orders. Lets callers render "no data yet" as a gap instead of a
+   *  misleading drop to 0. Always false for day buckets and for the
+   *  previous period (its hours have all already elapsed). */
+  isFuture: boolean
 }
 
 /**
@@ -46,6 +53,12 @@ function bucketPeriod(
   // already its own deliberately storefront-only figure for conversion
   // rate, unrelated to which channel the merchant is browsing sales for.
   channel?: string,
+  // The current store-local hour (0-23), passed ONLY when bucketing the
+  // CURRENT period's "Today" — marks every hour after it as isFuture. Left
+  // undefined for the previous period's buckets (always fully elapsed) and
+  // for day-bucketed ranges (today's own bucket is dropped entirely
+  // upstream by excludeTodayFromComparison instead).
+  nowHour?: number,
 ): BucketPoint[] {
   const bucketKeyOf = (iso: string) =>
     isSingleDay ? storeLocalHourKey(iso) : storeLocalDateKey(iso)
@@ -81,6 +94,7 @@ function bucketPeriod(
     salesCents: 0,
     visitors: visitorCountsByKey.get(key) ?? 0,
     storefrontOrders: 0,
+    isFuture: isSingleDay && nowHour !== undefined && i > nowHour,
   }))
 
   for (const order of orders) {
@@ -102,9 +116,16 @@ function bucketPeriod(
 
 export interface DailyPoint {
   date: string
-  orders: number
-  salesCents: number
-  visitors: number
+  /** Null when this bucket is an hour on "Today" that hasn't happened yet
+   *  (see BucketPoint.isFuture) — distinct from a real, elapsed bucket that
+   *  had zero orders. Same for salesCents/visitors below. */
+  orders: number | null
+  salesCents: number | null
+  visitors: number | null
+  /** True for a not-yet-elapsed hour on "Today" — lets chart callers render
+   *  a gap instead of a misleading drop to 0/flat line. Always false for
+   *  day buckets and for every previous-period bucket. */
+  isFuture: boolean
   conversionRate: number | null
   /** salesCents / orders for this bucket, rounded to the nearest cent — null
    *  once orders is 0, same "nothing to divide by" convention
@@ -272,6 +293,10 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       previousVisitorBuckets.data.map((r) => [r.bucket_key, r.unique_visitors]),
     )
 
+    // Only set when viewing "Today" by the hour — see BucketPoint.isFuture.
+    const nowHour =
+      isSingleDay && data.to === todayKey ? storeLocalHour() : undefined
+
     const currentBuckets = bucketPeriod(
       data.from,
       data.to,
@@ -279,6 +304,7 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       currentOrders,
       currentVisitorCountsByKey,
       data.channel,
+      nowHour,
     )
     const previousBuckets = bucketPeriod(
       prev.from,
@@ -301,15 +327,18 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       const prevPoint = previousBuckets.at(i)
       return {
         date: point.label,
-        orders: point.orders,
-        salesCents: point.salesCents,
-        visitors: point.visitors,
+        orders: point.isFuture ? null : point.orders,
+        salesCents: point.isFuture ? null : point.salesCents,
+        visitors: point.isFuture ? null : point.visitors,
+        isFuture: point.isFuture,
         conversionRate:
-          point.visitors > 0
+          !point.isFuture && point.visitors > 0
             ? (point.storefrontOrders / point.visitors) * 100
             : null,
         aovCents:
-          point.orders > 0 ? Math.round(point.salesCents / point.orders) : null,
+          !point.isFuture && point.orders > 0
+            ? Math.round(point.salesCents / point.orders)
+            : null,
         previousOrders: prevPoint?.orders ?? 0,
         previousSalesCents: prevPoint?.salesCents ?? 0,
         previousVisitors: prevPoint?.visitors ?? 0,
