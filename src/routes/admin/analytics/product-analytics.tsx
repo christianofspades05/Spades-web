@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Package } from 'lucide-react'
@@ -601,6 +601,14 @@ function ProductAnalyticsPage() {
  *  visibility problem — nobody's even finding the page. */
 const LOW_VISITORS_PAGE_SIZE = 10
 
+const LOW_VISITORS_SORT_OPTIONS = [
+  { value: 'views_asc', label: 'Views: Low to High' },
+  { value: 'views_desc', label: 'Views: High to Low' },
+  { value: 'stock_asc', label: 'Stock: Low to High' },
+  { value: 'stock_desc', label: 'Stock: High to Low' },
+] as const
+type LowVisitorsSort = (typeof LOW_VISITORS_SORT_OPTIONS)[number]['value']
+
 function LowVisitorsTab({
   averageViews,
   products,
@@ -615,12 +623,34 @@ function LowVisitorsTab({
   onSelectCollection: (collectionId: string | undefined) => void
 }) {
   const [page, setPage] = useState(1)
+  // Default matches the server's own order (lowest-traffic first, the
+  // whole point of this tab) — picking a different option just re-sorts
+  // the same already-fetched rows client-side, no refetch.
+  const [sortBy, setSortBy] = useState<LowVisitorsSort>('views_asc')
+  const sortedProducts = useMemo(() => {
+    const sorted = [...products]
+    switch (sortBy) {
+      case 'views_desc':
+        sorted.sort((a, b) => b.viewCount - a.viewCount)
+        break
+      case 'stock_asc':
+        sorted.sort((a, b) => a.currentStockOnHand - b.currentStockOnHand)
+        break
+      case 'stock_desc':
+        sorted.sort((a, b) => b.currentStockOnHand - a.currentStockOnHand)
+        break
+      case 'views_asc':
+      default:
+        sorted.sort((a, b) => a.viewCount - b.viewCount)
+    }
+    return sorted
+  }, [products, sortBy])
   const pageCount = Math.max(
     1,
-    Math.ceil(products.length / LOW_VISITORS_PAGE_SIZE),
+    Math.ceil(sortedProducts.length / LOW_VISITORS_PAGE_SIZE),
   )
   const currentPage = Math.min(page, pageCount)
-  const pagedProducts = products.slice(
+  const pagedProducts = sortedProducts.slice(
     (currentPage - 1) * LOW_VISITORS_PAGE_SIZE,
     currentPage * LOW_VISITORS_PAGE_SIZE,
   )
@@ -689,7 +719,24 @@ function LowVisitorsTab({
         </p>
       ) : (
         <>
-          <div className={`${tableWrapperClassName} mt-5`}>
+          <div className="mt-4 flex justify-end">
+            <select
+              value={sortBy}
+              onChange={(e) => {
+                setSortBy(e.target.value as LowVisitorsSort)
+                setPage(1)
+              }}
+              className={`${inputClassName} w-auto`}
+            >
+              {LOW_VISITORS_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  Sort: {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={`${tableWrapperClassName} mt-3`}>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
