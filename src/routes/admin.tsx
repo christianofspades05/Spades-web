@@ -12,6 +12,7 @@ import {
   getUnreadCustomerReplyCount,
   getUnreadFailedDeliveryReplyCount,
 } from '#/server/admin/order-emails'
+import { getNewRestockDecisionCount } from '#/server/admin/analytics'
 import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
 import {
   notifySafely,
@@ -23,6 +24,12 @@ import {
 // without needing one. The dropdown's actual reply list is fetched
 // separately by AdminNav itself, only when it's opened.
 const UNREAD_REPLIES_POLL_MS = 30_000
+
+// Longer than the replies poll above — this one recomputes the Restock
+// Decisions signal set (cached 2 min server-side, see analytics.ts's
+// ANALYTICS_CACHE_TTL_MS), not a single COUNT query, so there's no benefit
+// to polling faster than that cache actually refreshes.
+const NEW_RESTOCK_DECISIONS_POLL_MS = 60_000
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async () => {
@@ -40,9 +47,11 @@ function AdminLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [failedDeliveryUnreadCount, setFailedDeliveryUnreadCount] = useState(0)
+  const [newRestockDecisionsCount, setNewRestockDecisionsCount] = useState(0)
   // null until the first poll resolves — distinguishes "just loaded, don't
   // notify for whatever was already unread" from a real subsequent increase.
   const previousFailedDeliveryUnreadCountRef = useRef<number | null>(null)
+  const previousNewRestockDecisionsCountRef = useRef<number | null>(null)
   // Defaults to expanded during SSR/first paint (localStorage isn't
   // available server-side) and syncs to the stored preference right after
   // mount — a one-frame flash beats a hydration mismatch.
@@ -95,6 +104,31 @@ function AdminLayout() {
     }
   }
 
+  // Drives the Product Analytics nav badge for "a product newly entered
+  // Restock Decisions" (see getNewRestockDecisionCount) — same shape as
+  // pollFailedDeliveryUnreadCount above, including the desktop
+  // notification on a real increase.
+  async function pollNewRestockDecisionsCount() {
+    try {
+      const count = await getNewRestockDecisionCount()
+      const previous = previousNewRestockDecisionsCountRef.current
+      if (previous !== null && count > previous) {
+        const newCount = count - previous
+        notifySafely(
+          'New restock decision',
+          newCount === 1
+            ? 'A product newly needs restocking.'
+            : `${newCount} products newly need restocking.`,
+        )
+      }
+      previousNewRestockDecisionsCountRef.current = count
+      setNewRestockDecisionsCount(count)
+    } catch {
+      // Transient failure — next poll retries; the badge just won't
+      // update this cycle.
+    }
+  }
+
   // Asks once per browser (never re-prompts after a grant/deny) so a new
   // reply can surface as a real desktop notification, not just the nav
   // badge — the badge alone is easy to miss if staff aren't already
@@ -106,9 +140,14 @@ function AdminLayout() {
   useEffect(() => {
     void pollUnreadCount()
     void pollFailedDeliveryUnreadCount()
+    void pollNewRestockDecisionsCount()
   }, [pathname])
   useVisibleInterval(pollUnreadCount, UNREAD_REPLIES_POLL_MS)
   useVisibleInterval(pollFailedDeliveryUnreadCount, UNREAD_REPLIES_POLL_MS)
+  useVisibleInterval(
+    pollNewRestockDecisionsCount,
+    NEW_RESTOCK_DECISIONS_POLL_MS,
+  )
 
   return (
     <div className="flex min-h-screen">
@@ -116,6 +155,7 @@ function AdminLayout() {
         staffRole={staff.role}
         unreadCount={unreadCount}
         failedDeliveryUnreadCount={failedDeliveryUnreadCount}
+        newRestockDecisionsCount={newRestockDecisionsCount}
         collapsed={navCollapsed}
         onToggleCollapse={() => setNavCollapsed((v) => !v)}
         className={`hidden shrink-0 border-r lg:flex ${
@@ -136,6 +176,7 @@ function AdminLayout() {
           staffRole={staff.role}
           unreadCount={unreadCount}
           failedDeliveryUnreadCount={failedDeliveryUnreadCount}
+          newRestockDecisionsCount={newRestockDecisionsCount}
           onNavigate={() => setMobileNavOpen(false)}
           className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r shadow-xl transition-transform duration-200 ${
             mobileNavOpen ? 'translate-x-0' : '-translate-x-full'

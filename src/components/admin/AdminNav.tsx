@@ -88,6 +88,7 @@ export function AdminNav({
   staffRole,
   unreadCount,
   failedDeliveryUnreadCount,
+  newRestockDecisionsCount,
   collapsed = false,
   onToggleCollapse,
 }: {
@@ -111,6 +112,10 @@ export function AdminNav({
    *  replies on orders cancelled with reason 'failed_delivery', unlike the
    *  bell's unreadCount above which is every order-email reply. */
   failedDeliveryUnreadCount: number
+  /** Badge on the "Product Analytics" Analytics link — count of products
+   *  that newly entered the Restock Decisions table since staff last
+   *  viewed that page (see getNewRestockDecisionCount). */
+  newRestockDecisionsCount: number
   /** Icon-only rail mode — only meaningful for the desktop sidebar mount;
    *  the mobile drawer mount never passes this (it has its own overlay
    *  width and doesn't need to save space). */
@@ -491,6 +496,10 @@ export function AdminNav({
         {ANALYTICS_SUB_LINKS.map((link) => {
           const isActive = pathname.startsWith(link.to)
           const Icon = link.icon
+          const badgeCount =
+            link.to === '/admin/analytics/product-analytics'
+              ? newRestockDecisionsCount
+              : 0
           return (
             <Link
               key={link.to}
@@ -508,9 +517,23 @@ export function AdminNav({
               }
             >
               {collapsed ? (
-                <Icon size={17} strokeWidth={2} className="shrink-0" />
+                <span className="relative">
+                  <Icon size={17} strokeWidth={2} className="shrink-0" />
+                  {badgeCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex min-w-[14px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] leading-[14px] font-semibold text-white">
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </span>
               ) : (
-                link.label
+                <span className="flex flex-1 items-center justify-between">
+                  {link.label}
+                  {badgeCount > 0 && (
+                    <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </span>
               )}
             </Link>
           )

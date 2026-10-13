@@ -6,6 +6,9 @@ import {
   getLowVisitorProducts,
   getProductProfitBreakdown,
   getProductVelocitySignals,
+  markRestockDecisionsViewed,
+  RESTOCK_MAX_CURRENT_STOCK,
+  RESTOCK_MIN_AVG_PER_DAY,
 } from '#/server/admin/analytics'
 import type {
   ProductProfitRow,
@@ -41,8 +44,6 @@ const CHANNEL_OPTIONS = [
   { value: 'lazada', label: 'Lazada' },
 ] as const
 
-const RESTOCK_MIN_AVG_PER_DAY = 5
-const RESTOCK_MAX_CURRENT_STOCK = 30
 const RESTOCK_DAYS_OF_COVER = 45
 const CASH_COW_MIN_AVG_PER_DAY = 2
 const CASH_COW_MAX_AVG_PER_DAY = 4
@@ -141,6 +142,12 @@ function ProductAnalyticsPage() {
   } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+
+  // Clears the "new restock decision" nav badge — visiting this page is
+  // what counts as having seen whatever's currently on the list.
+  useEffect(() => {
+    void markRestockDecisionsViewed()
+  }, [])
 
   function handleRangeChange(
     preset: DateRangePreset,

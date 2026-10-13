@@ -2511,18 +2511,21 @@ const productVelocityCache = createTtlCache<ProductVelocitySignal[]>(
  * separate top-sellers section (which uses getProductProfitBreakdown and
  * has its own interactive date range).
  */
-export const getProductVelocitySignals = createServerFn({ method: 'GET' })
-  .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS).optional() }))
-  .handler(async ({ data }): Promise<ProductVelocitySignal[]> => {
-    await requireStaff()
+/** Does the actual computation, cached but with no auth check of its own —
+ *  callable from any already-authorized server context. Split out from
+ *  getProductVelocitySignals so getNewRestockDecisionCount below (and
+ *  anything else that needs this signal) can reuse it directly as a plain
+ *  function instead of one createServerFn awkwardly invoking another. */
+async function computeProductVelocitySignals(
+  brand?: (typeof STOREFRONT_BRANDS)[number],
+): Promise<ProductVelocitySignal[]> {
+  const cacheKey = brand ?? 'all'
+  const cached = productVelocityCache.get(cacheKey)
+  if (cached) return cached
 
-    const cacheKey = data.brand ?? 'all'
-    const cached = productVelocityCache.get(cacheKey)
-    if (cached) return cached
+  const admin = getSupabaseAdminClient()
 
-    const admin = getSupabaseAdminClient()
-
-    const today = daysAgo(0)
+  const today = daysAgo(0)
     const windowStartDay = daysAgo(VELOCITY_LOOKBACK_DAYS)
     const { start: windowStart, end: windowEnd } = storeRangeToUtcBounds(
       windowStartDay,
@@ -2538,7 +2541,7 @@ export const getProductVelocitySignals = createServerFn({ method: 'GET' })
         .eq('status', 'active')
         .lt('created_at', windowStart)
         .range(offset, offset + 999)
-      if (data.brand) query = query.eq('brand', data.brand)
+      if (brand) query = query.eq('brand', brand)
       return query
     })
     if (products.length === 0) {
@@ -2595,7 +2598,7 @@ export const getProductVelocitySignals = createServerFn({ method: 'GET' })
         .gte('placed_at', windowStart)
         .lte('placed_at', windowEnd)
         .range(offset, offset + 999)
-      if (data.brand) query = query.eq('brand', data.brand)
+      if (brand) query = query.eq('brand', brand)
       return query
     })
     const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
@@ -2666,9 +2669,110 @@ export const getProductVelocitySignals = createServerFn({ method: 'GET' })
       }
     })
 
-    productVelocityCache.set(cacheKey, result)
-    return result
+  productVelocityCache.set(cacheKey, result)
+  return result
+}
+
+export const getProductVelocitySignals = createServerFn({ method: 'GET' })
+  .validator(z.object({ brand: z.enum(STOREFRONT_BRANDS).optional() }))
+  .handler(async ({ data }): Promise<ProductVelocitySignal[]> => {
+    await requireStaff()
+    return computeProductVelocitySignals(data.brand)
   })
+
+/** Same thresholds the Restock Decisions table itself filters by (see
+ *  product-analytics.tsx) — exported from here, the single source of
+ *  truth, rather than duplicated, so the nav badge below can never
+ *  silently drift from what the table actually shows. */
+export const RESTOCK_MIN_AVG_PER_DAY = 5
+export const RESTOCK_MAX_CURRENT_STOCK = 30
+
+function isRestockDecision(signal: ProductVelocitySignal): boolean {
+  return (
+    signal.avgUnitsPerDayWhenWellStocked !== null &&
+    signal.avgUnitsPerDayWhenWellStocked >= RESTOCK_MIN_AVG_PER_DAY &&
+    signal.currentStockOnHand < RESTOCK_MAX_CURRENT_STOCK
+  )
+}
+
+/**
+ * Nav badge for "a product newly entered Restock Decisions" (see
+ * restock_decision_sightings/restock_decision_view_state, 0095). Computed
+ * fresh on every poll, no cron: diffs the live Restock Decisions list
+ * (across all brands — the nav is a single sidebar, not per-brand) against
+ * sightings already on record, upserting new ones and dropping stale ones
+ * so a product that falls off and later comes back reads as new again.
+ * Count returned is scoped to sightings newer than the last time any staff
+ * viewed the page (markRestockDecisionsViewed) — already-seen ones don't
+ * keep re-badging forever.
+ */
+export const getNewRestockDecisionCount = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<number> => {
+  await requireStaff()
+  const admin = getSupabaseAdminClient()
+
+  const signals = await computeProductVelocitySignals()
+  const currentIds = new Set(
+    signals.filter(isRestockDecision).map((s) => s.productId),
+  )
+
+  const { data: existing, error: existingError } = await admin
+    .from('restock_decision_sightings')
+    .select('product_id')
+  if (existingError) throw existingError
+  const existingIds = new Set(existing.map((r) => r.product_id))
+
+  const newlyAppeared = Array.from(currentIds).filter(
+    (id) => !existingIds.has(id),
+  )
+  const droppedOff = Array.from(existingIds).filter(
+    (id) => !currentIds.has(id),
+  )
+
+  await Promise.all([
+    newlyAppeared.length > 0
+      ? admin
+          .from('restock_decision_sightings')
+          .insert(newlyAppeared.map((product_id) => ({ product_id })))
+      : Promise.resolve(),
+    droppedOff.length > 0
+      ? admin
+          .from('restock_decision_sightings')
+          .delete()
+          .in('product_id', droppedOff)
+      : Promise.resolve(),
+  ])
+
+  const { data: viewState, error: viewStateError } = await admin
+    .from('restock_decision_view_state')
+    .select('last_viewed_at')
+    .eq('id', true)
+    .single()
+  if (viewStateError) throw viewStateError
+
+  const { count, error: countError } = await admin
+    .from('restock_decision_sightings')
+    .select('product_id', { count: 'exact', head: true })
+    .gt('first_flagged_at', viewState.last_viewed_at)
+  if (countError) throw countError
+  return count ?? 0
+})
+
+/** Clears the Product Analytics nav badge — called when the page itself
+ *  loads, same "visiting the page marks it read" convention already used
+ *  for order-email replies (see admin.tsx). */
+export const markRestockDecisionsViewed = createServerFn({
+  method: 'POST',
+}).handler(async (): Promise<void> => {
+  await requireStaff()
+  const admin = getSupabaseAdminClient()
+  const { error } = await admin
+    .from('restock_decision_view_state')
+    .update({ last_viewed_at: new Date().toISOString() })
+    .eq('id', true)
+  if (error) throw error
+})
 
 export interface ProductViewRow {
   productId: string

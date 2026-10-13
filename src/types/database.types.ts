@@ -952,6 +952,34 @@ export interface Database {
         >
         Relationships: []
       }
+      restock_decision_sightings: {
+        Row: {
+          product_id: string
+          first_flagged_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['restock_decision_sightings']['Row']
+        > & {
+          product_id: string
+        }
+        Update: Partial<
+          Database['public']['Tables']['restock_decision_sightings']['Row']
+        >
+        Relationships: []
+      }
+      restock_decision_view_state: {
+        Row: {
+          id: boolean
+          last_viewed_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['restock_decision_view_state']['Row']
+        >
+        Update: Partial<
+          Database['public']['Tables']['restock_decision_view_state']['Row']
+        >
+        Relationships: []
+      }
       markets: {
         Row: {
           id: string
