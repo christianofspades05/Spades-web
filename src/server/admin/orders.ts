@@ -248,6 +248,12 @@ const listOrdersFilterSchema = z.object({
    *  specifically because staff can forget a TikTok order sits outside the
    *  Online Store fulfillment workflow they check by habit. */
   staleTiktokAwaitingShipment: z.boolean().optional(),
+  /** First-click Facebook ad attribution (see lib/analytics/fbclid.ts) —
+   *  'yes' is the only value (no 'no' counterpart) since "show me
+   *  everything NOT from a Facebook ad" isn't a filter anyone's asked for,
+   *  same reasoning as preOrder's sibling filters that only have one
+   *  meaningful direction. */
+  fbclid: z.enum(['yes']).optional(),
 })
 
 const STALE_UNFULFILLED_DAYS = 7
@@ -516,6 +522,7 @@ export const listOrders = createServerFn({ method: 'GET' })
       if (data.preOrder) {
         q = q.eq('has_pre_order_items', data.preOrder === 'yes')
       }
+      if (data.fbclid) q = q.not('fbclid', 'is', null)
       if (data.staleUnfulfilled) {
         const cutoff = new Date(
           Date.now() - STALE_UNFULFILLED_DAYS * 24 * 60 * 60 * 1000,
@@ -655,6 +662,7 @@ export const getOrdersCount = createServerFn({ method: 'GET' })
       if (data.preOrder) {
         q = q.eq('has_pre_order_items', data.preOrder === 'yes')
       }
+      if (data.fbclid) q = q.not('fbclid', 'is', null)
       if (data.staleUnfulfilled) {
         const cutoff = new Date(
           Date.now() - STALE_UNFULFILLED_DAYS * 24 * 60 * 60 * 1000,

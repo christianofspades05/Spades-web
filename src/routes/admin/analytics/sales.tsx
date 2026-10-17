@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { z } from 'zod'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { MapPin, Package } from 'lucide-react'
 import {
   getFacebookAdsSales,
@@ -251,6 +251,7 @@ function SalesAnalyticsPage() {
       <FacebookAdsSection
         totals={facebookAdsSales.totals}
         trendData={facebookAdsTrendData}
+        brand={search.brand}
       />
 
       <BestSellersSection products={bestSellers} />
@@ -262,9 +263,11 @@ function SalesAnalyticsPage() {
 function FacebookAdsSection({
   totals,
   trendData,
+  brand,
 }: {
   totals: FacebookAdsSalesTotals
   trendData: { label: string; current: number; previous: number }[]
+  brand: 'spades' | 'ysrael' | 'aspire365' | undefined
 }) {
   return (
     <Card className="mt-4 p-5">
@@ -280,6 +283,13 @@ function FacebookAdsSection({
             signal.
           </p>
         </div>
+        <Link
+          to="/admin/orders"
+          search={{ fbclid: 'yes', brand, page: 1, range: 'today' }}
+          className={buttonSecondaryClassName}
+        >
+          View orders
+        </Link>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">

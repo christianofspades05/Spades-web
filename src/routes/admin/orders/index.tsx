@@ -134,6 +134,10 @@ const PRE_ORDER_OPTIONS = [
   { value: 'no', label: 'Excluding Pre-Order' },
 ] as const
 
+const FACEBOOK_ADS_OPTIONS = [
+  { value: 'yes', label: 'Facebook Ads Only' },
+] as const
+
 interface OrderShippingAddress {
   country?: string
   region: string
@@ -161,6 +165,7 @@ export const Route = createFileRoute('/admin/orders/')({
       .enum(['metro_manila', 'luzon', 'visayas', 'mindanao', 'international'])
       .optional(),
     preOrder: z.enum(['yes', 'no']).optional(),
+    fbclid: z.enum(['yes']).optional(),
     q: z.string().optional(),
     staleUnfulfilled: z.boolean().optional(),
     staleTiktokAwaitingShipment: z.boolean().optional(),
@@ -182,6 +187,7 @@ export const Route = createFileRoute('/admin/orders/')({
       fulfillment: deps.fulfillment,
       zone: deps.zone,
       preOrder: deps.preOrder,
+      fbclid: deps.fbclid,
       q: deps.q,
       staleUnfulfilled: deps.staleUnfulfilled,
       staleTiktokAwaitingShipment: deps.staleTiktokAwaitingShipment,
@@ -483,6 +489,14 @@ function OrdersPage() {
             options={PRE_ORDER_OPTIONS}
             onChange={(preOrder) =>
               navigate({ search: (prev) => ({ ...prev, preOrder, page: 1 }) })
+            }
+          />
+          <FilterDropdown
+            label="Facebook Ads"
+            value={search.fbclid}
+            options={FACEBOOK_ADS_OPTIONS}
+            onChange={(fbclid) =>
+              navigate({ search: (prev) => ({ ...prev, fbclid, page: 1 }) })
             }
           />
           <button
