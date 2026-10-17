@@ -12,7 +12,10 @@ import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { LanguagePopup } from '#/components/storefront/LanguagePopup'
 import { EmailCapturePopup } from '#/components/storefront/EmailCapturePopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
-import { FacebookPixelPageView } from '#/components/storefront/FacebookPixel'
+import {
+  FacebookPixelPageView,
+  FbclidCapture,
+} from '#/components/storefront/FacebookPixel'
 import { buildPixelBootstrapScript } from '#/lib/analytics/facebook-pixel'
 import { CartProvider } from '#/lib/cart/CartContext'
 import { ThemeProvider } from '#/lib/theme/ThemeProvider'
@@ -160,6 +163,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         )}
         <VisitTracker brand={storefrontScope.brand} />
         <FacebookPixelPageView />
+        <FbclidCapture />
         <ThemeProvider defaultTheme={storefrontScope.defaultTheme}>
           <LanguageProvider geoCountry={geoCountry}>
             <CurrencyProvider

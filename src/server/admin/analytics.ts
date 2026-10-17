@@ -1705,6 +1705,185 @@ export const getSalesAnalytics = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface FacebookAdsSalesTotals {
+  grossSalesCents: number
+  orderCount: number
+  aovCents: number
+  /** This period's Facebook-ad-attributed gross sales as a share of all
+   *  storefront gross sales (same range/brand filter) — null when there
+   *  were no storefront sales at all in range, not when it's legitimately
+   *  0%. */
+  percentOfStorefrontGrossSales: number | null
+}
+
+export interface FacebookAdsSalesDailyPoint {
+  date: string
+  grossSalesCents: number
+  previousGrossSalesCents: number
+  orderCount: number
+}
+
+export interface FacebookAdsSalesResult {
+  range: { from: string; to: string }
+  totals: FacebookAdsSalesTotals
+  previousTotals: FacebookAdsSalesTotals | null
+  daily: FacebookAdsSalesDailyPoint[]
+}
+
+/**
+ * First-click Facebook ad attribution (fbclid captured on landing, see
+ * lib/analytics/fbclid.ts) — always scoped to source='storefront' since
+ * fbclid can only ever reach place-order.ts through our own checkout; a
+ * TikTok/Shopee/Lazada order never carries one. Reports gross sales only
+ * (no discounts/refunds netting, unlike computeSalesAnalytics above) — this
+ * is meant as a quick "is ad spend working" signal, not a financial
+ * reconciliation; the main Sales Analytics cards above already cover that.
+ */
+async function computeFacebookAdsSales(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  from: string,
+  to: string,
+  brandFilter: string | undefined,
+): Promise<{
+  totals: FacebookAdsSalesTotals
+  daily: Array<{ date: string; grossSalesCents: number; orderCount: number }>
+}> {
+  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
+
+  const [fbOrders, storefrontOrders] = await Promise.all([
+    fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('id, status, placed_at, subtotal_cents, shipping_cents')
+        .eq('source', 'storefront')
+        .not('fbclid', 'is', null)
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (brandFilter) query = query.eq('brand', brandFilter)
+      return query
+    }),
+    fetchAllRows((offset) => {
+      let query = admin
+        .from('orders')
+        .select('id, status, subtotal_cents, shipping_cents')
+        .eq('source', 'storefront')
+        .gte('placed_at', rangeStart)
+        .lte('placed_at', rangeEnd)
+        .range(offset, offset + 999)
+      if (brandFilter) query = query.eq('brand', brandFilter)
+      return query
+    }),
+  ])
+
+  const liveFbOrders = fbOrders.filter((o) => !VOID_STATUSES.has(o.status))
+  const grossSalesCents = liveFbOrders.reduce(
+    (sum, o) => sum + grossSalesCentsForOrder({ ...o, source: 'storefront' }),
+    0,
+  )
+  const orderCount = liveFbOrders.length
+  const aovCents = orderCount > 0 ? Math.round(grossSalesCents / orderCount) : 0
+
+  const storefrontGrossSalesCents = storefrontOrders
+    .filter((o) => !VOID_STATUSES.has(o.status))
+    .reduce(
+      (sum, o) => sum + grossSalesCentsForOrder({ ...o, source: 'storefront' }),
+      0,
+    )
+  const percentOfStorefrontGrossSales =
+    storefrontGrossSalesCents > 0
+      ? Math.round((grossSalesCents / storefrontGrossSalesCents) * 1000) / 10
+      : null
+
+  const dailyMap = new Map<
+    string,
+    { grossSalesCents: number; orderCount: number }
+  >()
+  for (
+    const d = new Date(`${from}T00:00:00Z`);
+    d <= new Date(`${to}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    dailyMap.set(d.toISOString().slice(0, 10), {
+      grossSalesCents: 0,
+      orderCount: 0,
+    })
+  }
+  for (const order of liveFbOrders) {
+    const key = storeLocalDateKey(order.placed_at)
+    const bucket = dailyMap.get(key)
+    if (!bucket) continue
+    bucket.grossSalesCents += grossSalesCentsForOrder({
+      ...order,
+      source: 'storefront',
+    })
+    bucket.orderCount += 1
+  }
+
+  return {
+    totals: {
+      grossSalesCents,
+      orderCount,
+      aovCents,
+      percentOfStorefrontGrossSales,
+    },
+    daily: Array.from(dailyMap.entries()).map(([date, b]) => ({
+      date,
+      ...b,
+    })),
+  }
+}
+
+const facebookAdsSalesCache = createTtlCache<FacebookAdsSalesResult>(
+  ANALYTICS_CACHE_TTL_MS,
+)
+
+export const getFacebookAdsSales = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.string().optional(),
+      comparePrevious: z.boolean().default(false),
+    }),
+  )
+  .handler(async ({ data }): Promise<FacebookAdsSalesResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}|${data.comparePrevious}`
+    const cached = facebookAdsSalesCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+
+    const [current, prevResult] = await Promise.all([
+      computeFacebookAdsSales(admin, data.from, data.to, data.brand),
+      data.comparePrevious
+        ? (() => {
+            const prev = previousPeriod(data.from, data.to)
+            return computeFacebookAdsSales(admin, prev.from, prev.to, data.brand)
+          })()
+        : null,
+    ])
+
+    const previousDaily = prevResult?.daily ?? []
+    const daily: FacebookAdsSalesDailyPoint[] = current.daily.map(
+      (point, i) => ({
+        ...point,
+        previousGrossSalesCents: previousDaily[i]?.grossSalesCents ?? 0,
+      }),
+    )
+
+    const result: FacebookAdsSalesResult = {
+      range: { from: data.from, to: data.to },
+      totals: current.totals,
+      previousTotals: prevResult?.totals ?? null,
+      daily,
+    }
+    facebookAdsSalesCache.set(cacheKey, result)
+    return result
+  })
+
 export interface ProductProfitRow {
   productId: string | null
   productName: string

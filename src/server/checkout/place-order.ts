@@ -526,6 +526,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             market_markup_percent: marketMarkupPercent ?? null,
             customer_notes: data.contact.orderNotes || null,
             has_pre_order_items: hasPreOrderItems,
+            fbclid: data.fbclid || null,
           })
           .select('id, order_number')
           .single()
@@ -660,6 +661,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           shipping_method: data.contact.shippingMethod,
           lalamove_info: lalamoveInfo,
           customer_notes: data.contact.orderNotes || null,
+          fbclid: data.fbclid || null,
         })
         .select('id')
         .single()

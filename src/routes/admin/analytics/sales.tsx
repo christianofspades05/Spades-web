@@ -3,11 +3,13 @@ import { z } from 'zod'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { MapPin, Package } from 'lucide-react'
 import {
+  getFacebookAdsSales,
   getProductProfitBreakdown,
   getSalesAnalytics,
   getSalesByLocation,
 } from '#/server/admin/analytics'
 import type {
+  FacebookAdsSalesTotals,
   LocationSalesRow,
   ProductProfitRow,
 } from '#/server/admin/analytics'
@@ -60,29 +62,38 @@ export const Route = createFileRoute('/admin/analytics/sales')({
       from: deps.from,
       to: deps.to,
     })
-    const [salesAnalytics, bestSellers, topLocations] = await Promise.all([
-      getSalesAnalytics({
-        data: {
-          ...resolved,
-          channel: deps.channel,
-          brand: deps.brand,
-          comparePrevious: deps.compare,
-        },
-      }),
-      getProductProfitBreakdown({
-        data: { ...resolved, channel: deps.channel, brand: deps.brand },
-      }),
-      getSalesByLocation({
-        data: { ...resolved, channel: deps.channel, brand: deps.brand },
-      }),
-    ])
-    return { salesAnalytics, bestSellers, topLocations }
+    const [salesAnalytics, bestSellers, topLocations, facebookAdsSales] =
+      await Promise.all([
+        getSalesAnalytics({
+          data: {
+            ...resolved,
+            channel: deps.channel,
+            brand: deps.brand,
+            comparePrevious: deps.compare,
+          },
+        }),
+        getProductProfitBreakdown({
+          data: { ...resolved, channel: deps.channel, brand: deps.brand },
+        }),
+        getSalesByLocation({
+          data: { ...resolved, channel: deps.channel, brand: deps.brand },
+        }),
+        getFacebookAdsSales({
+          data: {
+            ...resolved,
+            brand: deps.brand,
+            comparePrevious: deps.compare,
+          },
+        }),
+      ])
+    return { salesAnalytics, bestSellers, topLocations, facebookAdsSales }
   },
   component: SalesAnalyticsPage,
 })
 
 function SalesAnalyticsPage() {
-  const { salesAnalytics, bestSellers, topLocations } = Route.useLoaderData()
+  const { salesAnalytics, bestSellers, topLocations, facebookAdsSales } =
+    Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -109,6 +120,11 @@ function SalesAnalyticsPage() {
     label: point.date,
     current: point.aovCents,
     previous: point.previousAovCents,
+  }))
+  const facebookAdsTrendData = facebookAdsSales.daily.map((point) => ({
+    label: point.date,
+    current: point.grossSalesCents,
+    previous: point.previousGrossSalesCents,
   }))
 
   return (
@@ -232,9 +248,77 @@ function SalesAnalyticsPage() {
         </Card>
       </div>
 
+      <FacebookAdsSection
+        totals={facebookAdsSales.totals}
+        trendData={facebookAdsTrendData}
+      />
+
       <BestSellersSection products={bestSellers} />
       <LocationSalesSection locations={topLocations} />
     </div>
+  )
+}
+
+function FacebookAdsSection({
+  totals,
+  trendData,
+}: {
+  totals: FacebookAdsSalesTotals
+  trendData: { label: string; current: number; previous: number }[]
+}) {
+  return (
+    <Card className="mt-4 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Facebook Ads
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Gross sales from orders first brought in by a Facebook ad click
+            (fbclid), credited for 30 days from that click even if the customer
+            orders later — not a full P&amp;L, just an "is ad spend working"
+            signal.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div>
+          <p className="text-xs text-neutral-500">Gross Sales</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(totals.grossSalesCents)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-neutral-500">Orders</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {totals.orderCount}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {formatCentsAsPHP(totals.aovCents)} AOV
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-neutral-500">
+            Share of Online Store sales
+          </p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {totals.percentOfStorefrontGrossSales === null
+              ? '—'
+              : `${totals.percentOfStorefrontGrossSales}%`}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <TrendLineChart
+          data={trendData}
+          formatValue={formatCentsAsPHP}
+          syncId="sales-analytics-trends"
+          color="#1877F2"
+        />
+      </div>
+    </Card>
   )
 }
 

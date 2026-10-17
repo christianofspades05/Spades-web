@@ -642,6 +642,7 @@ export interface Database {
           cancellation_detail: string | null
           notes: string | null
           customer_notes: string | null
+          fbclid: string | null
           review_requested_at: string | null
           review_request_sent: boolean
           review_token: string | null
@@ -724,6 +725,7 @@ export interface Database {
           shipping_method: ShippingMethod
           lalamove_info: LalamoveInfo | null
           customer_notes: string | null
+          fbclid: string | null
           xendit_invoice_id: string | null
           paypal_order_id: string | null
           created_at: string

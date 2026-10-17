@@ -92,6 +92,10 @@ export const placeOrderSchema = z.object({
   contact: checkoutContactSchema,
   paymentProvider: z.enum(['cod', 'online']),
   currency: z.enum(SUPPORTED_CURRENCIES).default('PHP'),
+  // First-click Facebook ad attribution — see lib/analytics/fbclid.ts.
+  // Null/absent just means this order isn't attributable to a Facebook ad,
+  // not a validation failure.
+  fbclid: z.string().trim().min(1).max(500).nullable().optional(),
 })
 
 export type PlaceOrderInput = z.infer<typeof placeOrderSchema>
