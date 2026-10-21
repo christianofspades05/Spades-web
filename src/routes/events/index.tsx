@@ -47,10 +47,10 @@ function EventsPage() {
                   <img
                     src={event.image_url}
                     alt=""
-                    className="h-44 w-full object-cover"
+                    className="aspect-square w-full object-cover"
                   />
                 ) : (
-                  <div className="h-44 w-full bg-neutral-100 dark:bg-neutral-900" />
+                  <div className="aspect-square w-full bg-neutral-100 dark:bg-neutral-900" />
                 )}
                 <div className="p-4">
                   <p className="font-medium text-neutral-900 group-hover:underline dark:text-neutral-50">

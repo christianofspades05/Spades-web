@@ -106,7 +106,7 @@ export function EventForm({
             <img
               src={imageUrl}
               alt=""
-              className="mb-2 h-36 w-full rounded-md border border-neutral-200 object-cover"
+              className="mb-2 aspect-square w-full max-w-xs rounded-md border border-neutral-200 object-cover"
             />
           )}
           <input

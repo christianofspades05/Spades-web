@@ -71,7 +71,7 @@ function EventDetailPage() {
         <img
           src={event.image_url}
           alt=""
-          className="mb-8 h-64 w-full rounded-lg object-cover"
+          className="mb-8 aspect-square w-full rounded-lg object-cover"
         />
       )}
 
