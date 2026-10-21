@@ -42,6 +42,7 @@ function toRow(data: EventInput) {
     location_map_url: data.locationMapUrl || null,
     image_url: data.imageUrl || null,
     starts_at: data.startsAt,
+    ends_at: data.endsAt,
     total_slots: data.totalSlots,
     fee_cents: pesosToCents(data.feePesos),
     is_active: data.isActive,

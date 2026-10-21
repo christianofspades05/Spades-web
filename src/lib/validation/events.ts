@@ -1,21 +1,36 @@
 import { z } from 'zod'
 
 /** Staff-side create/update form for a community event — admin/community. */
-export const eventInputSchema = z.object({
+const eventFieldsSchema = z.object({
   name: z.string().trim().min(1).max(200),
   locationName: z.string().trim().min(1).max(200),
   locationMapUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
   imageUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
   startsAt: z.string().trim().min(1),
+  endsAt: z.string().trim().min(1),
   totalSlots: z.number().int().min(1).max(100000),
   feePesos: z.number().min(0),
   isActive: z.boolean().default(true),
 })
-export type EventInput = z.infer<typeof eventInputSchema>
+export type EventInput = z.infer<typeof eventFieldsSchema>
 
-export const updateEventSchema = eventInputSchema.extend({
-  id: z.string().uuid(),
-})
+// .refine() returns a ZodEffects wrapper, which has no .extend() — so the
+// end-after-start check is applied to each shape (plain create, create+id
+// for update) separately, after extending, rather than once up front.
+function withEndAfterStart<TSchema extends z.ZodType<EventInput>>(
+  schema: TSchema,
+) {
+  return schema.refine(
+    (data) => new Date(data.endsAt) > new Date(data.startsAt),
+    { message: 'End time must be after the start time.', path: ['endsAt'] },
+  )
+}
+
+export const eventInputSchema = withEndAfterStart(eventFieldsSchema)
+
+export const updateEventSchema = withEndAfterStart(
+  eventFieldsSchema.extend({ id: z.string().uuid() }),
+)
 
 /** Guest registration — no account required, just enough to reserve a
  *  slot and receive a confirmation/receipt email. Age is a plain integer

@@ -8,6 +8,7 @@ export interface CommunityEventRow {
   location_map_url: string | null
   image_url: string | null
   starts_at: string
+  ends_at: string
   total_slots: number
   slots_reserved: number
   fee_cents: number

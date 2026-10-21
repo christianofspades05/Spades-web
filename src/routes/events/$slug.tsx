@@ -12,6 +12,31 @@ import {
   labelClassName,
 } from '#/components/storefront/ui'
 
+/** "Thursday, October 29, 2026, 9:00 PM – 11:00 PM" when start/end share a
+ *  PH-local calendar day (the common case); spells out the end date too
+ *  once an event crosses midnight. */
+function formatEventSchedule(startsAtIso: string, endsAtIso: string): string {
+  const start = new Date(startsAtIso)
+  const end = new Date(endsAtIso)
+  const dateOpts = {
+    dateStyle: 'full',
+    timeZone: 'Asia/Manila',
+  } satisfies Intl.DateTimeFormatOptions
+  const timeOpts = {
+    timeStyle: 'short',
+    timeZone: 'Asia/Manila',
+  } satisfies Intl.DateTimeFormatOptions
+
+  const startDate = start.toLocaleDateString('en-US', dateOpts)
+  const endDate = end.toLocaleDateString('en-US', dateOpts)
+  const startTime = start.toLocaleTimeString('en-US', timeOpts)
+  const endTime = end.toLocaleTimeString('en-US', timeOpts)
+
+  return startDate === endDate
+    ? `${startDate}, ${startTime} – ${endTime}`
+    : `${startDate}, ${startTime} – ${endDate}, ${endTime}`
+}
+
 export const Route = createFileRoute('/events/$slug')({
   headers: () => STOREFRONT_CACHE_HEADERS,
   validateSearch: z.object({
@@ -80,13 +105,7 @@ function EventDetailPage() {
       </h1>
 
       <div className="mt-4 space-y-1 text-neutral-600 dark:text-neutral-400">
-        <p>
-          {new Date(event.starts_at).toLocaleString('en-US', {
-            dateStyle: 'full',
-            timeStyle: 'short',
-            timeZone: 'Asia/Manila',
-          })}
-        </p>
+        <p>{formatEventSchedule(event.starts_at, event.ends_at)}</p>
         <p>
           {event.location_name}
           {event.location_map_url && (

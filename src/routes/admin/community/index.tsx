@@ -93,6 +93,11 @@ function CommunityPage() {
                         timeStyle: 'short',
                         timeZone: 'Asia/Manila',
                       })}
+                      {' – '}
+                      {new Date(event.ends_at).toLocaleTimeString('en-US', {
+                        timeStyle: 'short',
+                        timeZone: 'Asia/Manila',
+                      })}
                     </td>
                     <td className={`${tableCellClassName} text-neutral-500`}>
                       {event.location_name}

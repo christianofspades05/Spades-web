@@ -45,6 +45,7 @@ export async function mintEventRegistration(
         eventName: event.name,
         locationName: event.location_name,
         startsAt: event.starts_at,
+        endsAt: event.ends_at,
         fullName: registration.full_name,
         feeCents: registration.fee_cents,
       }),

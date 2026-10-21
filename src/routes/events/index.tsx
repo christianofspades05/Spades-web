@@ -62,6 +62,11 @@ function EventsPage() {
                       timeStyle: 'short',
                       timeZone: 'Asia/Manila',
                     })}
+                    {' – '}
+                    {new Date(event.ends_at).toLocaleTimeString('en-US', {
+                      timeStyle: 'short',
+                      timeZone: 'Asia/Manila',
+                    })}
                   </p>
                   <p className="text-sm text-neutral-500">
                     {event.location_name}

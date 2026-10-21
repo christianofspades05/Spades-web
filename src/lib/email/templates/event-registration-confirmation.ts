@@ -12,6 +12,7 @@ export interface EventRegistrationConfirmationEmailInput {
   eventName: string
   locationName: string
   startsAt: string
+  endsAt: string
   fullName: string
   feeCents: number
 }
@@ -25,11 +26,24 @@ export function eventRegistrationConfirmationSubject(
 export function eventRegistrationConfirmationHtml(
   input: EventRegistrationConfirmationEmailInput,
 ): string {
-  const formattedDate = new Date(input.startsAt).toLocaleString('en-US', {
+  const start = new Date(input.startsAt)
+  const end = new Date(input.endsAt)
+  const dateOpts = {
     dateStyle: 'full',
+    timeZone: 'Asia/Manila',
+  } satisfies Intl.DateTimeFormatOptions
+  const timeOpts = {
     timeStyle: 'short',
     timeZone: 'Asia/Manila',
-  })
+  } satisfies Intl.DateTimeFormatOptions
+  const startDate = start.toLocaleDateString('en-US', dateOpts)
+  const endDate = end.toLocaleDateString('en-US', dateOpts)
+  const startTime = start.toLocaleTimeString('en-US', timeOpts)
+  const endTime = end.toLocaleTimeString('en-US', timeOpts)
+  const formattedDate =
+    startDate === endDate
+      ? `${startDate}, ${startTime} – ${endTime}`
+      : `${startDate}, ${startTime} – ${endDate}, ${endTime}`
 
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 20px; color: #171717;">

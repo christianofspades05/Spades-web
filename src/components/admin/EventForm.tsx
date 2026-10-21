@@ -35,6 +35,9 @@ export function EventForm({
   const [startsAt, setStartsAt] = useState(
     event ? utcIsoToStoreLocalDateTimeInput(event.starts_at) : '',
   )
+  const [endsAt, setEndsAt] = useState(
+    event ? utcIsoToStoreLocalDateTimeInput(event.ends_at) : '',
+  )
   const [totalSlots, setTotalSlots] = useState(String(event?.total_slots ?? 20))
   const [feePesos, setFeePesos] = useState(
     event ? String(centsToPesos(event.fee_cents)) : '0',
@@ -75,6 +78,7 @@ export function EventForm({
         locationMapUrl,
         imageUrl,
         startsAt: storeLocalDateTimeToUtcIso(startsAt),
+        endsAt: storeLocalDateTimeToUtcIso(endsAt),
         totalSlots: Number(totalSlots),
         feePesos: Number(feePesos),
         isActive,
@@ -146,15 +150,27 @@ export function EventForm({
           />
         </div>
 
-        <div>
-          <label className={labelClassName}>Date &amp; time</label>
-          <input
-            type="datetime-local"
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-            required
-            className={`${inputClassName} w-full`}
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClassName}>Starts</label>
+            <input
+              type="datetime-local"
+              value={startsAt}
+              onChange={(e) => setStartsAt(e.target.value)}
+              required
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+          <div>
+            <label className={labelClassName}>Ends</label>
+            <input
+              type="datetime-local"
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              required
+              className={`${inputClassName} w-full`}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
