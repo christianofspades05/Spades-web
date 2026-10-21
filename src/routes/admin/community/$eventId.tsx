@@ -82,16 +82,18 @@ function EditEventPage() {
   }
 
   return (
-    <div className="w-full max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="w-full max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title={`Edit ${event.name}`}
         subtitle={`${event.slots_reserved} / ${event.total_slots} slots reserved`}
       />
-      <EventForm
-        event={event}
-        onSubmit={handleSubmit}
-        submitLabel="Save changes"
-      />
+      <div className="max-w-2xl">
+        <EventForm
+          event={event}
+          onSubmit={handleSubmit}
+          submitLabel="Save changes"
+        />
+      </div>
 
       <div className="mt-10 mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-900">
