@@ -48,7 +48,9 @@ export const registerForEvent = createServerFn({ method: 'POST' })
 
       const { data: event, error: eventError } = await admin
         .from('community_events')
-        .select('name, slug')
+        .select(
+          'name, slug, location_name, location_map_url, starts_at, ends_at',
+        )
         .eq('id', registration.event_id)
         .single()
       if (eventError) throw eventError
@@ -86,6 +88,38 @@ export const registerForEvent = createServerFn({ method: 'POST' })
         .from('event_registrations')
         .update({ xendit_invoice_id: invoice.id })
         .eq('id', registration.id)
+
+      // Fire-and-forget, same as place-order.ts's COD confirmation send —
+      // this request's own response (the Xendit redirect) isn't blocked on
+      // it. The real "you're confirmed" email only goes out once payment
+      // is actually verified (mint-registration.ts); this one just lets a
+      // guest know their slot is held while they pay, with the event
+      // details in hand in case the payment tab gets lost.
+      void (async () => {
+        const { sendEmail, withDisplayName } =
+          await import('#/lib/email/resend')
+        const { eventSlotReservedHtml, eventSlotReservedSubject } =
+          await import('#/lib/email/templates/event-slot-reserved')
+        await sendEmail({
+          to: data.email,
+          subject: eventSlotReservedSubject(event.name),
+          from: withDisplayName(
+            'Spades Official',
+            process.env.RESEND_FROM_EMAIL_ORDERS,
+          ),
+          html: eventSlotReservedHtml({
+            eventName: event.name,
+            locationName: event.location_name,
+            locationMapUrl: event.location_map_url,
+            startsAt: event.starts_at,
+            endsAt: event.ends_at,
+            fullName: data.fullName,
+            feeCents: registration.fee_cents,
+          }),
+        })
+      })().catch((err: unknown) => {
+        console.error('Failed to send event slot-reserved email:', err)
+      })
 
       return {
         confirmed: false,
