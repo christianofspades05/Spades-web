@@ -4,7 +4,11 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
-import { eventInputSchema, updateEventSchema } from '#/lib/validation/events'
+import {
+  eventInputSchema,
+  registerForEventSchema,
+  updateEventSchema,
+} from '#/lib/validation/events'
 import type { EventInput } from '#/lib/validation/events'
 import type {
   CommunityEventRow,
@@ -201,4 +205,51 @@ export const getEventRegistrationsCount = createServerFn({ method: 'GET' })
       .eq('event_id', data.eventId)
     if (error) throw error
     return { total: count ?? 0 }
+  })
+
+/**
+ * Staff manually adding a registrant — someone who signed up offline, a
+ * walk-in, a comp slot, etc. Goes through the same reserve_event_slot RPC
+ * as the public storefront flow (same capacity check, so a manual add
+ * still can't push slots_reserved past total_slots), but is confirmed
+ * immediately regardless of the event's fee — a staff member adding
+ * someone directly means it's already settled (cash at the door, comped),
+ * not something waiting on a Xendit payment that will never arrive
+ * through this path. Sends the same confirmation email a paid-and-cleared
+ * registrant gets.
+ */
+export const addEventRegistration = createServerFn({ method: 'POST' })
+  .validator(registerForEventSchema)
+  .handler(async ({ data }): Promise<EventRegistrationRow> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: reserved, error } = await admin.rpc('reserve_event_slot', {
+      p_event_id: data.eventId,
+      p_full_name: data.fullName,
+      p_age: data.age,
+      p_email: data.email,
+      p_phone: data.phone || null,
+    })
+    if (error) throw error
+
+    const { mintEventRegistration } =
+      await import('#/server/events/mint-registration')
+    await mintEventRegistration(admin, reserved.id)
+
+    const { data: registration, error: fetchError } = await admin
+      .from('event_registrations')
+      .select('*')
+      .eq('id', reserved.id)
+      .single()
+    if (fetchError) throw fetchError
+
+    await logStaffActivity(
+      staff,
+      'event.add_registration',
+      'event_registrations',
+      registration.id,
+      { eventId: data.eventId, fullName: data.fullName },
+    )
+    return registration
   })

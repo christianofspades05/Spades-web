@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { z } from 'zod'
 import {
   createFileRoute,
@@ -6,18 +7,23 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import {
+  addEventRegistration,
   getEventById,
   getEventRegistrationsCount,
   listEventRegistrations,
   updateEvent,
 } from '#/server/admin/events'
 import { formatCentsAsPHP } from '#/lib/utils/money'
+import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
 import { Card } from '#/components/admin/Card'
 import { EventForm } from '#/components/admin/EventForm'
 import {
+  buttonPrimaryClassName,
   buttonSecondaryClassName,
+  inputClassName,
+  labelClassName,
   tableCellClassName,
   tableHeadClassName,
   tableRowClassName,
@@ -62,6 +68,8 @@ function EditEventPage() {
   const navigate = useNavigate()
   const router = useRouter()
 
+  const [showAddForm, setShowAddForm] = useState(false)
+
   const page = search.regPage
   const totalPages = Math.max(1, Math.ceil(registrationsTotal / PAGE_SIZE))
 
@@ -85,9 +93,28 @@ function EditEventPage() {
         submitLabel="Save changes"
       />
 
-      <h2 className="mt-10 mb-3 text-sm font-semibold text-neutral-900">
-        Registrations ({registrationsTotal})
-      </h2>
+      <div className="mt-10 mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-neutral-900">
+          Registrations ({registrationsTotal})
+        </h2>
+        <button
+          type="button"
+          onClick={() => setShowAddForm((v) => !v)}
+          className={buttonSecondaryClassName}
+        >
+          {showAddForm ? 'Cancel' : 'Add registrant'}
+        </button>
+      </div>
+
+      {showAddForm && (
+        <AddRegistrantForm
+          eventId={event.id}
+          onAdded={async () => {
+            setShowAddForm(false)
+            await router.invalidate()
+          }}
+        />
+      )}
 
       <div className={tableWrapperClassName}>
         {registrations.length === 0 ? (
@@ -180,5 +207,102 @@ function EditEventPage() {
         </Card>
       )}
     </div>
+  )
+}
+
+function AddRegistrantForm({
+  eventId,
+  onAdded,
+}: {
+  eventId: string
+  onAdded: () => Promise<void>
+}) {
+  const [fullName, setFullName] = useState('')
+  const [age, setAge] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(formEvent: React.FormEvent) {
+    formEvent.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      await addEventRegistration({
+        data: {
+          eventId,
+          fullName,
+          age: Number(age),
+          email,
+          phone: phone || undefined,
+        },
+      })
+      await onAdded()
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card className="mb-4 p-4">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClassName}>Full name</label>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+          <div>
+            <label className={labelClassName}>Age</label>
+            <input
+              type="number"
+              min={0}
+              max={130}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              required
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+          <div>
+            <label className={labelClassName}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+          <div>
+            <label className={labelClassName}>Phone (optional)</label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-neutral-500">
+          Confirmed immediately (no payment flow) — use this for
+          offline/walk-in/comped signups. Counts against the slot cap like any
+          other registration.
+        </p>
+        <button
+          type="submit"
+          disabled={submitting}
+          className={buttonPrimaryClassName}
+        >
+          {submitting ? 'Adding…' : 'Add registrant'}
+        </button>
+      </form>
+    </Card>
   )
 }
