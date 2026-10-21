@@ -6,6 +6,10 @@ const eventFieldsSchema = z.object({
   locationName: z.string().trim().min(1).max(200),
   locationMapUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
   imageUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
+  // Powers the storefront "event near you" popup (NearbyEventPopup.tsx) —
+  // optional; an event with either unset just never participates in it.
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   startsAt: z.string().trim().min(1),
   endsAt: z.string().trim().min(1),
   totalSlots: z.number().int().min(1).max(100000),

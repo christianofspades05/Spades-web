@@ -11,6 +11,7 @@ import { Footer } from '#/components/storefront/Footer'
 import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { LanguagePopup } from '#/components/storefront/LanguagePopup'
 import { EmailCapturePopup } from '#/components/storefront/EmailCapturePopup'
+import { NearbyEventPopup } from '#/components/storefront/NearbyEventPopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
 import {
   FacebookPixelPageView,
@@ -183,6 +184,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                     {!isAdminRoute && <LanguagePopup />}
                     {!isAdminRoute && (
                       <EmailCapturePopup enabled={emailCapturePopupEnabled} />
+                    )}
+                    {!isAdminRoute && storefrontScope.brand === 'spades' && (
+                      <NearbyEventPopup />
                     )}
                   </>
                 )}

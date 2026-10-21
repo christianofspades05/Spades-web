@@ -32,6 +32,13 @@ export function EventForm({
     event?.location_map_url ?? '',
   )
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? '')
+  const [latitude, setLatitude] = useState(
+    event?.latitude != null ? String(event.latitude) : '',
+  )
+  const [longitude, setLongitude] = useState(
+    event?.longitude != null ? String(event.longitude) : '',
+  )
+  const [locating, setLocating] = useState(false)
   const [startsAt, setStartsAt] = useState(
     event ? utcIsoToStoreLocalDateTimeInput(event.starts_at) : '',
   )
@@ -77,6 +84,8 @@ export function EventForm({
         locationName,
         locationMapUrl,
         imageUrl,
+        latitude: latitude ? Number(latitude) : undefined,
+        longitude: longitude ? Number(longitude) : undefined,
         startsAt: storeLocalDateTimeToUtcIso(startsAt),
         endsAt: storeLocalDateTimeToUtcIso(endsAt),
         totalSlots: Number(totalSlots),
@@ -148,6 +157,54 @@ export function EventForm({
             placeholder="https://maps.google.com/..."
             className={`${inputClassName} w-full`}
           />
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className={labelClassName}>
+              Coordinates (optional — powers the "event near you" popup)
+            </label>
+            <button
+              type="button"
+              disabled={locating}
+              onClick={() => {
+                setLocating(true)
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    setLatitude(String(pos.coords.latitude))
+                    setLongitude(String(pos.coords.longitude))
+                    setLocating(false)
+                  },
+                  () => setLocating(false),
+                )
+              }}
+              className="text-xs font-medium text-neutral-600 underline hover:text-neutral-900"
+            >
+              {locating ? 'Locating…' : 'Use my current location'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              type="number"
+              step="any"
+              value={latitude}
+              onChange={(e) => setLatitude(e.target.value)}
+              placeholder="Latitude"
+              className={`${inputClassName} w-full`}
+            />
+            <input
+              type="number"
+              step="any"
+              value={longitude}
+              onChange={(e) => setLongitude(e.target.value)}
+              placeholder="Longitude"
+              className={`${inputClassName} w-full`}
+            />
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">
+            Leave blank to skip the proximity popup for this event. "Use my
+            current location" only makes sense if you're at the venue right now.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

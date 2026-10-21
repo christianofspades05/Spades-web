@@ -46,6 +46,8 @@ function toRow(data: EventInput) {
     location_name: data.locationName,
     location_map_url: data.locationMapUrl || null,
     image_url: data.imageUrl || null,
+    latitude: data.latitude ?? null,
+    longitude: data.longitude ?? null,
     starts_at: data.startsAt,
     ends_at: data.endsAt,
     total_slots: data.totalSlots,

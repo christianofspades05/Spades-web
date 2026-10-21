@@ -34,3 +34,30 @@ export const getEventBySlug = createServerFn({ method: 'GET' })
     if (error) throw error
     return event
   })
+
+export interface NearbyEventCandidate {
+  slug: string
+  name: string
+  latitude: number
+  longitude: number
+}
+
+/** Upcoming + active events that have coordinates set — the small, cheap
+ *  payload NearbyEventPopup.tsx fetches once per page load to check
+ *  client-side (via the visitor's own browser-geolocated position,
+ *  something only the client can know) whether any are nearby. Events
+ *  with no latitude/longitude set never appear here, same as they never
+ *  show in admin/community's "near you" reasoning. */
+export const getNearbyEventCandidates = createServerFn({
+  method: 'GET',
+}).handler(async (): Promise<NearbyEventCandidate[]> => {
+  const supabase = getSupabaseServerClient()
+  const { data, error } = await supabase
+    .from('community_events')
+    .select('slug, name, latitude, longitude')
+    .gte('starts_at', new Date().toISOString())
+    .not('latitude', 'is', null)
+    .not('longitude', 'is', null)
+  if (error) throw error
+  return data
+})
