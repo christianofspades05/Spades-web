@@ -5,8 +5,8 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { slugify } from '#/lib/utils/slug'
 import {
+  addEventRegistrationSchema,
   eventInputSchema,
-  registerForEventSchema,
   updateEventSchema,
 } from '#/lib/validation/events'
 import type { EventInput } from '#/lib/validation/events'
@@ -15,8 +15,9 @@ import type {
   EventRegistrationRow,
 } from '#/types/community-events'
 import { logStaffActivity } from './activity-log'
+import type { StaffRole } from '#/types/entities'
 
-const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
+const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin', 'manager']
 const PAGE_SIZE = 20
 
 async function uniqueSlug(
@@ -219,7 +220,7 @@ export const getEventRegistrationsCount = createServerFn({ method: 'GET' })
  * registrant gets.
  */
 export const addEventRegistration = createServerFn({ method: 'POST' })
-  .validator(registerForEventSchema)
+  .validator(addEventRegistrationSchema)
   .handler(async ({ data }): Promise<EventRegistrationRow> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
@@ -228,7 +229,7 @@ export const addEventRegistration = createServerFn({ method: 'POST' })
       p_event_id: data.eventId,
       p_full_name: data.fullName,
       p_age: data.age,
-      p_email: data.email,
+      p_email: data.email || null,
       p_phone: data.phone || null,
     })
     if (error) throw error
@@ -252,4 +253,71 @@ export const addEventRegistration = createServerFn({ method: 'POST' })
       { eventId: data.eventId, fullName: data.fullName },
     )
     return registration
+  })
+
+export interface CreatorPickerResult {
+  id: string
+  name: string
+  email: string | null
+}
+
+/** Lightweight — unlike listCreators (src/server/admin/creators.ts), which
+ *  joins in financial totals for the Creators & Affiliates page, this only
+ *  selects what the "quick add from influencer" picker on the event
+ *  registrant form needs: a name and email to prefill. */
+export const searchCreatorsForPicker = createServerFn({ method: 'GET' })
+  .validator(z.object({ q: z.string().optional() }))
+  .handler(async ({ data }): Promise<CreatorPickerResult[]> => {
+    await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+    let query = admin
+      .from('creators')
+      .select('id, name, email')
+      .eq('is_active', true)
+      .order('name')
+      .limit(50)
+    if (data.q) query = query.ilike('name', `%${data.q}%`)
+    const { data: rows, error } = await query
+    if (error) throw error
+    return rows
+  })
+
+export interface StaffPickerResult {
+  id: string
+  name: string
+  email: string
+}
+
+/** Same idea as listStaffUsers (src/server/admin/settings.ts), but gated
+ *  by MANAGE_ROLES instead of that one's super-admin-only
+ *  MANAGE_STAFF_ROLES — picking yourself or a teammate for an event
+ *  registration isn't the sensitive "manage staff accounts" action that
+ *  guard exists for. */
+export const searchStaffForPicker = createServerFn({ method: 'GET' })
+  .validator(z.object({ q: z.string().optional() }))
+  .handler(async ({ data }): Promise<StaffPickerResult[]> => {
+    await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+    let query = admin
+      .from('staff_users')
+      .select('id, full_name, auth_user_id')
+      .eq('is_active', true)
+      .order('full_name')
+      .limit(50)
+    if (data.q) query = query.ilike('full_name', `%${data.q}%`)
+    const { data: rows, error } = await query
+    if (error) throw error
+
+    return Promise.all(
+      rows.map(async (s) => {
+        const { data: userData, error: userError } =
+          await admin.auth.admin.getUserById(s.auth_user_id)
+        if (userError) throw userError
+        return {
+          id: s.id,
+          name: s.full_name,
+          email: userData.user.email ?? '',
+        }
+      }),
+    )
   })

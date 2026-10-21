@@ -22,7 +22,7 @@ export interface EventRegistrationRow {
   event_id: string
   full_name: string
   age: number
-  email: string
+  email: string | null
   phone: string | null
   fee_cents: number
   status: EventRegistrationStatus

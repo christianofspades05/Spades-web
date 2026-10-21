@@ -11,7 +11,13 @@ import {
   getEventById,
   getEventRegistrationsCount,
   listEventRegistrations,
+  searchCreatorsForPicker,
+  searchStaffForPicker,
   updateEvent,
+} from '#/server/admin/events'
+import type {
+  CreatorPickerResult,
+  StaffPickerResult,
 } from '#/server/admin/events'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -147,7 +153,7 @@ function EditEventPage() {
                       {reg.age}
                     </td>
                     <td className={`${tableCellClassName} text-neutral-500`}>
-                      {reg.email}
+                      {reg.email ?? '—'}
                     </td>
                     <td className={`${tableCellClassName} text-neutral-500`}>
                       {reg.phone ?? '—'}
@@ -226,6 +232,56 @@ function AddRegistrantForm({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [pickerMode, setPickerMode] = useState<'none' | 'creators' | 'staff'>(
+    'none',
+  )
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [creatorResults, setCreatorResults] = useState<CreatorPickerResult[]>(
+    [],
+  )
+  const [staffResults, setStaffResults] = useState<StaffPickerResult[]>([])
+  const [pickerLoading, setPickerLoading] = useState(false)
+
+  async function openPicker(mode: 'creators' | 'staff') {
+    setPickerMode(mode)
+    setPickerQuery('')
+    setPickerLoading(true)
+    try {
+      if (mode === 'creators') {
+        setCreatorResults(await searchCreatorsForPicker({ data: {} }))
+      } else {
+        setStaffResults(await searchStaffForPicker({ data: {} }))
+      }
+    } finally {
+      setPickerLoading(false)
+    }
+  }
+
+  async function handlePickerSearch(formEvent: React.FormEvent) {
+    formEvent.preventDefault()
+    if (pickerMode === 'none') return
+    setPickerLoading(true)
+    try {
+      if (pickerMode === 'creators') {
+        setCreatorResults(
+          await searchCreatorsForPicker({ data: { q: pickerQuery } }),
+        )
+      } else {
+        setStaffResults(
+          await searchStaffForPicker({ data: { q: pickerQuery } }),
+        )
+      }
+    } finally {
+      setPickerLoading(false)
+    }
+  }
+
+  function pickResult(name: string, pickedEmail: string | null) {
+    setFullName(name)
+    setEmail(pickedEmail ?? '')
+    setPickerMode('none')
+  }
+
   async function handleSubmit(formEvent: React.FormEvent) {
     formEvent.preventDefault()
     setSubmitting(true)
@@ -236,7 +292,7 @@ function AddRegistrantForm({
           eventId,
           fullName,
           age: Number(age),
-          email,
+          email: email || undefined,
           phone: phone || undefined,
         },
       })
@@ -249,6 +305,81 @@ function AddRegistrantForm({
 
   return (
     <Card className="mb-4 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs font-medium text-neutral-500">
+          Quick add from:
+        </span>
+        <button
+          type="button"
+          onClick={() => void openPicker('creators')}
+          className={buttonSecondaryClassName}
+        >
+          Influencer
+        </button>
+        <button
+          type="button"
+          onClick={() => void openPicker('staff')}
+          className={buttonSecondaryClassName}
+        >
+          Spades staff
+        </button>
+      </div>
+
+      {pickerMode !== 'none' && (
+        <Card className="mb-3 p-3">
+          <form
+            onSubmit={handlePickerSearch}
+            className="mb-2 flex items-center gap-2"
+          >
+            <input
+              value={pickerQuery}
+              onChange={(e) => setPickerQuery(e.target.value)}
+              placeholder={
+                pickerMode === 'creators'
+                  ? 'Search influencers'
+                  : 'Search staff'
+              }
+              className={`${inputClassName} flex-1`}
+            />
+            <button type="submit" className={buttonSecondaryClassName}>
+              {pickerLoading ? 'Searching…' : 'Search'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPickerMode('none')}
+              className={buttonSecondaryClassName}
+            >
+              Close
+            </button>
+          </form>
+          <ul className="max-h-48 divide-y divide-neutral-100 overflow-y-auto">
+            {(pickerMode === 'creators' ? creatorResults : staffResults)
+              .length === 0 && !pickerLoading ? (
+              <li className="py-2 text-sm text-neutral-500">No matches.</li>
+            ) : (
+              (pickerMode === 'creators' ? creatorResults : staffResults).map(
+                (result) => (
+                  <li key={result.id}>
+                    <button
+                      type="button"
+                      onClick={() => pickResult(result.name, result.email)}
+                      className="flex w-full items-center justify-between py-2 text-left text-sm hover:bg-neutral-50"
+                    >
+                      <span className="font-medium text-neutral-900">
+                        {result.name}
+                      </span>
+                      <span className="text-neutral-500">
+                        {result.email || '—'}
+                      </span>
+                    </button>
+                  </li>
+                ),
+              )
+            )}
+          </ul>
+        </Card>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="grid grid-cols-2 gap-3">
@@ -274,12 +405,11 @@ function AddRegistrantForm({
             />
           </div>
           <div>
-            <label className={labelClassName}>Email</label>
+            <label className={labelClassName}>Email (optional)</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
               className={`${inputClassName} w-full`}
             />
           </div>

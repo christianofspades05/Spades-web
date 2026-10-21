@@ -44,3 +44,15 @@ export const registerForEventSchema = z.object({
   phone: z.string().trim().max(30).optional(),
 })
 export type RegisterForEventInput = z.infer<typeof registerForEventSchema>
+
+/** Staff manually adding a registrant (admin/community/$eventId) — same
+ *  shape as the public registration, except email is optional. The public
+ *  flow always needs a real email (Xendit receipt, confirmation email);
+ *  an offline/walk-in/comped signup staff enters directly may not have
+ *  one on hand. */
+export const addEventRegistrationSchema = registerForEventSchema.extend({
+  email: z.string().trim().email().max(200).optional(),
+})
+export type AddEventRegistrationInput = z.infer<
+  typeof addEventRegistrationSchema
+>

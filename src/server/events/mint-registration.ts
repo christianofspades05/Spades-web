@@ -27,6 +27,11 @@ export async function mintEventRegistration(
     .single<CommunityEventRow>()
   if (eventError) throw eventError
 
+  // Only the admin-manual-add path (addEventRegistration) can produce a
+  // registration with no email at all — the public flow always requires
+  // one. Nothing to send it to.
+  if (!registration.email) return
+
   try {
     const { sendEmail, withDisplayName } = await import('#/lib/email/resend')
     const {

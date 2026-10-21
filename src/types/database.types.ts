@@ -1403,7 +1403,7 @@ export interface Database {
           p_event_id: string
           p_full_name: string
           p_age: number
-          p_email: string
+          p_email: string | null
           p_phone: string | null
         }
         Returns: EventRegistrationRow
