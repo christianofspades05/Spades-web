@@ -1,5 +1,9 @@
 import type { CreatorTables } from './creators'
 import type { LivePlannerTables } from './live-planner'
+import type {
+  CommunityEventsTables,
+  EventRegistrationRow,
+} from './community-events'
 
 /**
  * Hand-written mirror of the Supabase schema (see supabase/migrations/0001_init_schema.sql).
@@ -185,7 +189,7 @@ export type ActivityActorType = 'staff' | 'customer' | 'system' | 'webhook'
 
 export interface Database {
   public: {
-    Tables: CreatorTables & LivePlannerTables & {
+    Tables: CreatorTables & LivePlannerTables & CommunityEventsTables & {
       customers: {
         Row: {
           id: string
@@ -1392,6 +1396,25 @@ export interface Database {
       mint_checkout_order: {
         Args: { p_reservation_id: string; p_payment: Record<string, unknown> }
         Returns: { id: string; orderNumber: string; created: boolean }
+      }
+
+      reserve_event_slot: {
+        Args: {
+          p_event_id: string
+          p_full_name: string
+          p_age: number
+          p_email: string
+          p_phone: string | null
+        }
+        Returns: EventRegistrationRow
+      }
+      mint_event_registration: {
+        Args: { p_registration_id: string }
+        Returns: EventRegistrationRow
+      }
+      release_event_slot: {
+        Args: { p_registration_id: string }
+        Returns: undefined
       }
 
       creator_admin_command: {

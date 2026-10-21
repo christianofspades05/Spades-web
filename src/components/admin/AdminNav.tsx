@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Package,
   PackageSearch,
+  PartyPopper,
   Plug,
   Radio,
   Settings,
@@ -627,6 +628,19 @@ export function AdminNav({
         >
           <Mail size={17} strokeWidth={2} className="shrink-0" />
           {!collapsed && 'Email'}
+        </Link>
+
+        <Link
+          to="/admin/community"
+          onClick={onNavigate}
+          title={collapsed ? 'Community' : undefined}
+          className={navLinkClassName(
+            pathname.startsWith('/admin/community'),
+            collapsed,
+          )}
+        >
+          <PartyPopper size={17} strokeWidth={2} className="shrink-0" />
+          {!collapsed && 'Community'}
         </Link>
 
         {collapsed ? (

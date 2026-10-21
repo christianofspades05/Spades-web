@@ -25,6 +25,12 @@
  * api/cron/abandoned-cart.ts. Kept at this same route path (rather than
  * renamed to match what it now sweeps) so that external schedule doesn't
  * need reconfiguring.
+ *
+ * Also sweeps stale PENDING community-event registrations (see
+ * 0106_community_events.sql / server/events/register.ts) the exact same
+ * way — same invoice-duration math, same live-re-check-before-releasing
+ * safety net — reusing this cron's existing 15-minute schedule rather than
+ * requesting a third Vercel-cron slot this plan doesn't have room for.
  */
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -140,11 +146,74 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
           }
         }
 
+        const { data: staleRegistrations, error: staleRegError } = await admin
+          .from('event_registrations')
+          .select('*')
+          .eq('status', 'pending')
+          .lt('created_at', cutoff)
+        if (staleRegError) throw staleRegError
+
+        const registrationsExpired: string[] = []
+        const registrationsMinted: string[] = []
+        const registrationFailures: { registrationId: string; error: string }[] =
+          []
+
+        for (const registration of staleRegistrations) {
+          let moneyConfirmed = false
+          try {
+            let livePaid = false
+            if (registration.xendit_invoice_id) {
+              const liveInvoice = await getXenditInvoice(
+                registration.xendit_invoice_id,
+              )
+              if (
+                liveInvoice.status === 'PAID' ||
+                liveInvoice.status === 'SETTLED'
+              ) {
+                moneyConfirmed = true
+                const { mintEventRegistration } = await import(
+                  '#/server/events/mint-registration'
+                )
+                await mintEventRegistration(admin, registration.id)
+                registrationsMinted.push(registration.id)
+                livePaid = true
+              }
+            }
+
+            if (!livePaid) {
+              const { releaseEventRegistration } = await import(
+                '#/server/events/release-registration'
+              )
+              await releaseEventRegistration(admin, registration.id)
+              registrationsExpired.push(registration.id)
+            }
+          } catch (err) {
+            registrationFailures.push({
+              registrationId: registration.id,
+              error: err instanceof Error ? err.message : String(err),
+            })
+            if (moneyConfirmed) {
+              const { alertPaymentMintFailure } = await import(
+                '#/server/checkout/alert-payment-mint-failure'
+              )
+              await alertPaymentMintFailure({
+                provider: 'Xendit (cron backstop — event registration)',
+                externalId: registration.id,
+                error: err,
+              })
+            }
+          }
+        }
+
         return Response.json({
           scanned: staleReservations.length,
           expired,
           minted,
           failures,
+          registrationsScanned: staleRegistrations.length,
+          registrationsExpired,
+          registrationsMinted,
+          registrationFailures,
         })
       },
     },

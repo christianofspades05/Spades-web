@@ -30,6 +30,7 @@ const BANNER_FADE_MS = 300
 const FULL_NAV_LINKS = [
   { to: '/', labelKey: 'homeStore' },
   { to: '/about', labelKey: 'aboutUs' },
+  { to: '/events', labelKey: 'events' },
   { to: '/reviews', labelKey: 'reviews' },
   { to: '/contact', labelKey: 'contactUs' },
 ] as const satisfies { to: string; labelKey: keyof Translations['nav'] }[]

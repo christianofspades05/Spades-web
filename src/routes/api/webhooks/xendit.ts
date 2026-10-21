@@ -4,18 +4,23 @@
  * without that check, anyone who found this URL could POST a fake "PAID"
  * event and get an order marked paid for free.
  *
- * `payload.external_id` is a `checkout_reservations.id` (see
+ * `payload.external_id` is either a `checkout_reservations.id` (see
  * server/checkout/place-order.ts — online-payment checkouts never create an
- * `orders` row up front). PAID mints the real order right here (via
- * server/checkout/mint-order.ts, shared with PayPal's own confirmation
- * paths). EXPIRED/FAILED re-checks the invoice's live status with Xendit
- * before touching anything — confirmed live twice that Xendit can send an
- * EXPIRED webhook for an invoice that was actually paid moments earlier
- * (its own internal PAID confirmation lagging the payment by several
- * minutes), which would otherwise delete a paid order's reservation out
- * from under it. Only once live status confirms it's truly unpaid does this
- * release the reservation's stock and delete it — nothing ever touches
- * `orders` for a genuinely abandoned/failed payment.
+ * `orders` row up front) or an `event_registrations.id` (community events,
+ * see server/events/register.ts) — both are just uuids, so this resolves
+ * against orders first, then reservations, then registrations. PAID mints
+ * the real order/registration right here (via
+ * server/checkout/mint-order.ts / server/events/mint-registration.ts,
+ * shared with PayPal's own confirmation paths for orders). EXPIRED/FAILED
+ * re-checks the invoice's live status with Xendit before touching
+ * anything — confirmed live twice that Xendit can send an EXPIRED webhook
+ * for an invoice that was actually paid moments earlier (its own internal
+ * PAID confirmation lagging the payment by several minutes), which would
+ * otherwise delete a paid order's reservation out from under it. Only once
+ * live status confirms it's truly unpaid does this release the
+ * reservation's stock (or the registration's slot) — nothing ever touches
+ * `orders`/a confirmed registration for a genuinely abandoned/failed
+ * payment.
  *
  * Idempotent by design: webhook_events is upserted on (source,
  * external_event_id, event_type) — event_type is part of the key so a
@@ -123,87 +128,132 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
               .eq('id', payload.external_id)
               .maybeSingle()
             if (reservationError) throw reservationError
-            if (!reservation) {
+
+            // Neither a product-order reservation — check event
+            // registrations (community events, see
+            // 0106_community_events.sql) before giving up. Same external_id
+            // space (both are just uuids), no collision risk between the
+            // two tables.
+            const { data: registration, error: registrationError } =
+              !reservation
+                ? await admin
+                    .from('event_registrations')
+                    .select('*')
+                    .eq('id', payload.external_id)
+                    .maybeSingle()
+                : { data: null, error: null }
+            if (registrationError) throw registrationError
+
+            if (!reservation && !registration) {
               throw new Error(
-                `No order or reservation found for external_id ${payload.external_id}`,
+                `No order, reservation, or event registration found for external_id ${payload.external_id}`,
               )
             }
 
-            if (payload.status === 'PAID') {
-              const { majorUnitsToCents } = await import('#/lib/utils/money')
-              const { mintOrderFromReservation } =
-                await import('#/server/checkout/mint-order')
+            if (registration) {
+              const { mintEventRegistration } =
+                await import('#/server/events/mint-registration')
+              const { releaseEventRegistration } =
+                await import('#/server/events/release-registration')
 
-              // Xendit's payload is the authoritative record of what was
-              // actually charged — overwrite our upfront (request-time)
-              // estimate with it whenever present, in case the confirmed
-              // amount ever differs (e.g. an FX rate that moved between
-              // invoice creation and payment).
-              const chargedCurrency =
-                payload.currency && payload.currency !== 'PHP'
-                  ? payload.currency
-                  : null
-              await mintOrderFromReservation(admin, reservation, {
-                provider: mapPaymentProvider(payload),
-                providerReference: payload.id,
-                rawPayload: payload,
-                chargedCurrency,
-                chargedAmountCents:
-                  chargedCurrency && typeof payload.amount === 'number'
-                    ? majorUnitsToCents(payload.amount, chargedCurrency)
-                    : null,
-              })
-            } else if (
-              payload.status === 'EXPIRED' ||
-              payload.status === 'FAILED'
-            ) {
-              // Before releasing anything, re-check the invoice's CURRENT
-              // status directly with Xendit rather than trusting this
-              // webhook's own (possibly stale) status. Confirmed live twice:
-              // a customer paid within seconds of invoice creation, but
-              // Xendit's own invoice record didn't reflect PAID for ~5 more
-              // minutes (its own `updated` timestamp lagged `paid_at` by
-              // that much) — long enough for an EXPIRED sweep to fire for
-              // an invoice that was actually already paid, deleting the
-              // reservation before the (correct, but delayed) PAID webhook
-              // ever arrived to find it. Re-fetching here closes that race
-              // regardless of which side of Xendit's pipeline is slow.
-              const liveInvoice = await getXenditInvoice(payload.id)
-
-              // SETTLED, not just PAID — confirmed live that by the time
-              // this re-check runs, Xendit's own invoice can have already
-              // progressed past PAID into SETTLED (funds cleared to the
-              // merchant), so checking for PAID alone would still miss it.
-              if (
-                liveInvoice.status === 'PAID' ||
-                liveInvoice.status === 'SETTLED'
+              if (payload.status === 'PAID') {
+                await mintEventRegistration(admin, registration.id)
+              } else if (
+                payload.status === 'EXPIRED' ||
+                payload.status === 'FAILED'
               ) {
-                moneyConfirmed = true
+                // Same live-re-check-before-releasing safety net as the
+                // reservation branch below — see its own comment for why.
+                const liveInvoice = await getXenditInvoice(payload.id)
+                if (
+                  liveInvoice.status === 'PAID' ||
+                  liveInvoice.status === 'SETTLED'
+                ) {
+                  moneyConfirmed = true
+                  await mintEventRegistration(admin, registration.id)
+                } else {
+                  await releaseEventRegistration(admin, registration.id)
+                }
+              }
+            } else if (reservation) {
+              if (payload.status === 'PAID') {
                 const { majorUnitsToCents } = await import('#/lib/utils/money')
                 const { mintOrderFromReservation } =
                   await import('#/server/checkout/mint-order')
+
+                // Xendit's payload is the authoritative record of what was
+                // actually charged — overwrite our upfront (request-time)
+                // estimate with it whenever present, in case the confirmed
+                // amount ever differs (e.g. an FX rate that moved between
+                // invoice creation and payment).
                 const chargedCurrency =
-                  liveInvoice.currency && liveInvoice.currency !== 'PHP'
-                    ? liveInvoice.currency
+                  payload.currency && payload.currency !== 'PHP'
+                    ? payload.currency
                     : null
                 await mintOrderFromReservation(admin, reservation, {
                   provider: mapPaymentProvider(payload),
-                  providerReference: liveInvoice.id,
+                  providerReference: payload.id,
+                  rawPayload: payload,
                   chargedCurrency,
-                  chargedAmountCents: chargedCurrency
-                    ? majorUnitsToCents(liveInvoice.amount, chargedCurrency)
-                    : null,
+                  chargedAmountCents:
+                    chargedCurrency && typeof payload.amount === 'number'
+                      ? majorUnitsToCents(payload.amount, chargedCurrency)
+                      : null,
                 })
-              } else {
-                // Genuinely abandoned (EXPIRED, never paid) or rejected
-                // (FAILED) as far as this live re-check can tell — release
-                // the stock, but keep the reservation row (see
-                // release-reservation.ts) in case a still-later PAID event
-                // proves this wrong too.
-                const { releaseReservationStock } = await import(
-                  '#/server/checkout/release-reservation'
-                )
-                await releaseReservationStock(admin, reservation)
+              } else if (
+                payload.status === 'EXPIRED' ||
+                payload.status === 'FAILED'
+              ) {
+                // Before releasing anything, re-check the invoice's CURRENT
+                // status directly with Xendit rather than trusting this
+                // webhook's own (possibly stale) status. Confirmed live
+                // twice: a customer paid within seconds of invoice
+                // creation, but Xendit's own invoice record didn't reflect
+                // PAID for ~5 more minutes (its own `updated` timestamp
+                // lagged `paid_at` by that much) — long enough for an
+                // EXPIRED sweep to fire for an invoice that was actually
+                // already paid, deleting the reservation before the
+                // (correct, but delayed) PAID webhook ever arrived to find
+                // it. Re-fetching here closes that race regardless of
+                // which side of Xendit's pipeline is slow.
+                const liveInvoice = await getXenditInvoice(payload.id)
+
+                // SETTLED, not just PAID — confirmed live that by the time
+                // this re-check runs, Xendit's own invoice can have already
+                // progressed past PAID into SETTLED (funds cleared to the
+                // merchant), so checking for PAID alone would still miss
+                // it.
+                if (
+                  liveInvoice.status === 'PAID' ||
+                  liveInvoice.status === 'SETTLED'
+                ) {
+                  moneyConfirmed = true
+                  const { majorUnitsToCents } =
+                    await import('#/lib/utils/money')
+                  const { mintOrderFromReservation } =
+                    await import('#/server/checkout/mint-order')
+                  const chargedCurrency =
+                    liveInvoice.currency && liveInvoice.currency !== 'PHP'
+                      ? liveInvoice.currency
+                      : null
+                  await mintOrderFromReservation(admin, reservation, {
+                    provider: mapPaymentProvider(payload),
+                    providerReference: liveInvoice.id,
+                    chargedCurrency,
+                    chargedAmountCents: chargedCurrency
+                      ? majorUnitsToCents(liveInvoice.amount, chargedCurrency)
+                      : null,
+                  })
+                } else {
+                  // Genuinely abandoned (EXPIRED, never paid) or rejected
+                  // (FAILED) as far as this live re-check can tell —
+                  // release the stock, but keep the reservation row (see
+                  // release-reservation.ts) in case a still-later PAID
+                  // event proves this wrong too.
+                  const { releaseReservationStock } =
+                    await import('#/server/checkout/release-reservation')
+                  await releaseReservationStock(admin, reservation)
+                }
               }
             }
           }
@@ -228,9 +278,8 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
             .eq('external_event_id', payload.id)
             .eq('event_type', payload.status)
           if (moneyConfirmed) {
-            const { alertPaymentMintFailure } = await import(
-              '#/server/checkout/alert-payment-mint-failure'
-            )
+            const { alertPaymentMintFailure } =
+              await import('#/server/checkout/alert-payment-mint-failure')
             await alertPaymentMintFailure({
               provider: 'Xendit',
               externalId: payload.external_id,

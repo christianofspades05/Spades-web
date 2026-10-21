@@ -46,6 +46,7 @@ export interface Translations {
     aboutUs: string
     reviews: string
     contactUs: string
+    events: string
   }
   header: {
     searchAriaLabel: string
@@ -322,6 +323,7 @@ export const translations: Record<Language, Translations> = {
       aboutUs: 'About Us',
       reviews: 'Reviews',
       contactUs: 'Contact Us',
+      events: 'Events',
     },
     header: {
       searchAriaLabel: 'Search products',
@@ -604,6 +606,7 @@ export const translations: Record<Language, Translations> = {
       aboutUs: '私たちについて',
       reviews: 'レビュー',
       contactUs: 'お問い合わせ',
+      events: 'イベント',
     },
     header: {
       searchAriaLabel: '商品を検索',
@@ -884,6 +887,7 @@ export const translations: Record<Language, Translations> = {
       aboutUs: '소개',
       reviews: '리뷰',
       contactUs: '문의하기',
+      events: '이벤트',
     },
     header: {
       searchAriaLabel: '상품 검색',
@@ -1160,6 +1164,7 @@ export const translations: Record<Language, Translations> = {
       aboutUs: '關於我們',
       reviews: '評價',
       contactUs: '聯絡我們',
+      events: '活動',
     },
     header: {
       searchAriaLabel: '搜尋商品',
