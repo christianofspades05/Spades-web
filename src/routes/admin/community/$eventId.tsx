@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { z } from 'zod'
 import {
   createFileRoute,
@@ -110,15 +110,17 @@ function EditEventPage() {
           onClick={() => setShowAddForm((v) => !v)}
           className={buttonSecondaryClassName}
         >
-          {showAddForm ? 'Cancel' : 'Add registrant'}
+          {showAddForm ? 'Done' : 'Add registrant'}
         </button>
       </div>
 
       {showAddForm && (
         <AddRegistrantForm
           eventId={event.id}
+          // Stays open after each add (doesn't close/reset to the list)
+          // so staff can add several people in a row without reopening
+          // the form each time — just Cancel/Done when finished.
           onAdded={async () => {
-            setShowAddForm(false)
             await router.invalidate()
           }}
         />
@@ -231,6 +233,8 @@ function AddRegistrantForm({
   const [phone, setPhone] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [addedNames, setAddedNames] = useState<string[]>([])
+  const fullNameInputRef = useRef<HTMLInputElement>(null)
 
   const [pickerMode, setPickerMode] = useState<'none' | 'creators' | 'staff'>(
     'none',
@@ -296,9 +300,20 @@ function AddRegistrantForm({
           phone: phone || undefined,
         },
       })
+      // Stays open and clears for the next person instead of closing —
+      // addedNames is just a running "who've I added this round" list so
+      // it's obvious each click is landing, since the form resets right
+      // out from under what staff just typed.
+      setAddedNames((names) => [...names, fullName])
+      setFullName('')
+      setAge('')
+      setEmail('')
+      setPhone('')
+      fullNameInputRef.current?.focus()
       await onAdded()
     } catch (err) {
       setError(getErrorMessage(err))
+    } finally {
       setSubmitting(false)
     }
   }
@@ -386,6 +401,7 @@ function AddRegistrantForm({
           <div>
             <label className={labelClassName}>Full name</label>
             <input
+              ref={fullNameInputRef}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               required
@@ -427,13 +443,20 @@ function AddRegistrantForm({
           offline/walk-in/comped signups. Counts against the slot cap like any
           other registration.
         </p>
-        <button
-          type="submit"
-          disabled={submitting}
-          className={buttonPrimaryClassName}
-        >
-          {submitting ? 'Adding…' : 'Add registrant'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={submitting}
+            className={buttonPrimaryClassName}
+          >
+            {submitting ? 'Adding…' : 'Add registrant'}
+          </button>
+          {addedNames.length > 0 && (
+            <p className="text-xs text-neutral-500">
+              Added {addedNames.length} so far: {addedNames.join(', ')}
+            </p>
+          )}
+        </div>
       </form>
     </Card>
   )
