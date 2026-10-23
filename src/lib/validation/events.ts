@@ -45,17 +45,18 @@ export const registerForEventSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
   age: z.number().int().min(0).max(130),
   email: z.string().trim().email().max(200),
-  phone: z.string().trim().max(30).optional(),
+  phone: z.string().trim().min(1).max(30),
 })
 export type RegisterForEventInput = z.infer<typeof registerForEventSchema>
 
 /** Staff manually adding a registrant (admin/community/$eventId) — same
- *  shape as the public registration, except email is optional. The public
- *  flow always needs a real email (Xendit receipt, confirmation email);
- *  an offline/walk-in/comped signup staff enters directly may not have
- *  one on hand. */
+ *  shape as the public registration, except email and phone are optional.
+ *  The public flow always needs a real email (Xendit receipt,
+ *  confirmation email) and phone; an offline/walk-in/comped signup staff
+ *  enters directly may not have either on hand. */
 export const addEventRegistrationSchema = registerForEventSchema.extend({
   email: z.string().trim().email().max(200).optional(),
+  phone: z.string().trim().max(30).optional(),
 })
 export type AddEventRegistrationInput = z.infer<
   typeof addEventRegistrationSchema

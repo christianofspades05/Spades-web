@@ -83,7 +83,7 @@ function EventDetailPage() {
           fullName,
           age: Number(age),
           email,
-          phone: phone || undefined,
+          phone,
         },
       })
       if (result.invoiceUrl) {
@@ -212,11 +212,16 @@ function ParticipantsList({ names }: { names: string[] }) {
             No one's confirmed yet — be the first to join.
           </p>
         ) : (
-          <ul className="mt-4 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
+          <ol className="mt-4 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
             {names.map((name, i) => (
-              <li key={`${name}-${i}`}>{name}</li>
+              <li key={`${name}-${i}`} className="flex gap-2">
+                <span className="text-neutral-400 dark:text-neutral-600">
+                  {i + 1}.
+                </span>
+                <span>{name}</span>
+              </li>
             ))}
-          </ul>
+          </ol>
         )}
       </div>
     </aside>
@@ -293,10 +298,11 @@ function RegistrationForm({
       </div>
 
       <div>
-        <label className={labelClassName}>Phone (optional)</label>
+        <label className={labelClassName}>Phone</label>
         <input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
+          required
           className={`${inputClassName} w-full`}
         />
       </div>
