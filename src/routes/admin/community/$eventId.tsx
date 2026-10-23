@@ -10,6 +10,7 @@ import {
   addEventRegistration,
   getEventById,
   getEventRegistrationsCount,
+  listCheckedInNames,
   listEventRegistrations,
   removeEventRegistration,
   searchCreatorsForPicker,
@@ -87,6 +88,9 @@ function EditEventPage() {
   const [searchInput, setSearchInput] = useState(search.q ?? '')
   const [sendingReminders, setSendingReminders] = useState(false)
   const [reminderResult, setReminderResult] = useState<string | null>(null)
+  const [copyingList, setCopyingList] = useState(false)
+  const [copyResult, setCopyResult] = useState<string | null>(null)
+  const [copyText, setCopyText] = useState<string | null>(null)
 
   const page = search.regPage
   const totalPages = Math.max(1, Math.ceil(registrationsTotal / PAGE_SIZE))
@@ -123,6 +127,33 @@ function EditEventPage() {
       await router.invalidate()
     } finally {
       setAttendingId(null)
+    }
+  }
+
+  async function handleCopyAttendeeList() {
+    setCopyingList(true)
+    setCopyResult(null)
+    setCopyText(null)
+    try {
+      const names = await listCheckedInNames({ data: { eventId: event.id } })
+      if (names.length === 0) {
+        setCopyResult('No one is checked in yet.')
+        return
+      }
+      const text = names.map((name, i) => `${i + 1}. ${name}`).join('\n')
+      try {
+        await navigator.clipboard.writeText(text)
+        setCopyResult(
+          `Copied ${names.length} name${names.length === 1 ? '' : 's'}.`,
+        )
+      } catch {
+        setCopyResult(
+          "Couldn't copy automatically — select and copy the list below.",
+        )
+        setCopyText(text)
+      }
+    } finally {
+      setCopyingList(false)
     }
   }
 
@@ -203,6 +234,14 @@ function EditEventPage() {
           </button>
           <button
             type="button"
+            disabled={copyingList}
+            onClick={() => void handleCopyAttendeeList()}
+            className={buttonSecondaryClassName}
+          >
+            {copyingList ? 'Copying…' : 'Copy attendee list'}
+          </button>
+          <button
+            type="button"
             onClick={() => setShowAddForm((v) => !v)}
             className={buttonSecondaryClassName}
           >
@@ -213,6 +252,18 @@ function EditEventPage() {
 
       {reminderResult && (
         <p className="mb-3 text-sm text-neutral-500">{reminderResult}</p>
+      )}
+      {copyResult && (
+        <p className="mb-3 text-sm text-neutral-500">{copyResult}</p>
+      )}
+      {copyText && (
+        <textarea
+          readOnly
+          value={copyText}
+          onFocus={(e) => e.target.select()}
+          rows={6}
+          className={`${inputClassName} mb-3 w-full`}
+        />
       )}
 
       {showAddForm && (

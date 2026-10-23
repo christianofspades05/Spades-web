@@ -339,6 +339,28 @@ export const setRegistrationAttendance = createServerFn({ method: 'POST' })
   })
 
 /**
+ * Plain-text roster of everyone checked in, for staff to copy and paste
+ * into whatever they're using to build teams — not paginated like
+ * listEventRegistrations (PAGE_SIZE caps that at 20), since a copy list
+ * needs every checked-in name regardless of how many pages the table
+ * shows.
+ */
+export const listCheckedInNames = createServerFn({ method: 'GET' })
+  .validator(z.object({ eventId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<string[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const { data: rows, error } = await admin
+      .from('event_registrations')
+      .select('full_name')
+      .eq('event_id', data.eventId)
+      .not('checked_in_at', 'is', null)
+      .order('checked_in_at', { ascending: true })
+    if (error) throw error
+    return rows.map((r) => r.full_name)
+  })
+
+/**
  * Day-of reminder blast — staff-triggered, not automated/cron. Every
  * confirmed registrant with an email gets a reminder with a self-serve
  * cancel link (event-reminder.ts), built from cancel_token: generated
