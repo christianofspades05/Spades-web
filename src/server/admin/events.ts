@@ -1,4 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
+import { getRequestUrl } from '@tanstack/react-start/server'
+import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -181,16 +183,19 @@ export const listEventRegistrations = createServerFn({ method: 'GET' })
     z.object({
       eventId: z.string().uuid(),
       page: z.number().int().min(1).default(1),
+      q: z.string().trim().min(1).max(200).optional(),
     }),
   )
   .handler(async ({ data }): Promise<EventRegistrationRow[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
     const offset = (data.page - 1) * PAGE_SIZE
-    const { data: rows, error } = await admin
+    let query = admin
       .from('event_registrations')
       .select('*')
       .eq('event_id', data.eventId)
+    if (data.q) query = query.ilike('full_name', `%${data.q}%`)
+    const { data: rows, error } = await query
       .order('created_at', { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1)
     if (error) throw error
@@ -198,14 +203,21 @@ export const listEventRegistrations = createServerFn({ method: 'GET' })
   })
 
 export const getEventRegistrationsCount = createServerFn({ method: 'GET' })
-  .validator(z.object({ eventId: z.string().uuid() }))
+  .validator(
+    z.object({
+      eventId: z.string().uuid(),
+      q: z.string().trim().min(1).max(200).optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<{ total: number }> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
-    const { count, error } = await admin
+    let query = admin
       .from('event_registrations')
       .select('id', { count: 'exact', head: true })
       .eq('event_id', data.eventId)
+    if (data.q) query = query.ilike('full_name', `%${data.q}%`)
+    const { count, error } = await query
     if (error) throw error
     return { total: count ?? 0 }
   })
@@ -287,6 +299,142 @@ export const removeEventRegistration = createServerFn({ method: 'POST' })
     )
     return registration
   })
+
+/**
+ * Day-of check-in — separate from `status` (slot/payment lifecycle, see
+ * remove_event_registration above), so a 'confirmed' registrant who never
+ * shows stays confirmed but un-checked-in, and a mis-tap is a plain
+ * toggle back rather than touching the slot count at all.
+ */
+export const setRegistrationAttendance = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({ registrationId: z.string().uuid(), attended: z.boolean() }),
+  )
+  .handler(async ({ data }): Promise<EventRegistrationRow> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: registration, error } = await admin
+      .from('event_registrations')
+      .update({
+        checked_in_at: data.attended ? new Date().toISOString() : null,
+      })
+      .eq('id', data.registrationId)
+      .select('*')
+      .single()
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'event.set_attendance',
+      'event_registrations',
+      registration.id,
+      {
+        eventId: registration.event_id,
+        fullName: registration.full_name,
+        attended: data.attended,
+      },
+    )
+    return registration
+  })
+
+/**
+ * Day-of reminder blast — staff-triggered, not automated/cron. Every
+ * confirmed registrant with an email gets a reminder with a self-serve
+ * cancel link (event-reminder.ts), built from cancel_token: generated
+ * once per registration and reused on a resend rather than rotated, so a
+ * link already in someone's inbox from an earlier send doesn't silently
+ * stop working. Per-recipient send failures are caught and counted
+ * rather than aborting the whole batch — one bad address shouldn't block
+ * everyone else's reminder.
+ */
+export const sendEventReminders = createServerFn({ method: 'POST' })
+  .validator(z.object({ eventId: z.string().uuid() }))
+  .handler(
+    async ({
+      data,
+    }): Promise<{ sent: number; failed: number; skippedNoEmail: number }> => {
+      const staff = await requireStaff(MANAGE_ROLES)
+      const admin = getSupabaseAdminClient()
+
+      const { data: event, error: eventError } = await admin
+        .from('community_events')
+        .select('name, location_name, location_map_url, starts_at, ends_at')
+        .eq('id', data.eventId)
+        .single()
+      if (eventError) throw eventError
+
+      const { data: registrations, error: regError } = await admin
+        .from('event_registrations')
+        .select('id, full_name, email, cancel_token')
+        .eq('event_id', data.eventId)
+        .eq('status', 'confirmed')
+      if (regError) throw regError
+
+      const origin = getRequestUrl().origin
+      let sent = 0
+      let failed = 0
+      let skippedNoEmail = 0
+
+      for (const reg of registrations) {
+        if (!reg.email) {
+          skippedNoEmail += 1
+          continue
+        }
+        try {
+          let token = reg.cancel_token
+          if (!token) {
+            token = randomBytes(32).toString('base64url')
+            const { error: tokenError } = await admin
+              .from('event_registrations')
+              .update({ cancel_token: token })
+              .eq('id', reg.id)
+            if (tokenError) throw tokenError
+          }
+
+          const { sendEmail, withDisplayName } =
+            await import('#/lib/email/resend')
+          const { eventReminderHtml, eventReminderSubject } =
+            await import('#/lib/email/templates/event-reminder')
+          await sendEmail({
+            to: reg.email,
+            subject: eventReminderSubject(event.name),
+            from: withDisplayName(
+              'Spades Official',
+              process.env.RESEND_FROM_EMAIL_ORDERS,
+            ),
+            html: eventReminderHtml({
+              eventName: event.name,
+              locationName: event.location_name,
+              locationMapUrl: event.location_map_url,
+              startsAt: event.starts_at,
+              endsAt: event.ends_at,
+              fullName: reg.full_name,
+              cancelUrl: `${origin}/events/cancel/${token}`,
+            }),
+          })
+
+          await admin
+            .from('event_registrations')
+            .update({ reminder_sent_at: new Date().toISOString() })
+            .eq('id', reg.id)
+          sent += 1
+        } catch (err) {
+          console.error(`Failed to send event reminder to ${reg.email}:`, err)
+          failed += 1
+        }
+      }
+
+      await logStaffActivity(
+        staff,
+        'event.send_reminders',
+        'community_events',
+        data.eventId,
+        { sent, failed, skippedNoEmail },
+      )
+      return { sent, failed, skippedNoEmail }
+    },
+  )
 
 export interface CreatorPickerResult {
   id: string

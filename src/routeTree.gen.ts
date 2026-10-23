@@ -97,6 +97,7 @@ import { Route as ApiWebhooksPaypalRouteImport } from './routes/api/webhooks/pay
 import { Route as ApiWebhooksResendInboundRouteImport } from './routes/api/webhooks/resend-inbound'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
 import { Route as CartResumeTokenRouteImport } from './routes/cart/resume/$token'
+import { Route as EventsCancelTokenRouteImport } from './routes/events/cancel/$token'
 import { Route as AccountOrdersOrderIdReviewRouteImport } from './routes/account/orders/$orderId/review'
 import { Route as ApiOauthShopeeCallbackRouteImport } from './routes/api/oauth/shopee/callback'
 import { Route as ApiOauthShopeeConnectRouteImport } from './routes/api/oauth/shopee/connect'
@@ -558,6 +559,11 @@ const CartResumeTokenRoute = CartResumeTokenRouteImport.update({
   path: '/cart/resume/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventsCancelTokenRoute = EventsCancelTokenRouteImport.update({
+  id: '/events/cancel/$token',
+  path: '/events/cancel/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountOrdersOrderIdReviewRoute =
   AccountOrdersOrderIdReviewRouteImport.update({
     id: '/account/orders/$orderId/review',
@@ -653,6 +659,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
+  '/events/cancel/$token': typeof EventsCancelTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -746,6 +753,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
+  '/events/cancel/$token': typeof EventsCancelTokenRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/cod-cities': typeof AdminCodCitiesIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
@@ -842,6 +850,7 @@ export interface FileRoutesById {
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
+  '/events/cancel/$token': typeof EventsCancelTokenRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -939,6 +948,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
+    | '/events/cancel/$token'
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
@@ -1032,6 +1042,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
+    | '/events/cancel/$token'
     | '/admin/channels'
     | '/admin/cod-cities'
     | '/admin/collections'
@@ -1127,6 +1138,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
+    | '/events/cancel/$token'
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
@@ -1192,6 +1204,7 @@ export interface RootRouteChildren {
   ApiWebhooksResendInboundRoute: typeof ApiWebhooksResendInboundRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
   CartResumeTokenRoute: typeof CartResumeTokenRoute
+  EventsCancelTokenRoute: typeof EventsCancelTokenRoute
   AccountOrdersOrderIdReviewRoute: typeof AccountOrdersOrderIdReviewRoute
   ApiOauthShopeeCallbackRoute: typeof ApiOauthShopeeCallbackRoute
   ApiOauthShopeeConnectRoute: typeof ApiOauthShopeeConnectRoute
@@ -1817,6 +1830,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CartResumeTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/cancel/$token': {
+      id: '/events/cancel/$token'
+      path: '/events/cancel/$token'
+      fullPath: '/events/cancel/$token'
+      preLoaderRoute: typeof EventsCancelTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/account/orders/$orderId/review': {
       id: '/account/orders/$orderId/review'
       path: '/account/orders/$orderId/review'
@@ -2014,6 +2034,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksResendInboundRoute: ApiWebhooksResendInboundRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,
   CartResumeTokenRoute: CartResumeTokenRoute,
+  EventsCancelTokenRoute: EventsCancelTokenRoute,
   AccountOrdersOrderIdReviewRoute: AccountOrdersOrderIdReviewRoute,
   ApiOauthShopeeCallbackRoute: ApiOauthShopeeCallbackRoute,
   ApiOauthShopeeConnectRoute: ApiOauthShopeeConnectRoute,

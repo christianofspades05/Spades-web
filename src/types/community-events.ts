@@ -31,6 +31,9 @@ export interface EventRegistrationRow {
   xendit_invoice_id: string | null
   confirmed_at: string | null
   released_at: string | null
+  checked_in_at: string | null
+  cancel_token: string | null
+  reminder_sent_at: string | null
   created_at: string
 }
 

@@ -14,6 +14,8 @@ import {
   removeEventRegistration,
   searchCreatorsForPicker,
   searchStaffForPicker,
+  sendEventReminders,
+  setRegistrationAttendance,
   updateEvent,
 } from '#/server/admin/events'
 import type {
@@ -44,6 +46,7 @@ const PAGE_SIZE = 20
 export const Route = createFileRoute('/admin/community/$eventId')({
   validateSearch: z.object({
     regPage: z.number().int().min(1).catch(1),
+    q: z.string().optional(),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ params, deps }) => {
@@ -51,9 +54,11 @@ export const Route = createFileRoute('/admin/community/$eventId')({
     if (!event) throw notFound()
     const [registrations, { total: registrationsTotal }] = await Promise.all([
       listEventRegistrations({
-        data: { eventId: params.eventId, page: deps.regPage },
+        data: { eventId: params.eventId, page: deps.regPage, q: deps.q },
       }),
-      getEventRegistrationsCount({ data: { eventId: params.eventId } }),
+      getEventRegistrationsCount({
+        data: { eventId: params.eventId, q: deps.q },
+      }),
     ])
     return { event, registrations, registrationsTotal }
   },
@@ -77,6 +82,11 @@ function EditEventPage() {
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [attendanceMode, setAttendanceMode] = useState(false)
+  const [attendingId, setAttendingId] = useState<string | null>(null)
+  const [searchInput, setSearchInput] = useState(search.q ?? '')
+  const [sendingReminders, setSendingReminders] = useState(false)
+  const [reminderResult, setReminderResult] = useState<string | null>(null)
 
   const page = search.regPage
   const totalPages = Math.max(1, Math.ceil(registrationsTotal / PAGE_SIZE))
@@ -104,6 +114,45 @@ function EditEventPage() {
     }
   }
 
+  async function handleToggleAttendance(registrationId: string, next: boolean) {
+    setAttendingId(registrationId)
+    try {
+      await setRegistrationAttendance({
+        data: { registrationId, attended: next },
+      })
+      await router.invalidate()
+    } finally {
+      setAttendingId(null)
+    }
+  }
+
+  function handleSearchSubmit(formEvent: React.FormEvent) {
+    formEvent.preventDefault()
+    navigate({
+      search: (prev) => ({ ...prev, q: searchInput || undefined, regPage: 1 }),
+    })
+  }
+
+  async function handleSendReminders() {
+    if (
+      !confirm(
+        `Email a "today's the day" reminder (with a cancel-my-slot link) to every confirmed registrant with an email on file?`,
+      )
+    ) {
+      return
+    }
+    setSendingReminders(true)
+    setReminderResult(null)
+    try {
+      const result = await sendEventReminders({ data: { eventId: event.id } })
+      setReminderResult(
+        `Sent ${result.sent}${result.failed > 0 ? `, ${result.failed} failed` : ''}${result.skippedNoEmail > 0 ? `, ${result.skippedNoEmail} skipped (no email)` : ''}.`,
+      )
+    } finally {
+      setSendingReminders(false)
+    }
+  }
+
   return (
     <div className="w-full max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
@@ -118,18 +167,53 @@ function EditEventPage() {
         />
       </div>
 
-      <div className="mt-10 mb-3 flex items-center justify-between">
+      <div className="mt-10 mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-neutral-900">
           Registrations ({registrationsTotal})
         </h2>
-        <button
-          type="button"
-          onClick={() => setShowAddForm((v) => !v)}
-          className={buttonSecondaryClassName}
-        >
-          {showAddForm ? 'Done' : 'Add registrant'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="flex items-center gap-2"
+          >
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search names"
+              className={inputClassName}
+            />
+            <button type="submit" className={buttonSecondaryClassName}>
+              Search
+            </button>
+          </form>
+          <button
+            type="button"
+            disabled={sendingReminders}
+            onClick={() => void handleSendReminders()}
+            className={buttonSecondaryClassName}
+          >
+            {sendingReminders ? 'Sending…' : 'Send reminders'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAttendanceMode((v) => !v)}
+            className={buttonSecondaryClassName}
+          >
+            {attendanceMode ? 'Done' : 'Start attendance'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddForm((v) => !v)}
+            className={buttonSecondaryClassName}
+          >
+            {showAddForm ? 'Done' : 'Add registrant'}
+          </button>
+        </div>
       </div>
+
+      {reminderResult && (
+        <p className="mb-3 text-sm text-neutral-500">{reminderResult}</p>
+      )}
 
       {showAddForm && (
         <AddRegistrantForm
@@ -160,6 +244,9 @@ function EditEventPage() {
                   <th className={tableHeadClassName}>Status</th>
                   <th className={`${tableHeadClassName} text-right`}>Fee</th>
                   <th className={tableHeadClassName}>Registered</th>
+                  {attendanceMode && (
+                    <th className={tableHeadClassName}>Attended</th>
+                  )}
                   <th className={tableHeadClassName}></th>
                 </tr>
               </thead>
@@ -193,6 +280,23 @@ function EditEventPage() {
                         timeZone: 'Asia/Manila',
                       })}
                     </td>
+                    {attendanceMode && (
+                      <td className={tableCellClassName}>
+                        {reg.status !== 'released' && (
+                          <input
+                            type="checkbox"
+                            checked={Boolean(reg.checked_in_at)}
+                            disabled={attendingId === reg.id}
+                            onChange={(e) =>
+                              void handleToggleAttendance(
+                                reg.id,
+                                e.target.checked,
+                              )
+                            }
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className={`${tableCellClassName} text-right`}>
                       {reg.status !== 'released' && (
                         <button
