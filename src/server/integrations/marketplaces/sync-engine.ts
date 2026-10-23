@@ -1141,7 +1141,10 @@ export async function pullOrdersForMarketplace(
   let failed = 0
   for (const raw of rawOrders) {
     try {
-      normalizedOrders.push({ raw, normalized: adapter.mapOrderToInternalFormat(raw) })
+      normalizedOrders.push({
+        raw,
+        normalized: adapter.mapOrderToInternalFormat(raw),
+      })
     } catch (err) {
       failed += 1
       await logSync(
@@ -1331,7 +1334,9 @@ export async function reconcilePlatformFees(
   ).toISOString()
   const { data: orders, error } = await admin
     .from('orders')
-    .select('id, external_order_id, platform_fees_cents, platform_fee_breakdown')
+    .select(
+      'id, external_order_id, platform_fees_cents, platform_fee_breakdown',
+    )
     .eq('source', marketplace)
     .not('external_order_id', 'is', null)
     .gte('placed_at', since)
@@ -1548,11 +1553,15 @@ async function prefetchReturnLookups(
   }
 
   const itemsByOrderId = new Map<string, OrderItemForReturn[]>()
-  const orderIds = Array.from(new Set(Array.from(orderByExternalId.values(), (o) => o.id)))
+  const orderIds = Array.from(
+    new Set(Array.from(orderByExternalId.values(), (o) => o.id)),
+  )
   if (orderIds.length > 0) {
     const { data: items, error: itemsError } = await admin
       .from('order_items')
-      .select('id, order_id, variant_id, sku_snapshot, external_variant_id, quantity')
+      .select(
+        'id, order_id, variant_id, sku_snapshot, external_variant_id, quantity',
+      )
       .in('order_id', orderIds)
     if (itemsError) throw itemsError
     for (const item of items) {
@@ -1630,7 +1639,11 @@ export async function pullReturnsForMarketplace(
       { batchPrefetchFailed: true, scanned: rawReturns.length },
       getErrorMessage(err),
     )
-    return { scanned: rawReturns.length, processed: 0, failed: rawReturns.length }
+    return {
+      scanned: rawReturns.length,
+      processed: 0,
+      failed: rawReturns.length,
+    }
   }
   const { orderByExternalId, itemsByOrderId, existingByExternalId } = lookups
 
@@ -1771,17 +1784,29 @@ export async function pushNewProductToMarketplace(
     })
 
     const skuByVariantId = new Map(variants.map((v) => [v.id, v.sku]))
+    const mappedVariants = result.variants.filter((v) => v.externalVariantId)
+    // adapter.createProduct resolving zero external variant ids (every
+    // variant left with an empty externalVariantId) means the listing was
+    // created on the marketplace but nothing got linked locally — upserting
+    // an empty mapping list would be a silent no-op, and logging this as
+    // 'success' below would hide a listing that's now live on the
+    // marketplace with no local mapping, no inventory sync, no price sync.
+    // Surface it as a failure instead so staff see it and can retry/
+    // reconnect via "Connect existing" using the externalProductId above.
+    if (mappedVariants.length === 0) {
+      throw new Error(
+        `"${product.name}" was created on ${marketplace} (external id ${result.externalProductId}) but none of its variants could be matched — use "Connect existing" with that id to link it.`,
+      )
+    }
     await upsertVariantMappings(
       admin,
       connection.id,
-      result.variants
-        .filter((v) => v.externalVariantId)
-        .map((v) => ({
-          variantId: v.variantId,
-          externalVariantId: v.externalVariantId,
-          externalSku: skuByVariantId.get(v.variantId) ?? null,
-          externalProductId: result.externalProductId,
-        })),
+      mappedVariants.map((v) => ({
+        variantId: v.variantId,
+        externalVariantId: v.externalVariantId,
+        externalSku: skuByVariantId.get(v.variantId) ?? null,
+        externalProductId: result.externalProductId,
+      })),
       'synced',
     )
 

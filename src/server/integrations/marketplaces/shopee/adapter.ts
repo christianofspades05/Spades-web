@@ -1116,18 +1116,40 @@ export const shopeeAdapter: MarketplaceAdapter = {
     // so this re-fetches the just-created models and matches them back to
     // variants by model_sku (== v.sku, which this adapter set) instead of
     // trusting init_tier_variation's response at all.
-    const modelList = await callShopeeApi<{
-      model?: { model_id: number; model_sku?: string }[]
-    }>({
-      method: 'GET',
-      path: '/api/v2/product/get_model_list',
-      accessToken,
-      shopId,
-      query: { item_id: String(itemId) },
-    })
-    const modelIdBySku = new Map(
-      (modelList.model ?? []).map((m) => [m.model_sku, m.model_id]),
-    )
+    //
+    // Same indexing lag as init_tier_variation above, one step later:
+    // get_model_list can return an empty/partial list right after
+    // init_tier_variation succeeds, before Shopee's backend has actually
+    // indexed the new models — confirmed live, this silently produced a
+    // product.createProduct "success" whose every variant had a blank
+    // externalVariantId, which pushNewProductToMarketplace's caller then
+    // filtered out entirely, leaving zero rows in
+    // marketplace_product_mappings despite the logged success. Retries
+    // with the same backoff until every requested SKU resolves to a model
+    // id, rather than accepting the first (possibly incomplete) response.
+    const GET_MODEL_LIST_RETRY_DELAYS_MS = [3000, 6000, 10000]
+    const requestedSkus = new Set(input.variants.map((v) => v.sku))
+    let modelIdBySku = new Map<string | undefined, number>()
+    for (let attempt = 0; ; attempt++) {
+      const modelList = await callShopeeApi<{
+        model?: { model_id: number; model_sku?: string }[]
+      }>({
+        method: 'GET',
+        path: '/api/v2/product/get_model_list',
+        accessToken,
+        shopId,
+        query: { item_id: String(itemId) },
+      })
+      modelIdBySku = new Map(
+        (modelList.model ?? []).map((m) => [m.model_sku, m.model_id]),
+      )
+      const allResolved = [...requestedSkus].every((sku) =>
+        modelIdBySku.has(sku),
+      )
+      const delayMs = GET_MODEL_LIST_RETRY_DELAYS_MS[attempt]
+      if (allResolved || delayMs === undefined) break
+      await sleep(delayMs)
+    }
 
     return {
       externalProductId: String(itemId),
