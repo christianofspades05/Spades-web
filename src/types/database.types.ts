@@ -1416,6 +1416,10 @@ export interface Database {
         Args: { p_registration_id: string }
         Returns: undefined
       }
+      remove_event_registration: {
+        Args: { p_registration_id: string }
+        Returns: EventRegistrationRow
+      }
 
       creator_admin_command: {
         Args: {

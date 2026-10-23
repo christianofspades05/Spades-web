@@ -11,6 +11,7 @@ import {
   getEventById,
   getEventRegistrationsCount,
   listEventRegistrations,
+  removeEventRegistration,
   searchCreatorsForPicker,
   searchStaffForPicker,
   updateEvent,
@@ -75,6 +76,7 @@ function EditEventPage() {
   const router = useRouter()
 
   const [showAddForm, setShowAddForm] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
 
   const page = search.regPage
   const totalPages = Math.max(1, Math.ceil(registrationsTotal / PAGE_SIZE))
@@ -85,6 +87,21 @@ function EditEventPage() {
     // would keep showing the pre-edit values right after saving.
     await router.invalidate()
     await navigate({ to: '/admin/community' })
+  }
+
+  async function handleRemove(registrationId: string, fullName: string) {
+    if (
+      !confirm(`Remove ${fullName}? This gives their slot back to the event.`)
+    ) {
+      return
+    }
+    setRemovingId(registrationId)
+    try {
+      await removeEventRegistration({ data: { registrationId } })
+      await router.invalidate()
+    } finally {
+      setRemovingId(null)
+    }
   }
 
   return (
@@ -143,6 +160,7 @@ function EditEventPage() {
                   <th className={tableHeadClassName}>Status</th>
                   <th className={`${tableHeadClassName} text-right`}>Fee</th>
                   <th className={tableHeadClassName}>Registered</th>
+                  <th className={tableHeadClassName}></th>
                 </tr>
               </thead>
               <tbody>
@@ -174,6 +192,20 @@ function EditEventPage() {
                         timeStyle: 'short',
                         timeZone: 'Asia/Manila',
                       })}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {reg.status !== 'released' && (
+                        <button
+                          type="button"
+                          disabled={removingId === reg.id}
+                          onClick={() =>
+                            void handleRemove(reg.id, reg.full_name)
+                          }
+                          className="text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-40"
+                        >
+                          {removingId === reg.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

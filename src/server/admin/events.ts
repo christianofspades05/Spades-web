@@ -257,6 +257,37 @@ export const addEventRegistration = createServerFn({ method: 'POST' })
     return registration
   })
 
+/**
+ * Removes a registrant (duplicate signup, no-show cleanup, a walk-in added
+ * by mistake) and gives their slot back, regardless of status — unlike
+ * release_event_slot (the payment-expiry/failure path, pending-only), this
+ * is an explicit staff action and works on a confirmed registration too.
+ * Soft-delete only (remove_event_registration sets released_at, same as
+ * every other registration-ending path here) so the event keeps a record
+ * of who was removed rather than losing the row outright.
+ */
+export const removeEventRegistration = createServerFn({ method: 'POST' })
+  .validator(z.object({ registrationId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<EventRegistrationRow> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: registration, error } = await admin.rpc(
+      'remove_event_registration',
+      { p_registration_id: data.registrationId },
+    )
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'event.remove_registration',
+      'event_registrations',
+      registration.id,
+      { eventId: registration.event_id, fullName: registration.full_name },
+    )
+    return registration
+  })
+
 export interface CreatorPickerResult {
   id: string
   name: string
