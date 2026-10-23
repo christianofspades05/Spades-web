@@ -56,6 +56,7 @@ function EventDetailPage() {
   const { event } = Route.useLoaderData()
   const search = Route.useSearch()
   const soldOut = event.slots_reserved >= event.total_slots
+  const slotsAvailable = Math.max(event.total_slots - event.slots_reserved, 0)
 
   const [fullName, setFullName] = useState('')
   const [age, setAge] = useState('')
@@ -124,6 +125,11 @@ function EventDetailPage() {
         </p>
         <p className="font-medium text-neutral-900 dark:text-neutral-50">
           {event.fee_cents === 0 ? 'Free' : formatCentsAsPHP(event.fee_cents)}
+        </p>
+        <p className={soldOut ? 'text-red-600' : ''}>
+          {soldOut
+            ? 'Fully booked'
+            : `${slotsAvailable} of ${event.total_slots} slots available`}
         </p>
       </div>
 
