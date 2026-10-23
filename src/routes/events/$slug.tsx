@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { z } from 'zod'
 import { createFileRoute, notFound } from '@tanstack/react-router'
-import { getEventBySlug } from '#/server/events/queries'
+import {
+  getEventBySlug,
+  listEventParticipantNames,
+} from '#/server/events/queries'
 import { registerForEvent } from '#/server/events/register'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -47,13 +50,16 @@ export const Route = createFileRoute('/events/$slug')({
     if (context.storefrontScope.brand !== 'spades') throw notFound()
     const event = await getEventBySlug({ data: { slug: params.slug } })
     if (!event) throw notFound()
-    return { event }
+    const participantNames = await listEventParticipantNames({
+      data: { eventId: event.id },
+    })
+    return { event, participantNames }
   },
   component: EventDetailPage,
 })
 
 function EventDetailPage() {
-  const { event } = Route.useLoaderData()
+  const { event, participantNames } = Route.useLoaderData()
   const search = Route.useSearch()
   const soldOut = event.slots_reserved >= event.total_slots
   const slotsAvailable = Math.max(event.total_slots - event.slots_reserved, 0)
@@ -92,96 +98,128 @@ function EventDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-16">
-      {event.image_url && (
-        <img
-          src={event.image_url}
-          alt=""
-          className="mb-8 aspect-square w-full rounded-lg object-cover"
-        />
-      )}
-
-      <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50">
-        {event.name}
-      </h1>
-
-      <div className="mt-4 space-y-1 text-neutral-600 dark:text-neutral-400">
-        <p>{formatEventSchedule(event.starts_at, event.ends_at)}</p>
-        <p>
-          {event.location_name}
-          {event.location_map_url && (
-            <>
-              {' — '}
-              <a
-                href={event.location_map_url}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                View on map
-              </a>
-            </>
-          )}
-        </p>
-        <p className="font-medium text-neutral-900 dark:text-neutral-50">
-          {event.fee_cents === 0 ? 'Free' : formatCentsAsPHP(event.fee_cents)}
-        </p>
-        <p className={soldOut ? 'text-red-600' : ''}>
-          {soldOut
-            ? 'Fully booked'
-            : `${slotsAvailable} of ${event.total_slots} slots available`}
-        </p>
-      </div>
-
-      <div className="mt-10 rounded-lg border border-neutral-200 p-6 dark:border-neutral-800">
-        {confirmed ? (
-          <p className="text-neutral-900 dark:text-neutral-50">
-            You're registered! Check your email for confirmation.
-          </p>
-        ) : search.paymentFailed ? (
-          <>
-            <p className="mb-4 text-sm text-red-600">
-              Payment didn't go through — you can try registering again below.
-            </p>
-            <RegistrationForm
-              soldOut={soldOut}
-              fullName={fullName}
-              setFullName={setFullName}
-              age={age}
-              setAge={setAge}
-              email={email}
-              setEmail={setEmail}
-              phone={phone}
-              setPhone={setPhone}
-              submitting={submitting}
-              error={error}
-              onSubmit={handleSubmit}
-              feeCents={event.fee_cents}
+    <div className="mx-auto max-w-5xl px-6 py-16">
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          {event.image_url && (
+            <img
+              src={event.image_url}
+              alt=""
+              className="mb-8 aspect-square w-full rounded-lg object-cover"
             />
-          </>
-        ) : soldOut ? (
-          <p className="text-neutral-500">
-            This event is fully booked — check back in case a slot opens up.
-          </p>
-        ) : (
-          <RegistrationForm
-            soldOut={soldOut}
-            fullName={fullName}
-            setFullName={setFullName}
-            age={age}
-            setAge={setAge}
-            email={email}
-            setEmail={setEmail}
-            phone={phone}
-            setPhone={setPhone}
-            submitting={submitting}
-            error={error}
-            onSubmit={handleSubmit}
-            feeCents={event.fee_cents}
-          />
-        )}
+          )}
+
+          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50">
+            {event.name}
+          </h1>
+
+          <div className="mt-4 space-y-1 text-neutral-600 dark:text-neutral-400">
+            <p>{formatEventSchedule(event.starts_at, event.ends_at)}</p>
+            <p>
+              {event.location_name}
+              {event.location_map_url && (
+                <>
+                  {' — '}
+                  <a
+                    href={event.location_map_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    View on map
+                  </a>
+                </>
+              )}
+            </p>
+            <p className="font-medium text-neutral-900 dark:text-neutral-50">
+              {event.fee_cents === 0
+                ? 'Free'
+                : formatCentsAsPHP(event.fee_cents)}
+            </p>
+            <p className={soldOut ? 'text-red-600' : ''}>
+              {soldOut
+                ? 'Fully booked'
+                : `${slotsAvailable} of ${event.total_slots} slots available`}
+            </p>
+          </div>
+
+          <div className="mt-10 rounded-lg border border-neutral-200 p-6 dark:border-neutral-800">
+            {confirmed ? (
+              <p className="text-neutral-900 dark:text-neutral-50">
+                You're registered! Check your email for confirmation.
+              </p>
+            ) : search.paymentFailed ? (
+              <>
+                <p className="mb-4 text-sm text-red-600">
+                  Payment didn't go through — you can try registering again
+                  below.
+                </p>
+                <RegistrationForm
+                  soldOut={soldOut}
+                  fullName={fullName}
+                  setFullName={setFullName}
+                  age={age}
+                  setAge={setAge}
+                  email={email}
+                  setEmail={setEmail}
+                  phone={phone}
+                  setPhone={setPhone}
+                  submitting={submitting}
+                  error={error}
+                  onSubmit={handleSubmit}
+                  feeCents={event.fee_cents}
+                />
+              </>
+            ) : soldOut ? (
+              <p className="text-neutral-500">
+                This event is fully booked — check back in case a slot opens up.
+              </p>
+            ) : (
+              <RegistrationForm
+                soldOut={soldOut}
+                fullName={fullName}
+                setFullName={setFullName}
+                age={age}
+                setAge={setAge}
+                email={email}
+                setEmail={setEmail}
+                phone={phone}
+                setPhone={setPhone}
+                submitting={submitting}
+                error={error}
+                onSubmit={handleSubmit}
+                feeCents={event.fee_cents}
+              />
+            )}
+          </div>
+        </div>
+
+        <ParticipantsList names={participantNames} />
       </div>
     </div>
+  )
+}
+
+function ParticipantsList({ names }: { names: string[] }) {
+  return (
+    <aside className="lg:col-span-1">
+      <div className="rounded-lg border border-neutral-200 p-6 dark:border-neutral-800">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+          Meet community participants
+        </h2>
+        {names.length === 0 ? (
+          <p className="mt-3 text-sm text-neutral-500">
+            No one's confirmed yet — be the first to join.
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
+            {names.map((name, i) => (
+              <li key={`${name}-${i}`}>{name}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </aside>
   )
 }
 

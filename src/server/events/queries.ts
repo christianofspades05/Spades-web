@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
+import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CommunityEventRow } from '#/types/community-events'
 
 /** Upcoming, active community events — public, no staff auth, RLS-scoped
@@ -33,6 +34,31 @@ export const getEventBySlug = createServerFn({ method: 'GET' })
       .maybeSingle()
     if (error) throw error
     return event
+  })
+
+/**
+ * Public roster for the "Meet community participants" sidebar on an
+ * event's own page — names only, confirmed registrants only (no pending/
+ * released), never email/phone/age. event_registrations itself has no
+ * public read RLS policy at all (see 0106_community_events.sql's own
+ * comment on that) and deliberately stays that way; this goes through the
+ * admin client instead and selects only full_name, so the response a
+ * visitor's browser actually receives can't leak anything beyond what the
+ * page is meant to show, regardless of what a future column addition to
+ * event_registrations might otherwise expose.
+ */
+export const listEventParticipantNames = createServerFn({ method: 'GET' })
+  .validator(z.object({ eventId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<string[]> => {
+    const admin = getSupabaseAdminClient()
+    const { data: rows, error } = await admin
+      .from('event_registrations')
+      .select('full_name')
+      .eq('event_id', data.eventId)
+      .eq('status', 'confirmed')
+      .order('full_name', { ascending: true })
+    if (error) throw error
+    return rows.map((r) => r.full_name)
   })
 
 export interface NearbyEventCandidate {
