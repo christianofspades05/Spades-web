@@ -47,6 +47,10 @@ import {
   refreshAccessToken,
 } from './client'
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 /** `external_shop_id` is nullable at the DB level (not every connection row necessarily has one yet), but every signed Shopee call requires it — this narrows both it and the access token to non-null in one place instead of repeating the check per method. */
 function requireCredentials(connection: MarketplaceConnection): {
   accessToken: string
@@ -1034,35 +1038,59 @@ export const shopeeAdapter: MarketplaceAdapter = {
     const itemId = addItemResponse.item_id
 
     try {
-      await callShopeeApi({
-        method: 'POST',
-        path: '/api/v2/product/init_tier_variation',
-        accessToken,
-        shopId,
-        body: {
-          item_id: itemId,
-          // Shopee requires a `tier_variation`/`model` list for multi-variant
-          // items rather than a flat sku array like TikTok's — this sends a
-          // single "Variant" tier with one option per variant, which covers
-          // the common case (one variation axis: size, or color, etc.).
-          // Products needing two variation axes (e.g. size AND color) will
-          // need this expanded once exercised against a real product.
-          tier_variation: [
-            {
-              name: 'Variant',
-              option_list: input.variants.map((v) => ({
-                option: [v.size, v.color, v.style].filter(Boolean).join(' / '),
+      // add_item's just-created item isn't always immediately visible to
+      // init_tier_variation — confirmed live, Shopee itself returns
+      // product.error_busi / "The item is still being created. Please wait
+      // 5 seconds before creating variation." on the first attempt, every
+      // time, for a freshly added item. Retrying with backoff on that
+      // specific error (never on anything else) instead of failing straight
+      // to the delete_item cleanup below.
+      const INIT_TIER_VARIATION_RETRY_DELAYS_MS = [3000, 6000, 10000]
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await callShopeeApi({
+            method: 'POST',
+            path: '/api/v2/product/init_tier_variation',
+            accessToken,
+            shopId,
+            body: {
+              item_id: itemId,
+              // Shopee requires a `tier_variation`/`model` list for
+              // multi-variant items rather than a flat sku array like
+              // TikTok's — this sends a single "Variant" tier with one
+              // option per variant, which covers the common case (one
+              // variation axis: size, or color, etc.). Products needing two
+              // variation axes (e.g. size AND color) will need this
+              // expanded once exercised against a real product.
+              tier_variation: [
+                {
+                  name: 'Variant',
+                  option_list: input.variants.map((v) => ({
+                    option: [v.size, v.color, v.style]
+                      .filter(Boolean)
+                      .join(' / '),
+                  })),
+                },
+              ],
+              model: input.variants.map((v) => ({
+                tier_index: [input.variants.indexOf(v)],
+                model_sku: v.sku,
+                original_price: v.priceCents / 100,
+                seller_stock: [
+                  { location_id: 'PHZ', stock: v.quantityAvailable },
+                ],
               })),
             },
-          ],
-          model: input.variants.map((v) => ({
-            tier_index: [input.variants.indexOf(v)],
-            model_sku: v.sku,
-            original_price: v.priceCents / 100,
-            seller_stock: [{ location_id: 'PHZ', stock: v.quantityAvailable }],
-          })),
-        },
-      })
+          })
+          break
+        } catch (err) {
+          const stillBeingCreated =
+            err instanceof Error && err.message.includes('product.error_busi')
+          const delayMs = INIT_TIER_VARIATION_RETRY_DELAYS_MS[attempt]
+          if (!stillBeingCreated || delayMs === undefined) throw err
+          await sleep(delayMs)
+        }
+      }
     } catch (err) {
       // add_item already created the (draft) item above — if the variant
       // step fails, leaving it behind produces an orphaned draft that

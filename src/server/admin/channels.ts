@@ -174,7 +174,10 @@ export const setPriceSyncEnabled = createServerFn({ method: 'POST' })
  */
 export const setPriceMarkupPercent = createServerFn({ method: 'POST' })
   .validator(
-    z.object({ marketplace: marketplaceSchema, markupPercent: z.number().min(0) }),
+    z.object({
+      marketplace: marketplaceSchema,
+      markupPercent: z.number().min(0),
+    }),
   )
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const staff = await requireStaff(MANAGE_ROLES)
@@ -414,6 +417,13 @@ export const connectExistingProduct = createServerFn({ method: 'POST' })
         data.productId,
         data.externalProductId,
       )
+      // Same force-push as the auto-connect handlers below — a manually
+      // connected product shouldn't need a separate Revalidate click just to
+      // get its price pushed.
+      if (result.connectedVariants > 0) {
+        await pushInventoryForProducts([data.productId])
+        await pushPriceForProducts(data.marketplace, [data.productId])
+      }
       await logStaffActivity(
         staff,
         'channel.connect_existing_product',
@@ -437,6 +447,17 @@ export const autoConnectProducts = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<AutoConnectByTitleResult> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const result = await autoConnectProductsByTitle(data.marketplace)
+    // Mirrors revalidateMappings' own force-push below it — without this, a
+    // newly auto-connected product sits linked but un-priced (inventory
+    // sync only, same gap as a bare "Connect existing") until someone
+    // happens to hit Revalidate by hand. Confirmed live: 3 products
+    // auto-connected to TikTok Shop on 2026-10-22 kept their stale/default
+    // price for a full day because nothing pushed it after connecting.
+    const connectedProductIds = result.connected.map((c) => c.productId)
+    if (connectedProductIds.length > 0) {
+      await pushInventoryForProducts(connectedProductIds)
+      await pushPriceForProducts(data.marketplace, connectedProductIds)
+    }
     await logStaffActivity(
       staff,
       'channel.auto_connect_products',
@@ -461,6 +482,12 @@ export const autoConnectBySku = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<AutoConnectBySkuResult> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const result = await autoConnectProductsBySku(data.marketplace)
+    // Same force-push as autoConnectProducts above — see its comment.
+    const connectedProductIds = result.connected.map((c) => c.productId)
+    if (connectedProductIds.length > 0) {
+      await pushInventoryForProducts(connectedProductIds)
+      await pushPriceForProducts(data.marketplace, connectedProductIds)
+    }
     await logStaffActivity(
       staff,
       'channel.auto_connect_products_by_sku',
