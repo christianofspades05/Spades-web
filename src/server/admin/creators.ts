@@ -8,12 +8,83 @@ import { creatorCommandSchema } from '#/lib/validation/admin/creators'
 import { invalidateDiscountConfigCache } from '#/server/storefront/automatic-sales'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { creatorTotals } from '#/lib/creators/totals'
+import type { CreatorExpense } from '#/types/creators'
 
 const ROLES = ['super_admin', 'admin', 'manager'] as const
 async function authorize() {
   const staff = await requireStaff([...ROLES])
   setResponseHeader('Cache-Control', 'no-store')
   return staff
+}
+
+export interface CreatorExpenseWithProduct extends CreatorExpense {
+  /** Null for non-gift expenses, or a gift whose variant was later deleted
+   *  (variant_id is set null on delete, per creator_expenses' FK — the
+   *  expense itself is kept for accounting history even though the
+   *  product it names is gone). */
+  productName: string | null
+  variantLabel: string | null
+}
+
+/** The "Description" column only ever held whatever staff typed (e.g. "Oct
+ *  23 - Pullout") — the gift's actual product/variant was stored
+ *  (variant_id) but never surfaced, so two different gifts given the same
+ *  day read identically in the Expenses & Gifts table. Two flat queries
+ *  (variants, then their products) rather than an embedded select — same
+ *  reasoning as searchGiftVariants: this codebase's database.types.ts has
+ *  empty Relationships metadata, which breaks PostgREST embed inference. */
+async function attachGiftProductNames(
+  db: ReturnType<typeof getSupabaseAdminClient>,
+  expenses: CreatorExpense[],
+): Promise<CreatorExpenseWithProduct[]> {
+  const variantIds = Array.from(
+    new Set(
+      expenses
+        .map((e) => e.variant_id)
+        .filter((id): id is string => id !== null),
+    ),
+  )
+  if (variantIds.length === 0) {
+    return expenses.map((e) => ({
+      ...e,
+      productName: null,
+      variantLabel: null,
+    }))
+  }
+
+  const { data: variants, error: variantsError } = await db
+    .from('product_variants')
+    .select('id, product_id, size, color')
+    .in('id', variantIds)
+  if (variantsError) throw variantsError
+
+  const productIds = Array.from(new Set(variants.map((v) => v.product_id)))
+  const { data: products, error: productsError } = await db
+    .from('products')
+    .select('id, name')
+    .in('id', productIds)
+  if (productsError) throw productsError
+  const productNameById = new Map(products.map((p) => [p.id, p.name]))
+
+  const variantById = new Map(
+    variants.map((v) => [
+      v.id,
+      {
+        productName: productNameById.get(v.product_id) ?? null,
+        variantLabel: [v.size, v.color].filter(Boolean).join(' / ') || null,
+      },
+    ]),
+  )
+
+  return expenses.map((e) => ({
+    ...e,
+    productName: e.variant_id
+      ? (variantById.get(e.variant_id)?.productName ?? null)
+      : null,
+    variantLabel: e.variant_id
+      ? (variantById.get(e.variant_id)?.variantLabel ?? null)
+      : null,
+  }))
 }
 
 export const listCreators = createServerFn({ method: 'GET' }).handler(
@@ -81,7 +152,7 @@ export const getCreator = createServerFn({ method: 'GET' })
             .order('incurred_at', { ascending: false })
             .order('id')
             .range(offset, offset + 999),
-        ),
+        ).then((rows) => attachGiftProductNames(db, rows)),
         fetchAllRows((offset) =>
           db
             .from('creator_discount_assignments')

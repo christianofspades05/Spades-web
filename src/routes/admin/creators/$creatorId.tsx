@@ -343,6 +343,13 @@ function CreatorPage() {
                     </td>
                     <td className={cell}>
                       {e.description}
+                      {e.productName && (
+                        <>
+                          {' — '}
+                          {e.productName}
+                          {e.variantLabel && ` (${e.variantLabel})`}
+                        </>
+                      )}
                       {e.quantity && ` · ${e.quantity} units`}
                     </td>
                     <td className={cell}>{e.kind}</td>
