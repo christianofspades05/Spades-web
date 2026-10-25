@@ -10,6 +10,10 @@ import {
 } from '#/lib/validation/admin/orders'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
+import { getErrorMessage } from '#/lib/utils/errors'
+import { majorUnitsToCents } from '#/lib/utils/money'
+import { getXenditInvoice } from '#/lib/xendit/client'
+import { mintOrderFromReservation } from '#/server/checkout/mint-order'
 import {
   previousPeriod,
   storeLocalDateKey,
@@ -2294,3 +2298,89 @@ export const setShipmentPickupPhoto = createServerFn({ method: 'POST' })
 
     return shipment
   })
+
+/**
+ * Manual staff-triggered safety net, independent of whatever is making the
+ * automated recovery paths unreliable (the cron-job.org-triggered
+ * expire-unpaid-orders cron does this same live-recheck-and-mint for stale
+ * reservations, and the Xendit webhook does it for fresh ones — see both
+ * files' own comments). Confirmed live 2026-10-24/25: a customer's GCash
+ * payment went through on Xendit's side but no order ever got created —
+ * both the webhook and the cron had gone silent for hours. This button
+ * exists so staff always have a way to recover a stuck reservation without
+ * depending on either of those, triggered from an authenticated admin
+ * session rather than a bearer secret this action never needs to know.
+ *
+ * Scoped to every non-released reservation with an invoice id (not just
+ * ones old enough to be "stale") and never releases/expires anything on
+ * its own — it only mints what Xendit confirms is actually paid, leaving
+ * genuinely-unpaid reservations for the normal expiry cron to handle once
+ * it's healthy again, same as leaving a customer's in-progress payment
+ * alone.
+ */
+export const recheckPendingPayments = createServerFn({
+  method: 'POST',
+}).handler(
+  async (): Promise<{
+    checked: number
+    recovered: { reservationId: string; orderNumber: string }[]
+    failures: { reservationId: string; error: string }[]
+  }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: reservations, error } = await admin
+      .from('checkout_reservations')
+      .select('*')
+      .is('released_at', null)
+      .not('xendit_invoice_id', 'is', null)
+    if (error) throw error
+
+    const recovered: { reservationId: string; orderNumber: string }[] = []
+    const failures: { reservationId: string; error: string }[] = []
+
+    for (const reservation of reservations) {
+      try {
+        const liveInvoice = await getXenditInvoice(
+          reservation.xendit_invoice_id!,
+        )
+        // SETTLED, not just PAID — same check as expire-unpaid-orders.ts
+        // and the Xendit webhook itself.
+        if (liveInvoice.status !== 'PAID' && liveInvoice.status !== 'SETTLED') {
+          continue
+        }
+        const chargedCurrency =
+          liveInvoice.currency && liveInvoice.currency !== 'PHP'
+            ? liveInvoice.currency
+            : null
+        const order = await mintOrderFromReservation(admin, reservation, {
+          provider: 'other',
+          providerReference: liveInvoice.id,
+          chargedCurrency,
+          chargedAmountCents: chargedCurrency
+            ? majorUnitsToCents(liveInvoice.amount, chargedCurrency)
+            : null,
+        })
+        recovered.push({
+          reservationId: reservation.id,
+          orderNumber: order.orderNumber,
+        })
+      } catch (err) {
+        failures.push({
+          reservationId: reservation.id,
+          error: getErrorMessage(err),
+        })
+      }
+    }
+
+    await logStaffActivity(
+      staff,
+      'orders.recheck_pending_payments',
+      'checkout_reservations',
+      null,
+      { checked: reservations.length, recovered: recovered.length },
+    )
+
+    return { checked: reservations.length, recovered, failures }
+  },
+)

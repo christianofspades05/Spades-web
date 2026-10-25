@@ -12,6 +12,7 @@ import {
   getOrdersCount,
   getOrdersOverview,
   listOrders,
+  recheckPendingPayments,
 } from '#/server/admin/orders'
 import type { OrderWithCustomer, OrdersOverview } from '#/server/admin/orders'
 import type { OrderSource } from '#/types/entities'
@@ -242,6 +243,26 @@ function OrdersPage() {
   const [bulkReason, setBulkReason] = useState<CancellationReason | ''>('')
   const [bulkCancelling, setBulkCancelling] = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
+  const [rechecking, setRechecking] = useState(false)
+  const [recheckResult, setRecheckResult] = useState<string | null>(null)
+
+  async function handleRecheckPendingPayments() {
+    setRechecking(true)
+    setRecheckResult(null)
+    try {
+      const result = await recheckPendingPayments()
+      setRecheckResult(
+        result.recovered.length === 0
+          ? `Checked ${result.checked} pending payment${result.checked === 1 ? '' : 's'} — nothing stuck.`
+          : `Recovered ${result.recovered.length} order${result.recovered.length === 1 ? '' : 's'} that paid but never got created: ${result.recovered.map((r) => r.orderNumber).join(', ')}.`,
+      )
+      if (result.recovered.length > 0) await router.invalidate()
+    } catch (err) {
+      setRecheckResult(getErrorMessage(err))
+    } finally {
+      setRechecking(false)
+    }
+  }
 
   function handleRangeChange(
     preset: DateRangePreset,
@@ -385,14 +406,29 @@ function OrdersPage() {
         title="Orders"
         subtitle={`${total} ${total === 1 ? 'order' : 'orders'}`}
         action={
-          <DateRangePicker
-            preset={search.range}
-            from={overview.range.from}
-            to={overview.range.to}
-            onChange={handleRangeChange}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={rechecking}
+              onClick={() => void handleRecheckPendingPayments()}
+              className={buttonSecondaryClassName}
+              title="Checks every pending online payment against Xendit and creates any order that was actually paid but never got created"
+            >
+              {rechecking ? 'Checking…' : 'Recheck pending payments'}
+            </button>
+            <DateRangePicker
+              preset={search.range}
+              from={overview.range.from}
+              to={overview.range.to}
+              onChange={handleRangeChange}
+            />
+          </div>
         }
       />
+
+      {recheckResult && (
+        <p className="mb-4 -mt-3 text-sm text-neutral-600">{recheckResult}</p>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {statCards.map((stat) => (
