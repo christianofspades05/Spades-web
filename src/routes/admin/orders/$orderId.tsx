@@ -19,6 +19,7 @@ import {
   cancelOrder,
   getAdjacentOrderIds,
   getOrderById,
+  resendOrderConfirmation,
   updateOrderNotes,
   updateOrderStatus,
   upsertShipment,
@@ -205,6 +206,23 @@ function OrderDetailPage() {
   // that webhook never arrives.
   const isUnpaidOnline = order.status === 'pending_payment' && !order.is_cod
   const [editingItems, setEditingItems] = useState(false)
+  const [resendingConfirmation, setResendingConfirmation] = useState(false)
+  const [resendResult, setResendResult] = useState<string | null>(null)
+
+  async function handleResendConfirmation() {
+    setResendingConfirmation(true)
+    setResendResult(null)
+    try {
+      const result = await resendOrderConfirmation({
+        data: { orderId: order.id },
+      })
+      setResendResult(`Sent to ${result.email}.`)
+    } catch (err) {
+      setResendResult(getErrorMessage(err))
+    } finally {
+      setResendingConfirmation(false)
+    }
+  }
 
   const touchStart = useRef({ x: 0, y: 0 })
   function handleTouchStart(e: React.TouchEvent) {
@@ -294,9 +312,23 @@ function OrderDetailPage() {
               </Badge>
             )}
             <StatusBadge status={order.status} kind="order" />
+            <button
+              type="button"
+              disabled={resendingConfirmation}
+              onClick={() => void handleResendConfirmation()}
+              className={buttonSecondaryClassName}
+            >
+              {resendingConfirmation ? 'Sending…' : 'Resend confirmation'}
+            </button>
           </div>
         }
       />
+
+      {resendResult && (
+        <p className="mb-4 text-right text-sm text-neutral-500">
+          {resendResult}
+        </p>
+      )}
 
       {isCancelled && (
         <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
@@ -956,7 +988,9 @@ function OrderEmailsCard({
   const disabled = MARKETPLACE_EMAIL_SOURCES.includes(source)
   const MAX_ATTACHMENTS = 5
 
-  async function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFilesSelected(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
     if (files.length === 0) return
@@ -1070,9 +1104,7 @@ function OrderEmailsCard({
                       dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
                     />
                   ) : (
-                    <p className="mt-1 text-neutral-400 italic">
-                      (no content)
-                    </p>
+                    <p className="mt-1 text-neutral-400 italic">(no content)</p>
                   )}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">

@@ -2378,9 +2378,115 @@ export const recheckPendingPayments = createServerFn({
       'orders.recheck_pending_payments',
       'checkout_reservations',
       null,
-      { checked: reservations.length, recovered: recovered.length },
+      {
+        checked: reservations.length,
+        recovered: recovered.length,
+        // Recording the actual order numbers, not just a count — without
+        // this, reconciling "which orders did this run actually create"
+        // after the fact meant cross-referencing payment timestamps by
+        // hand, which a reservation already consumed (idempotent retry,
+        // see mintOrderFromReservation's own comment) makes ambiguous.
+        orderNumbers: recovered.map((r) => r.orderNumber),
+      },
     )
 
     return { checked: reservations.length, recovered, failures }
   },
 )
+
+/**
+ * Manual resend of the standard order-confirmation email — for a customer
+ * who says they paid but never got it (deliverability issue, typo'd
+ * address since corrected, etc.), or to double-check after a
+ * recheckPendingPayments recovery. Rebuilds the email from the order's own
+ * persisted order_items/shipping_address rather than reservation data
+ * (unlike mintOrderFromReservation, which only ever runs once at mint
+ * time and has the reservation in hand) — this can be called for any
+ * existing order, any time after the fact.
+ */
+export const resendOrderConfirmation = createServerFn({ method: 'POST' })
+  .validator(z.object({ orderId: z.string().uuid() }))
+  .handler(async ({ data }): Promise<{ email: string }> => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { data: order, error: orderError } = await admin
+      .from('orders')
+      .select(
+        'order_number, subtotal_cents, shipping_cents, discount_cents, total_cents, currency, shipping_address',
+      )
+      .eq('id', data.orderId)
+      .single()
+    if (orderError) throw orderError
+
+    const { data: items, error: itemsError } = await admin
+      .from('order_items')
+      .select(
+        'product_name_snapshot, variant_label_snapshot, quantity, line_total_cents, variant_id',
+      )
+      .eq('order_id', data.orderId)
+    if (itemsError) throw itemsError
+
+    const variantIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.variant_id)
+          .filter((id): id is string => id !== null),
+      ),
+    )
+    const { data: variants } =
+      variantIds.length > 0
+        ? await admin
+            .from('product_variants')
+            .select('id, product:products(images)')
+            .in('id', variantIds)
+        : { data: [] }
+    const imageByVariantId = new Map(
+      (variants ?? []).map((v) => [v.id, v.product.images[0] ?? null]),
+    )
+
+    const address = order.shipping_address as unknown as OrderShippingAddress
+
+    const { sendEmail: sendEmailFn, inboundReplyToAddress: replyToFn } =
+      await import('#/lib/email/resend')
+    const { orderConfirmationEmailHtml, orderConfirmationEmailSubject } =
+      await import('#/lib/email/templates/order-confirmation')
+
+    await sendEmailFn({
+      to: address.email,
+      subject: orderConfirmationEmailSubject(order.order_number),
+      from: withDisplayName(
+        'Spades Official Orders',
+        process.env.RESEND_FROM_EMAIL_ORDERS,
+      ),
+      html: orderConfirmationEmailHtml({
+        orderNumber: order.order_number,
+        items: items.map((item) => ({
+          name: item.product_name_snapshot,
+          variantLabel: item.variant_label_snapshot,
+          quantity: item.quantity,
+          imageUrl: item.variant_id
+            ? (imageByVariantId.get(item.variant_id) ?? null)
+            : null,
+          lineTotalCents: item.line_total_cents,
+        })),
+        subtotalCents: order.subtotal_cents,
+        shippingCents: order.shipping_cents,
+        discountCents: order.discount_cents,
+        totalCents: order.total_cents,
+        currency: order.currency,
+        trackingUrl: `${process.env.SITE_URL ?? ''}/track/${data.orderId}`,
+      }),
+      replyTo: replyToFn(data.orderId),
+    })
+
+    await logStaffActivity(
+      staff,
+      'order.resend_confirmation',
+      'orders',
+      data.orderId,
+      { orderNumber: order.order_number, email: address.email },
+    )
+
+    return { email: address.email }
+  })
