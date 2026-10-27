@@ -356,12 +356,26 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 // `.in()`/`.or()` filter.
 const SEARCH_ID_CHUNK_SIZE = 200
 
+/** Parses a plain peso amount ("2017.8", "947", "947.00") into integer
+ *  cents for an exact total_cents match — string-based (never
+ *  `Number(value) * 100`) so e.g. "2017.8" can't land on 201779 from a
+ *  float rounding error. Returns null for anything that isn't just digits
+ *  and an optional 1-2 digit decimal (a product name, SKU, order number,
+ *  etc. never matches this and falls through to the other search paths). */
+function parsePesosToCentsForSearch(value: string): number | null {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value)
+  if (!match) return null
+  const [, wholePesos, decimalPart = ''] = match
+  return Number(wholePesos) * 100 + Number(decimalPart.padEnd(2, '0'))
+}
+
 /** Every order id matching any part of the free-text search — product
  *  name/SKU, tracking number, customer name/email, order number, a
- *  marketplace's own order id, or (for a bare YYYY-MM-DD) that day's
- *  orders. Shared by `listOrders` and `getOrdersCount`, both of which
- *  apply their own status/source/brand/fulfillment filters on top of
- *  this id set rather than folding everything into one filter string. */
+ *  marketplace's own order id, an order total in pesos, or (for a bare
+ *  YYYY-MM-DD) that day's orders. Shared by `listOrders` and
+ *  `getOrdersCount`, both of which apply their own status/source/brand/
+ *  fulfillment filters on top of this id set rather than folding
+ *  everything into one filter string. */
 async function resolveSearchMatchedOrderIds(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   search: string,
@@ -402,6 +416,10 @@ async function resolveSearchMatchedOrderIds(
     // compared against a calendar date.
     const { start, end } = storeRangeToUtcBounds(search, search)
     directOrConditions.push(`and(placed_at.gte.${start},placed_at.lte.${end})`)
+  }
+  const searchCents = parsePesosToCentsForSearch(search)
+  if (searchCents !== null) {
+    directOrConditions.push(`total_cents.eq.${searchCents}`)
   }
 
   const [

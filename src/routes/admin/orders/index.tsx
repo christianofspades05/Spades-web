@@ -470,7 +470,7 @@ function OrdersPage() {
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search orders or customers"
+              placeholder="Search orders, customers, or a total (e.g. 947.00)"
               className={`${inputClassName} w-full pl-8`}
             />
           </div>
