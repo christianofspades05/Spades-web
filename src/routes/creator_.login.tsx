@@ -43,10 +43,13 @@ function CreatorLoginPage() {
       // can still not be a creator — beforeLoad on /creator would just
       // redirect straight back here, leaving this page stuck on "Signing
       // in…" forever since it never actually navigates away. Check first
-      // so that case gets a real error instead of a silent hang.
+      // so that case gets a real error instead of a silent hang. Deliberately
+      // does NOT sign out here — this browser's one Supabase session is
+      // shared with /admin, so signing out here would also kill a staff
+      // member's own admin session if they happened to test this page
+      // with their own saved login.
       const creator = await getCreatorSession()
       if (!creator) {
-        await getSupabaseBrowserClient().auth.signOut()
         setError('This account does not have creator portal access.')
         setSubmitting(false)
         return
