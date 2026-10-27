@@ -99,3 +99,13 @@ export const creatorCommandSchema = z.discriminatedUnion('action', [
   }),
 ])
 export type CreatorCommand = z.infer<typeof creatorCommandSchema>
+
+export const createCreatorPortalAccountSchema = z.object({
+  creatorId: id,
+  email: z.email(),
+  password: z.string().min(8).max(200),
+})
+export const resetCreatorPortalPasswordSchema = z.object({
+  creatorId: id,
+  newPassword: z.string().min(8).max(200),
+})

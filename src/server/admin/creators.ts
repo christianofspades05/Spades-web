@@ -4,10 +4,15 @@ import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { fetchAllRows } from '#/lib/utils/paginate'
-import { creatorCommandSchema } from '#/lib/validation/admin/creators'
+import {
+  createCreatorPortalAccountSchema,
+  creatorCommandSchema,
+  resetCreatorPortalPasswordSchema,
+} from '#/lib/validation/admin/creators'
 import { invalidateDiscountConfigCache } from '#/server/storefront/automatic-sales'
 import { pushInventoryForVariant } from '#/server/integrations/marketplaces/sync-engine'
 import { creatorTotals } from '#/lib/creators/totals'
+import { logStaffActivity } from './activity-log'
 import type { CreatorExpense } from '#/types/creators'
 
 const ROLES = ['super_admin', 'admin', 'manager'] as const
@@ -16,6 +21,11 @@ async function authorize() {
   setResponseHeader('Cache-Control', 'no-store')
   return staff
 }
+
+/** Portal login credentials are account-management, not accounting — same
+ *  restriction as staff account management in admin/settings.ts, stricter
+ *  than the manager-allowed ROLES above. */
+const MANAGE_PORTAL_ROLES = ['super_admin', 'admin'] as const
 
 export interface CreatorExpenseWithProduct extends CreatorExpense {
   /** Null for non-gift expenses, or a gift whose variant was later deleted
@@ -183,6 +193,7 @@ export const getCreator = createServerFn({ method: 'GET' })
     if (creatorResult.error) throw creatorResult.error
     return {
       creator: creatorResult.data,
+      hasPortalAccount: creatorResult.data.auth_user_id != null,
       orders,
       expenses,
       assignments,
@@ -191,6 +202,79 @@ export const getCreator = createServerFn({ method: 'GET' })
       totals: creatorTotals(orders, expenses),
       canPay: staff.role !== 'manager',
     }
+  })
+
+/** Admin sets the login directly (no invite-email flow) — same pattern as
+ *  createStaffUser/resetStaffUserPassword in admin/settings.ts: an internal
+ *  tool, not customer-facing auth, so there's no self-serve reset either. */
+export const createCreatorPortalAccount = createServerFn({ method: 'POST' })
+  .validator(createCreatorPortalAccountSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff([...MANAGE_PORTAL_ROLES])
+    const db = getSupabaseAdminClient()
+
+    const { data: creator, error: creatorError } = await db
+      .from('creators')
+      .select('auth_user_id')
+      .eq('id', data.creatorId)
+      .single()
+    if (creatorError) throw creatorError
+    if (creator.auth_user_id) {
+      throw new Error('This creator already has a portal account')
+    }
+
+    const { data: created, error: createError } =
+      await db.auth.admin.createUser({
+        email: data.email,
+        password: data.password,
+        email_confirm: true,
+      })
+    if (createError) throw createError
+
+    const { error: linkError } = await db
+      .from('creators')
+      .update({ auth_user_id: created.user.id, email: data.email })
+      .eq('id', data.creatorId)
+    if (linkError) throw linkError
+
+    await logStaffActivity(
+      staff,
+      'creator.portal_account_created',
+      'creators',
+      data.creatorId,
+      { email: data.email },
+    )
+    return { ok: true }
+  })
+
+export const resetCreatorPortalPassword = createServerFn({ method: 'POST' })
+  .validator(resetCreatorPortalPasswordSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const staff = await requireStaff([...MANAGE_PORTAL_ROLES])
+    const db = getSupabaseAdminClient()
+
+    const { data: creator, error: creatorError } = await db
+      .from('creators')
+      .select('auth_user_id')
+      .eq('id', data.creatorId)
+      .single()
+    if (creatorError) throw creatorError
+    if (!creator.auth_user_id) {
+      throw new Error('This creator has no portal account yet')
+    }
+
+    const { error } = await db.auth.admin.updateUserById(creator.auth_user_id, {
+      password: data.newPassword,
+    })
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'creator.portal_password_reset',
+      'creators',
+      data.creatorId,
+    )
+    return { ok: true }
   })
 
 export const creatorCommand = createServerFn({ method: 'POST' })

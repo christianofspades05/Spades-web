@@ -10,6 +10,7 @@ import {
 } from '#/lib/supabase/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { Customer, StaffUser } from '#/types/entities'
+import type { Creator } from '#/types/creators'
 
 /**
  * A corrupted or stale Supabase session cookie (left over from before a
@@ -76,6 +77,29 @@ export async function getCurrentStaffUser(): Promise<StaffUser | null> {
     const admin = getSupabaseAdminClient()
     const { data, error } = await admin
       .from('staff_users')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (error) throw error
+    return data
+  } catch {
+    return recoverFromBadSession()
+  }
+}
+
+/** Resolves the `creators` row linked to the current auth session, if any —
+ *  only set once an admin creates a portal login (see
+ *  createCreatorPortalAccount in server/admin/creators.ts). */
+export async function getCurrentCreator(): Promise<Creator | null> {
+  try {
+    const user = await getAuthUser()
+    if (!user) return null
+
+    const admin = getSupabaseAdminClient()
+    const { data, error } = await admin
+      .from('creators')
       .select('*')
       .eq('auth_user_id', user.id)
       .eq('is_active', true)

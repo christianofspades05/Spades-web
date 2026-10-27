@@ -7,6 +7,9 @@ export interface Creator {
   facebook_url: string | null
   notes: string | null
   is_active: boolean
+  /** Links to auth.users once an admin creates a portal login for this
+   *  creator (see createCreatorPortalAccount) — null until then. */
+  auth_user_id: string | null
   created_at: string
   updated_at: string
 }

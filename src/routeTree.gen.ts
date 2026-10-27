@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as CreatorRouteImport } from './routes/creator'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as AccountIndexRouteImport } from './routes/account/index'
 import { Route as AccountForgotPasswordRouteImport } from './routes/account/forgot-password'
@@ -31,6 +32,8 @@ import { Route as CheckoutPaypalReturnRouteImport } from './routes/checkout/payp
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
 import { Route as CollectionsSlugRouteImport } from './routes/collections/$slug'
 import { Route as ContactIndexRouteImport } from './routes/contact/index'
+import { Route as CreatorIndexRouteImport } from './routes/creator/index'
+import { Route as CreatorLoginRouteImport } from './routes/creator_.login'
 import { Route as EventsIndexRouteImport } from './routes/events/index'
 import { Route as EventsSlugRouteImport } from './routes/events/$slug'
 import { Route as ProductsIndexRouteImport } from './routes/products/index'
@@ -117,6 +120,11 @@ const AdminRoute = AdminRouteImport.update({
 const CheckoutRoute = CheckoutRouteImport.update({
   id: '/checkout',
   path: '/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorRoute = CreatorRouteImport.update({
+  id: '/creator',
+  path: '/creator',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutIndexRoute = AboutIndexRouteImport.update({
@@ -212,6 +220,16 @@ const CollectionsSlugRoute = CollectionsSlugRouteImport.update({
 const ContactIndexRoute = ContactIndexRouteImport.update({
   id: '/contact/',
   path: '/contact/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorIndexRoute = CreatorIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CreatorRoute,
+} as any)
+const CreatorLoginRoute = CreatorLoginRouteImport.update({
+  id: '/creator_/login',
+  path: '/creator/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventsIndexRoute = EventsIndexRouteImport.update({
@@ -595,6 +613,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/checkout': typeof CheckoutRouteWithChildren
+  '/creator': typeof CreatorRouteWithChildren
   '/account/forgot-password': typeof AccountForgotPasswordRoute
   '/account/login': typeof AccountLoginRoute
   '/account/reset-password': typeof AccountResetPasswordRoute
@@ -607,6 +626,7 @@ export interface FileRoutesByFullPath {
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/creator/login': typeof CreatorLoginRoute
   '/events/$slug': typeof EventsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/reorder/$orderId': typeof ReorderOrderIdRoute
@@ -620,6 +640,7 @@ export interface FileRoutesByFullPath {
   '/checkout/': typeof CheckoutIndexRoute
   '/collections/': typeof CollectionsIndexRoute
   '/contact/': typeof ContactIndexRoute
+  '/creator/': typeof CreatorIndexRoute
   '/events/': typeof EventsIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
@@ -701,6 +722,7 @@ export interface FileRoutesByTo {
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/creator/login': typeof CreatorLoginRoute
   '/events/$slug': typeof EventsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/reorder/$orderId': typeof ReorderOrderIdRoute
@@ -714,6 +736,7 @@ export interface FileRoutesByTo {
   '/checkout': typeof CheckoutIndexRoute
   '/collections': typeof CollectionsIndexRoute
   '/contact': typeof ContactIndexRoute
+  '/creator': typeof CreatorIndexRoute
   '/events': typeof EventsIndexRoute
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
@@ -786,6 +809,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/checkout': typeof CheckoutRouteWithChildren
+  '/creator': typeof CreatorRouteWithChildren
   '/account/forgot-password': typeof AccountForgotPasswordRoute
   '/account/login': typeof AccountLoginRoute
   '/account/reset-password': typeof AccountResetPasswordRoute
@@ -798,6 +822,7 @@ export interface FileRoutesById {
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
+  '/creator_/login': typeof CreatorLoginRoute
   '/events/$slug': typeof EventsSlugRoute
   '/products/$slug': typeof ProductsSlugRoute
   '/reorder/$orderId': typeof ReorderOrderIdRoute
@@ -811,6 +836,7 @@ export interface FileRoutesById {
   '/checkout/': typeof CheckoutIndexRoute
   '/collections/': typeof CollectionsIndexRoute
   '/contact/': typeof ContactIndexRoute
+  '/creator/': typeof CreatorIndexRoute
   '/events/': typeof EventsIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
@@ -884,6 +910,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/checkout'
+    | '/creator'
     | '/account/forgot-password'
     | '/account/login'
     | '/account/reset-password'
@@ -896,6 +923,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
+    | '/creator/login'
     | '/events/$slug'
     | '/products/$slug'
     | '/reorder/$orderId'
@@ -909,6 +937,7 @@ export interface FileRouteTypes {
     | '/checkout/'
     | '/collections/'
     | '/contact/'
+    | '/creator/'
     | '/events/'
     | '/products/'
     | '/reviews/'
@@ -990,6 +1019,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
+    | '/creator/login'
     | '/events/$slug'
     | '/products/$slug'
     | '/reorder/$orderId'
@@ -1003,6 +1033,7 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/collections'
     | '/contact'
+    | '/creator'
     | '/events'
     | '/products'
     | '/reviews'
@@ -1074,6 +1105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/checkout'
+    | '/creator'
     | '/account/forgot-password'
     | '/account/login'
     | '/account/reset-password'
@@ -1086,6 +1118,7 @@ export interface FileRouteTypes {
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
+    | '/creator_/login'
     | '/events/$slug'
     | '/products/$slug'
     | '/reorder/$orderId'
@@ -1099,6 +1132,7 @@ export interface FileRouteTypes {
     | '/checkout/'
     | '/collections/'
     | '/contact/'
+    | '/creator/'
     | '/events/'
     | '/products/'
     | '/reviews/'
@@ -1171,6 +1205,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   CheckoutRoute: typeof CheckoutRouteWithChildren
+  CreatorRoute: typeof CreatorRouteWithChildren
   AccountForgotPasswordRoute: typeof AccountForgotPasswordRoute
   AccountLoginRoute: typeof AccountLoginRoute
   AccountResetPasswordRoute: typeof AccountResetPasswordRoute
@@ -1179,6 +1214,7 @@ export interface RootRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   CollectionsSlugRoute: typeof CollectionsSlugRoute
+  CreatorLoginRoute: typeof CreatorLoginRoute
   EventsSlugRoute: typeof EventsSlugRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
   ReorderOrderIdRoute: typeof ReorderOrderIdRoute
@@ -1233,6 +1269,13 @@ declare module '@tanstack/react-router' {
       path: '/checkout'
       fullPath: '/checkout'
       preLoaderRoute: typeof CheckoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator': {
+      id: '/creator'
+      path: '/creator'
+      fullPath: '/creator'
+      preLoaderRoute: typeof CreatorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about/': {
@@ -1366,6 +1409,20 @@ declare module '@tanstack/react-router' {
       path: '/contact'
       fullPath: '/contact/'
       preLoaderRoute: typeof ContactIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/': {
+      id: '/creator/'
+      path: '/'
+      fullPath: '/creator/'
+      preLoaderRoute: typeof CreatorIndexRouteImport
+      parentRoute: typeof CreatorRoute
+    }
+    '/creator_/login': {
+      id: '/creator_/login'
+      path: '/creator/login'
+      fullPath: '/creator/login'
+      preLoaderRoute: typeof CreatorLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events/': {
@@ -1997,10 +2054,22 @@ const CheckoutRouteWithChildren = CheckoutRoute._addFileChildren(
   CheckoutRouteChildren,
 )
 
+interface CreatorRouteChildren {
+  CreatorIndexRoute: typeof CreatorIndexRoute
+}
+
+const CreatorRouteChildren: CreatorRouteChildren = {
+  CreatorIndexRoute: CreatorIndexRoute,
+}
+
+const CreatorRouteWithChildren =
+  CreatorRoute._addFileChildren(CreatorRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   CheckoutRoute: CheckoutRouteWithChildren,
+  CreatorRoute: CreatorRouteWithChildren,
   AccountForgotPasswordRoute: AccountForgotPasswordRoute,
   AccountLoginRoute: AccountLoginRoute,
   AccountResetPasswordRoute: AccountResetPasswordRoute,
@@ -2009,6 +2078,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   CollectionsSlugRoute: CollectionsSlugRoute,
+  CreatorLoginRoute: CreatorLoginRoute,
   EventsSlugRoute: EventsSlugRoute,
   ProductsSlugRoute: ProductsSlugRoute,
   ReorderOrderIdRoute: ReorderOrderIdRoute,

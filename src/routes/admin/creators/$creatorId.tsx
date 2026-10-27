@@ -7,6 +7,7 @@ import {
   searchGiftVariants,
 } from '#/server/admin/creators'
 import { CreatorProfileForm } from '#/components/admin/CreatorProfileForm'
+import { CreatorPortalAccessCard } from '#/components/admin/CreatorPortalAccessCard'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { formatCentsAsPHP as money } from '#/lib/utils/money'
 import {
@@ -110,12 +111,22 @@ function CreatorPage() {
         </p>
       )}
       {tab === 'Profile' && (
-        <CreatorProfileForm
-          creator={data.creator}
-          onSaved={async () => {
-            await router.invalidate()
-          }}
-        />
+        <>
+          <CreatorProfileForm
+            creator={data.creator}
+            onSaved={async () => {
+              await router.invalidate()
+            }}
+          />
+          <CreatorPortalAccessCard
+            creator={data.creator}
+            hasPortalAccount={data.hasPortalAccount}
+            canManage={data.canPay}
+            onSaved={async () => {
+              await router.invalidate()
+            }}
+          />
+        </>
       )}
       {tab === 'Overview' && (
         <>

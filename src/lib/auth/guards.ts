@@ -2,8 +2,13 @@
  * Server-only guard helpers. Call these at the top of a server function or
  * route loader to enforce auth before touching the admin client.
  */
-import { getCurrentCustomer, getCurrentStaffUser } from './session'
+import {
+  getCurrentCreator,
+  getCurrentCustomer,
+  getCurrentStaffUser,
+} from './session'
 import type { Customer, StaffRole, StaffUser } from '#/types/entities'
+import type { Creator } from '#/types/creators'
 
 export class UnauthorizedError extends Error {
   constructor(message = 'Not authenticated') {
@@ -36,4 +41,10 @@ export async function requireStaff(
     )
   }
   return staff
+}
+
+export async function requireCreator(): Promise<Creator> {
+  const creator = await getCurrentCreator()
+  if (!creator) throw new UnauthorizedError('Creator sign in required')
+  return creator
 }
