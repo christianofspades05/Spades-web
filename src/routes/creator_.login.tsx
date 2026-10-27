@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { getCreatorSession } from '#/server/creator/auth'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { Card } from '#/components/admin/Card'
@@ -34,6 +35,19 @@ function CreatorLoginPage() {
 
       if (signInError) {
         setError(signInError.message)
+        setSubmitting(false)
+        return
+      }
+
+      // A valid Supabase login (e.g. a staff member's own saved password)
+      // can still not be a creator — beforeLoad on /creator would just
+      // redirect straight back here, leaving this page stuck on "Signing
+      // in…" forever since it never actually navigates away. Check first
+      // so that case gets a real error instead of a silent hang.
+      const creator = await getCreatorSession()
+      if (!creator) {
+        await getSupabaseBrowserClient().auth.signOut()
+        setError('This account does not have creator portal access.')
         setSubmitting(false)
         return
       }
