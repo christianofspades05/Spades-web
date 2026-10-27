@@ -113,6 +113,12 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const isAdminRoute = pathname.startsWith('/admin')
+  // The creator portal is its own standalone login/dashboard (see
+  // routes/creator.tsx) — same reasoning as admin: it needs its own chrome,
+  // not the storefront nav stacked on top, and isn't gated by storefront
+  // maintenance mode either.
+  const isCreatorRoute = pathname.startsWith('/creator')
+  const hideStorefrontChrome = isAdminRoute || isCreatorRoute
   const {
     geoDefaultCurrency,
     geoCountry,
@@ -121,7 +127,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     banner,
     emailCapturePopupEnabled,
   } = Route.useRouteContext()
-  const showMaintenance = !isAdminRoute && maintenanceMode
+  const showMaintenance = !hideStorefrontChrome && maintenanceMode
   const pixelBootstrapScript = buildPixelBootstrapScript(
     storefrontScope.fbPixelId,
   )
@@ -139,19 +145,19 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
-        {!isAdminRoute && (
+        {!hideStorefrontChrome && (
           <script dangerouslySetInnerHTML={{ __html: noFlashThemeScript }} />
         )}
-        {!isAdminRoute && (
+        {!hideStorefrontChrome && (
           <style dangerouslySetInnerHTML={{ __html: brandColorStyle }} />
         )}
-        {!isAdminRoute && pixelBootstrapScript && (
+        {!hideStorefrontChrome && pixelBootstrapScript && (
           <script dangerouslySetInnerHTML={{ __html: pixelBootstrapScript }} />
         )}
         <HeadContent />
       </head>
       <body>
-        {!isAdminRoute && storefrontScope.fbPixelId && (
+        {!hideStorefrontChrome && storefrontScope.fbPixelId && (
           <noscript>
             <img
               height="1"
@@ -176,18 +182,21 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                   <MaintenancePage scope={storefrontScope} />
                 ) : (
                   <>
-                    {!isAdminRoute && (
+                    {!hideStorefrontChrome && (
                       <Header scope={storefrontScope} banner={banner} />
                     )}
                     {children}
-                    {!isAdminRoute && <Footer scope={storefrontScope} />}
-                    {!isAdminRoute && <LanguagePopup />}
-                    {!isAdminRoute && (
+                    {!hideStorefrontChrome && (
+                      <Footer scope={storefrontScope} />
+                    )}
+                    {!hideStorefrontChrome && <LanguagePopup />}
+                    {!hideStorefrontChrome && (
                       <EmailCapturePopup enabled={emailCapturePopupEnabled} />
                     )}
-                    {!isAdminRoute && storefrontScope.brand === 'spades' && (
-                      <NearbyEventPopup />
-                    )}
+                    {!hideStorefrontChrome &&
+                      storefrontScope.brand === 'spades' && (
+                        <NearbyEventPopup />
+                      )}
                   </>
                 )}
               </CartProvider>
