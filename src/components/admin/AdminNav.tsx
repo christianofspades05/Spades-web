@@ -22,6 +22,7 @@ import {
   PartyPopper,
   Plug,
   Radio,
+  Receipt,
   Settings,
   ShoppingBag,
   Star,
@@ -67,6 +68,11 @@ const ANALYTICS_SUB_LINKS = [
     to: '/admin/analytics/inventory-value',
     label: 'Inventory Value',
     icon: Warehouse,
+  },
+  {
+    to: '/admin/analytics/tiktok-finance',
+    label: 'TikTok Finance',
+    icon: Receipt,
   },
 ] as const
 

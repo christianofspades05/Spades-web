@@ -24,6 +24,7 @@
  */
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import { resolveOfficialRegion } from '#/lib/utils/ph-province-region'
+import { majorUnitsToCents } from '#/lib/utils/money'
 import type { MarketplaceConnection } from '#/types/entities'
 import type {
   CreatedMarketplaceProduct,
@@ -326,6 +327,102 @@ async function findShippingProviderId(
   return shipping_providers.find(
     (p) => p.name.trim().toLowerCase() === normalized,
   )?.id
+}
+
+interface TikTokStatementRow {
+  id: string
+  currency: string
+  statement_time: number
+  revenue_amount: string
+  fee_amount: string
+  adjustment_amount: string
+  settlement_amount: string
+  shipping_cost_amount: string
+  net_sales_amount: string
+}
+
+/** One TikTok Shop payout cycle's whole-shop totals — not tied to any
+ *  single order. revenue - fee - adjustment = settlement (confirmed
+ *  against live Seller Center figures). */
+export interface TikTokFinanceStatement {
+  id: string
+  /** Unix seconds — when this payout statement was cut, not when any
+   *  individual order inside it was placed. */
+  statementTimeSec: number
+  revenueCents: number
+  feeCents: number
+  adjustmentCents: number
+  settlementCents: number
+  shippingCostCents: number
+  netSalesCents: number
+}
+
+/**
+ * Deliberately NOT part of MarketplaceAdapter (unlike refreshPlatformFees,
+ * Shopee's equivalent) — that interface's refreshPlatformFees is per-order,
+ * reconciled against one specific `payments` row. TikTok Shop's finance
+ * data here is whole-shop payout statements with no per-order attribution
+ * requested, so forcing it through the same shared per-order shape would
+ * mean either a fake single-order call site or a second abstraction neither
+ * marketplace actually needs yet. Paginates via next_page_token — a date
+ * range spanning many payout cycles needs more than one page at
+ * page_size=100.
+ */
+export async function getTikTokFinanceStatements(
+  connection: MarketplaceConnection,
+  range: { sinceSeconds: number; untilSeconds: number },
+): Promise<TikTokFinanceStatement[]> {
+  if (!connection.access_token_encrypted) {
+    throw new Error('TikTok Shop connection has no access token.')
+  }
+
+  const statements: TikTokFinanceStatement[] = []
+  let pageToken: string | undefined
+  do {
+    const page = await callTikTokApi<{
+      statements: TikTokStatementRow[]
+      next_page_token?: string
+    }>({
+      method: 'GET',
+      path: '/finance/202309/statements',
+      accessToken: connection.access_token_encrypted,
+      shopCipher: connection.shop_cipher ?? undefined,
+      query: {
+        page_size: '100',
+        sort_field: 'statement_time',
+        statement_time_ge: String(range.sinceSeconds),
+        statement_time_lt: String(range.untilSeconds),
+        ...(pageToken ? { page_token: pageToken } : {}),
+      },
+    })
+    for (const s of page.statements) {
+      statements.push({
+        id: s.id,
+        statementTimeSec: s.statement_time,
+        revenueCents: majorUnitsToCents(Number(s.revenue_amount), s.currency),
+        feeCents: majorUnitsToCents(Number(s.fee_amount), s.currency),
+        adjustmentCents: majorUnitsToCents(
+          Number(s.adjustment_amount),
+          s.currency,
+        ),
+        settlementCents: majorUnitsToCents(
+          Number(s.settlement_amount),
+          s.currency,
+        ),
+        shippingCostCents: majorUnitsToCents(
+          Number(s.shipping_cost_amount),
+          s.currency,
+        ),
+        netSalesCents: majorUnitsToCents(
+          Number(s.net_sales_amount),
+          s.currency,
+        ),
+      })
+    }
+    pageToken = page.next_page_token
+  } while (pageToken)
+
+  return statements
 }
 
 export const tiktokShopAdapter: MarketplaceAdapter = {

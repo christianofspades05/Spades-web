@@ -48,6 +48,7 @@ import { Route as AdminAnalyticsInventoryValueRouteImport } from './routes/admin
 import { Route as AdminAnalyticsProductAnalyticsRouteImport } from './routes/admin/analytics/product-analytics'
 import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
 import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
+import { Route as AdminAnalyticsTiktokFinanceRouteImport } from './routes/admin/analytics/tiktok-finance'
 import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
@@ -305,6 +306,12 @@ const AdminAnalyticsSalesRoute = AdminAnalyticsSalesRouteImport.update({
   path: '/analytics/sales',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminAnalyticsTiktokFinanceRoute =
+  AdminAnalyticsTiktokFinanceRouteImport.update({
+    id: '/analytics/tiktok-finance',
+    path: '/analytics/tiktok-finance',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminAnalyticsVisitorsRoute = AdminAnalyticsVisitorsRouteImport.update({
   id: '/analytics/visitors',
   path: '/analytics/visitors',
@@ -649,6 +656,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
@@ -745,6 +753,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
@@ -845,6 +854,7 @@ export interface FileRoutesById {
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
+  '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
@@ -946,6 +956,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
@@ -1042,6 +1053,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
@@ -1141,6 +1153,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
     | '/admin/analytics/sales'
+    | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
@@ -1521,6 +1534,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics/sales'
       fullPath: '/admin/analytics/sales'
       preLoaderRoute: typeof AdminAnalyticsSalesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/tiktok-finance': {
+      id: '/admin/analytics/tiktok-finance'
+      path: '/analytics/tiktok-finance'
+      fullPath: '/admin/analytics/tiktok-finance'
+      preLoaderRoute: typeof AdminAnalyticsTiktokFinanceRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/analytics/visitors': {
@@ -1939,6 +1959,7 @@ interface AdminRouteChildren {
   AdminAnalyticsProductAnalyticsRoute: typeof AdminAnalyticsProductAnalyticsRoute
   AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
   AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
+  AdminAnalyticsTiktokFinanceRoute: typeof AdminAnalyticsTiktokFinanceRoute
   AdminAnalyticsVisitorsRoute: typeof AdminAnalyticsVisitorsRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
@@ -1989,6 +2010,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsProductAnalyticsRoute: AdminAnalyticsProductAnalyticsRoute,
   AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,
   AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
+  AdminAnalyticsTiktokFinanceRoute: AdminAnalyticsTiktokFinanceRoute,
   AdminAnalyticsVisitorsRoute: AdminAnalyticsVisitorsRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,

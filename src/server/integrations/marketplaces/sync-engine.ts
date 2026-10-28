@@ -92,8 +92,13 @@ async function getActiveConnection(
  * if it's expired (or about to, within a 5-minute buffer). Every call site
  * that's about to use a connection's token should go through this rather
  * than reading access_token_encrypted directly.
+ *
+ * Exported (unlike the rest of this file's internals) so admin/tiktok-
+ * finance.ts can refresh before an ad-hoc Finance API call — that call
+ * doesn't go through this engine's own sync/cron paths, which otherwise
+ * keep the token fresh as a side effect of running regularly.
  */
-async function ensureFreshConnection(
+export async function ensureFreshConnection(
   connection: MarketplaceConnection,
 ): Promise<MarketplaceConnection> {
   const expiresAt = connection.token_expires_at
