@@ -800,6 +800,9 @@ function AbProfitTab({
                       AB Cost
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
+                      AB Cost / Unit
+                    </th>
+                    <th className={`${tableHeadClassName} text-right`}>
                       AB Profit
                     </th>
                     <th className={`${tableHeadClassName} text-right`}>
@@ -834,6 +837,13 @@ function AbProfitTab({
                       </td>
                       <td className={`${tableCellClassName} text-right`}>
                         {formatCentsAsPHP(p.abCostCents)}
+                      </td>
+                      <td className={`${tableCellClassName} text-right`}>
+                        {p.unitsSold > 0
+                          ? formatCentsAsPHP(
+                              Math.round(p.abCostCents / p.unitsSold),
+                            )
+                          : '—'}
                       </td>
                       <td
                         className={`${tableCellClassName} text-right font-medium ${p.abProfitCents >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
