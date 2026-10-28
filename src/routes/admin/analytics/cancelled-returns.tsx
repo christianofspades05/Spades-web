@@ -3,10 +3,12 @@ import { z } from 'zod'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import {
   getCancelledAndReturns,
+  getIncomingReturns,
   getReturnIntelligence,
 } from '#/server/admin/analytics'
 import type {
   CancelledReturnsResult,
+  IncomingReturn,
   ReturnIntelligenceLocationRow,
   ReturnIntelligenceResult,
   RiskLevel,
@@ -161,24 +163,26 @@ export const Route = createFileRoute('/admin/analytics/cancelled-returns')({
       from: deps.from,
       to: deps.to,
     })
-    const [cancelledAndReturns, returnIntelligence] = await Promise.all([
-      getCancelledAndReturns({
-        data: {
-          ...resolved,
-          channel: deps.channel,
-          comparePrevious: deps.compare,
-        },
-      }),
-      getReturnIntelligence({
-        data: {
-          ...resolved,
-          channel: deps.channel,
-          comparePrevious: true,
-          minMaturedSample: deps.minSample,
-        },
-      }),
-    ])
-    return { cancelledAndReturns, returnIntelligence }
+    const [cancelledAndReturns, returnIntelligence, incomingReturns] =
+      await Promise.all([
+        getCancelledAndReturns({
+          data: {
+            ...resolved,
+            channel: deps.channel,
+            comparePrevious: deps.compare,
+          },
+        }),
+        getReturnIntelligence({
+          data: {
+            ...resolved,
+            channel: deps.channel,
+            comparePrevious: true,
+            minMaturedSample: deps.minSample,
+          },
+        }),
+        getIncomingReturns(),
+      ])
+    return { cancelledAndReturns, returnIntelligence, incomingReturns }
   },
   component: CancelledReturnsPage,
 })
@@ -187,11 +191,17 @@ function CancelledReturnsPage() {
   const loaderData = Route.useLoaderData()
   const result = loaderData.cancelledAndReturns
   const returnIntelligence = loaderData.returnIntelligence
+  const incomingReturns = loaderData.incomingReturns
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null)
   const [pageTab, setPageTab] = useState<
-    'executive' | 'reasons' | 'geographic' | 'codRisk' | 'crossPeriod'
+    | 'executive'
+    | 'reasons'
+    | 'geographic'
+    | 'codRisk'
+    | 'crossPeriod'
+    | 'incoming'
   >('executive')
 
   function handleRangeChange(
@@ -293,6 +303,11 @@ function CancelledReturnsPage() {
               badge:
                 result.crossPeriod.cancelledCount +
                   result.crossPeriod.returnsCount || undefined,
+            },
+            {
+              key: 'incoming',
+              label: 'Incoming Returns',
+              badge: incomingReturns.length || undefined,
             },
           ] as const
         ).map((tab) => (
@@ -570,6 +585,114 @@ function CancelledReturnsPage() {
       )}
       {pageTab === 'crossPeriod' && (
         <CrossPeriodTab crossPeriod={result.crossPeriod} />
+      )}
+      {pageTab === 'incoming' && (
+        <IncomingReturnsTab rows={incomingReturns} channel={search.channel} />
+      )}
+    </div>
+  )
+}
+
+function IncomingReturnsTab({
+  rows,
+  channel,
+}: {
+  rows: IncomingReturn[]
+  channel: OrderSource | undefined
+}) {
+  const filtered = channel ? rows.filter((r) => r.source === channel) : rows
+  const totalRefundCents = filtered.reduce(
+    (sum, r) => sum + r.refundAmountCents,
+    0,
+  )
+
+  return (
+    <div>
+      <p className="mb-4 text-sm text-neutral-500">
+        Returns the buyer has already shipped back but we haven't marked
+        received — the closest signal to "a parcel is on its way," since TikTok
+        and Shopee don't give us a tracking number or an expected arrival date
+        for a return parcel. "Last synced" is when our system last saw this
+        return change, not a delivery promise. Use this list to cross-check
+        against what physically arrives each day — this is a live snapshot and
+        isn't affected by the date range above.
+      </p>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Incoming Returns</p>
+          <p className="mt-1 text-xl font-semibold text-amber-600">
+            {filtered.length}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-xs text-neutral-500">Refund Value at Stake</p>
+          <p className="mt-1 text-xl font-semibold text-neutral-900">
+            {formatCentsAsPHP(totalRefundCents)}
+          </p>
+        </Card>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="mt-4 text-sm text-neutral-400">
+          No returns are currently marked as shipped-back-and-awaiting- receipt.
+        </p>
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500">
+                <th className="py-2 pr-4 font-medium">Order</th>
+                <th className="py-2 pr-4 font-medium">Customer</th>
+                <th className="py-2 pr-4 font-medium">Channel</th>
+                <th className="py-2 pr-4 font-medium">Reason</th>
+                <th className="py-2 pr-4 font-medium">Requested</th>
+                <th className="py-2 pr-4 font-medium">Last Synced</th>
+                <th className="py-2 pr-4 text-right font-medium">Refund</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr
+                  key={r.id}
+                  className="border-b border-neutral-100 last:border-0"
+                >
+                  <td className="py-2 pr-4">
+                    <Link
+                      to="/admin/orders/$orderId"
+                      params={{ orderId: r.orderId }}
+                      className="font-medium text-neutral-900 hover:underline"
+                    >
+                      {r.orderNumber}
+                    </Link>
+                  </td>
+                  <td className="py-2 pr-4 text-neutral-600">
+                    {r.customerName}
+                  </td>
+                  <td className="py-2 pr-4 text-neutral-600">
+                    {SOURCE_LABELS[r.source]}
+                  </td>
+                  <td className="py-2 pr-4 text-neutral-600">{r.reason}</td>
+                  <td className="py-2 pr-4 whitespace-nowrap text-neutral-500">
+                    {new Date(r.requestedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </td>
+                  <td className="py-2 pr-4 whitespace-nowrap text-neutral-500">
+                    {new Date(r.lastSyncedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </td>
+                  <td className="py-2 pr-4 text-right text-neutral-900">
+                    {formatCentsAsPHP(r.refundAmountCents)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

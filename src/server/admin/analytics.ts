@@ -1298,6 +1298,81 @@ export const getReturnIntelligence = createServerFn({ method: 'GET' })
     return result
   })
 
+export interface IncomingReturn {
+  id: string
+  orderId: string
+  orderNumber: string
+  customerName: string
+  source: OrderSource
+  reason: string
+  requestedAt: string
+  /** When our own `returns` row last changed — the closest signal we have
+   *  to "buyer shipped this around now," since neither TikTok's nor
+   *  Shopee's return API gives a tracking number or an expected-arrival
+   *  date for the return parcel itself. Not a delivery promise — a sync
+   *  timestamp, surfaced as such in the UI. */
+  lastSyncedAt: string
+  refundAmountCents: number
+}
+
+// Deliberately NOT scoped by the page's date-range picker — this is a
+// live "what's in transit right now" snapshot, not a historical report.
+// A return can be requested long after its order was placed, so filtering
+// by the order's placed_at (like fetchOrderOutcomes does) would wrongly
+// exclude an old order's return that only shipped back today.
+export const getIncomingReturns = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<IncomingReturn[]> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+
+    const returns = await fetchAllRows((offset) =>
+      admin
+        .from('returns')
+        .select(
+          'id, order_id, reason, requested_at, updated_at, refund_amount_cents',
+        )
+        .eq('status', 'approved')
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + 999),
+    )
+    if (returns.length === 0) return []
+
+    // returns.order_id -> orders isn't a declared Relationships entry in
+    // database.types.ts (same reason computeCancelledAndReturns above does
+    // a separate lookup instead of an embedded select) — so this is a
+    // second query rather than a join.
+    const orderIds = Array.from(new Set(returns.map((r) => r.order_id)))
+    const orders = await fetchAllRows((offset) =>
+      admin
+        .from('orders')
+        .select(
+          'id, order_number, source, customer:customers(full_name, email)',
+        )
+        .in('id', orderIds)
+        .range(offset, offset + 999),
+    )
+    const orderById = new Map(orders.map((o) => [o.id, o]))
+
+    return returns.flatMap((r) => {
+      const order = orderById.get(r.order_id)
+      if (!order) return []
+      return [
+        {
+          id: r.id,
+          orderId: r.order_id,
+          orderNumber: order.order_number,
+          customerName: order.customer.full_name ?? order.customer.email,
+          source: order.source,
+          reason: r.reason,
+          requestedAt: r.requested_at,
+          lastSyncedAt: r.updated_at,
+          refundAmountCents: r.refund_amount_cents ?? 0,
+        },
+      ]
+    })
+  },
+)
+
 export const getSalesByChannel = createServerFn({ method: 'GET' })
   .validator(
     z.object({
