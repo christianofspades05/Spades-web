@@ -823,6 +823,8 @@ const RETURNED_OUTCOMES = new Set<ReturnOutcome>(['rts', 'buyerReturn'])
 
 interface OrderOutcomeRow {
   id: string
+  orderNumber: string
+  customerName: string
   source: OrderSource
   placedAt: string
   totalCents: number
@@ -905,7 +907,7 @@ async function fetchOrderOutcomes(
     let query = admin
       .from('orders')
       .select(
-        'id, source, status, cancellation_reason, cancellation_detail, placed_at, total_cents, is_cod, shipping_address',
+        'id, order_number, source, status, cancellation_reason, cancellation_detail, placed_at, total_cents, is_cod, shipping_address, customer:customers(full_name, email)',
       )
       .gte('placed_at', rangeStart)
       .lte('placed_at', rangeEnd)
@@ -968,6 +970,8 @@ async function fetchOrderOutcomes(
     )
     return {
       id: order.id,
+      orderNumber: order.order_number,
+      customerName: order.customer.full_name ?? order.customer.email,
       source: order.source,
       placedAt: order.placed_at,
       totalCents: order.total_cents,
@@ -1169,6 +1173,15 @@ function aggregateByLocation(
   })
 }
 
+export interface ReturnIntelligencePendingOrderRow {
+  id: string
+  orderNumber: string
+  customerName: string
+  source: OrderSource
+  placedAt: string
+  totalCents: number
+}
+
 export interface ReturnIntelligenceResult {
   range: { from: string; to: string }
   kpis: ReturnIntelligenceKpis
@@ -1180,6 +1193,9 @@ export interface ReturnIntelligenceResult {
   previousTrend: ReturnIntelligenceTrendPoint[] | null
   provinces: ReturnIntelligenceLocationRow[]
   cities: ReturnIntelligenceLocationRow[]
+  /** Row-level detail behind kpis.pendingReturnOrders, for the "For Return
+   *  / Pending RTS" card's click-to-drill-down in the admin UI. */
+  pendingReturnOrdersList: ReturnIntelligencePendingOrderRow[]
   /** Surfaced in the UI as a small data-quality notice — see this
    *  section's top comment for the full reasoning behind each one. */
   dataNotes: string[]
@@ -1262,6 +1278,20 @@ export const getReturnIntelligence = createServerFn({ method: 'GET' })
             : null,
         data.minMaturedSample,
       ).sort((a, b) => (b.returnRatePct ?? -1) - (a.returnRatePct ?? -1)),
+      pendingReturnOrdersList: outcomes
+        .filter((o) => o.outcome === 'pendingReturn')
+        .map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          customerName: o.customerName,
+          source: o.source,
+          placedAt: o.placedAt,
+          totalCents: o.totalCents,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime(),
+        ),
       dataNotes: RETURN_INTELLIGENCE_DATA_NOTES,
     }
     returnIntelligenceCache.set(cacheKey, result)
@@ -1861,7 +1891,12 @@ export const getFacebookAdsSales = createServerFn({ method: 'GET' })
       data.comparePrevious
         ? (() => {
             const prev = previousPeriod(data.from, data.to)
-            return computeFacebookAdsSales(admin, prev.from, prev.to, data.brand)
+            return computeFacebookAdsSales(
+              admin,
+              prev.from,
+              prev.to,
+              data.brand,
+            )
           })()
         : null,
     ])
@@ -2705,148 +2740,148 @@ async function computeProductVelocitySignals(
   const admin = getSupabaseAdminClient()
 
   const today = daysAgo(0)
-    const windowStartDay = daysAgo(VELOCITY_LOOKBACK_DAYS)
-    const { start: windowStart, end: windowEnd } = storeRangeToUtcBounds(
-      windowStartDay,
-      today,
-    )
+  const windowStartDay = daysAgo(VELOCITY_LOOKBACK_DAYS)
+  const { start: windowStart, end: windowEnd } = storeRangeToUtcBounds(
+    windowStartDay,
+    today,
+  )
 
-    const products = await fetchAllRows((offset) => {
-      let query = admin
-        .from('products')
-        .select(
-          'id, name, images, created_at, variants:product_variants(id, inventory(quantity_on_hand))',
-        )
-        .eq('status', 'active')
-        .lt('created_at', windowStart)
-        .range(offset, offset + 999)
-      if (brand) query = query.eq('brand', brand)
-      return query
-    })
-    if (products.length === 0) {
-      productVelocityCache.set(cacheKey, [])
-      return []
-    }
-
-    const variantToProduct = new Map<string, string>()
-    const currentStockByProduct = new Map<string, number>()
-    for (const product of products) {
-      let stock = 0
-      for (const variant of product.variants) {
-        variantToProduct.set(variant.id, product.id)
-        for (const inv of variant.inventory) {
-          stock += inv.quantity_on_hand
-        }
-      }
-      currentStockByProduct.set(product.id, stock)
-    }
-    const variantIds = Array.from(variantToProduct.keys())
-
-    // quantity_delta bucketed by (productId, store-local day).
-    const deltaByProductAndDay = new Map<string, Map<string, number>>()
-    if (variantIds.length > 0) {
-      const movementChunks = await Promise.all(
-        chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
-          fetchAllRows((offset) =>
-            admin
-              .from('inventory_movements')
-              .select('variant_id, quantity_delta, created_at')
-              .in('variant_id', ids)
-              .in('movement_type', STOCK_AFFECTING_MOVEMENT_TYPES)
-              .gte('created_at', windowStart)
-              .range(offset, offset + 999),
-          ),
-        ),
+  const products = await fetchAllRows((offset) => {
+    let query = admin
+      .from('products')
+      .select(
+        'id, name, images, created_at, variants:product_variants(id, inventory(quantity_on_hand))',
       )
-      for (const movement of movementChunks.flat()) {
-        const productId = variantToProduct.get(movement.variant_id)
-        if (!productId) continue
-        const dayKey = storeLocalDateKey(movement.created_at)
-        const byDay = deltaByProductAndDay.get(productId) ?? new Map()
-        byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + movement.quantity_delta)
-        deltaByProductAndDay.set(productId, byDay)
+      .eq('status', 'active')
+      .lt('created_at', windowStart)
+      .range(offset, offset + 999)
+    if (brand) query = query.eq('brand', brand)
+    return query
+  })
+  if (products.length === 0) {
+    productVelocityCache.set(cacheKey, [])
+    return []
+  }
+
+  const variantToProduct = new Map<string, string>()
+  const currentStockByProduct = new Map<string, number>()
+  for (const product of products) {
+    let stock = 0
+    for (const variant of product.variants) {
+      variantToProduct.set(variant.id, product.id)
+      for (const inv of variant.inventory) {
+        stock += inv.quantity_on_hand
       }
     }
+    currentStockByProduct.set(product.id, stock)
+  }
+  const variantIds = Array.from(variantToProduct.keys())
 
-    // Units sold bucketed by (productId, store-local day) — non-void
-    // orders only.
-    const orders = await fetchAllRows((offset) => {
-      let query = admin
-        .from('orders')
-        .select('id, placed_at, status')
-        .gte('placed_at', windowStart)
-        .lte('placed_at', windowEnd)
-        .range(offset, offset + 999)
-      if (brand) query = query.eq('brand', brand)
-      return query
-    })
-    const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
-    const dayByOrderId = new Map(
-      liveOrders.map((o) => [o.id, storeLocalDateKey(o.placed_at)]),
-    )
-    const liveOrderIds = liveOrders.map((o) => o.id)
-
-    const unitsByProductAndDay = new Map<string, Map<string, number>>()
-    if (liveOrderIds.length > 0) {
-      const itemChunks = await Promise.all(
-        chunkArray(liveOrderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
-          fetchAllRows((offset) =>
-            admin
-              .from('order_items')
-              .select('order_id, variant_id, quantity')
-              .in('order_id', ids)
-              .range(offset, offset + 999),
-          ),
+  // quantity_delta bucketed by (productId, store-local day).
+  const deltaByProductAndDay = new Map<string, Map<string, number>>()
+  if (variantIds.length > 0) {
+    const movementChunks = await Promise.all(
+      chunkArray(variantIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('inventory_movements')
+            .select('variant_id, quantity_delta, created_at')
+            .in('variant_id', ids)
+            .in('movement_type', STOCK_AFFECTING_MOVEMENT_TYPES)
+            .gte('created_at', windowStart)
+            .range(offset, offset + 999),
         ),
-      )
-      for (const item of itemChunks.flat()) {
-        if (!item.variant_id) continue
-        const productId = variantToProduct.get(item.variant_id)
-        if (!productId) continue
-        const dayKey = dayByOrderId.get(item.order_id)
-        if (!dayKey) continue
-        const byDay = unitsByProductAndDay.get(productId) ?? new Map()
-        byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + item.quantity)
-        unitsByProductAndDay.set(productId, byDay)
+      ),
+    )
+    for (const movement of movementChunks.flat()) {
+      const productId = variantToProduct.get(movement.variant_id)
+      if (!productId) continue
+      const dayKey = storeLocalDateKey(movement.created_at)
+      const byDay = deltaByProductAndDay.get(productId) ?? new Map()
+      byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + movement.quantity_delta)
+      deltaByProductAndDay.set(productId, byDay)
+    }
+  }
+
+  // Units sold bucketed by (productId, store-local day) — non-void
+  // orders only.
+  const orders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select('id, placed_at, status')
+      .gte('placed_at', windowStart)
+      .lte('placed_at', windowEnd)
+      .range(offset, offset + 999)
+    if (brand) query = query.eq('brand', brand)
+    return query
+  })
+  const liveOrders = orders.filter((o) => !VOID_STATUSES.has(o.status))
+  const dayByOrderId = new Map(
+    liveOrders.map((o) => [o.id, storeLocalDateKey(o.placed_at)]),
+  )
+  const liveOrderIds = liveOrders.map((o) => o.id)
+
+  const unitsByProductAndDay = new Map<string, Map<string, number>>()
+  if (liveOrderIds.length > 0) {
+    const itemChunks = await Promise.all(
+      chunkArray(liveOrderIds, ORDER_ID_CHUNK_SIZE).map((ids) =>
+        fetchAllRows((offset) =>
+          admin
+            .from('order_items')
+            .select('order_id, variant_id, quantity')
+            .in('order_id', ids)
+            .range(offset, offset + 999),
+        ),
+      ),
+    )
+    for (const item of itemChunks.flat()) {
+      if (!item.variant_id) continue
+      const productId = variantToProduct.get(item.variant_id)
+      if (!productId) continue
+      const dayKey = dayByOrderId.get(item.order_id)
+      if (!dayKey) continue
+      const byDay = unitsByProductAndDay.get(productId) ?? new Map()
+      byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + item.quantity)
+      unitsByProductAndDay.set(productId, byDay)
+    }
+  }
+
+  const result: ProductVelocitySignal[] = products.map((product) => {
+    const currentStockOnHand = currentStockByProduct.get(product.id) ?? 0
+    const deltaByDay = deltaByProductAndDay.get(product.id)
+    const unitsByDay = unitsByProductAndDay.get(product.id)
+
+    // Walk backward from the current on-hand snapshot to the start of
+    // each of the last 30 full days (yesterday through 30 days ago) —
+    // today itself is excluded from the average as an incomplete day,
+    // but its so-far movements still need subtracting out first to land
+    // on the true start-of-today balance.
+    let cursor = currentStockOnHand - (deltaByDay?.get(today) ?? 0)
+    let sumAll = 0
+    let sumQualifying = 0
+    let qualifyingDayCount = 0
+    for (let n = 1; n <= VELOCITY_LOOKBACK_DAYS; n++) {
+      const dayKey = daysAgo(n)
+      cursor -= deltaByDay?.get(dayKey) ?? 0
+      const unitsThatDay = unitsByDay?.get(dayKey) ?? 0
+      sumAll += unitsThatDay
+      if (cursor >= VELOCITY_WELL_STOCKED_THRESHOLD) {
+        sumQualifying += unitsThatDay
+        qualifyingDayCount += 1
       }
     }
 
-    const result: ProductVelocitySignal[] = products.map((product) => {
-      const currentStockOnHand = currentStockByProduct.get(product.id) ?? 0
-      const deltaByDay = deltaByProductAndDay.get(product.id)
-      const unitsByDay = unitsByProductAndDay.get(product.id)
-
-      // Walk backward from the current on-hand snapshot to the start of
-      // each of the last 30 full days (yesterday through 30 days ago) —
-      // today itself is excluded from the average as an incomplete day,
-      // but its so-far movements still need subtracting out first to land
-      // on the true start-of-today balance.
-      let cursor = currentStockOnHand - (deltaByDay?.get(today) ?? 0)
-      let sumAll = 0
-      let sumQualifying = 0
-      let qualifyingDayCount = 0
-      for (let n = 1; n <= VELOCITY_LOOKBACK_DAYS; n++) {
-        const dayKey = daysAgo(n)
-        cursor -= deltaByDay?.get(dayKey) ?? 0
-        const unitsThatDay = unitsByDay?.get(dayKey) ?? 0
-        sumAll += unitsThatDay
-        if (cursor >= VELOCITY_WELL_STOCKED_THRESHOLD) {
-          sumQualifying += unitsThatDay
-          qualifyingDayCount += 1
-        }
-      }
-
-      return {
-        productId: product.id,
-        productName: product.name,
-        imageUrl: product.images[0] ?? null,
-        currentStockOnHand,
-        avgUnitsPerDay: sumAll / VELOCITY_LOOKBACK_DAYS,
-        avgUnitsPerDayWhenWellStocked:
-          qualifyingDayCount > 0 ? sumQualifying / qualifyingDayCount : null,
-        qualifyingDayCount,
-      }
-    })
+    return {
+      productId: product.id,
+      productName: product.name,
+      imageUrl: product.images[0] ?? null,
+      currentStockOnHand,
+      avgUnitsPerDay: sumAll / VELOCITY_LOOKBACK_DAYS,
+      avgUnitsPerDayWhenWellStocked:
+        qualifyingDayCount > 0 ? sumQualifying / qualifyingDayCount : null,
+      qualifyingDayCount,
+    }
+  })
 
   productVelocityCache.set(cacheKey, result)
   return result
@@ -2905,9 +2940,7 @@ export const getNewRestockDecisionCount = createServerFn({
   const newlyAppeared = Array.from(currentIds).filter(
     (id) => !existingIds.has(id),
   )
-  const droppedOff = Array.from(existingIds).filter(
-    (id) => !currentIds.has(id),
-  )
+  const droppedOff = Array.from(existingIds).filter((id) => !currentIds.has(id))
 
   await Promise.all([
     newlyAppeared.length > 0

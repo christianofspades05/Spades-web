@@ -888,6 +888,68 @@ function MinSampleControl({
   )
 }
 
+function PendingReturnsDrillDownTable({
+  rows,
+}: {
+  rows: ReturnIntelligenceResult['pendingReturnOrdersList']
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="mt-4 text-sm text-neutral-400">
+        No orders are currently pending a return in this range.
+      </p>
+    )
+  }
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500">
+            <th className="py-2 pr-4 font-medium">Order</th>
+            <th className="py-2 pr-4 font-medium">Customer</th>
+            <th className="py-2 pr-4 font-medium">Channel</th>
+            <th className="py-2 pr-4 font-medium">Placed</th>
+            <th className="py-2 pr-4 text-right font-medium">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((order) => (
+            <tr
+              key={order.id}
+              className="border-b border-neutral-100 last:border-0"
+            >
+              <td className="py-2 pr-4">
+                <Link
+                  to="/admin/orders/$orderId"
+                  params={{ orderId: order.id }}
+                  className="font-medium text-neutral-900 hover:underline"
+                >
+                  {order.orderNumber}
+                </Link>
+              </td>
+              <td className="py-2 pr-4 text-neutral-600">
+                {order.customerName}
+              </td>
+              <td className="py-2 pr-4 text-neutral-600">
+                {SOURCE_LABELS[order.source]}
+              </td>
+              <td className="py-2 pr-4 whitespace-nowrap text-neutral-500">
+                {new Date(order.placedAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                })}
+              </td>
+              <td className="py-2 pr-4 text-right text-neutral-900">
+                {formatCentsAsPHP(order.totalCents)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function ExecutiveOverviewTab({
   result,
 }: {
@@ -895,6 +957,7 @@ function ExecutiveOverviewTab({
 }) {
   const k = result.kpis
   const prev = result.previousKpis
+  const [showPendingReturns, setShowPendingReturns] = useState(false)
 
   const trendData = result.trend.map((point, i) => ({
     label: point.date,
@@ -941,13 +1004,17 @@ function ExecutiveOverviewTab({
             {k.rtsOrders} RTS + {k.buyerReturnOrders} buyer return
           </p>
         </Card>
-        <Card className="p-5">
+        <Card
+          className="cursor-pointer p-5 transition hover:ring-1 hover:ring-neutral-300"
+          onClick={() => setShowPendingReturns((v) => !v)}
+        >
           <p className="text-xs text-neutral-500">For Return / Pending RTS</p>
           <p className="mt-1 text-xl font-semibold text-amber-600">
             {k.pendingReturnOrders}
           </p>
           <p className="mt-0.5 text-xs text-neutral-400">
-            At-risk, not yet final
+            At-risk, not yet final — click to{' '}
+            {showPendingReturns ? 'hide' : 'view'}
           </p>
         </Card>
         <Card className="p-5">
@@ -1032,6 +1099,18 @@ function ExecutiveOverviewTab({
           )}
         </Card>
       </div>
+
+      {showPendingReturns && (
+        <Card className="mt-4 p-5">
+          <h2 className="text-sm font-semibold text-neutral-900">
+            For Return / Pending RTS — order details
+          </h2>
+          <p className="text-xs text-neutral-500">
+            Returns requested, approved, or received but not yet refunded.
+          </p>
+          <PendingReturnsDrillDownTable rows={result.pendingReturnOrdersList} />
+        </Card>
+      )}
 
       <Card className="mt-4 p-5">
         <h2 className="text-sm font-semibold text-neutral-900">
