@@ -82,6 +82,8 @@ export type MarketplaceConnection =
 export type MarketplaceProductMapping =
   Database['public']['Tables']['marketplace_product_mappings']['Row']
 export type WebhookEvent = Database['public']['Tables']['webhook_events']['Row']
+export type ManualExpense =
+  Database['public']['Tables']['manual_expenses']['Row']
 export type SyncLog = Database['public']['Tables']['sync_logs']['Row']
 
 /** A product with its variants attached — the shape most storefront pages need. */

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   BadgePercent,
+  Banknote,
   BarChart3,
   Bell,
   ChevronDown,
@@ -74,6 +75,7 @@ const ANALYTICS_SUB_LINKS = [
     label: 'TikTok Finance',
     icon: Receipt,
   },
+  { to: '/admin/analytics/expenses', label: 'Expenses', icon: Banknote },
 ] as const
 
 const CUSTOMER_REPLIES_PAGE_SIZE = 10

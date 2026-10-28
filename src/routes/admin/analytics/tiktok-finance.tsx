@@ -48,7 +48,7 @@ function SummaryCard({
   return (
     <Card className="p-5">
       <p className="text-sm font-medium text-neutral-500">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold ${color}`}>
+      <p className={`mt-2 whitespace-nowrap text-xl font-semibold ${color}`}>
         {formatCentsAsPHP(cents)}
       </p>
     </Card>
@@ -95,13 +95,27 @@ function TikTokFinancePage() {
         </p>
       ) : (
         <>
-          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
             <SummaryCard label="Revenue" cents={summary.totals.revenueCents} />
             <SummaryCard
               label="Fees"
               cents={summary.totals.feeCents}
               tone="negative"
             />
+            <Card className="p-5">
+              <p className="text-sm font-medium text-neutral-500">
+                Fees % of revenue
+              </p>
+              <p className="mt-2 whitespace-nowrap text-xl font-semibold text-red-600">
+                {summary.totals.revenueCents === 0
+                  ? '—'
+                  : `${(
+                      (Math.abs(summary.totals.feeCents) /
+                        summary.totals.revenueCents) *
+                      100
+                    ).toFixed(1)}%`}
+              </p>
+            </Card>
             <SummaryCard
               label="Adjustments"
               cents={summary.totals.adjustmentCents}

@@ -44,6 +44,7 @@ import { Route as ReviewsIndexRouteImport } from './routes/reviews/index'
 import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
+import { Route as AdminAnalyticsExpensesRouteImport } from './routes/admin/analytics/expenses'
 import { Route as AdminAnalyticsInventoryValueRouteImport } from './routes/admin/analytics/inventory-value'
 import { Route as AdminAnalyticsProductAnalyticsRouteImport } from './routes/admin/analytics/product-analytics'
 import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analytics/profit'
@@ -284,6 +285,11 @@ const AdminAnalyticsCancelledReturnsRoute =
     path: '/analytics/cancelled-returns',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminAnalyticsExpensesRoute = AdminAnalyticsExpensesRouteImport.update({
+  id: '/analytics/expenses',
+  path: '/analytics/expenses',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminAnalyticsInventoryValueRoute =
   AdminAnalyticsInventoryValueRouteImport.update({
     id: '/analytics/inventory-value',
@@ -652,6 +658,7 @@ export interface FileRoutesByFullPath {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
@@ -749,6 +756,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
@@ -850,6 +858,7 @@ export interface FileRoutesById {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
   '/admin/analytics/profit': typeof AdminAnalyticsProfitRoute
@@ -952,6 +961,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
@@ -1049,6 +1059,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reviews'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
@@ -1149,6 +1160,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
     | '/admin/analytics/profit'
@@ -1506,6 +1518,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics/cancelled-returns'
       fullPath: '/admin/analytics/cancelled-returns'
       preLoaderRoute: typeof AdminAnalyticsCancelledReturnsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/expenses': {
+      id: '/admin/analytics/expenses'
+      path: '/analytics/expenses'
+      fullPath: '/admin/analytics/expenses'
+      preLoaderRoute: typeof AdminAnalyticsExpensesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/analytics/inventory-value': {
@@ -1955,6 +1974,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
+  AdminAnalyticsExpensesRoute: typeof AdminAnalyticsExpensesRoute
   AdminAnalyticsInventoryValueRoute: typeof AdminAnalyticsInventoryValueRoute
   AdminAnalyticsProductAnalyticsRoute: typeof AdminAnalyticsProductAnalyticsRoute
   AdminAnalyticsProfitRoute: typeof AdminAnalyticsProfitRoute
@@ -2006,6 +2026,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
+  AdminAnalyticsExpensesRoute: AdminAnalyticsExpensesRoute,
   AdminAnalyticsInventoryValueRoute: AdminAnalyticsInventoryValueRoute,
   AdminAnalyticsProductAnalyticsRoute: AdminAnalyticsProductAnalyticsRoute,
   AdminAnalyticsProfitRoute: AdminAnalyticsProfitRoute,

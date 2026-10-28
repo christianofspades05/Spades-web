@@ -1150,6 +1150,26 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['activity_logs']['Row']>
         Relationships: []
       }
+      manual_expenses: {
+        Row: {
+          id: string
+          expense_date: string
+          category: string
+          description: string | null
+          amount_cents: number
+          created_by: string | null
+          created_at: string
+        }
+        Insert: Partial<
+          Database['public']['Tables']['manual_expenses']['Row']
+        > & {
+          expense_date: string
+          category: string
+          amount_cents: number
+        }
+        Update: Partial<Database['public']['Tables']['manual_expenses']['Row']>
+        Relationships: []
+      }
       marketplace_connections: {
         Row: {
           id: string
