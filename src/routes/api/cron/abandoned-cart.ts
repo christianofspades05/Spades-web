@@ -170,46 +170,44 @@ export const Route = createFileRoute('/api/cron/abandoned-cart')({
           // parent cart, so a cart created after the cutoff cannot possibly
           // have been inactive long enough yet, regardless of item activity.
           //
-          // Bounded and oldest-first: a backlog beyond this size just means
-          // the newest overdue carts in it wait for the next hourly run
-          // rather than this one — status stays 'active' either way, so
-          // nothing here is skipped forever, only delayed.
-          const { data: carts, error: cartsError } = await admin
-            .from('carts')
-            .select(
-              'id, session_token, email, currency, updated_at, recovery_token, unsubscribe_token, abandoned_cart_discount_id',
-            )
-            .eq('status', 'active')
-            .not('email', 'is', null)
-            .lte('created_at', cutoffISO)
-            .order('created_at', { ascending: true })
-            .limit(500)
+          // Already-sent carts for THIS step are excluded in the query
+          // itself (NOT EXISTS against cart_abandonment_sends, see
+          // get_eligible_abandoned_carts in 0117_fix_abandoned_cart_scan_window.sql)
+          // rather than fetched-then-filtered in JS — carts never leave
+          // 'active' except at checkout, so an oldest-first scan that only
+          // filtered already-sent carts out afterward would permanently fill
+          // its limit with carts that already received every applicable
+          // send and never advance to anything new (this is exactly what
+          // happened from 2026-09-20 to present: zero sends for 5 weeks
+          // because the oldest 500 active+email carts had already been
+          // fully processed). Checked per-automation (not a single
+          // cart-wide flag), so an earlier step already having sent never
+          // blocks a later one.
+          //
+          // p_max_age_days caps how old a cart can be and still qualify —
+          // see 0118_abandoned_cart_backlog_freshness_window.sql: without
+          // it, the fix above would immediately drain the ~18k-cart backlog
+          // that piled up while this was broken, sending "you left this in
+          // your cart" for carts over a month old with a freshly-minted
+          // discount code attached. 7 days is a deliberate product choice,
+          // not a technical constraint — raise it if stale reminders are
+          // ever wanted again.
+          const { data: carts, error: cartsError } = await admin.rpc(
+            'get_eligible_abandoned_carts',
+            {
+              p_automation_id: automation.id,
+              p_cutoff: cutoffISO,
+              p_limit: 500,
+              p_max_age_days: 7,
+            },
+          )
           if (cartsError) throw cartsError
-
-          // Which of these carts already got THIS step's email — checked
-          // per-automation (not a single cart-wide flag), so an earlier
-          // step already having sent never blocks a later one.
-          let alreadySent = new Set<string>()
-          if (carts.length > 0) {
-            const { data: sends, error: sendsError } = await admin
-              .from('cart_abandonment_sends')
-              .select('cart_id')
-              .eq('email_automation_id', automation.id)
-              .in(
-                'cart_id',
-                carts.map((c) => c.id),
-              )
-            if (sendsError) throw sendsError
-            alreadySent = new Set(sends.map((s) => s.cart_id))
-          }
 
           let sent = 0
           let skipped = 0
           const failures: { cartId: string; error: string }[] = []
 
           for (const cart of carts) {
-            if (alreadySent.has(cart.id)) continue
-
             if (!cart.email || unsubscribed.has(cart.email)) {
               skipped += 1
               continue

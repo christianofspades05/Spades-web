@@ -1454,6 +1454,24 @@ export interface Database {
         Returns: undefined
       }
 
+      get_eligible_abandoned_carts: {
+        Args: {
+          p_automation_id: string
+          p_cutoff: string
+          p_limit: number
+          p_max_age_days?: number
+        }
+        Returns: {
+          id: string
+          session_token: string
+          email: string
+          currency: string
+          updated_at: string
+          recovery_token: string | null
+          unsubscribe_token: string | null
+          abandoned_cart_discount_id: string | null
+        }[]
+      }
       reserve_variant_stock: {
         Args: {
           p_variant_id: string
