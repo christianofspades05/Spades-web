@@ -349,11 +349,16 @@ function firstOfPrecedingMonthKey(dateKey: string): string {
  *   days ("Last 7/30/90 Days") compares to the immediately preceding
  *   window of that same length — "last 7 days" means the 7 days before
  *   *this* 7 days, not the same calendar dates a month back.
- * - A whole calendar month (either "This Month" — the 1st of the current
- *   month through today — or a complete past month like "Last Month"
- *   itself) compares to the whole calendar month before it, so "This
- *   Month" always compares to "Last Month" and "Last Month" compares to
- *   the month before that.
+ * - A complete calendar month (a past month like "Last Month" itself, or
+ *   "This Month" on the rare day it's actually run through the month's
+ *   last date) compares to the whole calendar month before it.
+ * - "This Month" on any other day (the 1st of the current month through
+ *   today, today not being the month's last day) is a partial month, and
+ *   falls through to the same "same calendar dates one month earlier" rule
+ *   as a custom range below — Nov 1-3 compares to Oct 1-3, not all of
+ *   October, so a 3-day partial month is never compared against a full
+ *   ~30-day one (confirmed live as misleading: a 3-day "This Month" showed
+ *   as down 90%+ against all of last month, which was never a real trend).
  * - Anything else (a custom range, e.g. picking Oct 1-6 by hand) compares
  *   to the same calendar dates one month earlier — Oct 1-6 compares to Sep
  *   1-6, not "whichever 6 days immediately precede Oct 1" (which used to
@@ -380,9 +385,7 @@ export function previousPeriod(from: string, to: string): ResolvedDateRange {
   }
 
   const isWholeCalendarMonth =
-    from === firstOfMonthKey(from) &&
-    (to === lastOfMonthKey(from) ||
-      (to === today && monthKeyOf(from) === monthKeyOf(today)))
+    from === firstOfMonthKey(from) && to === lastOfMonthKey(from)
   if (isWholeCalendarMonth) {
     const prevMonthFirst = firstOfPrecedingMonthKey(from)
     return { from: prevMonthFirst, to: lastOfMonthKey(prevMonthFirst) }

@@ -69,9 +69,19 @@ describe('previousPeriod', () => {
     })
   })
 
-  it('This Month (month-to-date) compares to the whole of Last Month', () => {
-    // This Month, today pinned to 2026-10-06: 2026-10-01 .. 2026-10-06.
+  it('This Month (a partial month-to-date) compares to the same dates one month earlier, not all of Last Month', () => {
+    // This Month, today pinned to 2026-10-06: 2026-10-01 .. 2026-10-06 — a
+    // 6-day partial month never gets compared against a full ~30-day one.
     expect(previousPeriod('2026-10-01', '2026-10-06')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-06',
+    })
+  })
+
+  it('This Month on the actual last day of the month compares to the whole of Last Month', () => {
+    // Pretend today is 2026-10-31 — a genuinely complete "This Month".
+    vi.setSystemTime(new Date('2026-10-30T16:00:00.000Z'))
+    expect(previousPeriod('2026-10-01', '2026-10-31')).toEqual({
       from: '2026-09-01',
       to: '2026-09-30',
     })
