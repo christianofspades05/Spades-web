@@ -92,6 +92,15 @@ const DISCOUNTS_PAGE_SIZE = 50
 
 const discountsFilterSchema = z.object({
   q: z.string().optional(),
+  // Mirrors computeStatus in routes/admin/discounts/index.tsx exactly —
+  // computed server-side via the discounts_with_status view (see
+  // 0119_discounts_with_status_view.sql) since it depends on now() and
+  // can't be filtered correctly against just the current page's rows.
+  status: z.enum(['active', 'scheduled', 'expired', 'inactive']).optional(),
+  // Matches the Method column's three values (Discount code / Collection
+  // sale / Store sale) — 'store' and 'collection' are both kind='automatic',
+  // split by scope.
+  type: z.enum(['code', 'store', 'collection']).optional(),
 })
 
 /** Escapes the wildcards PostgREST's ilike/or-clause parser treats specially
@@ -125,8 +134,20 @@ export const listDiscounts = createServerFn({ method: 'GET' })
     const search = sanitizeDiscountSearch(data.q)
     const offset = (data.page - 1) * DISCOUNTS_PAGE_SIZE
 
-    let query = admin.from('discounts').select('*')
+    // Queries the status-computing view (0119_discounts_with_status_view.sql)
+    // rather than the table directly — status/expiry depends on now(), so
+    // it has to be filterable in the query for pagination to stay correct
+    // against 15k+ rows, not just recomputed per-row on the current page.
+    let query = admin.from('discounts_with_status').select('*')
     if (search) query = query.or(buildDiscountSearchClause(search))
+    if (data.status) query = query.eq('status', data.status)
+    if (data.type === 'code') query = query.eq('kind', 'code')
+    if (data.type === 'store') {
+      query = query.eq('kind', 'automatic').eq('scope', 'all')
+    }
+    if (data.type === 'collection') {
+      query = query.eq('kind', 'automatic').eq('scope', 'collection')
+    }
     query = query
       .order('created_at', { ascending: false })
       .range(offset, offset + DISCOUNTS_PAGE_SIZE - 1)
@@ -144,9 +165,17 @@ export const getDiscountsCount = createServerFn({ method: 'GET' })
 
     const search = sanitizeDiscountSearch(data.q)
     let query = admin
-      .from('discounts')
+      .from('discounts_with_status')
       .select('id', { count: 'exact', head: true })
     if (search) query = query.or(buildDiscountSearchClause(search))
+    if (data.status) query = query.eq('status', data.status)
+    if (data.type === 'code') query = query.eq('kind', 'code')
+    if (data.type === 'store') {
+      query = query.eq('kind', 'automatic').eq('scope', 'all')
+    }
+    if (data.type === 'collection') {
+      query = query.eq('kind', 'automatic').eq('scope', 'collection')
+    }
 
     const { count, error } = await query
     if (error) throw error

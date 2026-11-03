@@ -18,14 +18,21 @@ import type { Discount } from '#/types/entities'
 
 const PAGE_SIZE = 50
 
+type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'inactive'
+type DiscountTypeFilter = 'code' | 'store' | 'collection'
+
 export const Route = createFileRoute('/admin/discounts/')({
   validateSearch: z.object({
     q: z.string().optional(),
+    status: z
+      .enum(['active', 'scheduled', 'expired', 'inactive'])
+      .optional(),
+    type: z.enum(['code', 'store', 'collection']).optional(),
     page: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
-    const filters = { q: deps.q }
+    const filters = { q: deps.q, status: deps.status, type: deps.type }
     const [discounts, { total }] = await Promise.all([
       listDiscounts({ data: { ...filters, page: deps.page } }),
       getDiscountsCount({ data: filters }),
@@ -34,8 +41,6 @@ export const Route = createFileRoute('/admin/discounts/')({
   },
   component: DiscountsPage,
 })
-
-type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'inactive'
 
 function computeStatus(d: Discount): DiscountStatus {
   if (!d.is_active) return 'inactive'
@@ -102,12 +107,57 @@ function DiscountsPage() {
         />
       </form>
 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          value={search.status ?? ''}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                status: e.target.value
+                  ? (e.target.value as DiscountStatus)
+                  : undefined,
+                page: 1,
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="expired">Expired</option>
+          <option value="inactive">Inactive</option>
+        </select>
+
+        <select
+          value={search.type ?? ''}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                type: e.target.value
+                  ? (e.target.value as DiscountTypeFilter)
+                  : undefined,
+                page: 1,
+              }),
+            })
+          }
+          className={`${inputClassName} w-auto`}
+        >
+          <option value="">All types</option>
+          <option value="code">Discount code</option>
+          <option value="store">Store sale</option>
+          <option value="collection">Collection sale</option>
+        </select>
+      </div>
+
       <div className={tableWrapperClassName}>
         {discounts.length === 0 ? (
           <p className="p-6 text-sm text-neutral-500">
-            {total === 0 && !search.q
+            {total === 0 && !search.q && !search.status && !search.type
               ? 'No discounts yet. Create a discount code customers can enter at checkout, or a store sale that applies automatically.'
-              : 'No discounts match your search.'}
+              : 'No discounts match your filters.'}
           </p>
         ) : (
           <div className="overflow-x-auto">

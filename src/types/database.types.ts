@@ -1377,6 +1377,34 @@ export interface Database {
         }
         Relationships: []
       }
+      discounts_with_status: {
+        Row: {
+          id: string
+          code: string | null
+          type: DiscountType
+          value: number
+          scope: DiscountScope
+          scope_ids: string[]
+          min_subtotal_cents: number
+          max_uses: number | null
+          max_uses_per_customer: number | null
+          times_used: number
+          starts_at: string | null
+          ends_at: string | null
+          is_active: boolean
+          kind: DiscountKind
+          title: string
+          excluded_collection_ids: string[]
+          email_automation_id: string | null
+          max_discounted_items: number | null
+          excludes_free_shipping: boolean
+          stacks_with_sale: boolean
+          created_at: string
+          updated_at: string
+          status: string
+        }
+        Relationships: []
+      }
       admin_product_listing: {
         Row: {
           id: string
