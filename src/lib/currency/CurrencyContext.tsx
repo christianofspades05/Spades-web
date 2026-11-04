@@ -49,11 +49,30 @@ interface CurrencyContextValue {
     rawSubtotalCents: number,
     itemCount: number,
   ) => FreeShippingProgress | null
+  /** Set once per session (see dismissCurrencySuggestion/
+   *  acceptCurrencySuggestion below) for a first-time visitor whose
+   *  geo-detected country maps to a non-PHP currency — never auto-applied.
+   *  Confirmed live: Vercel's IP geolocation misattributes a meaningful
+   *  share of real Philippine mobile traffic (data-saver proxy browsers
+   *  like Opera Mini/UC Browser, and carrier compression proxies, routing
+   *  through a regional hub — commonly Singapore) to the wrong country, so
+   *  silently switching the home market's own customers to a foreign
+   *  display currency on every other visit was a real, recurring bug, not
+   *  a one-off. PHP stays the default for everyone; this only powers an
+   *  explicit, dismissible suggestion (see CurrencySuggestionBanner). */
+  suggestedCurrency: Currency | null
+  showCurrencySuggestion: boolean
+  acceptCurrencySuggestion: () => void
+  dismissCurrencySuggestion: () => void
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | null>(null)
 
 const STORAGE_KEY = 'currency'
+/** Session-only (not localStorage) — a dismissed suggestion should stay
+ *  dismissed for the rest of this visit, but come back and offer again on
+ *  a later visit rather than being suppressed forever off one dismiss. */
+const DISMISSED_SESSION_KEY = 'currency_suggestion_dismissed'
 
 function isSupportedCurrency(value: string | null): value is Currency {
   return (
@@ -65,12 +84,17 @@ function isSupportedCurrency(value: string | null): value is Currency {
 /**
  * Storefront-only, display-currency selector. Defaults to 'PHP' on both
  * server and first client render (so hydration always matches, same
- * reasoning as ThemeProvider) — the effect below then checks localStorage
- * first, and only falls back to the geolocation-derived default (passed
- * down from __root.tsx's beforeLoad, reading Vercel's ip-country header)
- * when there's no stored preference yet. Every payment except card still
- * always charges/settles in PHP regardless of this value — see
- * lib/xendit/client.ts's doc comment for why only card can honor it.
+ * reasoning as ThemeProvider) and PHP stays the default for the rest of
+ * the session too — the effect below checks localStorage first, and a
+ * returning visitor's own stored choice always wins, but a first-time
+ * visitor's geo-detected currency (passed down from __root.tsx's
+ * beforeLoad, reading Vercel's ip-country header) is never auto-applied
+ * anymore, only offered via suggestedCurrency/showCurrencySuggestion (see
+ * those fields' doc comments) — IP geolocation isn't reliable enough to
+ * silently act on for a store whose own customers are disproportionately
+ * affected by it. Every payment except card still always charges/settles
+ * in PHP regardless of this value — see lib/xendit/client.ts's doc comment
+ * for why only card can honor it.
  */
 export function CurrencyProvider({
   children,
@@ -88,13 +112,20 @@ export function CurrencyProvider({
   const [marketShipping, setMarketShipping] = useState<MarketShippingByCountry>(
     {},
   )
+  const [showCurrencySuggestion, setShowCurrencySuggestion] = useState(false)
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (isSupportedCurrency(stored)) {
       setCurrencyState(stored)
-    } else if (geoDefaultCurrency) {
-      setCurrencyState(geoDefaultCurrency)
+      return
+    }
+    if (
+      geoDefaultCurrency &&
+      geoDefaultCurrency !== 'PHP' &&
+      sessionStorage.getItem(DISMISSED_SESSION_KEY) !== '1'
+    ) {
+      setShowCurrencySuggestion(true)
     }
   }, [geoDefaultCurrency])
 
@@ -117,6 +148,16 @@ export function CurrencyProvider({
   function setCurrency(next: Currency) {
     localStorage.setItem(STORAGE_KEY, next)
     setCurrencyState(next)
+  }
+
+  function acceptCurrencySuggestion() {
+    if (geoDefaultCurrency) setCurrency(geoDefaultCurrency)
+    setShowCurrencySuggestion(false)
+  }
+
+  function dismissCurrencySuggestion() {
+    sessionStorage.setItem(DISMISSED_SESSION_KEY, '1')
+    setShowCurrencySuggestion(false)
   }
 
   const formatPrice = useMemo(
@@ -161,6 +202,10 @@ export function CurrencyProvider({
         formatPrice,
         formatPriceWithMarkup,
         freeShippingProgressForBrowsing,
+        suggestedCurrency: geoDefaultCurrency,
+        showCurrencySuggestion,
+        acceptCurrencySuggestion,
+        dismissCurrencySuggestion,
       }}
     >
       {children}

@@ -10,6 +10,7 @@ import { Header } from '#/components/storefront/Header'
 import { Footer } from '#/components/storefront/Footer'
 import { MaintenancePage } from '#/components/storefront/MaintenancePage'
 import { LanguagePopup } from '#/components/storefront/LanguagePopup'
+import { CurrencySuggestionBanner } from '#/components/storefront/CurrencySuggestionBanner'
 import { EmailCapturePopup } from '#/components/storefront/EmailCapturePopup'
 import { NearbyEventPopup } from '#/components/storefront/NearbyEventPopup'
 import { VisitTracker } from '#/components/storefront/VisitTracker'
@@ -190,6 +191,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                       <Footer scope={storefrontScope} />
                     )}
                     {!hideStorefrontChrome && <LanguagePopup />}
+                    {!hideStorefrontChrome && <CurrencySuggestionBanner />}
                     {!hideStorefrontChrome && (
                       <EmailCapturePopup enabled={emailCapturePopupEnabled} />
                     )}
