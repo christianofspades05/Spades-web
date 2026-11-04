@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { COUNTRY_DEFAULT_LANGUAGE } from '#/lib/i18n/translations'
 import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 
 export interface CheckoutInfo {
@@ -62,12 +61,19 @@ const STORAGE_KEY = 'spades_checkout_info'
  *  doesn't have to manually change the country field away from the wrong
  *  default. Only kicks in for a fresh checkout with nothing saved yet — a
  *  returning shopper's own choice (including PH) always wins. Restricted to
- *  the markets the site actually has pricing/shipping configured for (the
- *  same five countries the language feature targets — see
- *  COUNTRY_DEFAULT_LANGUAGE) rather than any geo-detected country, since an
+ *  `knownMarketCountries` (the markets the site actually has pricing/
+ *  shipping configured for — see getActiveMarketMarkups, fetched by
+ *  routes/checkout.tsx) rather than any geo-detected country, since an
  *  unconfigured country wouldn't show up in the checkout's own country
- *  picker (see CountrySelect's countryCodes prop) anyway. */
-function readStoredInfo(geoCountry: string | null): CheckoutInfo {
+ *  picker (see CountrySelect's countryCodes prop) anyway. Used to piggyback
+ *  on COUNTRY_DEFAULT_LANGUAGE's unrelated country list instead of the
+ *  actual market config — confirmed live as the cause of an Australian
+ *  visitor (a real configured market, just not one COUNTRY_DEFAULT_LANGUAGE
+ *  happened to also list) still defaulting to PH at checkout. */
+function readStoredInfo(
+  geoCountry: string | null,
+  knownMarketCountries: readonly string[],
+): CheckoutInfo {
   if (typeof window === 'undefined') return EMPTY_CHECKOUT_INFO
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY)
@@ -75,7 +81,7 @@ function readStoredInfo(geoCountry: string | null): CheckoutInfo {
   } catch {
     // fall through to the geo default below
   }
-  return geoCountry && geoCountry in COUNTRY_DEFAULT_LANGUAGE
+  return geoCountry && knownMarketCountries.includes(geoCountry)
     ? { ...EMPTY_CHECKOUT_INFO, country: geoCountry }
     : EMPTY_CHECKOUT_INFO
 }
@@ -121,14 +127,22 @@ const CheckoutContext = createContext<CheckoutContextValue | null>(null)
 export function CheckoutProvider({
   children,
   geoCountry,
+  knownMarketCountries,
 }: {
   children: ReactNode
   geoCountry: string | null
+  /** 'PH' plus every country an active market covers — see
+   *  routes/checkout.tsx's loader (getActiveMarketMarkups). */
+  knownMarketCountries: readonly string[]
 }) {
   const [info, setInfoState] = useState<CheckoutInfo>(EMPTY_CHECKOUT_INFO)
 
+  // Deliberately keyed on geoCountry alone, not knownMarketCountries too
+  // (a fresh array every render, since loader data isn't memoized) — this
+  // should run once per geoCountry change, not re-run and wipe a shopper's
+  // in-progress edits just because the markets array's identity changed.
   useEffect(() => {
-    setInfoState(readStoredInfo(geoCountry))
+    setInfoState(readStoredInfo(geoCountry, knownMarketCountries))
   }, [geoCountry])
 
   function setInfo(next: CheckoutInfo) {
