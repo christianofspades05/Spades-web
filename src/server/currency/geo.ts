@@ -13,6 +13,7 @@ const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   US: 'USD',
   GB: 'GBP',
   CA: 'CAD',
+  AU: 'AUD',
   SG: 'SGD',
   MY: 'MYR',
   TH: 'THB',

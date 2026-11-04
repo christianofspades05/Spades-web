@@ -20,6 +20,7 @@ const SUPPORTED_CURRENCIES = [
   'EUR',
   'GBP',
   'CAD',
+  'AUD',
   'SGD',
   'HKD',
   'MYR',
