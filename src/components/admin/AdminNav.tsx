@@ -14,6 +14,7 @@ import {
   Globe,
   Home,
   LayoutTemplate,
+  Link2,
   LogOut,
   Mail,
   MapPinOff,
@@ -81,6 +82,11 @@ const ANALYTICS_SUB_LINKS = [
     to: '/admin/analytics/ads-efficiency',
     label: 'Ads Efficiency',
     icon: Target,
+  },
+  {
+    to: '/admin/analytics/campaign-mapping',
+    label: 'Campaign Mapping',
+    icon: Link2,
   },
 ] as const
 
@@ -511,7 +517,9 @@ export function AdminNav({
           <button
             type="button"
             onClick={() => setAnalyticsExpanded((v) => !v)}
-            aria-label={analyticsOpen ? 'Collapse Analytics' : 'Expand Analytics'}
+            aria-label={
+              analyticsOpen ? 'Collapse Analytics' : 'Expand Analytics'
+            }
             className="mt-4 mb-1 flex w-full items-center gap-2.5 rounded-md px-3 py-1 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase hover:text-neutral-600"
           >
             <BarChart3 size={14} strokeWidth={2} />
@@ -524,51 +532,52 @@ export function AdminNav({
           </button>
         )}
 
-        {(collapsed || analyticsOpen) && ANALYTICS_SUB_LINKS.map((link) => {
-          const isActive = pathname.startsWith(link.to)
-          const Icon = link.icon
-          const badgeCount =
-            link.to === '/admin/analytics/product-analytics'
-              ? newRestockDecisionsCount
-              : 0
-          return (
-            <Link
-              key={link.to}
-              to={link.to}
-              onClick={onNavigate}
-              title={collapsed ? link.label : undefined}
-              className={
-                collapsed
-                  ? navLinkClassName(isActive, true)
-                  : `rounded-md px-3 py-2 text-sm font-medium ${
-                      isActive
-                        ? 'bg-neutral-100 text-neutral-950'
-                        : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
-                    }`
-              }
-            >
-              {collapsed ? (
-                <span className="relative">
-                  <Icon size={17} strokeWidth={2} className="shrink-0" />
-                  {badgeCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 flex min-w-[14px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] leading-[14px] font-semibold text-white">
-                      {badgeCount > 9 ? '9+' : badgeCount}
-                    </span>
-                  )}
-                </span>
-              ) : (
-                <span className="flex flex-1 items-center justify-between">
-                  {link.label}
-                  {badgeCount > 0 && (
-                    <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
-                      {badgeCount > 9 ? '9+' : badgeCount}
-                    </span>
-                  )}
-                </span>
-              )}
-            </Link>
-          )
-        })}
+        {(collapsed || analyticsOpen) &&
+          ANALYTICS_SUB_LINKS.map((link) => {
+            const isActive = pathname.startsWith(link.to)
+            const Icon = link.icon
+            const badgeCount =
+              link.to === '/admin/analytics/product-analytics'
+                ? newRestockDecisionsCount
+                : 0
+            return (
+              <Link
+                key={link.to}
+                to={link.to}
+                onClick={onNavigate}
+                title={collapsed ? link.label : undefined}
+                className={
+                  collapsed
+                    ? navLinkClassName(isActive, true)
+                    : `rounded-md px-3 py-2 text-sm font-medium ${
+                        isActive
+                          ? 'bg-neutral-100 text-neutral-950'
+                          : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-950'
+                      }`
+                }
+              >
+                {collapsed ? (
+                  <span className="relative">
+                    <Icon size={17} strokeWidth={2} className="shrink-0" />
+                    {badgeCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex min-w-[14px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] leading-[14px] font-semibold text-white">
+                        {badgeCount > 9 ? '9+' : badgeCount}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex flex-1 items-center justify-between">
+                    {link.label}
+                    {badgeCount > 0 && (
+                      <span className="flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-[16px] font-semibold text-white">
+                        {badgeCount > 9 ? '9+' : badgeCount}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </Link>
+            )
+          })}
 
         {collapsed ? (
           <div className="my-2 border-t border-neutral-100" />

@@ -15,7 +15,12 @@ import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { previousPeriod } from '#/lib/utils/date-range'
 import { getMetaAdSpendCents } from '#/server/integrations/windsor/client'
-import { getSalesByChannel, getFacebookAdsSales } from './analytics'
+import {
+  getSalesByChannel,
+  getFacebookAdsSales,
+  getCampaignAdsPerformance,
+} from './analytics'
+import type { CampaignPerformanceRow } from './analytics'
 
 export interface AdsEfficiencyTotals {
   adsSpendCents: number
@@ -35,6 +40,11 @@ export interface AdsEfficiencyResult {
   previousTotals: AdsEfficiencyTotals | null
   attributedTotals: AdsEfficiencyTotals
   previousAttributedTotals: AdsEfficiencyTotals | null
+  /** Per-campaign ROAS/cost-per-purchase, one row per campaign staff have
+   *  mapped to a product on the admin Campaign Mapping screen — see
+   *  getCampaignAdsPerformance in analytics.ts. Empty until at least one
+   *  campaign has been mapped there. */
+  campaigns: CampaignPerformanceRow[]
 }
 
 function computeTotals(
@@ -72,42 +82,58 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
   .handler(async ({ data }): Promise<AdsEfficiencyResult> => {
     await requireStaff()
 
-    const prev = data.comparePrevious ? previousPeriod(data.from, data.to) : null
+    const prev = data.comparePrevious
+      ? previousPeriod(data.from, data.to)
+      : null
 
-    const [adsSpendCents, sales, fbSales, prevAdsSpendCents, prevSales] =
-      await Promise.all([
-        getMetaAdSpendCents({ from: data.from, to: data.to }),
-        getSalesByChannel({
-          data: {
-            from: data.from,
-            to: data.to,
-            brand: data.brand,
-            tz: data.tz,
-          },
-        }),
-        getFacebookAdsSales({
-          data: {
-            from: data.from,
-            to: data.to,
-            brand: data.brand,
-            comparePrevious: data.comparePrevious,
-            tz: data.tz,
-          },
-        }),
-        prev
-          ? getMetaAdSpendCents({ from: prev.from, to: prev.to })
-          : Promise.resolve(null),
-        prev
-          ? getSalesByChannel({
-              data: {
-                from: prev.from,
-                to: prev.to,
-                brand: data.brand,
-                tz: data.tz,
-              },
-            })
-          : Promise.resolve(null),
-      ])
+    const [
+      adsSpendCents,
+      sales,
+      fbSales,
+      campaignPerformance,
+      prevAdsSpendCents,
+      prevSales,
+    ] = await Promise.all([
+      getMetaAdSpendCents({ from: data.from, to: data.to }),
+      getSalesByChannel({
+        data: {
+          from: data.from,
+          to: data.to,
+          brand: data.brand,
+          tz: data.tz,
+        },
+      }),
+      getFacebookAdsSales({
+        data: {
+          from: data.from,
+          to: data.to,
+          brand: data.brand,
+          comparePrevious: data.comparePrevious,
+          tz: data.tz,
+        },
+      }),
+      getCampaignAdsPerformance({
+        data: {
+          from: data.from,
+          to: data.to,
+          brand: data.brand,
+          tz: data.tz,
+        },
+      }),
+      prev
+        ? getMetaAdSpendCents({ from: prev.from, to: prev.to })
+        : Promise.resolve(null),
+      prev
+        ? getSalesByChannel({
+            data: {
+              from: prev.from,
+              to: prev.to,
+              brand: data.brand,
+              tz: data.tz,
+            },
+          })
+        : Promise.resolve(null),
+    ])
 
     const totals = computeTotals(
       adsSpendCents,
@@ -143,5 +169,6 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
       previousTotals,
       attributedTotals,
       previousAttributedTotals,
+      campaigns: campaignPerformance.campaigns,
     }
   })

@@ -96,6 +96,10 @@ export const placeOrderSchema = z.object({
   // Null/absent just means this order isn't attributable to a Facebook ad,
   // not a validation failure.
   fbclid: z.string().trim().min(1).max(500).nullable().optional(),
+  // First-click Meta ad-campaign name — see lib/analytics/campaign.ts. Only
+  // populated when the advertiser's campaign URL carries a utm_campaign
+  // parameter; absent otherwise, same as fbclid above.
+  adCampaign: z.string().trim().min(1).max(200).nullable().optional(),
 })
 
 export type PlaceOrderInput = z.infer<typeof placeOrderSchema>

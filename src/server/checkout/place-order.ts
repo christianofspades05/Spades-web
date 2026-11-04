@@ -151,9 +151,8 @@ export const placeOrder = createServerFn({ method: 'POST' })
       // absolute block: a customer with a proven delivery track record
       // (see cod-trust.ts) is still allowed COD even here.
       if (data.paymentProvider === 'cod' && data.contact.country === 'PH') {
-        const { resolveCodCityEligibility } = await import(
-          '#/server/checkout/cod-city-restriction'
-        )
+        const { resolveCodCityEligibility } =
+          await import('#/server/checkout/cod-city-restriction')
         const cityEligibility = await resolveCodCityEligibility(admin, {
           email: data.contact.email,
           region: data.contact.region ?? '',
@@ -527,6 +526,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             customer_notes: data.contact.orderNotes || null,
             has_pre_order_items: hasPreOrderItems,
             fbclid: data.fbclid || null,
+            ad_campaign_name: data.adCampaign || null,
           })
           .select('id, order_number')
           .single()
@@ -662,6 +662,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           lalamove_info: lalamoveInfo,
           customer_notes: data.contact.orderNotes || null,
           fbclid: data.fbclid || null,
+          ad_campaign_name: data.adCampaign || null,
         })
         .select('id')
         .single()

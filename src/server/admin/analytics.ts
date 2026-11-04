@@ -15,6 +15,7 @@ import {
 import type { ReportTimezone } from '#/lib/utils/date-range'
 import { chunkArray, fetchAllRows } from '#/lib/utils/paginate'
 import { createTtlCache } from '#/lib/utils/cache'
+import { getMetaCampaignSpendCents } from '#/server/integrations/windsor/client'
 import { STOREFRONT_BRANDS } from '#/lib/validation/admin/storefront-sections'
 import { collectionRuleSchema, matchesRules } from '#/lib/collections/rules'
 import type {
@@ -1998,6 +1999,154 @@ export const getFacebookAdsSales = createServerFn({ method: 'GET' })
       daily,
     }
     facebookAdsSalesCache.set(cacheKey, result)
+    return result
+  })
+
+export interface CampaignPerformanceRow {
+  campaignName: string
+  productId: string
+  productName: string
+  productImage: string | null
+  adsSpendCents: number
+  grossSalesCents: number
+  orderCount: number
+  /** Null when ad spend was 0 in range — not a real 0x, undefined (nothing
+   *  to divide by). Same convention as AdsEfficiencyTotals.roas. */
+  roas: number | null
+  costPerPurchaseCents: number | null
+}
+
+export interface CampaignAdsPerformanceResult {
+  range: { from: string; to: string }
+  campaigns: CampaignPerformanceRow[]
+}
+
+/**
+ * Gross sales/order counts per Meta ad campaign, grouped by
+ * orders.ad_campaign_name (first-click attribution — see
+ * lib/analytics/campaign.ts). Always scoped to source='storefront', same
+ * reasoning as computeFacebookAdsSales above: ad_campaign_name can only
+ * ever reach place-order.ts through our own checkout.
+ */
+async function computeCampaignSales(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  from: string,
+  to: string,
+  brandFilter: string | undefined,
+  tz: ReportTimezone,
+): Promise<Map<string, { grossSalesCents: number; orderCount: number }>> {
+  const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
+    from,
+    to,
+    tz,
+  )
+
+  const orders = await fetchAllRows((offset) => {
+    let query = admin
+      .from('orders')
+      .select('status, subtotal_cents, shipping_cents, ad_campaign_name')
+      .eq('source', 'storefront')
+      .not('ad_campaign_name', 'is', null)
+      .gte('placed_at', rangeStart)
+      .lte('placed_at', rangeEnd)
+      .range(offset, offset + 999)
+    if (brandFilter) query = query.eq('brand', brandFilter)
+    return query
+  })
+
+  const byCampaign = new Map<
+    string,
+    { grossSalesCents: number; orderCount: number }
+  >()
+  for (const order of orders) {
+    if (VOID_STATUSES.has(order.status) || !order.ad_campaign_name) continue
+    const bucket = byCampaign.get(order.ad_campaign_name) ?? {
+      grossSalesCents: 0,
+      orderCount: 0,
+    }
+    bucket.grossSalesCents += grossSalesCentsForOrder({
+      ...order,
+      source: 'storefront',
+    })
+    bucket.orderCount += 1
+    byCampaign.set(order.ad_campaign_name, bucket)
+  }
+  return byCampaign
+}
+
+const campaignAdsPerformanceCache =
+  createTtlCache<CampaignAdsPerformanceResult>(ANALYTICS_CACHE_TTL_MS)
+
+/**
+ * Per-campaign ROAS/cost-per-purchase for the admin Ads Efficiency page.
+ * Only returns campaigns staff have explicitly mapped to a product (see
+ * server/admin/campaign-mapping.ts) — an unmapped campaign has no product
+ * to show, and campaign naming isn't reliable enough to auto-match. Ad
+ * spend comes from Windsor's per-campaign breakdown for this exact date
+ * range (so it moves with the page's own date picker/tz toggle, unlike the
+ * campaign *list* in campaign-mapping.ts, which always looks at a fixed
+ * trailing 90 days so a campaign a staffer hasn't mapped yet doesn't
+ * disappear just because the Ads Efficiency range is narrower).
+ */
+export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      brand: z.string().optional(),
+      tz: z.enum(['ph', 'la']).default('ph'),
+    }),
+  )
+  .handler(async ({ data }): Promise<CampaignAdsPerformanceResult> => {
+    await requireStaff()
+
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}|${data.tz}`
+    const cached = campaignAdsPerformanceCache.get(cacheKey)
+    if (cached) return cached
+
+    const admin = getSupabaseAdminClient()
+
+    const [mappingRows, salesByCampaign, spendByCampaign] = await Promise.all([
+      admin
+        .from('meta_campaign_product_mappings')
+        .select('campaign_name, product_id, product:products(name, images)')
+        .not('product_id', 'is', null)
+        .then(({ data: rows, error }) => {
+          if (error) throw error
+          return rows
+        }),
+      computeCampaignSales(admin, data.from, data.to, data.brand, data.tz),
+      getMetaCampaignSpendCents({ from: data.from, to: data.to }),
+    ])
+
+    const campaigns: CampaignPerformanceRow[] = mappingRows
+      .map((row): CampaignPerformanceRow | null => {
+        if (row.product === null) return null
+        const sales = salesByCampaign.get(row.campaign_name)
+        const adsSpendCents = spendByCampaign.get(row.campaign_name) ?? 0
+        const grossSalesCents = sales?.grossSalesCents ?? 0
+        const orderCount = sales?.orderCount ?? 0
+        return {
+          campaignName: row.campaign_name,
+          productId: row.product_id,
+          productName: row.product.name,
+          productImage: row.product.images[0] ?? null,
+          adsSpendCents,
+          grossSalesCents,
+          orderCount,
+          roas: adsSpendCents > 0 ? grossSalesCents / adsSpendCents : null,
+          costPerPurchaseCents:
+            orderCount > 0 ? Math.round(adsSpendCents / orderCount) : null,
+        }
+      })
+      .filter((row): row is CampaignPerformanceRow => row !== null)
+      .sort((a, b) => b.adsSpendCents - a.adsSpendCents)
+
+    const result: CampaignAdsPerformanceResult = {
+      range: { from: data.from, to: data.to },
+      campaigns,
+    }
+    campaignAdsPerformanceCache.set(cacheKey, result)
     return result
   })
 

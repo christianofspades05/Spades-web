@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Package } from 'lucide-react'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { getAdsEfficiency } from '#/server/admin/ads-efficiency'
 import type { AdsEfficiencyTotals } from '#/server/admin/ads-efficiency'
+import type { CampaignPerformanceRow } from '#/server/admin/analytics'
 import {
   DATE_RANGE_PRESETS,
   percentChange,
@@ -16,7 +18,13 @@ import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
-import { inputClassName } from '#/components/admin/ui'
+import {
+  inputClassName,
+  tableCellClassName,
+  tableHeadClassName,
+  tableRowClassName,
+  tableWrapperClassName,
+} from '#/components/admin/ui'
 
 const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
@@ -180,6 +188,113 @@ function TotalsGrid({
   )
 }
 
+function CampaignPerformanceTable({
+  campaigns,
+}: {
+  campaigns: CampaignPerformanceRow[]
+}) {
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">
+            Campaign performance
+          </h2>
+          <p className="text-xs text-neutral-500">
+            ROAS and cost per purchase for campaigns you've mapped to a product
+            — e.g. a "Denim Flare Best Seller" campaign mapped to the Denim
+            product. Sales only count orders whose landing URL carried a
+            matching <code>utm_campaign</code> parameter.
+          </p>
+        </div>
+        <Link
+          to="/admin/analytics/campaign-mapping"
+          className="shrink-0 text-xs font-medium text-neutral-600 underline hover:text-neutral-900"
+        >
+          Manage mapping →
+        </Link>
+      </div>
+
+      {campaigns.length === 0 ? (
+        <p className="mt-5 text-sm text-neutral-400">
+          No campaigns mapped yet —{' '}
+          <Link
+            to="/admin/analytics/campaign-mapping"
+            className="underline hover:text-neutral-700"
+          >
+            map one
+          </Link>{' '}
+          to see its ROAS here.
+        </p>
+      ) : (
+        <div className={`${tableWrapperClassName} mt-5`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={tableHeadClassName}>Product</th>
+                  <th className={tableHeadClassName}>Campaign</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Ads spend
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Gross sales
+                  </th>
+                  <th className={`${tableHeadClassName} text-right`}>Orders</th>
+                  <th className={`${tableHeadClassName} text-right`}>ROAS</th>
+                  <th className={`${tableHeadClassName} text-right`}>
+                    Cost per purchase
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaigns.map((row) => (
+                  <tr key={row.campaignName} className={tableRowClassName}>
+                    <td className={tableCellClassName}>
+                      <div className="flex items-center gap-2">
+                        {row.productImage ? (
+                          <img
+                            src={row.productImage}
+                            alt=""
+                            className="size-7 rounded-md border border-neutral-200 object-cover"
+                          />
+                        ) : (
+                          <div className="flex size-7 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+                            <Package size={12} className="text-neutral-300" />
+                          </div>
+                        )}
+                        <span>{row.productName}</span>
+                      </div>
+                    </td>
+                    <td className={tableCellClassName}>{row.campaignName}</td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(row.adsSpendCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {formatCentsAsPHP(row.grossSalesCents)}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {row.orderCount}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {row.roas === null ? '—' : `${row.roas.toFixed(2)}x`}
+                    </td>
+                    <td className={`${tableCellClassName} text-right`}>
+                      {row.costPerPurchaseCents === null
+                        ? '—'
+                        : formatCentsAsPHP(row.costPerPurchaseCents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AdsEfficiencyPage() {
   const data = Route.useLoaderData()
   const search = Route.useSearch()
@@ -251,10 +366,10 @@ function AdsEfficiencyPage() {
           Whole store, every channel
         </h2>
         <p className="text-xs text-neutral-500">
-          Total ad spend against total gross sales and orders across
-          Storefront, TikTok Shop, Shopee, and Lazada — not a claim that
-          these specific orders came from an ad, just how the whole store is
-          doing relative to what was spent on ads.
+          Total ad spend against total gross sales and orders across Storefront,
+          TikTok Shop, Shopee, and Lazada — not a claim that these specific
+          orders came from an ad, just how the whole store is doing relative to
+          what was spent on ads.
         </p>
         <div className="mt-3">
           <TotalsGrid totals={data.totals} previous={data.previousTotals} />
@@ -267,9 +382,9 @@ function AdsEfficiencyPage() {
         </h2>
         <p className="text-xs text-neutral-500">
           Storefront orders that can be traced back to a Facebook ad click
-          (first-click attribution) — a narrower but more literal "did this
-          ad spend actually work" figure. Excludes TikTok Shop, Shopee,
-          Lazada, and any storefront order without a captured ad click.
+          (first-click attribution) — a narrower but more literal "did this ad
+          spend actually work" figure. Excludes TikTok Shop, Shopee, Lazada, and
+          any storefront order without a captured ad click.
         </p>
         <div className="mt-3">
           <TotalsGrid
@@ -278,6 +393,8 @@ function AdsEfficiencyPage() {
           />
         </div>
       </div>
+
+      <CampaignPerformanceTable campaigns={data.campaigns} />
     </div>
   )
 }
