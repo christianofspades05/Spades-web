@@ -18,7 +18,6 @@ import { formatRegionLabel, ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { formatCountryName } from '#/lib/utils/countries'
 import { placeOrder } from '#/server/checkout/place-order'
 import { getAttributedFbclid } from '#/lib/analytics/fbclid'
-import { getAttributedAdCampaign } from '#/lib/analytics/campaign'
 import { checkCodCityEligibility } from '#/server/checkout/cod-city-restriction'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
@@ -226,7 +225,6 @@ function PaymentPage() {
           paymentProvider: method,
           currency: method === 'cod' ? 'PHP' : currency,
           fbclid: getAttributedFbclid(),
-          adCampaign: getAttributedAdCampaign(),
         },
       })
       if (result.invoiceUrl) {

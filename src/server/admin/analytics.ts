@@ -2022,56 +2022,89 @@ export interface CampaignAdsPerformanceResult {
 }
 
 /**
- * Gross sales/order counts per Meta ad campaign, grouped by
- * orders.ad_campaign_name (first-click attribution — see
- * lib/analytics/campaign.ts). Always scoped to source='storefront', same
- * reasoning as computeFacebookAdsSales above: ad_campaign_name can only
- * ever reach place-order.ts through our own checkout.
+ * Gross sales/order counts for each mapped campaign's *product*, across
+ * that product's storefront orders in range — not scoped to orders
+ * carrying a matching ad_campaign_name (true click-level attribution, see
+ * lib/analytics/campaign.ts). Click attribution stays at zero for a
+ * campaign until its destination URL actually carries a utm_campaign
+ * parameter AND enough time passes for new orders to accumulate, so
+ * showing it here would mean every campaign reads ₱0 until then — this
+ * product-level figure ("how is the product this campaign advertises
+ * actually selling") is a usable proxy in the meantime. It's a looser
+ * signal than true attribution: it also counts that product's organic/
+ * other-source-within-storefront demand, not just orders this specific
+ * campaign drove.
  */
-async function computeCampaignSales(
+async function computeProductSalesByProductId(
   admin: ReturnType<typeof getSupabaseAdminClient>,
+  productIds: string[],
   from: string,
   to: string,
   brandFilter: string | undefined,
   tz: ReportTimezone,
 ): Promise<Map<string, { grossSalesCents: number; orderCount: number }>> {
+  const result = new Map<
+    string,
+    { grossSalesCents: number; orderCount: number }
+  >()
+  if (productIds.length === 0) return result
+
   const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
     from,
     to,
     tz,
   )
 
-  const orders = await fetchAllRows((offset) => {
+  const variants = await fetchAllRows((offset) =>
+    admin
+      .from('product_variants')
+      .select('id, product_id')
+      .in('product_id', productIds)
+      .range(offset, offset + 999),
+  )
+  if (variants.length === 0) return result
+  const productIdByVariantId = new Map(
+    variants.map((v) => [v.id, v.product_id]),
+  )
+
+  const items = await fetchAllRows((offset) => {
     let query = admin
-      .from('orders')
-      .select('status, subtotal_cents, shipping_cents, ad_campaign_name')
-      .eq('source', 'storefront')
-      .not('ad_campaign_name', 'is', null)
-      .gte('placed_at', rangeStart)
-      .lte('placed_at', rangeEnd)
+      .from('order_items')
+      .select(
+        'order_id, variant_id, line_total_cents, order:orders!inner(status, source, brand, placed_at)',
+      )
+      .in('variant_id', Array.from(productIdByVariantId.keys()))
+      .eq('order.source', 'storefront')
+      .gte('order.placed_at', rangeStart)
+      .lte('order.placed_at', rangeEnd)
       .range(offset, offset + 999)
-    if (brandFilter) query = query.eq('brand', brandFilter)
+    if (brandFilter) query = query.eq('order.brand', brandFilter)
     return query
   })
 
-  const byCampaign = new Map<
-    string,
-    { grossSalesCents: number; orderCount: number }
-  >()
-  for (const order of orders) {
-    if (VOID_STATUSES.has(order.status) || !order.ad_campaign_name) continue
-    const bucket = byCampaign.get(order.ad_campaign_name) ?? {
+  const orderIdsByProduct = new Map<string, Set<string>>()
+  for (const item of items) {
+    if (item.variant_id === null || VOID_STATUSES.has(item.order.status))
+      continue
+    const productId = productIdByVariantId.get(item.variant_id)
+    if (!productId) continue
+
+    const bucket = result.get(productId) ?? {
       grossSalesCents: 0,
       orderCount: 0,
     }
-    bucket.grossSalesCents += grossSalesCentsForOrder({
-      ...order,
-      source: 'storefront',
-    })
-    bucket.orderCount += 1
-    byCampaign.set(order.ad_campaign_name, bucket)
+    bucket.grossSalesCents += item.line_total_cents
+    result.set(productId, bucket)
+
+    const orderIdSet = orderIdsByProduct.get(productId) ?? new Set<string>()
+    orderIdSet.add(item.order_id)
+    orderIdsByProduct.set(productId, orderIdSet)
   }
-  return byCampaign
+  for (const [productId, orderIdSet] of orderIdsByProduct) {
+    const bucket = result.get(productId)
+    if (bucket) bucket.orderCount = orderIdSet.size
+  }
+  return result
 }
 
 const campaignAdsPerformanceCache =
@@ -2106,23 +2139,34 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
 
     const admin = getSupabaseAdminClient()
 
-    const [mappingRows, salesByCampaign, spendByCampaign] = await Promise.all([
-      admin
-        .from('meta_campaign_product_mappings')
-        .select('campaign_name, product_id, product:products(name, images)')
-        .not('product_id', 'is', null)
-        .then(({ data: rows, error }) => {
-          if (error) throw error
-          return rows
-        }),
-      computeCampaignSales(admin, data.from, data.to, data.brand, data.tz),
+    const mappingRows = await admin
+      .from('meta_campaign_product_mappings')
+      .select('campaign_name, product_id, product:products(name, images)')
+      .not('product_id', 'is', null)
+      .then(({ data: rows, error }) => {
+        if (error) throw error
+        return rows
+      })
+    const productIds = Array.from(
+      new Set(mappingRows.map((row) => row.product_id)),
+    )
+
+    const [salesByProduct, spendByCampaign] = await Promise.all([
+      computeProductSalesByProductId(
+        admin,
+        productIds,
+        data.from,
+        data.to,
+        data.brand,
+        data.tz,
+      ),
       getMetaCampaignSpendCents({ from: data.from, to: data.to }),
     ])
 
     const campaigns: CampaignPerformanceRow[] = mappingRows
       .map((row): CampaignPerformanceRow | null => {
         if (row.product === null) return null
-        const sales = salesByCampaign.get(row.campaign_name)
+        const sales = salesByProduct.get(row.product_id)
         const adsSpendCents = spendByCampaign.get(row.campaign_name) ?? 0
         const grossSalesCents = sales?.grossSalesCents ?? 0
         const orderCount = sales?.orderCount ?? 0

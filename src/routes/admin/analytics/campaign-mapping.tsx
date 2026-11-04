@@ -185,11 +185,10 @@ function CampaignMappingPage() {
 
       <Card className="mt-5 p-5">
         <p className="text-xs text-neutral-500">
-          Campaigns with any ad spend in the last 90 days. ROAS needs orders to
-          carry a <code>utm_campaign</code> parameter matching the campaign name
-          below — set a URL parameter on each campaign's destination link in Ads
-          Manager (e.g. <code>utm_campaign={'{{campaign.name}}'}</code>) if you
-          haven't already.
+          Campaigns with any ad spend in the last 90 days. ROAS on the Ads
+          Efficiency page is based on the mapped product's own order history —
+          not click-level attribution — so it also includes that product's sales
+          from outside this specific campaign.
         </p>
 
         {rows.length === 0 ? (
