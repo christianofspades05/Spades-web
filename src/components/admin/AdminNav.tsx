@@ -141,6 +141,7 @@ export function AdminNav({
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [expanded, setExpanded] = useState(false)
   const [ordersExpanded, setOrdersExpanded] = useState(false)
+  const [analyticsExpanded, setAnalyticsExpanded] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
   const [repliesPage, setRepliesPage] = useState(1)
@@ -193,6 +194,11 @@ export function AdminNav({
     pathname.startsWith(link.to),
   )
   const ordersOpen = !collapsed && (ordersExpanded || underOrdersSubLinks)
+
+  const underAnalytics = ANALYTICS_SUB_LINKS.some((link) =>
+    pathname.startsWith(link.to),
+  )
+  const analyticsOpen = !collapsed && (analyticsExpanded || underAnalytics)
 
   async function handleSignOut() {
     await getSupabaseBrowserClient().auth.signOut()
@@ -502,13 +508,23 @@ export function AdminNav({
         {collapsed ? (
           <div className="my-2 border-t border-neutral-100" />
         ) : (
-          <p className="mt-4 mb-1 flex items-center gap-2.5 px-3 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase">
+          <button
+            type="button"
+            onClick={() => setAnalyticsExpanded((v) => !v)}
+            aria-label={analyticsOpen ? 'Collapse Analytics' : 'Expand Analytics'}
+            className="mt-4 mb-1 flex w-full items-center gap-2.5 rounded-md px-3 py-1 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase hover:text-neutral-600"
+          >
             <BarChart3 size={14} strokeWidth={2} />
-            Analytics
-          </p>
+            <span className="flex-1 text-left">Analytics</span>
+            {analyticsOpen ? (
+              <ChevronDown size={13} />
+            ) : (
+              <ChevronRight size={13} />
+            )}
+          </button>
         )}
 
-        {ANALYTICS_SUB_LINKS.map((link) => {
+        {(collapsed || analyticsOpen) && ANALYTICS_SUB_LINKS.map((link) => {
           const isActive = pathname.startsWith(link.to)
           const Icon = link.icon
           const badgeCount =
