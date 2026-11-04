@@ -22,6 +22,7 @@
  * check the response body (surfaced via sync_logs) against Shopee's own API
  * reference and adjust.
  */
+import sharp from 'sharp'
 import type { OrderShippingAddress } from '#/lib/checkout/shipping-address'
 import type { MarketplaceConnection } from '#/types/entities'
 import type {
@@ -259,6 +260,19 @@ interface ShopeeAttributeNode {
   attribute_value_list?: ShopeeAttributeValue[]
 }
 
+// media_space/upload_image rejects anything else with a generic
+// "image is invalid or not supported" — confirmed live against a product
+// whose image list included a shared WebP size-chart graphic. Staff can
+// upload any image type a browser accepts (resizeImageFile on the client
+// only ever re-encodes to JPEG/PNG, and leaves everything else, e.g. WebP
+// or HEIC from a phone, untouched when it's already under the resize
+// threshold), so this adapter can't assume every stored product image is
+// already Shopee-safe.
+const SHOPEE_SUPPORTED_IMAGE_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+])
+
 /** Downloads one of our own hosted product images and re-uploads it through Shopee's Media Space API, returning the `image_id` Shopee expects in a product's image list. */
 async function uploadProductImage(
   accessToken: string,
@@ -269,7 +283,20 @@ async function uploadProductImage(
   if (!res.ok) {
     throw new Error(`Failed to download image for Shopee upload: ${imageUrl}`)
   }
-  const buffer = Buffer.from(await res.arrayBuffer())
+  let buffer = Buffer.from(await res.arrayBuffer())
+  let contentType = res.headers.get('content-type') ?? 'image/jpeg'
+
+  if (!SHOPEE_SUPPORTED_IMAGE_CONTENT_TYPES.has(contentType)) {
+    try {
+      buffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer()
+      contentType = 'image/jpeg'
+    } catch (err) {
+      throw new Error(
+        `Image at ${imageUrl} is a format Shopee doesn't accept (${contentType}) and couldn't be converted: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
   // Confirmed live: this endpoint rejects a JSON body ("form not found in
   // request : multipart form not found in request") — it needs an actual
   // multipart/form-data upload, unlike every other Shopee POST endpoint
@@ -282,7 +309,7 @@ async function uploadProductImage(
     shopId,
     fieldName: 'image',
     fileName: 'image.jpg',
-    contentType: res.headers.get('content-type') ?? 'image/jpeg',
+    contentType,
     fileBuffer: buffer,
   })
   return image_info.image_id
