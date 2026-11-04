@@ -2023,17 +2023,13 @@ export interface CampaignAdsPerformanceResult {
 
 /**
  * Gross sales/order counts for each mapped campaign's *product*, across
- * that product's storefront orders in range — not scoped to orders
- * carrying a matching ad_campaign_name (true click-level attribution, see
- * lib/analytics/campaign.ts). Click attribution stays at zero for a
- * campaign until its destination URL actually carries a utm_campaign
- * parameter AND enough time passes for new orders to accumulate, so
- * showing it here would mean every campaign reads ₱0 until then — this
- * product-level figure ("how is the product this campaign advertises
- * actually selling") is a usable proxy in the meantime. It's a looser
- * signal than true attribution: it also counts that product's organic/
- * other-source-within-storefront demand, not just orders this specific
- * campaign drove.
+ * that product's orders in range on every channel (storefront, TikTok
+ * Shop, Shopee, Lazada — matching how the rest of this page's totals
+ * blend every channel), not just orders this specific campaign actually
+ * drove. There's no click-level ad attribution here — this is a product-
+ * level proxy ("how is the product this campaign advertises actually
+ * selling"), so it also counts that product's organic/other-channel
+ * demand, not just traffic from this campaign.
  */
 async function computeProductSalesByProductId(
   admin: ReturnType<typeof getSupabaseAdminClient>,
@@ -2071,10 +2067,9 @@ async function computeProductSalesByProductId(
     let query = admin
       .from('order_items')
       .select(
-        'order_id, variant_id, line_total_cents, order:orders!inner(status, source, brand, placed_at)',
+        'order_id, variant_id, line_total_cents, order:orders!inner(status, brand, placed_at)',
       )
       .in('variant_id', Array.from(productIdByVariantId.keys()))
-      .eq('order.source', 'storefront')
       .gte('order.placed_at', rangeStart)
       .lte('order.placed_at', rangeEnd)
       .range(offset, offset + 999)

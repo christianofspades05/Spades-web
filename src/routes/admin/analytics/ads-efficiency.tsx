@@ -203,9 +203,9 @@ function CampaignPerformanceTable({
           <p className="text-xs text-neutral-500">
             ROAS and cost per purchase for campaigns you've mapped to a product
             — e.g. a "Denim Flare Best Seller" campaign mapped to the Denim
-            product. Sales are that product's own storefront order history in
-            this range, not click-level attribution, so they also include that
-            product's sales from outside this campaign.
+            product. Sales are that product's own order history across every
+            channel in this range, not click-level attribution, so they also
+            include that product's sales from outside this campaign.
           </p>
         </div>
         <Link
