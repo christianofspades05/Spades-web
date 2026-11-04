@@ -43,6 +43,7 @@ import { Route as ReviewTokenRouteImport } from './routes/review/$token'
 import { Route as ReviewsIndexRouteImport } from './routes/reviews/index'
 import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
+import { Route as AdminAnalyticsAdsEfficiencyRouteImport } from './routes/admin/analytics/ads-efficiency'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
 import { Route as AdminAnalyticsExpensesRouteImport } from './routes/admin/analytics/expenses'
 import { Route as AdminAnalyticsInventoryValueRouteImport } from './routes/admin/analytics/inventory-value'
@@ -279,6 +280,12 @@ const UnsubscribeTokenRoute = UnsubscribeTokenRouteImport.update({
   path: '/unsubscribe/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAnalyticsAdsEfficiencyRoute =
+  AdminAnalyticsAdsEfficiencyRouteImport.update({
+    id: '/analytics/ads-efficiency',
+    path: '/analytics/ads-efficiency',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminAnalyticsCancelledReturnsRoute =
   AdminAnalyticsCancelledReturnsRouteImport.update({
     id: '/analytics/cancelled-returns',
@@ -657,6 +664,7 @@ export interface FileRoutesByFullPath {
   '/events/': typeof EventsIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
+  '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
@@ -755,6 +763,7 @@ export interface FileRoutesByTo {
   '/events': typeof EventsIndexRoute
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
+  '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
@@ -857,6 +866,7 @@ export interface FileRoutesById {
   '/events/': typeof EventsIndexRoute
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
+  '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
@@ -960,6 +970,7 @@ export interface FileRouteTypes {
     | '/events/'
     | '/products/'
     | '/reviews/'
+    | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
@@ -1058,6 +1069,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/products'
     | '/reviews'
+    | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
@@ -1159,6 +1171,7 @@ export interface FileRouteTypes {
     | '/events/'
     | '/products/'
     | '/reviews/'
+    | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
@@ -1512,6 +1525,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/unsubscribe/$token'
       preLoaderRoute: typeof UnsubscribeTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/analytics/ads-efficiency': {
+      id: '/admin/analytics/ads-efficiency'
+      path: '/analytics/ads-efficiency'
+      fullPath: '/admin/analytics/ads-efficiency'
+      preLoaderRoute: typeof AdminAnalyticsAdsEfficiencyRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/analytics/cancelled-returns': {
       id: '/admin/analytics/cancelled-returns'
@@ -1973,6 +1993,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminAnalyticsAdsEfficiencyRoute: typeof AdminAnalyticsAdsEfficiencyRoute
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
   AdminAnalyticsExpensesRoute: typeof AdminAnalyticsExpensesRoute
   AdminAnalyticsInventoryValueRoute: typeof AdminAnalyticsInventoryValueRoute
@@ -2025,6 +2046,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
+  AdminAnalyticsAdsEfficiencyRoute: AdminAnalyticsAdsEfficiencyRoute,
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
   AdminAnalyticsExpensesRoute: AdminAnalyticsExpensesRoute,
   AdminAnalyticsInventoryValueRoute: AdminAnalyticsInventoryValueRoute,

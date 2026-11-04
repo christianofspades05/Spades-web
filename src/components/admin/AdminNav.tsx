@@ -28,6 +28,7 @@ import {
   ShoppingBag,
   Star,
   Store,
+  Target,
   TrendingUp,
   Truck,
   Undo2,
@@ -76,6 +77,11 @@ const ANALYTICS_SUB_LINKS = [
     icon: Receipt,
   },
   { to: '/admin/analytics/expenses', label: 'Expenses', icon: Banknote },
+  {
+    to: '/admin/analytics/ads-efficiency',
+    label: 'Ads Efficiency',
+    icon: Target,
+  },
 ] as const
 
 const CUSTOMER_REPLIES_PAGE_SIZE = 10
