@@ -194,9 +194,8 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     // top-level previous-period totals) look like a cliff that isn't
     // real, just "today isn't over yet" (confirmed live: a day with 162
     // real previous-period orders made a 22-orders-so-far today read as an
-    // 86% drop). Not an issue for a single-day "Today" view — comparing
-    // partial-today against all of yesterday is the expected, well-
-    // understood shape there, so this is scoped to the multi-day case only.
+    // 86% drop). Scoped to the multi-day case: a whole day can just be
+    // dropped from both sides without losing the comparison entirely.
     const todayKey = storeLocalDateKey(new Date().toISOString())
     const excludeTodayFromComparison = !isSingleDay && data.to === todayKey
     const comparisonPrevEnd = excludeTodayFromComparison
@@ -206,6 +205,20 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
           return d.toISOString().slice(0, 10)
         })()
       : prev.to
+
+    // The single-day "Today" view has the same problem, but can't drop the
+    // previous day entirely — it's the whole comparison. Clips yesterday
+    // to the exact same moment instead (now minus 24h), hour-for-hour
+    // rather than whole-day-for-whole-day, so "so far today" only ever
+    // compares against "the same stretch of yesterday" — confirmed live as
+    // the same misleading-cliff shape as the multi-day case above (19
+    // orders a few hours into today read as down 71% against all of
+    // yesterday). The trend chart's dashed previous-day line still plots
+    // yesterday's FULL hourly shape further down (previousBuckets, built
+    // from the unclipped previousOrders/previousVisitorBuckets) — only the
+    // top-level summary totals below need this clipped comparison.
+    const viewingToday = isSingleDay && data.to === todayKey
+    const nowMinus24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
     // Visitor counts are aggregated in Postgres (get_visitor_totals/
     // get_visitor_bucket_counts) rather than pulled row-by-row into Node —
@@ -271,19 +284,26 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     if (currentVisitorBuckets.error) throw currentVisitorBuckets.error
     if (previousVisitorBuckets.error) throw previousVisitorBuckets.error
 
-    // Only fetched when today's in-progress bucket is being excluded from
-    // the comparison (see excludeTodayFromComparison above) — the one
-    // extra round trip a plain sum over previousVisitorCountsByKey can't
-    // substitute for, since summing per-day unique-visitor counts would
-    // double-count a visitor who showed up on more than one of those days,
-    // unlike this RPC's own proper range-wide dedup.
+    // Only fetched when today's in-progress bucket is being excluded or
+    // clipped from the comparison (see excludeTodayFromComparison and
+    // viewingToday above) — the one extra round trip a plain sum over
+    // previousVisitorCountsByKey can't substitute for, since summing
+    // per-day unique-visitor counts would double-count a visitor who
+    // showed up on more than one of those days, unlike this RPC's own
+    // proper range-wide dedup.
     const comparisonVisitorTotals = excludeTodayFromComparison
       ? await admin.rpc('get_visitor_totals', {
           p_from: prevStart,
           p_to: storeRangeToUtcBounds(prev.from, comparisonPrevEnd).end,
           p_brand: brand,
         })
-      : previousVisitorTotals
+      : viewingToday
+        ? await admin.rpc('get_visitor_totals', {
+            p_from: prevStart,
+            p_to: nowMinus24hIso,
+            p_brand: brand,
+          })
+        : previousVisitorTotals
     if (comparisonVisitorTotals.error) throw comparisonVisitorTotals.error
 
     const currentVisitorCountsByKey = new Map(
@@ -364,13 +384,17 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     }
 
     // Excludes the previous period's last day once it has no partial-today
-    // counterpart to be compared against (see excludeTodayFromComparison
-    // above) — otherwise the top-level "previous" totals below would still
-    // carry one extra full day current doesn't, understating the
-    // comparison the same way the trend's last point used to.
+    // counterpart to be compared against (multi-day case), or clips
+    // yesterday to the same moment as right now (single-day "Today" case)
+    // — see excludeTodayFromComparison/viewingToday above — otherwise the
+    // top-level "previous" totals below would still carry more than
+    // current does, understating the comparison the same way the trend's
+    // last point used to.
     const comparisonPreviousOrders = excludeTodayFromComparison
       ? previousOrders.filter((o) => storeLocalDateKey(o.placed_at) !== prev.to)
-      : previousOrders
+      : viewingToday
+        ? previousOrders.filter((o) => o.placed_at <= nowMinus24hIso)
+        : previousOrders
 
     const previousSalesCents = comparisonPreviousOrders
       .filter((o) => !VOID_STATUSES.has(o.status) && matchesChannel(o.source))
