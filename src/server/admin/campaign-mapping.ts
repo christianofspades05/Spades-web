@@ -2,20 +2,19 @@
  * Admin "Campaign -> Product" mapping (meta_campaign_product_mappings):
  * lets staff tell the Ads Efficiency page which product each Meta ad
  * campaign is advertising, so ROAS/cost-per-purchase can be shown per
- * campaign (see getCampaignAdsPerformance in analytics.ts). Campaign
- * discovery comes from Windsor.ai's per-campaign spend breakdown — the
- * actual list of campaigns in the connected Meta ad account — not from
- * order data, so a campaign can be mapped before any order has ever been
- * attributed to it (attribution only starts flowing once the campaign's
- * destination URL carries a utm_campaign parameter — see
- * lib/analytics/campaign.ts).
+ * campaign (see getCampaignAdsPerformance in analytics.ts, which matches
+ * sales by the mapped product's own order history, not click attribution).
+ * Campaign discovery comes from Windsor.ai's per-campaign spend breakdown —
+ * the actual list of campaigns in the connected Meta ad account — not from
+ * order data, so a campaign can be mapped before any order exists for its
+ * product.
  */
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { daysAgo } from '#/lib/utils/date-range'
-import { getMetaCampaignSpendCents } from '#/server/integrations/windsor/client'
+import { getMetaCampaignActivity } from '#/server/integrations/windsor/client'
 import { logStaffActivity } from './activity-log'
 import type { StaffRole } from '#/types/entities'
 
@@ -29,6 +28,10 @@ const CAMPAIGN_DISCOVERY_WINDOW_DAYS = 90
 export interface CampaignMappingRow {
   campaignName: string
   spendCents: number
+  /** Most recent day (within the trailing 90-day window) Windsor reported
+   *  any spend for this campaign — not its actual start date in Ads
+   *  Manager. Lets the admin screen sort by recency. */
+  lastSpendDate: string
   productId: string | null
   productName: string | null
   productImage: string | null
@@ -39,8 +42,8 @@ export const getCampaignMappings = createServerFn({ method: 'GET' }).handler(
     await requireStaff()
     const admin = getSupabaseAdminClient()
 
-    const [spendByCampaign, mappingRows] = await Promise.all([
-      getMetaCampaignSpendCents({
+    const [campaignActivity, mappingRows] = await Promise.all([
+      getMetaCampaignActivity({
         from: daysAgo(CAMPAIGN_DISCOVERY_WINDOW_DAYS),
         to: daysAgo(0),
       }),
@@ -57,13 +60,14 @@ export const getCampaignMappings = createServerFn({ method: 'GET' }).handler(
       mappingRows.map((row) => [row.campaign_name, row]),
     )
 
-    return Array.from(spendByCampaign.entries())
-      .filter(([, spendCents]) => spendCents > 0)
-      .map(([campaignName, spendCents]) => {
+    return Array.from(campaignActivity.entries())
+      .filter(([, activity]) => activity.spendCents > 0)
+      .map(([campaignName, activity]) => {
         const mapping = mappingByName.get(campaignName)
         return {
           campaignName,
-          spendCents,
+          spendCents: activity.spendCents,
+          lastSpendDate: activity.lastSpendDate,
           productId: mapping?.product_id ?? null,
           productName: mapping?.product?.name ?? null,
           productImage: mapping?.product?.images[0] ?? null,
