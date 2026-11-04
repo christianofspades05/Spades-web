@@ -194,14 +194,29 @@ function CheckoutPage() {
     if (firedInitiateCheckout.current) return
     firedInitiateCheckout.current = true
     const target = effectiveCurrency(currency, rates)
+    // Meta requires `value` to be a positive number (Events Manager flags
+    // InitiateCheckout events that aren't) — a 100%-off discount code, or
+    // one larger than the cart's subtotal, can bring the net amount to 0
+    // or below, which a straight subtotal-minus-discount doesn't guard
+    // against. Falls back to the pre-discount subtotal in that case: the
+    // cart is never empty here (see the early return above), so it's
+    // still a real, always-positive "how much is in this cart" signal for
+    // ad optimization, which is what this event is for — unlike the
+    // Purchase event's value (checkout/payment.tsx), this was never meant
+    // to be a financial record of what got charged.
+    const netMajor = centsToMajorUnits(
+      convertCents(Math.max(0, rawSubtotalCents - discountCents), target, rates),
+      target,
+    )
+    const value =
+      netMajor > 0
+        ? netMajor
+        : centsToMajorUnits(convertCents(rawSubtotalCents, target, rates), target)
     trackPixelEvent('InitiateCheckout', {
       content_ids: cart.items.map((item) => item.variant.product_id),
       content_type: 'product',
       num_items: cart.items.reduce((sum, item) => sum + item.quantity, 0),
-      value: centsToMajorUnits(
-        convertCents(rawSubtotalCents - discountCents, target, rates),
-        target,
-      ),
+      value,
       currency: target,
     })
   }, [
