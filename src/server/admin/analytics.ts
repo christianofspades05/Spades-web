@@ -1849,11 +1849,16 @@ async function computeFacebookAdsSales(
   from: string,
   to: string,
   brandFilter: string | undefined,
+  tz: ReportTimezone,
 ): Promise<{
   totals: FacebookAdsSalesTotals
   daily: Array<{ date: string; grossSalesCents: number; orderCount: number }>
 }> {
-  const { start: rangeStart, end: rangeEnd } = storeRangeToUtcBounds(from, to)
+  const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
+    from,
+    to,
+    tz,
+  )
 
   const [fbOrders, storefrontOrders] = await Promise.all([
     fetchAllRows((offset) => {
@@ -1915,7 +1920,7 @@ async function computeFacebookAdsSales(
     })
   }
   for (const order of liveFbOrders) {
-    const key = storeLocalDateKey(order.placed_at)
+    const key = reportLocalDateKey(order.placed_at, tz)
     const bucket = dailyMap.get(key)
     if (!bucket) continue
     bucket.grossSalesCents += grossSalesCentsForOrder({
@@ -1950,19 +1955,20 @@ export const getFacebookAdsSales = createServerFn({ method: 'GET' })
       to: z.string(),
       brand: z.string().optional(),
       comparePrevious: z.boolean().default(false),
+      tz: z.enum(['ph', 'la']).default('ph'),
     }),
   )
   .handler(async ({ data }): Promise<FacebookAdsSalesResult> => {
     await requireStaff()
 
-    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}|${data.comparePrevious}`
+    const cacheKey = `${data.from}|${data.to}|${data.brand ?? 'all'}|${data.comparePrevious}|${data.tz}`
     const cached = facebookAdsSalesCache.get(cacheKey)
     if (cached) return cached
 
     const admin = getSupabaseAdminClient()
 
     const [current, prevResult] = await Promise.all([
-      computeFacebookAdsSales(admin, data.from, data.to, data.brand),
+      computeFacebookAdsSales(admin, data.from, data.to, data.brand, data.tz),
       data.comparePrevious
         ? (() => {
             const prev = previousPeriod(data.from, data.to)
@@ -1971,6 +1977,7 @@ export const getFacebookAdsSales = createServerFn({ method: 'GET' })
               prev.from,
               prev.to,
               data.brand,
+              data.tz,
             )
           })()
         : null,

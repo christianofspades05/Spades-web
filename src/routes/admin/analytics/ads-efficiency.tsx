@@ -16,11 +16,35 @@ import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { FilterDropdown } from '#/components/admin/FilterDropdown'
+import { inputClassName } from '#/components/admin/ui'
 
 const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
   label: STOREFRONT_BRAND_LABELS[brand],
 }))
+
+// Same report-viewing timezone toggle as the Profit page (see
+// routes/admin/analytics/profit.tsx) — re-buckets the order/sales side of
+// these totals by LA vs PH calendar days. Ad spend itself always comes
+// back bucketed by whatever timezone the Meta ad account is configured
+// to report in, which this toggle has no control over.
+const REPORT_TIMEZONE_IANA = {
+  ph: 'Asia/Manila',
+  la: 'America/Los_Angeles',
+} as const
+
+const REPORT_TIMEZONE_NAMES = {
+  ph: 'Philippine Time',
+  la: 'Los Angeles, America',
+} as const
+
+function reportTimezoneOffsetLabel(tz: 'ph' | 'la'): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: REPORT_TIMEZONE_IANA[tz],
+    timeZoneName: 'shortOffset',
+  }).formatToParts(new Date())
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+}
 
 export const Route = createFileRoute('/admin/analytics/ads-efficiency')({
   validateSearch: z.object({
@@ -28,6 +52,9 @@ export const Route = createFileRoute('/admin/analytics/ads-efficiency')({
     from: z.string().optional(),
     to: z.string().optional(),
     brand: z.enum(STOREFRONT_BRANDS).optional(),
+    // Defaults to LA, unlike the Profit page's 'ph' default — requested
+    // specifically for this page.
+    tz: z.enum(['ph', 'la']).catch('la'),
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -36,7 +63,12 @@ export const Route = createFileRoute('/admin/analytics/ads-efficiency')({
       to: deps.to,
     })
     return getAdsEfficiency({
-      data: { ...resolved, brand: deps.brand, comparePrevious: true },
+      data: {
+        ...resolved,
+        brand: deps.brand,
+        comparePrevious: true,
+        tz: deps.tz,
+      },
     })
   },
   component: AdsEfficiencyPage,
@@ -188,6 +220,28 @@ function AdsEfficiencyPage() {
               to={data.range.to}
               onChange={handleRangeChange}
             />
+            <select
+              value={search.tz}
+              onChange={(e) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    tz: e.target.value as 'ph' | 'la',
+                  }),
+                })
+              }
+              className={inputClassName}
+              title="Timezone the order/sales totals are grouped by"
+            >
+              {(Object.keys(REPORT_TIMEZONE_NAMES) as ('ph' | 'la')[]).map(
+                (tz) => (
+                  <option key={tz} value={tz}>
+                    {REPORT_TIMEZONE_NAMES[tz]} ({reportTimezoneOffsetLabel(tz)}
+                    )
+                  </option>
+                ),
+              )}
+            </select>
           </div>
         }
       />

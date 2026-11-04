@@ -59,6 +59,14 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
       to: z.string(),
       brand: z.string().optional(),
       comparePrevious: z.boolean().default(false),
+      /** Only shifts how the order/sales side is bucketed by day (see
+       *  reportRangeToUtcBounds/reportLocalDateKey in date-range.ts) — the
+       *  ad-spend figure from Windsor/Meta is always bucketed by whatever
+       *  timezone the Meta ad account itself is configured to report in,
+       *  which this code has no control over. Picking 'la' here doesn't
+       *  change that; it only re-buckets the order totals this page
+       *  compares spend against. */
+      tz: z.enum(['ph', 'la']).default('ph'),
     }),
   )
   .handler(async ({ data }): Promise<AdsEfficiencyResult> => {
@@ -70,7 +78,12 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
       await Promise.all([
         getMetaAdSpendCents({ from: data.from, to: data.to }),
         getSalesByChannel({
-          data: { from: data.from, to: data.to, brand: data.brand },
+          data: {
+            from: data.from,
+            to: data.to,
+            brand: data.brand,
+            tz: data.tz,
+          },
         }),
         getFacebookAdsSales({
           data: {
@@ -78,6 +91,7 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
             to: data.to,
             brand: data.brand,
             comparePrevious: data.comparePrevious,
+            tz: data.tz,
           },
         }),
         prev
@@ -85,7 +99,12 @@ export const getAdsEfficiency = createServerFn({ method: 'GET' })
           : Promise.resolve(null),
         prev
           ? getSalesByChannel({
-              data: { from: prev.from, to: prev.to, brand: data.brand },
+              data: {
+                from: prev.from,
+                to: prev.to,
+                brand: data.brand,
+                tz: data.tz,
+              },
             })
           : Promise.resolve(null),
       ])
