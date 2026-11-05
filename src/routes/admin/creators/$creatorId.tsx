@@ -11,6 +11,7 @@ import { CreatorPortalAccessCard } from '#/components/admin/CreatorPortalAccessC
 import { PageHeader } from '#/components/admin/PageHeader'
 import { formatCentsAsPHP as money } from '#/lib/utils/money'
 import {
+  buttonDangerClassName as danger,
   buttonPrimaryClassName as primary,
   buttonSecondaryClassName as secondary,
   inputClassName as input,
@@ -19,6 +20,7 @@ import {
   tableHeadClassName as head,
 } from '#/components/admin/ui'
 import type { CreatorCommand } from '#/lib/validation/admin/creators'
+import type { CreatorExpenseWithProduct } from '#/server/admin/creators'
 
 export const Route = createFileRoute('/admin/creators/$creatorId')({
   loader: ({ params }) => getCreator({ data: { id: params.creatorId } }),
@@ -35,6 +37,7 @@ function CreatorPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(0)
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null)
   const creatorId = data.creator.id
   async function run(command: CreatorCommand) {
     setBusy(true)
@@ -337,7 +340,7 @@ function CreatorPage() {
             <table className="w-full">
               <thead>
                 <tr>
-                  {['Date', 'Description', 'Kind', 'Cost', 'Payment'].map(
+                  {['Date', 'Description', 'Kind', 'Cost', 'Payment', ''].map(
                     (h) => (
                       <th key={h} className={head}>
                         {h}
@@ -348,45 +351,16 @@ function CreatorPage() {
               </thead>
               <tbody>
                 {data.expenses.map((e) => (
-                  <tr key={e.id}>
-                    <td className={cell}>
-                      {new Date(e.incurred_at).toLocaleDateString()}
-                    </td>
-                    <td className={cell}>
-                      {e.description}
-                      {e.productName && (
-                        <>
-                          {' — '}
-                          {e.productName}
-                          {e.variantLabel && ` (${e.variantLabel})`}
-                        </>
-                      )}
-                      {e.quantity && ` · ${e.quantity} units`}
-                    </td>
-                    <td className={cell}>{e.kind}</td>
-                    <td className={cell}>{money(e.amount_cents)}</td>
-                    <td className={cell}>
-                      {e.paid_at ? (
-                        'Paid'
-                      ) : e.kind === 'gift' ? (
-                        'Stock issued'
-                      ) : (
-                        <button
-                          className={secondary}
-                          disabled={busy}
-                          onClick={() =>
-                            run({
-                              action: 'expense_paid',
-                              creatorId,
-                              expenseId: e.id,
-                            })
-                          }
-                        >
-                          Record as paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                  <ExpenseRow
+                    key={e.id}
+                    expense={e}
+                    creatorId={creatorId}
+                    run={run}
+                    busy={busy}
+                    editing={editingExpenseId === e.id}
+                    onStartEdit={() => setEditingExpenseId(e.id)}
+                    onStopEdit={() => setEditingExpenseId(null)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -569,6 +543,166 @@ function CodeForm({
         </button>
       </div>
     </form>
+  )
+}
+function ExpenseRow({
+  expense: e,
+  creatorId,
+  run,
+  busy,
+  editing,
+  onStartEdit,
+  onStopEdit,
+}: {
+  expense: CreatorExpenseWithProduct
+  creatorId: string
+  run: Run
+  busy: boolean
+  editing: boolean
+  onStartEdit: () => void
+  onStopEdit: () => void
+}) {
+  if (editing) {
+    return (
+      <tr>
+        <td className={cell} colSpan={6}>
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={async (ev) => {
+              ev.preventDefault()
+              const f = new FormData(ev.currentTarget)
+              const incurredAt = new Date(
+                String(f.get('date')) + 'T00:00:00+08:00',
+              ).toISOString()
+              const ok = await run({
+                action: 'expense_update',
+                creatorId,
+                expenseId: e.id,
+                description: String(f.get('description')),
+                amountCents:
+                  e.kind === 'gift'
+                    ? e.amount_cents
+                    : Math.round(Number(f.get('amount')) * 100),
+                incurredAt,
+              })
+              if (ok) onStopEdit()
+            }}
+          >
+            <label className="text-sm">
+              Incurred date
+              <input
+                name="date"
+                type="date"
+                required
+                defaultValue={new Date(e.incurred_at).toLocaleDateString(
+                  'en-CA',
+                  { timeZone: 'Asia/Manila' },
+                )}
+                className={input}
+              />
+            </label>
+            <label className="text-sm">
+              Description / campaign
+              <input
+                name="description"
+                required
+                maxLength={1000}
+                defaultValue={e.description}
+                className={input}
+              />
+            </label>
+            <label className="text-sm">
+              Amount (PHP)
+              {e.kind === 'gift' ? (
+                <p className="mt-1 px-1 py-1.5 text-sm text-neutral-500">
+                  {money(e.amount_cents)} (set by the gifted item's cost)
+                </p>
+              ) : (
+                <input
+                  name="amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  defaultValue={(e.amount_cents / 100).toFixed(2)}
+                  className={input}
+                />
+              )}
+            </label>
+            <button className={primary} disabled={busy}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className={secondary} onClick={onStopEdit}>
+              Cancel
+            </button>
+          </form>
+        </td>
+      </tr>
+    )
+  }
+  return (
+    <tr>
+      <td className={cell}>{new Date(e.incurred_at).toLocaleDateString()}</td>
+      <td className={cell}>
+        {e.description}
+        {e.productName && (
+          <>
+            {' — '}
+            {e.productName}
+            {e.variantLabel && ` (${e.variantLabel})`}
+          </>
+        )}
+        {e.quantity && ` · ${e.quantity} units`}
+      </td>
+      <td className={cell}>{e.kind}</td>
+      <td className={cell}>{money(e.amount_cents)}</td>
+      <td className={cell}>
+        {e.paid_at ? (
+          'Paid'
+        ) : e.kind === 'gift' ? (
+          'Stock issued'
+        ) : (
+          <button
+            className={secondary}
+            disabled={busy}
+            onClick={() =>
+              run({ action: 'expense_paid', creatorId, expenseId: e.id })
+            }
+          >
+            Record as paid
+          </button>
+        )}
+      </td>
+      <td className={cell}>
+        <div className="flex gap-2">
+          <button className={secondary} disabled={busy} onClick={onStartEdit}>
+            Edit
+          </button>
+          <button
+            className={danger}
+            disabled={busy}
+            onClick={() => {
+              if (
+                !confirm(
+                  e.kind === 'gift'
+                    ? 'Delete this gift and return the stock?'
+                    : 'Delete this expense?',
+                )
+              )
+                return
+              void run({
+                action: 'expense_delete',
+                creatorId,
+                expenseId: e.id,
+                variantId: e.variant_id ?? undefined,
+              })
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </td>
+    </tr>
   )
 }
 function ExpenseForm({

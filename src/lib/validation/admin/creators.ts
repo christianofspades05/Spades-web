@@ -55,6 +55,23 @@ export const creatorCommandSchema = z.discriminatedUnion('action', [
     ),
   z.object({ action: z.literal('expense_paid'), creatorId: id, expenseId: id }),
   z.object({
+    action: z.literal('expense_update'),
+    creatorId: id,
+    expenseId: id,
+    description: z.string().trim().min(1).max(1000),
+    amountCents: cents,
+    incurredAt: z.iso.datetime(),
+  }),
+  z.object({
+    action: z.literal('expense_delete'),
+    creatorId: id,
+    expenseId: id,
+    // Only present when deleting a gift expense — lets creatorCommand push
+    // the restocked quantity to connected marketplaces the same way
+    // recording the gift originally pushed the committed quantity.
+    variantId: id.optional(),
+  }),
+  z.object({
     action: z.literal('request_return'),
     orderId: id,
     orderItemId: id,

@@ -294,6 +294,9 @@ export const creatorCommand = createServerFn({ method: 'POST' })
     if (data.action === 'expense' && data.kind === 'gift' && data.variantId) {
       await pushInventoryForVariant(data.variantId).catch(() => {})
     }
+    if (data.action === 'expense_delete' && data.variantId) {
+      await pushInventoryForVariant(data.variantId).catch(() => {})
+    }
     return { id }
   })
 
