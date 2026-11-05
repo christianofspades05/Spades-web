@@ -19,15 +19,13 @@ import type { Discount } from '#/types/entities'
 const PAGE_SIZE = 50
 
 type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'inactive'
-type DiscountTypeFilter = 'code' | 'store' | 'collection'
+type DiscountTypeFilter = 'code' | 'store' | 'collection' | 'affiliate'
 
 export const Route = createFileRoute('/admin/discounts/')({
   validateSearch: z.object({
     q: z.string().optional(),
-    status: z
-      .enum(['active', 'scheduled', 'expired', 'inactive'])
-      .optional(),
-    type: z.enum(['code', 'store', 'collection']).optional(),
+    status: z.enum(['active', 'scheduled', 'expired', 'inactive']).optional(),
+    type: z.enum(['code', 'store', 'collection', 'affiliate']).optional(),
     page: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
@@ -147,6 +145,7 @@ function DiscountsPage() {
         >
           <option value="">All types</option>
           <option value="code">Discount code</option>
+          <option value="affiliate">Affiliate code</option>
           <option value="store">Store sale</option>
           <option value="collection">Collection sale</option>
         </select>

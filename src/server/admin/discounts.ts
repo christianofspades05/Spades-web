@@ -67,9 +67,7 @@ function toRow(data: DiscountInput) {
     // completely different axis from the Store sale meaning, just sharing
     // the same column since only one applies per discount's own scope.
     stacks_with_sale: data.kind === 'automatic' ? data.stacksWithSale : false,
-    starts_at: data.startsAt
-      ? storeLocalDateTimeToUtcIso(data.startsAt)
-      : null,
+    starts_at: data.startsAt ? storeLocalDateTimeToUtcIso(data.startsAt) : null,
     ends_at: data.endsAt ? storeLocalDateTimeToUtcIso(data.endsAt) : null,
     is_active: data.isActive,
   }
@@ -99,9 +97,31 @@ const discountsFilterSchema = z.object({
   status: z.enum(['active', 'scheduled', 'expired', 'inactive']).optional(),
   // Matches the Method column's three values (Discount code / Collection
   // sale / Store sale) — 'store' and 'collection' are both kind='automatic',
-  // split by scope.
-  type: z.enum(['code', 'store', 'collection']).optional(),
+  // split by scope. 'affiliate' is a narrower view onto 'code': discount
+  // codes with at least one creator_discount_assignments row (see
+  // getAffiliateDiscountIds below) — regardless of that assignment's own
+  // is_active flag, since staff deactivate rather than delete an
+  // assignment, and "connected to an affiliate" is about the historical/
+  // current link existing at all, not whether it's currently accepting
+  // new attributions.
+  type: z.enum(['code', 'store', 'collection', 'affiliate']).optional(),
 })
+
+/** Discount ids with at least one creator (affiliate) assignment — the
+ *  'affiliate' type filter above narrows the discounts_with_status query to
+ *  just these. Small, bounded result set (one row per creator-code
+ *  assignment, not per order or anything that scales with store volume),
+ *  so a plain .in() against it is fine — unlike a large id list built from
+ *  order/order-item rows elsewhere in admin. */
+async function getAffiliateDiscountIds(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+): Promise<string[]> {
+  const { data, error } = await admin
+    .from('creator_discount_assignments')
+    .select('discount_id')
+  if (error) throw error
+  return Array.from(new Set(data.map((row) => row.discount_id)))
+}
 
 /** Escapes the wildcards PostgREST's ilike/or-clause parser treats specially
  *  (%, comma, and the pattern-match chars themselves) so a search term that
@@ -134,6 +154,23 @@ export const listDiscounts = createServerFn({ method: 'GET' })
     const search = sanitizeDiscountSearch(data.q)
     const offset = (data.page - 1) * DISCOUNTS_PAGE_SIZE
 
+    if (data.type === 'affiliate') {
+      const affiliateIds = await getAffiliateDiscountIds(admin)
+      if (affiliateIds.length === 0) return []
+      let query = admin
+        .from('discounts_with_status')
+        .select('*')
+        .in('id', affiliateIds)
+      if (search) query = query.or(buildDiscountSearchClause(search))
+      if (data.status) query = query.eq('status', data.status)
+      query = query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + DISCOUNTS_PAGE_SIZE - 1)
+      const { data: discounts, error } = await query
+      if (error) throw error
+      return discounts
+    }
+
     // Queries the status-computing view (0119_discounts_with_status_view.sql)
     // rather than the table directly — status/expiry depends on now(), so
     // it has to be filterable in the query for pagination to stay correct
@@ -164,6 +201,21 @@ export const getDiscountsCount = createServerFn({ method: 'GET' })
     const admin = getSupabaseAdminClient()
 
     const search = sanitizeDiscountSearch(data.q)
+
+    if (data.type === 'affiliate') {
+      const affiliateIds = await getAffiliateDiscountIds(admin)
+      if (affiliateIds.length === 0) return { total: 0 }
+      let query = admin
+        .from('discounts_with_status')
+        .select('id', { count: 'exact', head: true })
+        .in('id', affiliateIds)
+      if (search) query = query.or(buildDiscountSearchClause(search))
+      if (data.status) query = query.eq('status', data.status)
+      const { count, error } = await query
+      if (error) throw error
+      return { total: count ?? 0 }
+    }
+
     let query = admin
       .from('discounts_with_status')
       .select('id', { count: 'exact', head: true })
