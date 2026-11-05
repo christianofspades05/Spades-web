@@ -19,9 +19,8 @@ import type { TikTokFinanceStatement } from '#/server/integrations/marketplaces/
 // it soon, long enough that repeat page loads/polls don't hit TikTok's API
 // every time.
 const FINANCE_CACHE_TTL_MS = 2 * 60_000
-const financeSummaryCache = createTtlCache<TikTokFinanceSummary>(
-  FINANCE_CACHE_TTL_MS,
-)
+const financeSummaryCache =
+  createTtlCache<TikTokFinanceSummary>(FINANCE_CACHE_TTL_MS)
 
 export interface TikTokFinanceSummary {
   connected: boolean
@@ -46,63 +45,73 @@ const EMPTY_TOTALS = {
   netSalesCents: 0,
 }
 
+/** Exported only so api/cron/sync-gross-profit-to-sheet.ts can reuse this
+ *  without going through getTikTokFinanceSummary's requireStaff() — a cron
+ *  trigger has no staff session, same reasoning computeChannelSales in
+ *  analytics.ts is exported for the same caller. */
+export async function computeTikTokFinanceSummary(data: {
+  from: string
+  to: string
+}): Promise<TikTokFinanceSummary> {
+  const cacheKey = `${data.from}|${data.to}`
+  const cached = financeSummaryCache.get(cacheKey)
+  if (cached) return cached
+
+  const admin = getSupabaseAdminClient()
+  const { data: connection, error } = await admin
+    .from('marketplace_connections')
+    .select('*')
+    .eq('marketplace', 'tiktok_shop')
+    .eq('status', 'active')
+    .maybeSingle()
+  if (error) throw error
+
+  if (!connection) {
+    return {
+      connected: false,
+      range: data,
+      totals: EMPTY_TOTALS,
+      statements: [],
+    }
+  }
+
+  const fresh = await ensureFreshConnection(connection)
+  const { start, end } = storeRangeToUtcBounds(data.from, data.to)
+  const statements = await getTikTokFinanceStatements(fresh, {
+    sinceSeconds: Math.floor(new Date(start).getTime() / 1000),
+    untilSeconds: Math.floor(new Date(end).getTime() / 1000),
+  })
+
+  const totals = statements.reduce(
+    (sum, s) => ({
+      revenueCents: sum.revenueCents + s.revenueCents,
+      feeCents: sum.feeCents + s.feeCents,
+      adjustmentCents: sum.adjustmentCents + s.adjustmentCents,
+      settlementCents: sum.settlementCents + s.settlementCents,
+      shippingCostCents: sum.shippingCostCents + s.shippingCostCents,
+      netSalesCents: sum.netSalesCents + s.netSalesCents,
+    }),
+    { ...EMPTY_TOTALS },
+  )
+
+  const result: TikTokFinanceSummary = {
+    connected: true,
+    range: data,
+    totals,
+    statements: statements
+      .map((s) => ({
+        ...s,
+        date: new Date(s.statementTimeSec * 1000).toISOString().slice(0, 10),
+      }))
+      .sort((a, b) => b.statementTimeSec - a.statementTimeSec),
+  }
+  financeSummaryCache.set(cacheKey, result)
+  return result
+}
+
 export const getTikTokFinanceSummary = createServerFn({ method: 'GET' })
   .validator(z.object({ from: z.string(), to: z.string() }))
   .handler(async ({ data }): Promise<TikTokFinanceSummary> => {
     await requireStaff()
-
-    const cacheKey = `${data.from}|${data.to}`
-    const cached = financeSummaryCache.get(cacheKey)
-    if (cached) return cached
-
-    const admin = getSupabaseAdminClient()
-    const { data: connection, error } = await admin
-      .from('marketplace_connections')
-      .select('*')
-      .eq('marketplace', 'tiktok_shop')
-      .eq('status', 'active')
-      .maybeSingle()
-    if (error) throw error
-
-    if (!connection) {
-      return {
-        connected: false,
-        range: data,
-        totals: EMPTY_TOTALS,
-        statements: [],
-      }
-    }
-
-    const fresh = await ensureFreshConnection(connection)
-    const { start, end } = storeRangeToUtcBounds(data.from, data.to)
-    const statements = await getTikTokFinanceStatements(fresh, {
-      sinceSeconds: Math.floor(new Date(start).getTime() / 1000),
-      untilSeconds: Math.floor(new Date(end).getTime() / 1000),
-    })
-
-    const totals = statements.reduce(
-      (sum, s) => ({
-        revenueCents: sum.revenueCents + s.revenueCents,
-        feeCents: sum.feeCents + s.feeCents,
-        adjustmentCents: sum.adjustmentCents + s.adjustmentCents,
-        settlementCents: sum.settlementCents + s.settlementCents,
-        shippingCostCents: sum.shippingCostCents + s.shippingCostCents,
-        netSalesCents: sum.netSalesCents + s.netSalesCents,
-      }),
-      { ...EMPTY_TOTALS },
-    )
-
-    const result: TikTokFinanceSummary = {
-      connected: true,
-      range: data,
-      totals,
-      statements: statements
-        .map((s) => ({
-          ...s,
-          date: new Date(s.statementTimeSec * 1000).toISOString().slice(0, 10),
-        }))
-        .sort((a, b) => b.statementTimeSec - a.statementTimeSec),
-    }
-    financeSummaryCache.set(cacheKey, result)
-    return result
+    return computeTikTokFinanceSummary(data)
   })

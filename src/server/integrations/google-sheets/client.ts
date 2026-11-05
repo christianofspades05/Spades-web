@@ -121,3 +121,34 @@ export async function updateSheetValue(
     throw new Error(`Sheets API write failed: ${response.status} ${body}`)
   }
 }
+
+/** Same as updateSheetValue, but writes several single-cell values in one
+ *  request (Sheets' values:batchUpdate) instead of one round trip per
+ *  cell — used by api/cron/sync-gross-profit-to-sheet.ts, which writes
+ *  three unrelated cells on every run. */
+export async function updateSheetValues(
+  spreadsheetId: string,
+  entries: Array<{ a1Range: string; value: string | number }>,
+): Promise<void> {
+  if (entries.length === 0) return
+  const accessToken = await getAccessToken()
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      valueInputOption: 'USER_ENTERED',
+      data: entries.map((entry) => ({
+        range: entry.a1Range,
+        values: [[entry.value]],
+      })),
+    }),
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`Sheets API batch write failed: ${response.status} ${body}`)
+  }
+}
