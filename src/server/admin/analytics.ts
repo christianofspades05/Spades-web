@@ -118,7 +118,15 @@ export interface SalesByChannelResult {
  * see the same workaround already used throughout src/server/admin/orders.ts.
  * Instead this does three flat queries and joins them in memory.
  */
-async function computeChannelSales(
+/** Exported only so api/cron/sync-gross-profit-to-sheet.ts can reuse the
+ *  exact same figure the admin Profit page's "Gross Profit" card shows
+ *  (getSalesByChannel's own totals.netProfitCents) without going through
+ *  that server fn's requireStaff() — a cron trigger has no staff session to
+ *  authenticate with, same reasoning computeOrderProfitTotals etc. stay
+ *  unexported and every other cron route in this codebase talks to the
+ *  admin Supabase client directly instead of calling a staff-gated
+ *  server fn. */
+export async function computeChannelSales(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   from: string,
   to: string,
