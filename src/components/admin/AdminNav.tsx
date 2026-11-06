@@ -147,7 +147,7 @@ export function AdminNav({
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [expanded, setExpanded] = useState(false)
   const [ordersExpanded, setOrdersExpanded] = useState(false)
-  const [analyticsExpanded, setAnalyticsExpanded] = useState(false)
+  const [analyticsExpanded, setAnalyticsExpanded] = useState(true)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
   const [repliesPage, setRepliesPage] = useState(1)
