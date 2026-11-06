@@ -11,6 +11,7 @@ import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import { LALAMOVE_FEE_BUFFER_CENTS } from '#/lib/checkout/lalamove-eligibility'
 import {
+  getActiveCodCountries,
   getActiveMarketMarkups,
   getActiveMarketShipping,
 } from '#/server/storefront/market-pricing'
@@ -33,6 +34,7 @@ export const Route = createFileRoute('/checkout/payment')({
   loader: async () => ({
     marketMarkups: await getActiveMarketMarkups(),
     marketShipping: await getActiveMarketShipping(),
+    codCountries: await getActiveCodCountries(),
   }),
   component: PaymentPage,
 })
@@ -40,7 +42,7 @@ export const Route = createFileRoute('/checkout/payment')({
 type PaymentMethod = 'cod' | 'online'
 
 function PaymentPage() {
-  const { marketMarkups, marketShipping } = Route.useLoaderData()
+  const { marketMarkups, marketShipping, codCountries } = Route.useLoaderData()
   const { currency, rates, formatPrice } = useCurrency()
   const { t } = useLanguage()
   const {
@@ -101,18 +103,19 @@ function PaymentPage() {
 
   // Shown next to a disabled (not hidden) COD option so the customer knows
   // why, rather than it just silently not being there.
-  const codDisabledReason =
-    info.country !== 'PH'
-      ? 'Cash on Delivery is not available — please pay online.'
-      : isLalamove
-        ? 'Not available for Lalamove delivery — online payment only.'
-        : cityRestriction?.restricted
-          ? (cityRestriction.reason ??
-            'Cash on Delivery is not available in your area.')
-          : !codAvailable
-            ? (codUnavailableReason ??
-              'Cash on Delivery is not available for items in your cart.')
-            : null
+  const codAllowedForCountry =
+    info.country === 'PH' || codCountries.includes(info.country)
+  const codDisabledReason = !codAllowedForCountry
+    ? 'Cash on Delivery is not available — please pay online.'
+    : isLalamove
+      ? 'Not available for Lalamove delivery — online payment only.'
+      : cityRestriction?.restricted
+        ? (cityRestriction.reason ??
+          'Cash on Delivery is not available in your area.')
+        : !codAvailable
+          ? (codUnavailableReason ??
+            'Cash on Delivery is not available for items in your cart.')
+          : null
 
   useEffect(() => {
     // Lalamove is online-payment-only, same as any other COD restriction —

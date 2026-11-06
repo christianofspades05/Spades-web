@@ -68,6 +68,7 @@ export function MarketPricingForm({
     market ? String(market.markup_percent) : '',
   )
   const [isActive, setIsActive] = useState(market?.is_active ?? true)
+  const [codEnabled, setCodEnabled] = useState(market?.cod_enabled ?? false)
   const [shippingName, setShippingName] = useState(market?.shipping_name ?? '')
   const [shippingCurrency, setShippingCurrency] = useState<Currency>(
     (market?.shipping_currency as Currency | undefined) ??
@@ -133,6 +134,7 @@ export function MarketPricingForm({
         countryCodes,
         markupPercent: Number(markupPercent),
         isActive,
+        codEnabled,
         shippingName: shippingName.trim() || undefined,
         shippingPriceCents: shippingPrice.trim()
           ? Math.round(
@@ -278,7 +280,9 @@ export function MarketPricingForm({
                 <input
                   type="number"
                   min={0}
-                  step={minorUnitsPerMajor(shippingCurrency) === 1 ? '1' : '0.01'}
+                  step={
+                    minorUnitsPerMajor(shippingCurrency) === 1 ? '1' : '0.01'
+                  }
                   value={shippingPrice}
                   onChange={(e) => setShippingPrice(e.target.value)}
                   placeholder="e.g. 350"
@@ -357,6 +361,20 @@ export function MarketPricingForm({
           />
           Active
         </label>
+
+        <label className="flex items-center gap-2 text-sm font-medium text-neutral-700">
+          <input
+            type="checkbox"
+            checked={codEnabled}
+            onChange={(e) => setCodEnabled(e.target.checked)}
+          />
+          Allow Cash on Delivery
+        </label>
+        <p className="-mt-2 text-xs font-normal text-neutral-500">
+          Cash on Delivery is normally Philippines-only. Turning this on offers
+          it at checkout for every country selected above too — delivery still
+          has to actually happen through whatever courier serves that address.
+        </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button

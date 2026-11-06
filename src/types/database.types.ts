@@ -1010,6 +1010,7 @@ export interface Database {
             shipping_currency: string
             free_shipping_min_subtotal_cents: number | null
             free_shipping_min_items: number | null
+            cod_enabled: boolean
             created_at: string
             updated_at: string
           }

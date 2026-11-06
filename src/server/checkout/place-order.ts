@@ -134,15 +134,26 @@ export const placeOrder = createServerFn({ method: 'POST' })
         )
       }
 
-      // COD is a domestic (Philippines) courier arrangement — international
-      // market addresses (Singapore, Japan, etc.) must pay online. Message
+      // COD defaults to Philippines-only (see payment.tsx), but a market's
+      // "Allow Cash on Delivery" toggle (admin/markets) can opt its
+      // countries in too — never trust the client's payment method alone,
+      // same principle as every other check in this block. Message
       // deliberately doesn't name the Philippines — this is a customer-
       // facing string on an international checkout, not a place to
       // reference a country that isn't theirs.
       if (data.paymentProvider === 'cod' && data.contact.country !== 'PH') {
-        throw new Error(
-          'Cash on Delivery is not available. Please pay online instead.',
-        )
+        const { data: codMarket } = await admin
+          .from('markets')
+          .select('market_countries!inner(country_code)')
+          .eq('is_active', true)
+          .eq('cod_enabled', true)
+          .eq('market_countries.country_code', data.contact.country)
+          .maybeSingle()
+        if (!codMarket) {
+          throw new Error(
+            'Cash on Delivery is not available. Please pay online instead.',
+          )
+        }
       }
 
       // Staff-maintained list of cities/municipalities with a history of

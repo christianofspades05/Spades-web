@@ -37,6 +37,7 @@ export function invalidateMarketConfigCache(): Promise<void> {
   return Promise.all([
     marketMarkupsCache.invalidate([MARKET_CONFIG_CACHE_TAG]),
     marketShippingCache.invalidate([MARKET_CONFIG_CACHE_TAG]),
+    marketCodCache.invalidate([MARKET_CONFIG_CACHE_TAG]),
   ]).then(() => undefined)
 }
 
@@ -175,6 +176,46 @@ export const fetchActiveMarketShipping = createServerOnlyFn(
 
 export const getActiveMarketShipping = createServerFn({
   method: 'GET',
-}).handler(
-  (): Promise<MarketShippingByCountry> => fetchActiveMarketShipping(),
+}).handler((): Promise<MarketShippingByCountry> => fetchActiveMarketShipping())
+
+/** Countries (besides the implicit Philippines baseline, which has no
+ *  market row of its own) a staff member has opted into Cash on Delivery
+ *  via a market's "Allow Cash on Delivery" toggle — see
+ *  admin/market-pricing.ts's toMarketRow. Checked by both the checkout
+ *  payment page (to show/hide the option) and place-order.ts (the
+ *  authoritative re-check — never trust the client's payment method alone). */
+export type CodEnabledCountries = string[]
+
+const MARKET_COD_CACHE_TTL_SECONDS = 300
+const marketCodCache = createSharedCache<CodEnabledCountries>(
+  MARKET_COD_CACHE_TTL_SECONDS,
 )
+
+function isCodEnabledCountries(value: unknown): value is CodEnabledCountries {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string')
+}
+
+// Same reasoning as fetchActiveMarketMarkups above.
+export const fetchActiveCodCountries = createServerOnlyFn(
+  (): Promise<CodEnabledCountries> =>
+    marketCodCache.get(
+      'market-cod',
+      async () => {
+        const supabase = getSupabaseServerClient()
+        const { data, error } = await supabase
+          .from('markets')
+          .select('market_countries(country_code)')
+          .eq('is_active', true)
+          .eq('cod_enabled', true)
+        if (error) throw error
+        return data.flatMap((market) =>
+          market.market_countries.map((c) => c.country_code),
+        )
+      },
+      { tags: [MARKET_CONFIG_CACHE_TAG], isValid: isCodEnabledCountries },
+    ),
+)
+
+export const getActiveCodCountries = createServerFn({
+  method: 'GET',
+}).handler((): Promise<CodEnabledCountries> => fetchActiveCodCountries())

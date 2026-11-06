@@ -12,6 +12,10 @@ export const marketInputSchema = z.object({
   // see lib/checkout/market-pricing.ts.
   markupPercent: z.number().min(0).max(500),
   isActive: z.boolean().default(true),
+  // Cash on Delivery is Philippines-only by default (see place-order.ts) —
+  // this opts a market's countries into it too. False by default so an
+  // existing market never silently gains COD from an unrelated edit.
+  codEnabled: z.boolean().default(false),
   // All shipping fields below are optional — a market with none set keeps
   // using the existing flat international shipping fee (see
   // lib/checkout/shipping.ts). shippingPriceCents is denominated in

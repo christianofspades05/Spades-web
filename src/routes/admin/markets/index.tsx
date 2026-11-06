@@ -44,6 +44,7 @@ function MarketsPage() {
                 <tr>
                   <th className={tableHeadClassName}>Countries</th>
                   <th className={tableHeadClassName}>Status</th>
+                  <th className={tableHeadClassName}>COD</th>
                   <th className={`${tableHeadClassName} text-right`}>Markup</th>
                 </tr>
               </thead>
@@ -65,6 +66,13 @@ function MarketsPage() {
                       <Badge tone={market.is_active ? 'success' : 'neutral'}>
                         {market.is_active ? 'active' : 'inactive'}
                       </Badge>
+                    </td>
+                    <td className={tableCellClassName}>
+                      {market.cod_enabled ? (
+                        <Badge tone="success">allowed</Badge>
+                      ) : (
+                        <span className="text-neutral-400">—</span>
+                      )}
                     </td>
                     <td
                       className={`${tableCellClassName} text-right text-neutral-500`}
