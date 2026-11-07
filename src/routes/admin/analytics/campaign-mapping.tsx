@@ -228,7 +228,8 @@ function SortButton({
 function CampaignMappingPage() {
   const rows = Route.useLoaderData()
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('spendCents')
+  const [activeOnly, setActiveOnly] = useState(false)
+  const [sortKey, setSortKey] = useState<SortKey>('lastSpendDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   function handleSort(key: SortKey) {
@@ -240,11 +241,31 @@ function CampaignMappingPage() {
     }
   }
 
+  // "Active" isn't a flag Windsor reports — a campaign reads as active here
+  // when its last spend date matches the most recent spend date seen across
+  // every campaign in the list, i.e. it was still spending as of the latest
+  // day this data covers. One stale, long-paused campaign among many
+  // currently-running ones won't match and gets filtered out.
+  const mostRecentSpendDate = useMemo(
+    () =>
+      rows.reduce<string | null>(
+        (latest, row) =>
+          !latest || row.lastSpendDate > latest ? row.lastSpendDate : latest,
+        null,
+      ),
+    [rows],
+  )
+
   const visibleRows = useMemo(() => {
     const term = search.trim().toLowerCase()
-    const filtered = term
+    let filtered = term
       ? rows.filter((row) => row.campaignName.toLowerCase().includes(term))
       : rows
+    if (activeOnly && mostRecentSpendDate) {
+      filtered = filtered.filter(
+        (row) => row.lastSpendDate === mostRecentSpendDate,
+      )
+    }
     const sign = sortDir === 'asc' ? 1 : -1
     return [...filtered].sort((a, b) => {
       if (sortKey === 'campaignName') {
@@ -254,7 +275,7 @@ function CampaignMappingPage() {
         sign * (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0)
       )
     })
-  }, [rows, search, sortKey, sortDir])
+  }, [rows, search, activeOnly, mostRecentSpendDate, sortKey, sortDir])
 
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
@@ -271,17 +292,27 @@ function CampaignMappingPage() {
             not click-level attribution — so it also includes that product's
             sales from outside this specific campaign.
           </p>
-          <div className="relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-neutral-400"
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search campaigns…"
-              className={`${inputClassName} w-56 pl-7 text-sm`}
-            />
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-600">
+              <input
+                type="checkbox"
+                checked={activeOnly}
+                onChange={(e) => setActiveOnly(e.target.checked)}
+              />
+              Active campaigns only
+            </label>
+            <div className="relative">
+              <Search
+                size={14}
+                className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-neutral-400"
+              />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search campaigns…"
+                className={`${inputClassName} w-56 pl-7 text-sm`}
+              />
+            </div>
           </div>
         </div>
 
@@ -291,7 +322,9 @@ function CampaignMappingPage() {
           </p>
         ) : visibleRows.length === 0 ? (
           <p className="mt-5 text-sm text-neutral-400">
-            No campaigns match "{search}".
+            {search
+              ? `No campaigns match "${search}".`
+              : 'No campaigns are still active.'}
           </p>
         ) : (
           <div className={`${tableWrapperClassName} mt-5`}>
