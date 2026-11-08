@@ -1611,6 +1611,7 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
     const shippingCents = shippingCostCents(
       country,
       address.region,
+      address.province,
       subtotalCents - discountCents,
       itemCount,
       exchangeRates,

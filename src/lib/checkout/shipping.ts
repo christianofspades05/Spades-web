@@ -40,10 +40,22 @@ export const SHIPPING_ZONES = [
 export type ShippingZone = (typeof SHIPPING_ZONES)[number]
 
 export const SHIPPING_ZONE_RATE_CENTS: Record<ShippingZone, number> = {
-  metro_manila: 10_000,
-  luzon: 14_000,
-  visayas: 16_000,
-  mindanao: 18_000,
+  metro_manila: 6_000,
+  luzon: 6_000,
+  visayas: 7_500,
+  mindanao: 8_000,
+}
+
+/** A handful of provinces cost more to ship to than their broader region's
+ *  base rate above (remote/island logistics) — checked before falling back
+ *  to the zone rate. Keyed by the exact province name as it appears in
+ *  public/data/ph-address.json (title case), matched case-insensitively
+ *  since a marketplace-synced order's province can arrive in a different
+ *  casing (see ph-province-region.ts's own normalization). */
+const PROVINCE_SHIPPING_OVERRIDE_CENTS: Record<string, number | undefined> = {
+  'MOUNTAIN PROVINCE': 9_000,
+  ROMBLON: 9_000,
+  PALAWAN: 7_500,
 }
 
 const LUZON_REGIONS = new Set([
@@ -94,10 +106,12 @@ export function shippingZoneForRegion(region: string): ShippingZone {
  *  market override applies. `excludeFreeShipping` (see
  *  discounts.excludes_free_shipping) skips every free-shipping check above
  *  regardless of subtotal/item count — for a gift-style code that
- *  shouldn't also waive shipping. */
+ *  shouldn't also waive shipping. `province` only affects PH orders — see
+ *  PROVINCE_SHIPPING_OVERRIDE_CENTS. */
 export function shippingCostCents(
   country: string,
   region: string,
+  province: string,
   subtotalCents: number,
   itemCount: number,
   rates: ExchangeRates,
@@ -131,6 +145,9 @@ export function shippingCostCents(
   if (!excludeFreeShipping && subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) {
     return 0
   }
+  const provinceOverride =
+    PROVINCE_SHIPPING_OVERRIDE_CENTS[province.trim().toUpperCase()]
+  if (provinceOverride != null) return provinceOverride
   const zone = shippingZoneForRegion(region)
   return SHIPPING_ZONE_RATE_CENTS[zone]
 }

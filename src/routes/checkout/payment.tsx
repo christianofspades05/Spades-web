@@ -185,6 +185,7 @@ function PaymentPage() {
   const shippingCents = shippingCostCents(
     info.country,
     info.region,
+    info.province,
     subtotalCents - chargedDiscountCents,
     cart.items.reduce((sum, item) => sum + item.quantity, 0),
     rates,

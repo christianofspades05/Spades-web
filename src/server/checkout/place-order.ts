@@ -297,6 +297,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
       let shippingCents = shippingCostCents(
         data.contact.country,
         data.contact.region ?? '',
+        data.contact.province,
         subtotalCents - chargedDiscountCents,
         itemCount,
         exchangeRates,

@@ -205,13 +205,20 @@ function CheckoutPage() {
     // Purchase event's value (checkout/payment.tsx), this was never meant
     // to be a financial record of what got charged.
     const netMajor = centsToMajorUnits(
-      convertCents(Math.max(0, rawSubtotalCents - discountCents), target, rates),
+      convertCents(
+        Math.max(0, rawSubtotalCents - discountCents),
+        target,
+        rates,
+      ),
       target,
     )
     const value =
       netMajor > 0
         ? netMajor
-        : centsToMajorUnits(convertCents(rawSubtotalCents, target, rates), target)
+        : centsToMajorUnits(
+            convertCents(rawSubtotalCents, target, rates),
+            target,
+          )
     trackPixelEvent('InitiateCheckout', {
       content_ids: cart.items.map((item) => item.variant.product_id),
       content_type: 'product',
@@ -303,6 +310,7 @@ function CheckoutPage() {
       ? shippingCostCents(
           info.country,
           info.region,
+          info.province,
           subtotalCents - chargedDiscountCents,
           cart.items.reduce((sum, item) => sum + item.quantity, 0),
           rates,
