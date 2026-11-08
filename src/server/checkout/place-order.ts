@@ -303,6 +303,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         exchangeRates,
         marketShipping,
         cart.discount?.excludesFreeShipping ?? false,
+        data.paymentProvider === 'online',
       )
 
       let lalamoveInfo: LalamoveInfo | null = null

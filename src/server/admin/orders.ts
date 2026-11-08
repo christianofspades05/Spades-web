@@ -1238,7 +1238,7 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
     const { data: order, error } = await admin
       .from('orders')
       .select(
-        'id, status, source, discount_id, market_markup_percent, shipping_address, order_items(id, variant_id, quantity, unit_price_cents), payments(status), shipments(id)',
+        'id, status, source, discount_id, market_markup_percent, shipping_address, is_cod, order_items(id, variant_id, quantity, unit_price_cents), payments(status), shipments(id)',
       )
       .eq('id', data.orderId)
       .single()
@@ -1250,6 +1250,7 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
           discount_id: string | null
           market_markup_percent: number | null
           shipping_address: Record<string, unknown>
+          is_cod: boolean
           order_items: {
             id: string
             variant_id: string | null
@@ -1617,6 +1618,7 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       exchangeRates,
       marketShipping,
       excludesFreeShipping,
+      !order.is_cod,
     )
     const totalCents = Math.max(
       0,

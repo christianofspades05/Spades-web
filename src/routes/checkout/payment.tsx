@@ -191,6 +191,7 @@ function PaymentPage() {
     rates,
     marketShipping[info.country],
     cart.discount?.excludesFreeShipping ?? false,
+    method === 'online',
   )
   // Lalamove's delivery fee is charged same as any other shipping method —
   // the live quote plus a fixed buffer (see place-order.ts, which fetches

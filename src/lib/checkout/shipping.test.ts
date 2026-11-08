@@ -85,4 +85,52 @@ describe('shippingCostCents', () => {
       shippingCostCents('PH', 'MIMAROPA REGION', 'Palawan', 200_000, 1, {}),
     ).toBe(0)
   })
+
+  it('waives shipping for an online-paid order regardless of subtotal or province override', () => {
+    expect(
+      shippingCostCents(
+        'PH',
+        'MIMAROPA REGION',
+        'Palawan',
+        belowFreeShipping,
+        1,
+        {},
+        undefined,
+        false,
+        true,
+      ),
+    ).toBe(0)
+  })
+
+  it('still charges the normal rate for COD even below the threshold', () => {
+    expect(
+      shippingCostCents(
+        'PH',
+        'NATIONAL CAPITAL REGION (NCR)',
+        '',
+        belowFreeShipping,
+        1,
+        {},
+        undefined,
+        false,
+        false,
+      ),
+    ).toBe(6_000)
+  })
+
+  it('a gift-style code that excludes free shipping still charges shipping even when paid online', () => {
+    expect(
+      shippingCostCents(
+        'PH',
+        'NATIONAL CAPITAL REGION (NCR)',
+        '',
+        belowFreeShipping,
+        1,
+        {},
+        undefined,
+        true,
+        true,
+      ),
+    ).toBe(6_000)
+  })
 })

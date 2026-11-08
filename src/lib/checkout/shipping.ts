@@ -107,7 +107,10 @@ export function shippingZoneForRegion(region: string): ShippingZone {
  *  discounts.excludes_free_shipping) skips every free-shipping check above
  *  regardless of subtotal/item count — for a gift-style code that
  *  shouldn't also waive shipping. `province` only affects PH orders — see
- *  PROVINCE_SHIPPING_OVERRIDE_CENTS. */
+ *  PROVINCE_SHIPPING_OVERRIDE_CENTS. `isOnlinePayment` waives PH shipping
+ *  entirely regardless of subtotal — the incentive to pay online instead
+ *  of COD — same as every other free-shipping mechanism here, it's skipped
+ *  when `excludeFreeShipping` is set. */
 export function shippingCostCents(
   country: string,
   region: string,
@@ -117,6 +120,7 @@ export function shippingCostCents(
   rates: ExchangeRates,
   marketShipping?: MarketShippingConfig,
   excludeFreeShipping?: boolean,
+  isOnlinePayment?: boolean,
 ): number {
   if (country !== 'PH') {
     if (
@@ -141,6 +145,9 @@ export function shippingCostCents(
       )
     }
     return internationalShippingCostCents(rates.USD ?? null)
+  }
+  if (!excludeFreeShipping && isOnlinePayment) {
+    return 0
   }
   if (!excludeFreeShipping && subtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) {
     return 0
