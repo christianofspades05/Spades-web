@@ -28,6 +28,10 @@ export const Route = createFileRoute('/checkout/paypal-return')({
         order: result.orderNumber,
         value: result.amount,
         currency: result.currency,
+        // See capturePayPalCheckout's own doc comment on cartId — absent
+        // only in the unlikely case the reservation row was already gone.
+        cartId: result.cartId ?? undefined,
+        method: 'online',
       },
     })
   },

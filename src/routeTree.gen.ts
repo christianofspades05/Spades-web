@@ -45,6 +45,7 @@ import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$toke
 import { Route as AdminAnalyticsAdsEfficiencyRouteImport } from './routes/admin/analytics/ads-efficiency'
 import { Route as AdminAnalyticsCampaignMappingRouteImport } from './routes/admin/analytics/campaign-mapping'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
+import { Route as AdminAnalyticsCheckoutFunnelRouteImport } from './routes/admin/analytics/checkout-funnel'
 import { Route as AdminAnalyticsExpensesRouteImport } from './routes/admin/analytics/expenses'
 import { Route as AdminAnalyticsInventoryValueRouteImport } from './routes/admin/analytics/inventory-value'
 import { Route as AdminAnalyticsProductAnalyticsRouteImport } from './routes/admin/analytics/product-analytics'
@@ -101,6 +102,7 @@ import { Route as ApiCronSyncChannelsPullOrdersRouteImport } from './routes/api/
 import { Route as ApiCronSyncExchangeRatesRouteImport } from './routes/api/cron/sync-exchange-rates'
 import { Route as ApiCronSyncGrossProfitToSheetRouteImport } from './routes/api/cron/sync-gross-profit-to-sheet'
 import { Route as ApiFeedProductsRouteImport } from './routes/api/feed/products'
+import { Route as ApiTrackCheckoutRouteImport } from './routes/api/track/checkout'
 import { Route as ApiWebhooksPaypalRouteImport } from './routes/api/webhooks/paypal'
 import { Route as ApiWebhooksResendInboundRouteImport } from './routes/api/webhooks/resend-inbound'
 import { Route as ApiWebhooksXenditRouteImport } from './routes/api/webhooks/xendit'
@@ -293,6 +295,12 @@ const AdminAnalyticsCancelledReturnsRoute =
   AdminAnalyticsCancelledReturnsRouteImport.update({
     id: '/analytics/cancelled-returns',
     path: '/analytics/cancelled-returns',
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminAnalyticsCheckoutFunnelRoute =
+  AdminAnalyticsCheckoutFunnelRouteImport.update({
+    id: '/analytics/checkout-funnel',
+    path: '/analytics/checkout-funnel',
     getParentRoute: () => AdminRoute,
   } as any)
 const AdminAnalyticsExpensesRoute = AdminAnalyticsExpensesRouteImport.update({
@@ -590,6 +598,11 @@ const ApiFeedProductsRoute = ApiFeedProductsRouteImport.update({
   path: '/api/feed/products',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTrackCheckoutRoute = ApiTrackCheckoutRouteImport.update({
+  id: '/api/track/checkout',
+  path: '/api/track/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksPaypalRoute = ApiWebhooksPaypalRouteImport.update({
   id: '/api/webhooks/paypal',
   path: '/api/webhooks/paypal',
@@ -680,6 +693,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
@@ -715,6 +729,7 @@ export interface FileRoutesByFullPath {
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/cron/sync-gross-profit-to-sheet': typeof ApiCronSyncGrossProfitToSheetRoute
   '/api/feed/products': typeof ApiFeedProductsRoute
+  '/api/track/checkout': typeof ApiTrackCheckoutRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
@@ -781,6 +796,7 @@ export interface FileRoutesByTo {
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
@@ -816,6 +832,7 @@ export interface FileRoutesByTo {
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/cron/sync-gross-profit-to-sheet': typeof ApiCronSyncGrossProfitToSheetRoute
   '/api/feed/products': typeof ApiFeedProductsRoute
+  '/api/track/checkout': typeof ApiTrackCheckoutRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
@@ -886,6 +903,7 @@ export interface FileRoutesById {
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
+  '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
   '/admin/analytics/expenses': typeof AdminAnalyticsExpensesRoute
   '/admin/analytics/inventory-value': typeof AdminAnalyticsInventoryValueRoute
   '/admin/analytics/product-analytics': typeof AdminAnalyticsProductAnalyticsRoute
@@ -921,6 +939,7 @@ export interface FileRoutesById {
   '/api/cron/sync-exchange-rates': typeof ApiCronSyncExchangeRatesRoute
   '/api/cron/sync-gross-profit-to-sheet': typeof ApiCronSyncGrossProfitToSheetRoute
   '/api/feed/products': typeof ApiFeedProductsRoute
+  '/api/track/checkout': typeof ApiTrackCheckoutRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend-inbound': typeof ApiWebhooksResendInboundRoute
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
@@ -992,6 +1011,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/checkout-funnel'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
@@ -1027,6 +1047,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-exchange-rates'
     | '/api/cron/sync-gross-profit-to-sheet'
     | '/api/feed/products'
+    | '/api/track/checkout'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
@@ -1093,6 +1114,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/checkout-funnel'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
@@ -1128,6 +1150,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-exchange-rates'
     | '/api/cron/sync-gross-profit-to-sheet'
     | '/api/feed/products'
+    | '/api/track/checkout'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
@@ -1197,6 +1220,7 @@ export interface FileRouteTypes {
     | '/admin/analytics/ads-efficiency'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
+    | '/admin/analytics/checkout-funnel'
     | '/admin/analytics/expenses'
     | '/admin/analytics/inventory-value'
     | '/admin/analytics/product-analytics'
@@ -1232,6 +1256,7 @@ export interface FileRouteTypes {
     | '/api/cron/sync-exchange-rates'
     | '/api/cron/sync-gross-profit-to-sheet'
     | '/api/feed/products'
+    | '/api/track/checkout'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend-inbound'
     | '/api/webhooks/xendit'
@@ -1302,6 +1327,7 @@ export interface RootRouteChildren {
   ApiCronSyncExchangeRatesRoute: typeof ApiCronSyncExchangeRatesRoute
   ApiCronSyncGrossProfitToSheetRoute: typeof ApiCronSyncGrossProfitToSheetRoute
   ApiFeedProductsRoute: typeof ApiFeedProductsRoute
+  ApiTrackCheckoutRoute: typeof ApiTrackCheckoutRoute
   ApiWebhooksPaypalRoute: typeof ApiWebhooksPaypalRoute
   ApiWebhooksResendInboundRoute: typeof ApiWebhooksResendInboundRoute
   ApiWebhooksXenditRoute: typeof ApiWebhooksXenditRoute
@@ -1566,6 +1592,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics/cancelled-returns'
       fullPath: '/admin/analytics/cancelled-returns'
       preLoaderRoute: typeof AdminAnalyticsCancelledReturnsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/checkout-funnel': {
+      id: '/admin/analytics/checkout-funnel'
+      path: '/analytics/checkout-funnel'
+      fullPath: '/admin/analytics/checkout-funnel'
+      preLoaderRoute: typeof AdminAnalyticsCheckoutFunnelRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/analytics/expenses': {
@@ -1960,6 +1993,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiFeedProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/track/checkout': {
+      id: '/api/track/checkout'
+      path: '/api/track/checkout'
+      fullPath: '/api/track/checkout'
+      preLoaderRoute: typeof ApiTrackCheckoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/paypal': {
       id: '/api/webhooks/paypal'
       path: '/api/webhooks/paypal'
@@ -2038,6 +2078,7 @@ interface AdminRouteChildren {
   AdminAnalyticsAdsEfficiencyRoute: typeof AdminAnalyticsAdsEfficiencyRoute
   AdminAnalyticsCampaignMappingRoute: typeof AdminAnalyticsCampaignMappingRoute
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
+  AdminAnalyticsCheckoutFunnelRoute: typeof AdminAnalyticsCheckoutFunnelRoute
   AdminAnalyticsExpensesRoute: typeof AdminAnalyticsExpensesRoute
   AdminAnalyticsInventoryValueRoute: typeof AdminAnalyticsInventoryValueRoute
   AdminAnalyticsProductAnalyticsRoute: typeof AdminAnalyticsProductAnalyticsRoute
@@ -2092,6 +2133,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsAdsEfficiencyRoute: AdminAnalyticsAdsEfficiencyRoute,
   AdminAnalyticsCampaignMappingRoute: AdminAnalyticsCampaignMappingRoute,
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
+  AdminAnalyticsCheckoutFunnelRoute: AdminAnalyticsCheckoutFunnelRoute,
   AdminAnalyticsExpensesRoute: AdminAnalyticsExpensesRoute,
   AdminAnalyticsInventoryValueRoute: AdminAnalyticsInventoryValueRoute,
   AdminAnalyticsProductAnalyticsRoute: AdminAnalyticsProductAnalyticsRoute,
@@ -2209,6 +2251,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronSyncExchangeRatesRoute: ApiCronSyncExchangeRatesRoute,
   ApiCronSyncGrossProfitToSheetRoute: ApiCronSyncGrossProfitToSheetRoute,
   ApiFeedProductsRoute: ApiFeedProductsRoute,
+  ApiTrackCheckoutRoute: ApiTrackCheckoutRoute,
   ApiWebhooksPaypalRoute: ApiWebhooksPaypalRoute,
   ApiWebhooksResendInboundRoute: ApiWebhooksResendInboundRoute,
   ApiWebhooksXenditRoute: ApiWebhooksXenditRoute,

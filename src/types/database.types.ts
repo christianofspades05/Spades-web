@@ -1475,6 +1475,40 @@ export interface Database {
         }
         Relationships: []
       }
+      checkout_funnel_daily: {
+        Row: {
+          day: string
+          checkout_start: number
+          checkout_view: number
+          email_entered: number
+          address_entered: number
+          shipping_shown: number
+          payment_selected: number
+          place_order_clicked: number
+          order_success: number
+          cod_selected: number
+          online_selected: number
+          start_to_view_pct: number | null
+          view_to_email_pct: number | null
+          email_to_address_pct: number | null
+          address_to_shipping_pct: number | null
+          shipping_to_payment_pct: number | null
+          payment_to_place_order_pct: number | null
+          place_order_to_success_pct: number | null
+          overall_start_to_success_pct: number | null
+        }
+        Relationships: []
+      }
+      checkout_shipping_dropoff_by_region: {
+        Row: {
+          region: string | null
+          free_shipping: boolean | null
+          shipping_shown_carts: number
+          place_order_clicked_carts: number
+          conversion_pct: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       record_gateway_refund: {

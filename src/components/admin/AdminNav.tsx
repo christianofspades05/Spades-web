@@ -11,6 +11,7 @@ import {
   ChevronsRight,
   Eye,
   EyeOff,
+  Filter,
   Globe,
   Home,
   LayoutTemplate,
@@ -87,6 +88,11 @@ const ANALYTICS_SUB_LINKS = [
     to: '/admin/analytics/campaign-mapping',
     label: 'Campaign Mapping',
     icon: Link2,
+  },
+  {
+    to: '/admin/analytics/checkout-funnel',
+    label: 'Checkout Funnel',
+    icon: Filter,
   },
 ] as const
 

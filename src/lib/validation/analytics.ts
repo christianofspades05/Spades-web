@@ -5,10 +5,27 @@ import { z } from 'zod'
 // separate rather than reusing 'page_view' with productId attached, so it
 // can never affect the existing Visitors/Home-dashboard page_view counts
 // that already depend on the current page_view volume staying what it is.
+// The checkout_* events below are the step-level funnel between
+// checkout_start (fired from the product page on "Add to Cart" — see
+// products/$slug.tsx) and a placed/paid order — see lib/analytics/
+// checkout-tracking.ts for how they're fired (sendBeacon/fetch-keepalive,
+// deduped per cart so a step is never double-counted just from a re-render)
+// and supabase/migrations for the checkout_funnel_daily view that reads
+// them back.
 export const EVENT_TYPES = [
   'page_view',
   'product_view',
   'checkout_start',
+  'checkout_view',
+  'checkout_email_entered',
+  'checkout_address_entered',
+  'checkout_shipping_shown',
+  'checkout_payment_selected',
+  'checkout_place_order_clicked',
+  'checkout_validation_error',
+  'checkout_order_error',
+  'checkout_payment_redirect',
+  'checkout_order_success',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
@@ -57,7 +74,14 @@ const KNOWN_TOP_LEVEL_SEGMENTS = new Set([
 // products/$slug.tsx, both of which read it from router state, never a
 // raw string) can never actually take on one of these; a real image/script
 // request never goes through client-side routing to begin with.
-const NON_PAGE_PREFIXES = ['/cdn', '/_next', '/_vercel', '/api', '/assets', '/admin']
+const NON_PAGE_PREFIXES = [
+  '/cdn',
+  '/_next',
+  '/_vercel',
+  '/api',
+  '/assets',
+  '/admin',
+]
 const STATIC_ASSET_EXTENSION_RE =
   /\.(png|jpe?g|gif|webp|svg|ico|heic|heif|bmp|tiff?|avif|js|mjs|css|map|woff2?|ttf|eot|otf|json|xml|txt|pdf|mp4|webm|mov|mp3|wav|zip|csv)$/i
 

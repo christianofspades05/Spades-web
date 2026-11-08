@@ -33,6 +33,10 @@ import { getLalamoveEstimate } from '#/server/checkout/lalamove'
 import { placeOrder } from '#/server/checkout/place-order'
 import { checkCodCityEligibility } from '#/server/checkout/cod-city-restriction'
 import { getAttributedFbclid } from '#/lib/analytics/fbclid'
+import {
+  errorCodeOf,
+  trackCheckoutEvent,
+} from '#/lib/analytics/checkout-tracking'
 import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
@@ -295,6 +299,133 @@ function CheckoutPage() {
     ratesLoaded,
   ])
 
+  // checkout_view — fires once the page has a real, non-empty cart to show.
+  // Also covers checkout_email_entered's "prefilled" case: a logged-in
+  // customer (or a returning guest whose email was already saved on the
+  // cart) can land here with info.email already valid, with no blur event
+  // ever going to fire for it.
+  useEffect(() => {
+    if (isLoading || !cart || cart.items.length === 0) return
+    trackCheckoutEvent({
+      cartId: cart.id,
+      eventType: 'checkout_view',
+      brand: storefrontScope.brand,
+      metadata: {
+        item_count: cart.items.reduce((sum, item) => sum + item.quantity, 0),
+        subtotal_cents: rawSubtotalCents,
+      },
+    })
+    if (checkoutContactBaseSchema.shape.email.safeParse(info.email).success) {
+      trackCheckoutEvent({
+        cartId: cart.id,
+        eventType: 'checkout_email_entered',
+        brand: storefrontScope.brand,
+        metadata: { prefilled: true },
+      })
+    }
+    // info.email deliberately excluded — this effect's job is to catch a
+    // value that was already there the moment the cart became visible, not
+    // to re-fire every time the shopper types; the email input's own
+    // onBlur handler covers that case instead (and the dedupe above means
+    // whichever of the two fires first just wins).
+  }, [isLoading, cart, rawSubtotalCents, storefrontScope.brand])
+
+  // checkout_address_entered — every required address field present, by
+  // the same country-dependent rule checkoutContactSchema itself enforces
+  // (region/barangay only apply to PH).
+  useEffect(() => {
+    if (!cart) return
+    const filled =
+      info.country === 'PH'
+        ? Boolean(
+            info.region &&
+            info.province &&
+            info.city &&
+            info.barangay &&
+            info.addressLine1,
+          )
+        : Boolean(info.city && info.province && info.addressLine1)
+    if (!filled) return
+    trackCheckoutEvent({
+      cartId: cart.id,
+      eventType: 'checkout_address_entered',
+      brand: storefrontScope.brand,
+      metadata: {
+        region: info.region,
+        province: info.province,
+        city: info.city,
+      },
+    })
+  }, [
+    cart,
+    info.country,
+    info.region,
+    info.province,
+    info.city,
+    info.barangay,
+    info.addressLine1,
+    storefrontScope.brand,
+  ])
+
+  // checkout_shipping_shown — fires the first time a real shipping fee is
+  // computed for this cart. Recomputes shippingCostCents independently
+  // here (rather than reusing the render-time `shippingCents` further
+  // below) because that's computed after this component's early
+  // isLoading/empty-cart returns, and hooks can't be declared after a
+  // conditional return.
+  useEffect(() => {
+    if (!cart) return
+    if (info.country === 'PH' && !info.region) return
+    const trackedSubtotalCents = applyMarketMarkup(
+      rawSubtotalCents,
+      marketMarkups[info.country],
+    )
+    const trackedDiscountCents = applyMarketMarkup(
+      discountCents,
+      marketMarkups[info.country],
+    )
+    const cents = shippingCostCents(
+      info.country,
+      info.region,
+      info.province,
+      trackedSubtotalCents - trackedDiscountCents,
+      cart.items.reduce((sum, item) => sum + item.quantity, 0),
+      rates,
+      marketShipping[info.country],
+      cart.discount?.excludesFreeShipping ?? false,
+      method === 'online',
+    )
+    trackCheckoutEvent({
+      cartId: cart.id,
+      eventType: 'checkout_shipping_shown',
+      brand: storefrontScope.brand,
+      metadata: {
+        region: info.region,
+        shipping_cents: cents,
+        subtotal_cents: trackedSubtotalCents,
+        total_cents: Math.max(
+          0,
+          trackedSubtotalCents - trackedDiscountCents + cents,
+        ),
+        free_shipping: cents === 0,
+        shipping_method: info.shippingMethod,
+      },
+    })
+  }, [
+    cart,
+    info.country,
+    info.region,
+    info.province,
+    info.shippingMethod,
+    rawSubtotalCents,
+    discountCents,
+    rates,
+    marketMarkups,
+    marketShipping,
+    method,
+    storefrontScope.brand,
+  ])
+
   const lalamoveRegionEligible = isLalamoveRegionEligible({
     brand: storefrontScope.brand,
     region: info.region,
@@ -366,6 +497,13 @@ function CheckoutPage() {
       </div>
     )
   }
+
+  // Captured once, narrowed-non-null — TS can't carry `cart`'s non-null
+  // narrowing from the early return above into the `function` declarations
+  // below (handlePlaceOrder, handlePaymentMethodChange), since those could
+  // in principle be called at any later point. Tracking calls inside them
+  // use this instead of `cart.id` directly.
+  const cartId = cart.id
 
   // Per-country product markup (see lib/checkout/market-pricing.ts) — keyed
   // by shipping destination, never touches the shipping fee below. Must
@@ -449,6 +587,19 @@ function CheckoutPage() {
     }
   }
 
+  function handlePaymentMethodChange(next: PaymentMethod) {
+    setMethod(next)
+    trackCheckoutEvent({
+      cartId,
+      eventType: 'checkout_payment_selected',
+      brand: storefrontScope.brand,
+      // Keyed by method too — switching from cod to online (or back)
+      // fires again, but re-selecting the one already active doesn't.
+      dedupeKey: next,
+      metadata: { method: next, shipping_cents: shippingCents },
+    })
+  }
+
   function handleCountryChange(country: string) {
     setInfo({
       ...info,
@@ -466,10 +617,35 @@ function CheckoutPage() {
   async function handlePlaceOrder(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    trackCheckoutEvent({
+      cartId,
+      eventType: 'checkout_place_order_clicked',
+      brand: storefrontScope.brand,
+      metadata: {
+        method,
+        total_cents: totalCents,
+        shipping_cents: shippingCents,
+      },
+    })
     const submittable = withSubmittableProvince(info)
     const result = checkoutContactSchema.safeParse(submittable)
     if (!result.success) {
       setError(result.error.issues[0]?.message ?? 'Please check your details')
+      trackCheckoutEvent({
+        cartId,
+        eventType: 'checkout_validation_error',
+        brand: storefrontScope.brand,
+        allowRepeat: true,
+        metadata: {
+          fields: [
+            ...new Set(
+              result.error.issues.map((issue) =>
+                String(issue.path[0] ?? 'unknown'),
+              ),
+            ),
+          ],
+        },
+      })
       return
     }
     setInfo(submittable)
@@ -484,6 +660,12 @@ function CheckoutPage() {
         },
       })
       if (placed.invoiceUrl) {
+        trackCheckoutEvent({
+          cartId,
+          eventType: 'checkout_payment_redirect',
+          brand: storefrontScope.brand,
+          metadata: { method, total_cents: totalCents },
+        })
         // Cart/checkout state is only cleared once payment is actually
         // confirmed (the webhook), not here — the customer may bounce back
         // from Xendit without finishing.
@@ -499,9 +681,26 @@ function CheckoutPage() {
           order: placed.orderNumber ?? undefined,
           value: (totalCents / 100).toFixed(2),
           currency: 'PHP',
+          // Threaded through so confirmation.tsx can fire
+          // checkout_order_success with the same cart_id the rest of this
+          // funnel was tracked under — by the time that page loads, this
+          // cart has already been cleared (see clear() above).
+          cartId,
+          method,
         },
       })
     } catch (err) {
+      trackCheckoutEvent({
+        cartId,
+        eventType: 'checkout_order_error',
+        brand: storefrontScope.brand,
+        allowRepeat: true,
+        metadata: {
+          method,
+          error_code: errorCodeOf(err),
+          message: getErrorMessage(err).slice(0, 300),
+        },
+      })
       setError(getErrorMessage(err))
     } finally {
       setPlacing(false)
@@ -543,6 +742,12 @@ function CheckoutPage() {
                       e.target.value,
                     )
                   if (!result.success) return
+                  trackCheckoutEvent({
+                    cartId: cart.id,
+                    eventType: 'checkout_email_entered',
+                    brand: storefrontScope.brand,
+                    metadata: { prefilled: false },
+                  })
                   void saveCartEmail({ data: { email: result.data } }).catch(
                     () => {},
                   )
@@ -825,7 +1030,7 @@ function CheckoutPage() {
                   name="payment"
                   disabled={!!codDisabledReason}
                   checked={method === 'cod'}
-                  onChange={() => setMethod('cod')}
+                  onChange={() => handlePaymentMethodChange('cod')}
                 />
                 <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
                   {t.payment.cod}
@@ -848,7 +1053,7 @@ function CheckoutPage() {
                   type="radio"
                   name="payment"
                   checked={method === 'online'}
-                  onChange={() => setMethod('online')}
+                  onChange={() => handlePaymentMethodChange('online')}
                 />
                 <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
                   {info.country === 'PH'

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { useCheckout } from '#/lib/checkout/CheckoutContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
+import { trackCheckoutEvent } from '#/lib/analytics/checkout-tracking'
 import { buttonPrimaryClassName } from '#/components/storefront/ui'
 import {
   getOrderConfirmation,
@@ -31,6 +32,15 @@ export const Route = createFileRoute('/checkout/confirmation')({
     // display currency (COD/GCash/Maya/bank transfer always charge PHP
     // regardless of what was selected).
     currency: z.string().default('PHP'),
+    // Threaded through from checkout/index.tsx (COD), place-order.ts's
+    // Xendit successRedirectUrl, and paypal-return.tsx — this page is the
+    // one common landing spot for every payment method, so
+    // checkout_order_success fires from here rather than duplicated at
+    // each of those three call sites. Absent on an old/bookmarked link or
+    // a very old in-flight checkout — tracking is skipped rather than
+    // guessed in that case (see the effect below).
+    cartId: z.string().optional(),
+    method: z.enum(['cod', 'online']).optional(),
   }),
   loaderDeps: ({ search }) => ({
     order: search.order,
@@ -72,8 +82,9 @@ interface Resolved {
 }
 
 function ConfirmationPage() {
-  const { value, currency } = Route.useSearch()
+  const { value, currency, cartId, method } = Route.useSearch()
   const loaderData = Route.useLoaderData()
+  const { storefrontScope } = Route.useRouteContext()
   const { clear } = useCheckout()
   const { t } = useLanguage()
 
@@ -150,6 +161,27 @@ function ConfirmationPage() {
     trackPixelEvent('Purchase', { value, currency })
   }, [resolved, value, currency])
 
+  // checkout_order_success — the one common landing point for every
+  // payment method (COD reaches it directly, Xendit/PayPal redirect here
+  // once paid), so this is the only place it needs to fire. Silently
+  // skipped if cartId is missing (an old bookmarked confirmation link,
+  // predating this param) — trackCheckoutEvent itself also no-ops without
+  // one, this just avoids reading undefined fields for no reason.
+  useEffect(() => {
+    if (!resolved || !cartId) return
+    trackCheckoutEvent({
+      cartId,
+      eventType: 'checkout_order_success',
+      brand: storefrontScope.brand,
+      metadata: {
+        order_id: resolved.orderNumber,
+        method: method ?? null,
+        total_cents: resolved.confirmation?.totalCents ?? null,
+        shipping_cents: resolved.confirmation?.shippingCents ?? null,
+      },
+    })
+  }, [resolved, cartId, method, storefrontScope.brand])
+
   const items = resolved?.confirmation?.items ?? []
   const confirmation = resolved?.confirmation ?? null
   const stillConfirming = loaderData.kind === 'reservation' && !resolved
@@ -213,14 +245,21 @@ function ConfirmationPage() {
               <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                 <span>{t.payment.subtotal}</span>
                 <span>
-                  {formatCents(confirmation.subtotalCents, confirmation.currency)}
+                  {formatCents(
+                    confirmation.subtotalCents,
+                    confirmation.currency,
+                  )}
                 </span>
               </div>
               {confirmation.discountCents > 0 && (
                 <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                   <span>{t.payment.discount}</span>
                   <span>
-                    −{formatCents(confirmation.discountCents, confirmation.currency)}
+                    −
+                    {formatCents(
+                      confirmation.discountCents,
+                      confirmation.currency,
+                    )}
                   </span>
                 </div>
               )}
@@ -229,12 +268,17 @@ function ConfirmationPage() {
                 <span>
                   {confirmation.shippingCents === 0
                     ? t.checkout.free
-                    : formatCents(confirmation.shippingCents, confirmation.currency)}
+                    : formatCents(
+                        confirmation.shippingCents,
+                        confirmation.currency,
+                      )}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between border-t border-neutral-200 pt-1.5 font-semibold text-neutral-900 dark:border-neutral-800 dark:text-white">
                 <span>{t.payment.total}</span>
-                <span>{formatCents(confirmation.totalCents, confirmation.currency)}</span>
+                <span>
+                  {formatCents(confirmation.totalCents, confirmation.currency)}
+                </span>
               </div>
             </div>
           )}

@@ -19,13 +19,37 @@ import { mintOrderFromReservation } from '#/server/checkout/mint-order'
 import { releaseReservationStock } from '#/server/checkout/release-reservation'
 
 export type PayPalCaptureResult =
-  | { status: 'paid'; orderNumber: string; amount: number; currency: string }
+  | {
+      status: 'paid'
+      orderNumber: string
+      amount: number
+      currency: string
+      /** checkout_reservations.cart_id — threaded through to
+       *  paypal-return.tsx's redirect so confirmation.tsx can fire
+       *  checkout_order_success under the same cart_id the rest of the
+       *  checkout funnel was tracked with (see lib/analytics/
+       *  checkout-tracking.ts). Null only if the reservation row is gone
+       *  by the time this resolves (shouldn't happen — nothing deletes
+       *  it) — tracking just gets skipped in that case, nothing else
+       *  depends on it. */
+      cartId: string | null
+    }
   | { status: 'failed' }
 
 export const capturePayPalCheckout = createServerFn({ method: 'GET' })
   .validator(z.object({ reservationId: z.string().uuid() }))
   .handler(async ({ data }): Promise<PayPalCaptureResult> => {
     const admin = getSupabaseAdminClient()
+
+    // Fetched up front since both the idempotent (existingOrder) and fresh
+    // branches below need it, and this is the one place both look up by
+    // reservation id.
+    const { data: reservationCartRow } = await admin
+      .from('checkout_reservations')
+      .select('cart_id')
+      .eq('id', data.reservationId)
+      .maybeSingle()
+    const cartId = reservationCartRow?.cart_id ?? null
 
     const { data: existingOrder, error: existingOrderError } = await admin
       .from('orders')
@@ -56,6 +80,7 @@ export const capturePayPalCheckout = createServerFn({ method: 'GET' })
         orderNumber: existingOrder.order_number,
         amount: centsToMajorUnits(amountCents, currency),
         currency,
+        cartId,
       }
     }
 
@@ -94,6 +119,7 @@ export const capturePayPalCheckout = createServerFn({ method: 'GET' })
       orderNumber: order.orderNumber,
       amount: Number(capture.amount),
       currency: capture.currencyCode,
+      cartId,
     }
   })
 

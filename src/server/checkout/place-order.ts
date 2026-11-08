@@ -700,7 +700,12 @@ export const placeOrder = createServerFn({ method: 'POST' })
             currency: 'PHP',
             payerEmail: email,
             description: `${scope.name} order`,
-            successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
+            // cartId/method let confirmation.tsx fire checkout_order_success
+            // under the same cart_id the rest of the checkout funnel was
+            // tracked with (see lib/analytics/checkout-tracking.ts) —
+            // encoded since cart.id is a UUID but still worth not trusting
+            // blindly in a URL.
+            successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP&cartId=${encodeURIComponent(cart.id)}&method=online`,
             failureRedirectUrl: `${origin}/checkout?paymentFailed=true`,
             // Abandoned payments shouldn't leave stock reserved
             // indefinitely — Xendit pushes an EXPIRED webhook event at
