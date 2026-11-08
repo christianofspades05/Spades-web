@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { z } from 'zod'
 import { useCart } from '#/lib/cart/CartContext'
 import {
+  isCheckoutInfoComplete,
   useCheckout,
   withSubmittableProvince,
 } from '#/lib/checkout/CheckoutContext'
@@ -23,10 +25,15 @@ import {
   isLalamoveRegionEligible,
 } from '#/lib/checkout/lalamove-eligibility'
 import {
+  getActiveCodCountries,
   getActiveMarketMarkups,
   getActiveMarketShipping,
 } from '#/server/storefront/market-pricing'
 import { getLalamoveEstimate } from '#/server/checkout/lalamove'
+import { placeOrder } from '#/server/checkout/place-order'
+import { checkCodCityEligibility } from '#/server/checkout/cod-city-restriction'
+import { getAttributedFbclid } from '#/lib/analytics/fbclid'
+import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import {
@@ -68,10 +75,16 @@ function standardShippingLabel(
     : fallback
 }
 
+type PaymentMethod = 'cod' | 'online'
+
 export const Route = createFileRoute('/checkout/')({
+  validateSearch: z.object({
+    paymentFailed: z.boolean().optional(),
+  }),
   loader: async () => ({
     marketMarkups: await getActiveMarketMarkups(),
     marketShipping: await getActiveMarketShipping(),
+    codCountries: await getActiveCodCountries(),
   }),
   component: CheckoutPage,
 })
@@ -162,7 +175,8 @@ function LalamoveDeliveryPicker() {
 }
 
 function CheckoutPage() {
-  const { marketMarkups, marketShipping } = Route.useLoaderData()
+  const { marketMarkups, marketShipping, codCountries } = Route.useLoaderData()
+  const { paymentFailed } = Route.useSearch()
   const { storefrontScope } = Route.useRouteContext()
   const { currency, rates, ratesLoaded, formatPrice } = useCurrency()
   const { t } = useLanguage()
@@ -171,15 +185,60 @@ function CheckoutPage() {
     subtotalCents: rawSubtotalCents,
     discountCents,
     isLoading,
+    codAvailable,
+    codUnavailableReason,
     applyDiscountCode,
     removeDiscountCode,
   } = useCart()
-  const { info, setInfo } = useCheckout()
+  const { info, setInfo, clear } = useCheckout()
   const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    paymentFailed ? t.payment.paymentFailedError : null,
+  )
   const [discountInput, setDiscountInput] = useState('')
   const [discountError, setDiscountError] = useState<string | null>(null)
   const [applyingDiscount, setApplyingDiscount] = useState(false)
+  const [method, setMethod] = useState<PaymentMethod>('cod')
+  const [placing, setPlacing] = useState(false)
+
+  const isLalamove = info.shippingMethod === 'lalamove'
+
+  // A city-level COD block isn't static any more — a customer with a
+  // proven delivery track record (see cod-trust.ts) can still get COD
+  // there, and that can only be known by asking the server per (email,
+  // address), not by matching against a preloaded city list client-side.
+  const [cityRestriction, setCityRestriction] = useState<{
+    restricted: boolean
+    reason: string | null
+  } | null>(null)
+  useEffect(() => {
+    if (info.country !== 'PH' || !info.email || !info.city || !info.province) {
+      setCityRestriction(null)
+      return
+    }
+    let cancelled = false
+    // Matches place-order.ts's own normalization (via withSubmittableProvince)
+    // so an NCR address — which has no real province in the PSGC data —
+    // still matches a restriction stored against NCR's 'Metro Manila'
+    // fallback.
+    checkCodCityEligibility({
+      data: {
+        email: info.email,
+        region: info.region,
+        province: ncrProvinceFallback(info.region, info.province),
+        city: info.city,
+      },
+    })
+      .then((result) => {
+        if (!cancelled) setCityRestriction(result)
+      })
+      .catch(() => {
+        if (!cancelled) setCityRestriction(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [info.country, info.email, info.region, info.province, info.city])
 
   const firedInitiateCheckout = useRef(false)
   useEffect(() => {
@@ -202,8 +261,8 @@ function CheckoutPage() {
     // cart is never empty here (see the early return above), so it's
     // still a real, always-positive "how much is in this cart" signal for
     // ad optimization, which is what this event is for — unlike the
-    // Purchase event's value (checkout/payment.tsx), this was never meant
-    // to be a financial record of what got charged.
+    // Purchase event's value below, this was never meant to be a financial
+    // record of what got charged.
     const netMajor = centsToMajorUnits(
       convertCents(
         Math.max(0, rawSubtotalCents - discountCents),
@@ -263,6 +322,28 @@ function CheckoutPage() {
     }
   }, [lalamoveEligible])
 
+  // Shown next to a disabled (not hidden) COD option so the customer knows
+  // why, rather than it just silently not being there.
+  const codAllowedForCountry =
+    info.country === 'PH' || codCountries.includes(info.country)
+  const codDisabledReason = !codAllowedForCountry
+    ? 'Cash on Delivery is not available — please pay online.'
+    : isLalamove
+      ? 'Not available for Lalamove delivery — online payment only.'
+      : cityRestriction?.restricted
+        ? (cityRestriction.reason ??
+          'Cash on Delivery is not available in your area.')
+        : !codAvailable
+          ? (codUnavailableReason ??
+            'Cash on Delivery is not available for items in your cart.')
+          : null
+
+  useEffect(() => {
+    // Lalamove is online-payment-only, same as any other COD restriction —
+    // never trust the client alone, place-order.ts re-checks this too.
+    if (codDisabledReason && method === 'cod') setMethod('online')
+  }, [codDisabledReason, method])
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-16 text-neutral-500 dark:text-neutral-400">
@@ -316,6 +397,7 @@ function CheckoutPage() {
           rates,
           marketShipping[info.country],
           cart.discount?.excludesFreeShipping ?? false,
+          method === 'online',
         )
       : null
   // Lalamove's delivery fee is charged through this site same as any other
@@ -327,7 +409,10 @@ function CheckoutPage() {
     info.shippingMethod === 'lalamove'
       ? (info.lalamoveEstimatedFeeCents ?? 0) + LALAMOVE_FEE_BUFFER_CENTS
       : (shippingCents ?? 0)
-  const totalCents = subtotalCents - chargedDiscountCents + chargedShippingCents
+  const totalCents = Math.max(
+    0,
+    subtotalCents - chargedDiscountCents + chargedShippingCents,
+  )
 
   const discount = cart.discount
   function formatDiscountRate(type: string, value: number): string {
@@ -378,7 +463,7 @@ function CheckoutPage() {
     })
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handlePlaceOrder(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
     const submittable = withSubmittableProvince(info)
@@ -388,15 +473,58 @@ function CheckoutPage() {
       return
     }
     setInfo(submittable)
-    void navigate({ to: '/checkout/payment' })
+    setPlacing(true)
+    try {
+      const placed = await placeOrder({
+        data: {
+          contact: submittable,
+          paymentProvider: method,
+          currency: method === 'cod' ? 'PHP' : currency,
+          fbclid: getAttributedFbclid(),
+        },
+      })
+      if (placed.invoiceUrl) {
+        // Cart/checkout state is only cleared once payment is actually
+        // confirmed (the webhook), not here — the customer may bounce back
+        // from Xendit without finishing.
+        window.location.href = placed.invoiceUrl
+        return
+      }
+      clear()
+      void navigate({
+        to: '/checkout/confirmation',
+        search: {
+          // Always set here — this branch only runs for COD, which always
+          // returns a real order number (see place-order.ts).
+          order: placed.orderNumber ?? undefined,
+          value: (totalCents / 100).toFixed(2),
+          currency: 'PHP',
+        },
+      })
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setPlacing(false)
+    }
   }
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
       <h1 className="text-2xl font-bold tracking-tight">{t.checkout.title}</h1>
 
+      {/* Online payment is the only thing that waives PH shipping (see
+          shippingCostCents' isOnlinePayment param) — PayPal/international
+          orders don't get this, so the nudge only makes sense for PH. Hidden
+          once they've already picked online, since there's nothing left to
+          sell them on. */}
+      {info.country === 'PH' && method !== 'online' && (
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+          Pay online for FREE shipping — limited time offer
+        </div>
+      )}
+
       <form
-        onSubmit={handleSubmit}
+        onSubmit={(event) => void handlePlaceOrder(event)}
         className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_380px]"
       >
         <div className="space-y-8">
@@ -679,6 +807,71 @@ function CheckoutPage() {
           </section>
 
           <section>
+            <h2 className="mb-4 text-lg font-semibold">
+              {t.payment.paymentMethod}
+            </h2>
+            <div className="space-y-2">
+              <label
+                className={`flex items-center gap-3 rounded-md border-2 px-4 py-3 ${
+                  codDisabledReason
+                    ? 'cursor-not-allowed border-neutral-200 opacity-50 dark:border-neutral-800'
+                    : method === 'cod'
+                      ? 'cursor-pointer border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                      : 'cursor-pointer border-neutral-200 dark:border-neutral-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="payment"
+                  disabled={!!codDisabledReason}
+                  checked={method === 'cod'}
+                  onChange={() => setMethod('cod')}
+                />
+                <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
+                  {t.payment.cod}
+                  {codDisabledReason && (
+                    <span className="block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                      {codDisabledReason}
+                    </span>
+                  )}
+                </span>
+              </label>
+
+              <label
+                className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-4 py-3 ${
+                  method === 'online'
+                    ? 'border-neutral-900 bg-neutral-50 dark:border-white dark:bg-neutral-900'
+                    : 'border-neutral-200 dark:border-neutral-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="payment"
+                  checked={method === 'online'}
+                  onChange={() => setMethod('online')}
+                />
+                <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-white">
+                  {info.country === 'PH'
+                    ? t.payment.payOnline
+                    : t.payment.payOnlinePayPal}
+                  {/* Only Xendit (Philippine addresses) actually forces PHP
+                      regardless of display currency — PayPal (every other
+                      country) genuinely charges the customer's own selected
+                      currency, so this "you'll be charged the PHP equivalent"
+                      notice would be actively wrong there. See
+                      server/checkout/place-order.ts's provider routing. */}
+                  {info.country === 'PH' && currency !== 'PHP' && (
+                    <span className="mt-0.5 block text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                      {t.payment.pricesShownIn(currency)},{' '}
+                      {formatCentsAsPHP(totalCents)}.
+                    </span>
+                  )}
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section>
             <h2 className="mb-4 text-lg font-semibold">Order notes</h2>
             <label className={labelClassName}>
               Anything we should know? (optional)
@@ -703,9 +896,16 @@ function CheckoutPage() {
 
           <button
             type="submit"
+            disabled={placing}
             className={`${buttonPrimaryClassName} w-full justify-center`}
           >
-            {t.checkout.continueToPayment}
+            {placing
+              ? method === 'online'
+                ? t.payment.redirecting
+                : t.payment.placingOrder
+              : method === 'online'
+                ? t.payment.continueToPay(formatPrice(totalCents))
+                : t.payment.placeOrder(formatPrice(totalCents))}
           </button>
         </div>
 
@@ -819,7 +1019,7 @@ function CheckoutPage() {
               </div>
             ) : (
               // A plain div, not a <form> — this whole page is already one
-              // <form onSubmit={handleSubmit}> (see above), and a <form>
+              // <form onSubmit={handlePlaceOrder}> (see above), and a <form>
               // can't nest inside another: the browser silently drops the
               // inner tag, so its submit button ends up submitting the
               // OUTER checkout form instead of applying the code.
@@ -881,9 +1081,15 @@ function CheckoutPage() {
             </div>
             <div className="flex items-center justify-between border-t border-neutral-200 pt-2 text-base font-semibold dark:border-neutral-800">
               <span>{t.payment.total}</span>
-              <span>{formatPrice(Math.max(0, totalCents))}</span>
+              <span>{formatPrice(totalCents)}</span>
             </div>
           </div>
+
+          {!isCheckoutInfoComplete(info) && (
+            <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+              {t.payment.missingDeliveryBody}
+            </p>
+          )}
         </aside>
       </form>
     </div>

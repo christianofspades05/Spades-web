@@ -691,9 +691,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
           // enabled; trying SGD returned "currency SGD is not configured
           // in your settings yet"). So Philippine online payment always
           // actually charges PHP regardless of the customer's selected
-          // display currency — browsing/checkout/payment-summary still
-          // show their chosen currency (see CurrencyContext.tsx), this is
-          // only about what Xendit itself is told to charge.
+          // display currency — browsing/checkout still shows their chosen
+          // currency (see CurrencyContext.tsx), this is only about what
+          // Xendit itself is told to charge.
           const invoice = await createXenditInvoice({
             externalId: reservation.id,
             amount: totalCents / 100,
@@ -701,7 +701,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             payerEmail: email,
             description: `${scope.name} order`,
             successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP`,
-            failureRedirectUrl: `${origin}/checkout/payment?paymentFailed=true`,
+            failureRedirectUrl: `${origin}/checkout?paymentFailed=true`,
             // Abandoned payments shouldn't leave stock reserved
             // indefinitely — Xendit pushes an EXPIRED webhook event at
             // this point, which releases the reservation (xendit.ts).
@@ -731,9 +731,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
           }
           // Routed through convertCents (not a raw rate multiply) so the
           // amount actually charged matches the clean, rounded price the
-          // customer saw on the checkout/payment pages exactly — see
-          // convertCents' roundToCleanDisplayAmount for why this isn't
-          // simply totalCents * rate.
+          // customer saw on the checkout page exactly — see convertCents'
+          // roundToCleanDisplayAmount for why this isn't simply
+          // totalCents * rate.
           const decimals = minorUnitsPerMajor(data.currency) === 1 ? 0 : 2
           const chargeAmount = (
             convertCents(totalCents, data.currency, exchangeRates) /

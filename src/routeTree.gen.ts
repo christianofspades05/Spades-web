@@ -26,7 +26,6 @@ import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as CartIndexRouteImport } from './routes/cart/index'
 import { Route as CheckoutIndexRouteImport } from './routes/checkout/index'
 import { Route as CheckoutConfirmationRouteImport } from './routes/checkout/confirmation'
-import { Route as CheckoutPaymentRouteImport } from './routes/checkout/payment'
 import { Route as CheckoutPaypalCancelRouteImport } from './routes/checkout/paypal-cancel'
 import { Route as CheckoutPaypalReturnRouteImport } from './routes/checkout/paypal-return'
 import { Route as CollectionsIndexRouteImport } from './routes/collections/index'
@@ -196,11 +195,6 @@ const CheckoutIndexRoute = CheckoutIndexRouteImport.update({
 const CheckoutConfirmationRoute = CheckoutConfirmationRouteImport.update({
   id: '/confirmation',
   path: '/confirmation',
-  getParentRoute: () => CheckoutRoute,
-} as any)
-const CheckoutPaymentRoute = CheckoutPaymentRouteImport.update({
-  id: '/payment',
-  path: '/payment',
   getParentRoute: () => CheckoutRoute,
 } as any)
 const CheckoutPaypalCancelRoute = CheckoutPaypalCancelRouteImport.update({
@@ -662,7 +656,6 @@ export interface FileRoutesByFullPath {
   '/admin/login': typeof AdminLoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
-  '/checkout/payment': typeof CheckoutPaymentRoute
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -764,7 +757,6 @@ export interface FileRoutesByTo {
   '/admin/login': typeof AdminLoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
-  '/checkout/payment': typeof CheckoutPaymentRoute
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -870,7 +862,6 @@ export interface FileRoutesById {
   '/admin_/login': typeof AdminLoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/checkout/confirmation': typeof CheckoutConfirmationRoute
-  '/checkout/payment': typeof CheckoutPaymentRoute
   '/checkout/paypal-cancel': typeof CheckoutPaypalCancelRoute
   '/checkout/paypal-return': typeof CheckoutPaypalReturnRoute
   '/collections/$slug': typeof CollectionsSlugRoute
@@ -977,7 +968,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/auth/callback'
     | '/checkout/confirmation'
-    | '/checkout/payment'
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
@@ -1079,7 +1069,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/auth/callback'
     | '/checkout/confirmation'
-    | '/checkout/payment'
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
@@ -1184,7 +1173,6 @@ export interface FileRouteTypes {
     | '/admin_/login'
     | '/auth/callback'
     | '/checkout/confirmation'
-    | '/checkout/payment'
     | '/checkout/paypal-cancel'
     | '/checkout/paypal-return'
     | '/collections/$slug'
@@ -1445,13 +1433,6 @@ declare module '@tanstack/react-router' {
       path: '/confirmation'
       fullPath: '/checkout/confirmation'
       preLoaderRoute: typeof CheckoutConfirmationRouteImport
-      parentRoute: typeof CheckoutRoute
-    }
-    '/checkout/payment': {
-      id: '/checkout/payment'
-      path: '/payment'
-      fullPath: '/checkout/payment'
-      preLoaderRoute: typeof CheckoutPaymentRouteImport
       parentRoute: typeof CheckoutRoute
     }
     '/checkout/paypal-cancel': {
@@ -2164,7 +2145,6 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface CheckoutRouteChildren {
   CheckoutConfirmationRoute: typeof CheckoutConfirmationRoute
-  CheckoutPaymentRoute: typeof CheckoutPaymentRoute
   CheckoutPaypalCancelRoute: typeof CheckoutPaypalCancelRoute
   CheckoutPaypalReturnRoute: typeof CheckoutPaypalReturnRoute
   CheckoutIndexRoute: typeof CheckoutIndexRoute
@@ -2172,7 +2152,6 @@ interface CheckoutRouteChildren {
 
 const CheckoutRouteChildren: CheckoutRouteChildren = {
   CheckoutConfirmationRoute: CheckoutConfirmationRoute,
-  CheckoutPaymentRoute: CheckoutPaymentRoute,
   CheckoutPaypalCancelRoute: CheckoutPaypalCancelRoute,
   CheckoutPaypalReturnRoute: CheckoutPaypalReturnRoute,
   CheckoutIndexRoute: CheckoutIndexRoute,

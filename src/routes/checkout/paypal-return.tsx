@@ -18,7 +18,7 @@ export const Route = createFileRoute('/checkout/paypal-return')({
     })
     if (result.status === 'failed') {
       throw redirect({
-        to: '/checkout/payment',
+        to: '/checkout',
         search: { paymentFailed: true },
       })
     }

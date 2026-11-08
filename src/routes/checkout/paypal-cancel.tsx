@@ -13,7 +13,7 @@ export const Route = createFileRoute('/checkout/paypal-cancel')({
   beforeLoad: async ({ search }) => {
     await cancelPayPalCheckout({ data: { reservationId: search.reservation } })
     throw redirect({
-      to: '/checkout/payment',
+      to: '/checkout',
       search: { paymentFailed: true },
     })
   },
