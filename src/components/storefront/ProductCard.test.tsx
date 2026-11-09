@@ -226,4 +226,18 @@ describe('ProductCard image activation', () => {
     // its siblings or collapse the carousel.
     expect(imgSrcs(container)).toEqual(images.map((u) => `${u}::w640`))
   })
+
+  it('10. a product on sale shows the percent-off text alongside the crossed-out price', () => {
+    const { container } = render(
+      <ProductCard
+        product={fakeProduct({ min_price_cents: 94700, salePriceCents: 56820 })}
+      />,
+    )
+    expect(container.textContent).toContain('40% off')
+  })
+
+  it("10b. a product not on sale doesn't show any percent-off text", () => {
+    const { container } = render(<ProductCard product={fakeProduct()} />)
+    expect(container.textContent).not.toContain('% off')
+  })
 })

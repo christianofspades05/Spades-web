@@ -145,6 +145,9 @@ export function ProductCard({ product }: ProductCardProps) {
   const onSale =
     product.salePriceCents != null &&
     product.salePriceCents < product.min_price_cents
+  const percentOff = onSale
+    ? Math.round((1 - product.salePriceCents! / product.min_price_cents) * 100)
+    : 0
 
   return (
     // preload={false} overrides the router's site-wide `intent` default —
@@ -193,6 +196,9 @@ export function ProductCard({ product }: ProductCardProps) {
             </span>
             <span className="text-neutral-400 line-through dark:text-neutral-600">
               {formatPrice(product.min_price_cents)}
+            </span>
+            <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+              {percentOff}% off
             </span>
           </p>
         ) : (
