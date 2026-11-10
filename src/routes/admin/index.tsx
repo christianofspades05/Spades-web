@@ -4,6 +4,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
   getCustomerEconomics,
   getDashboardAnalytics,
+  getLiveViewerCount,
 } from '#/server/admin/dashboard'
 import type { CustomerEconomicsResult } from '#/server/admin/dashboard'
 import {
@@ -24,6 +25,7 @@ import {
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
 import type { OrderSource } from '#/types/entities'
+import { useVisibleInterval } from '#/lib/hooks/useVisibleInterval'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
@@ -91,6 +93,23 @@ const CHANNEL_OPTIONS = [
   { value: 'shopee', label: 'Shopee' },
   { value: 'lazada', label: 'Lazada' },
 ] as const
+
+// 30s is plenty for a 5-minute window and halves admin-side invocations.
+const LIVE_POLL_MS = 30_000
+
+/** Polls getLiveViewerCount on an interval — no React Query in this repo, so this is a plain hook. */
+function useLiveViewerCount(brand: string | undefined) {
+  const [count, setCount] = useState<number | null>(null)
+
+  function poll() {
+    void getLiveViewerCount({ data: { brand } }).then((r) => setCount(r.count))
+  }
+
+  useEffect(poll, [brand])
+  useVisibleInterval(poll, LIVE_POLL_MS)
+
+  return count
+}
 
 /** Re-fetches only on brand change — deliberately independent of the main
  *  loader's date range/channel deps, since these are all-time figures that
@@ -170,6 +189,7 @@ function AdminPage() {
   } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const liveCount = useLiveViewerCount(search.brand)
   const customerEconomics = useCustomerEconomics(search.brand)
 
   function handleRangeChange(
@@ -303,6 +323,7 @@ function AdminPage() {
         subtitle="A quick look at your store."
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <LiveViewersBadge count={liveCount} />
             <FilterDropdown
               label="Brand"
               value={search.brand}
@@ -753,6 +774,22 @@ function AdminPage() {
         those customers with 2 or more orders.
       </p>
     </div>
+  )
+}
+
+function LiveViewersBadge({ count }: { count: number | null }) {
+  if (count === null) return null
+  return (
+    <span
+      title="Unique visitors who loaded a page in the last 5 minutes"
+      className="flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600"
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+      </span>
+      {count} live now
+    </span>
   )
 }
 

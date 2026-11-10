@@ -218,7 +218,9 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
     // from the unclipped previousOrders/previousVisitorBuckets) — only the
     // top-level summary totals below need this clipped comparison.
     const viewingToday = isSingleDay && data.to === todayKey
-    const nowMinus24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const nowMinus24hIso = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString()
 
     // Visitor counts are aggregated in Postgres (get_visitor_totals/
     // get_visitor_bucket_counts) rather than pulled row-by-row into Node —
@@ -476,6 +478,34 @@ export const getDashboardAnalytics = createServerFn({ method: 'GET' })
       paymentMethodSplit,
       daily,
     }
+  })
+
+/** "Live now" = a unique visitor who loaded a storefront page within this
+ *  window. Storefronts log one page_view per navigation already (recordVisit),
+ *  so a shopper reading one product page for a few minutes still counts. */
+const LIVE_WINDOW_MS = 5 * 60_000
+
+/**
+ * Live "who's on the site right now" count for the admin Home badge, derived
+ * from storefront_visits page views instead of a dedicated heartbeat. The old
+ * storefront_presence heartbeat (removed in 94f3dcc) cost ~21k Vercel
+ * Function Invocations + Supabase writes a day; this adds zero storefront
+ * calls — the only cost is this function, polled while an admin has the
+ * Home page visible.
+ */
+export const getLiveViewerCount = createServerFn({ method: 'GET' })
+  .validator(z.object({ brand: z.string().optional() }))
+  .handler(async ({ data }): Promise<{ count: number }> => {
+    await requireStaff()
+    const admin = getSupabaseAdminClient()
+    const now = Date.now()
+    const { data: rows, error } = await admin.rpc('get_visitor_totals', {
+      p_from: new Date(now - LIVE_WINDOW_MS).toISOString(),
+      p_to: new Date(now).toISOString(),
+      p_brand: data.brand ?? null,
+    })
+    if (error) throw error
+    return { count: Number(rows[0]?.unique_visitors ?? 0) }
   })
 
 // Personal/test accounts used for poking around the storefront — never a
