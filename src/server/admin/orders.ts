@@ -1618,7 +1618,6 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       exchangeRates,
       marketShipping,
       excludesFreeShipping,
-      !order.is_cod,
     )
     const totalCents = Math.max(
       0,

@@ -393,7 +393,6 @@ function CheckoutPage() {
       rates,
       marketShipping[info.country],
       cart.discount?.excludesFreeShipping ?? false,
-      method === 'online',
     )
     trackCheckoutEvent({
       cartId: cart.id,
@@ -535,7 +534,6 @@ function CheckoutPage() {
           rates,
           marketShipping[info.country],
           cart.discount?.excludesFreeShipping ?? false,
-          method === 'online',
         )
       : null
   // Lalamove's delivery fee is charged through this site same as any other
@@ -710,17 +708,6 @@ function CheckoutPage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
       <h1 className="text-2xl font-bold tracking-tight">{t.checkout.title}</h1>
-
-      {/* Online payment is the only thing that waives PH shipping (see
-          shippingCostCents' isOnlinePayment param) — PayPal/international
-          orders don't get this, so the nudge only makes sense for PH. Hidden
-          once they've already picked online, since there's nothing left to
-          sell them on. */}
-      {info.country === 'PH' && method !== 'online' && (
-        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
-          Pay online for FREE shipping — limited time offer
-        </div>
-      )}
 
       <form
         onSubmit={(event) => void handlePlaceOrder(event)}
