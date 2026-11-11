@@ -44,6 +44,28 @@ const config = defineConfig({
           '/api/cron/sync-exchange-rates': { maxDuration: 60 },
           '/api/cron/expire-unpaid-orders': { maxDuration: 60 },
         },
+        // Vercel serves files from public/ with `max-age=0, must-revalidate`
+        // by default, so the browser re-checks the logos, favicons, manifest
+        // and payment icons on EVERY page view — each check is a billed CDN
+        // request (~8K/12h per logo, ~4.7K per payment icon, matching page
+        // views 1:1). Letting browsers keep them for a week cuts that to
+        // roughly one request per visitor per week. Not `immutable`: these
+        // filenames aren't content-hashed, so a replaced logo still reaches
+        // everyone within a week (rename the file to force it sooner).
+        // Prepended ahead of Nitro's own routes; `continue` lets routing
+        // fall through to the filesystem so the file is still served.
+        config: {
+          routes: [
+            {
+              src: '^/(?:payments/[^/]+\\.svg|[^/]+\\.(?:png|ico|svg)|manifest\\.json)$',
+              headers: {
+                'cache-control':
+                  'public, max-age=604800, stale-while-revalidate=86400',
+              },
+              continue: true,
+            },
+          ],
+        },
       },
     }),
     viteReact(),
