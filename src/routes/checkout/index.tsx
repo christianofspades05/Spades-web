@@ -48,6 +48,7 @@ import {
 } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { cartErrorReasonOf } from '#/lib/checkout/cart-errors'
+import { saveReturningCustomer } from '#/lib/checkout/returning-customer'
 import { CartStockWarning } from '#/components/storefront/CartStockWarning'
 import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
@@ -198,7 +199,7 @@ function CheckoutPage() {
     removeDiscountCode,
     refresh: refreshCart,
   } = useCart()
-  const { info, setInfo, clear } = useCheckout()
+  const { info, setInfo, clear, prefillSource, forgetPrefill } = useCheckout()
 
   // The cart provider lives above the router and only fetches on a full page
   // load, so arriving here by client-side navigation (Back from the
@@ -331,6 +332,23 @@ function CheckoutPage() {
     rates,
     ratesLoaded,
   ])
+
+  // A prefill (this device's last order, or the signed-in account) can land
+  // after checkout_view already fired, so it gets its own catch for
+  // checkout_email_entered's "prefilled" case. Deduped per cart, so this and
+  // the effect below never double-count.
+  useEffect(() => {
+    if (!prefillSource || !cart || cart.items.length === 0) return
+    if (!checkoutContactBaseSchema.shape.email.safeParse(info.email).success) {
+      return
+    }
+    trackCheckoutEvent({
+      cartId: cart.id,
+      eventType: 'checkout_email_entered',
+      brand: storefrontScope.brand,
+      metadata: { prefilled: true, prefill_source: prefillSource },
+    })
+  }, [prefillSource, cart?.id])
 
   // checkout_view — fires once the page has a real, non-empty cart to show.
   // Also covers checkout_email_entered's "prefilled" case: a logged-in
@@ -681,7 +699,8 @@ function CheckoutPage() {
     }
     // result.data carries the normalised phone (see checkoutContactSchema's
     // transform) — keep the form showing exactly what gets stored.
-    setInfo({ ...submittable, phone: result.data.phone })
+    const submitted = { ...submittable, phone: result.data.phone }
+    setInfo(submitted)
     setPlacing(true)
     try {
       const placed = await placeOrder({
@@ -692,6 +711,9 @@ function CheckoutPage() {
           fbclid: getAttributedFbclid(),
         },
       })
+      // Order created — remember these details on this device so the next
+      // checkout starts filled in (see lib/checkout/returning-customer.ts).
+      saveReturningCustomer(submitted)
       if (placed.invoiceUrl) {
         trackCheckoutEvent({
           cartId,
@@ -774,7 +796,21 @@ function CheckoutPage() {
       >
         <div className="space-y-8">
           <section className="space-y-4">
-            <h2 className="text-lg font-semibold">{t.checkout.contact}</h2>
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-lg font-semibold">{t.checkout.contact}</h2>
+              {prefillSource === 'device' && info.email && (
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Filled in from your last order.{' '}
+                  <button
+                    type="button"
+                    onClick={forgetPrefill}
+                    className="underline hover:text-neutral-900 dark:hover:text-white"
+                  >
+                    Not you?
+                  </button>
+                </p>
+              )}
+            </div>
             <label className={labelClassName}>
               {t.checkout.email}
               <input
@@ -1201,21 +1237,44 @@ function CheckoutPage() {
             </p>
           )}
 
-          <button
-            type="submit"
-            // place-order rejects a cart with a sold-out line anyway — keep
-            // the button off until the warning at the top is resolved.
-            disabled={placing || cart.stockIssues.length > 0}
-            className={`${buttonPrimaryClassName} w-full justify-center`}
-          >
-            {placing
-              ? method === 'online'
-                ? t.payment.redirecting
-                : t.payment.placingOrder
-              : method === 'online'
-                ? t.payment.continueToPay(formatPrice(totalCents))
-                : t.payment.placeOrder(formatPrice(totalCents))}
-          </button>
+          {/* The label already carries the order total (e.g. "Place order
+              · ₱953.00"). Desktop: inline here. Mobile: pinned to the bottom
+              of the screen so it's always reachable without scrolling past
+              the whole form — the spacer keeps the form's end clear of it. */}
+          <div className="hidden sm:block">
+            <button
+              type="submit"
+              // place-order rejects a cart with a sold-out line anyway — keep
+              // the button off until the warning at the top is resolved.
+              disabled={placing || cart.stockIssues.length > 0}
+              className={`${buttonPrimaryClassName} w-full justify-center`}
+            >
+              {placing
+                ? method === 'online'
+                  ? t.payment.redirecting
+                  : t.payment.placingOrder
+                : method === 'online'
+                  ? t.payment.continueToPay(formatPrice(totalCents))
+                  : t.payment.placeOrder(formatPrice(totalCents))}
+            </button>
+          </div>
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:hidden dark:border-neutral-800 dark:bg-neutral-950/95">
+            <button
+              type="submit"
+              // place-order rejects a cart with a sold-out line anyway — keep
+              // the button off until the warning at the top is resolved.
+              disabled={placing || cart.stockIssues.length > 0}
+              className={`${buttonPrimaryClassName} w-full! py-4! text-base!`}
+            >
+              {placing
+                ? method === 'online'
+                  ? t.payment.redirecting
+                  : t.payment.placingOrder
+                : method === 'online'
+                  ? t.payment.continueToPay(formatPrice(totalCents))
+                  : t.payment.placeOrder(formatPrice(totalCents))}
+            </button>
+          </div>
         </div>
 
         <aside className="h-fit rounded-lg bg-neutral-50 p-6 dark:bg-neutral-900">
@@ -1401,6 +1460,8 @@ function CheckoutPage() {
           )}
         </aside>
       </form>
+      {/* Keeps the end of the page clear of the pinned mobile Place Order bar. */}
+      <div className="h-24 sm:hidden" aria-hidden="true" />
     </div>
   )
 }

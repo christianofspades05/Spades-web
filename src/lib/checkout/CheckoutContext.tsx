@@ -1,6 +1,12 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ncrProvinceFallback } from '#/lib/utils/ph-region'
+import {
+  forgetReturningCustomer,
+  isCheckoutInfoBlank,
+  loadReturningCustomer,
+} from '#/lib/checkout/returning-customer'
+import { getCheckoutPrefill } from '#/server/checkout/prefill'
 
 export interface CheckoutInfo {
   email: string
@@ -73,17 +79,35 @@ const STORAGE_KEY = 'spades_checkout_info'
 function readStoredInfo(
   geoCountry: string | null,
   knownMarketCountries: readonly string[],
-): CheckoutInfo {
-  if (typeof window === 'undefined') return EMPTY_CHECKOUT_INFO
+): { info: CheckoutInfo; fromSession: boolean } {
+  if (typeof window === 'undefined') {
+    return { info: EMPTY_CHECKOUT_INFO, fromSession: false }
+  }
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...EMPTY_CHECKOUT_INFO, ...JSON.parse(raw) }
+    if (raw) {
+      return {
+        info: { ...EMPTY_CHECKOUT_INFO, ...JSON.parse(raw) },
+        fromSession: true,
+      }
+    }
   } catch {
     // fall through to the geo default below
   }
-  return geoCountry && knownMarketCountries.includes(geoCountry)
-    ? { ...EMPTY_CHECKOUT_INFO, country: geoCountry }
-    : EMPTY_CHECKOUT_INFO
+  return {
+    info:
+      geoCountry && knownMarketCountries.includes(geoCountry)
+        ? { ...EMPTY_CHECKOUT_INFO, country: geoCountry }
+        : EMPTY_CHECKOUT_INFO,
+    fromSession: false,
+  }
+}
+
+/** Only the non-empty values, so a prefill never blanks out a field. */
+function nonEmpty(values: Partial<CheckoutInfo>): Partial<CheckoutInfo> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, v]) => typeof v === 'string' && v),
+  )
 }
 
 /** The destination a shopper already entered at checkout this session, if
@@ -146,6 +170,12 @@ interface CheckoutContextValue {
   info: CheckoutInfo
   setInfo: (info: CheckoutInfo) => void
   clear: () => void
+  /** Where the form's starting values came from, when they weren't typed
+   *  this session: 'device' = remembered from this browser's last order,
+   *  'account' = the signed-in customer's profile/address book. */
+  prefillSource: 'device' | 'account' | null
+  /** "Not you?" — forget this device's remembered details and empty the form. */
+  forgetPrefill: () => void
 }
 
 const CheckoutContext = createContext<CheckoutContextValue | null>(null)
@@ -162,14 +192,62 @@ export function CheckoutProvider({
   knownMarketCountries: readonly string[]
 }) {
   const [info, setInfoState] = useState<CheckoutInfo>(EMPTY_CHECKOUT_INFO)
+  const [prefillSource, setPrefillSource] = useState<
+    'device' | 'account' | null
+  >(null)
 
   // Deliberately keyed on geoCountry alone, not knownMarketCountries too
   // (a fresh array every render, since loader data isn't memoized) — this
   // should run once per geoCountry change, not re-run and wipe a shopper's
   // in-progress edits just because the markets array's identity changed.
+  //
+  // With nothing saved this session, a returning shopper starts prefilled:
+  // first from this device's last order (instant, no request), otherwise
+  // from their account if they're signed in. Done here, right after the
+  // restore, rather than in the checkout page — React runs a child's
+  // effects before its parent's, so a page-level prefill would race this
+  // restore and could overwrite a shopper's in-progress form.
   useEffect(() => {
-    setInfoState(readStoredInfo(geoCountry, knownMarketCountries))
+    const stored = readStoredInfo(geoCountry, knownMarketCountries)
+    if (stored.fromSession) {
+      setInfoState(stored.info)
+      return
+    }
+    const remembered = loadReturningCustomer()
+    if (remembered) {
+      setInfoState({ ...stored.info, ...nonEmpty(remembered) })
+      setPrefillSource('device')
+      return
+    }
+    setInfoState(stored.info)
+    let cancelled = false
+    getCheckoutPrefill()
+      .then((prefill) => {
+        if (cancelled || !prefill) return
+        // Only if the shopper hasn't started typing while this loaded.
+        setInfoState((current) =>
+          isCheckoutInfoBlank(current)
+            ? { ...current, ...nonEmpty(prefill) }
+            : current,
+        )
+        setPrefillSource('account')
+      })
+      .catch(() => {
+        // Prefill is a convenience — an empty form is always fine.
+      })
+    return () => {
+      cancelled = true
+    }
   }, [geoCountry])
+
+  function forgetPrefill() {
+    forgetReturningCustomer()
+    setPrefillSource(null)
+    setInfoState(EMPTY_CHECKOUT_INFO)
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(STORAGE_KEY)
+    }
+  }
 
   function setInfo(next: CheckoutInfo) {
     setInfoState(next)
@@ -186,7 +264,9 @@ export function CheckoutProvider({
   }
 
   return (
-    <CheckoutContext.Provider value={{ info, setInfo, clear }}>
+    <CheckoutContext.Provider
+      value={{ info, setInfo, clear, prefillSource, forgetPrefill }}
+    >
       {children}
     </CheckoutContext.Provider>
   )
