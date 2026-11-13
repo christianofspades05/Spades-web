@@ -182,9 +182,7 @@ function CartPage() {
   }
 
   function formatDiscountRate(type: string, value: number): string {
-    return type === 'fixed_amount'
-      ? `${formatPrice(value)} off`
-      : `${value}% off`
+    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
   }
   const discountLabel = discount
     ? discount.type === 'free_shipping'

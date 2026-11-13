@@ -48,9 +48,7 @@ function formatVariantLabel(
 ): string {
   const parts: string[] = []
   if (variant.size)
-    parts.push(
-      `${capitalize(t.product.size)}: ${formatSizeLabel(variant.size)}`,
-    )
+    parts.push(`${capitalize(t.product.size)}: ${formatSizeLabel(variant.size)}`)
   if (variant.color)
     parts.push(`${capitalize(t.product.color)}: ${variant.color}`)
   if (variant.style)
@@ -210,7 +208,8 @@ function ProductPage() {
   const purchasableQuantity = sellingAsPreOrder
     ? (selectedVariant?.pre_order_available ?? 0)
     : availableStock
-  const outOfStock = Boolean(selectedVariant) && purchasableQuantity <= 0
+  const outOfStock =
+    Boolean(selectedVariant) && purchasableQuantity <= 0
 
   /** Shared by Add to Cart and Buy Now — same server add, same AddToCart
    *  pixel and checkout_start events (Buy Now's checkout_start just carries
@@ -466,8 +465,8 @@ function ProductPage() {
                 This is a pre-order —{' '}
                 {selectedVariant?.pre_order_arrival_note ||
                   'ships within 10 days'}
-                . Can't be checked out with regular in-stock items, and Cash on
-                Delivery isn't available for it.
+                . Can't be checked out with regular in-stock items, and Cash
+                on Delivery isn't available for it.
               </p>
             )}
 
