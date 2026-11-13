@@ -47,6 +47,7 @@ import {
   formatCentsAsPHP,
 } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import { CountrySelect } from '#/components/storefront/CountrySelect'
@@ -204,6 +205,14 @@ function CheckoutPage() {
   const [applyingDiscount, setApplyingDiscount] = useState(false)
   const [method, setMethod] = useState<PaymentMethod>('cod')
   const [placing, setPlacing] = useState(false)
+  // Only flag the phone once the shopper has left the field — not on every
+  // keystroke while they're still typing it.
+  const [phoneTouched, setPhoneTouched] = useState(false)
+  const phoneInvalid =
+    info.country === 'PH' &&
+    phoneTouched &&
+    info.phone.trim() !== '' &&
+    normalizePhMobile(info.phone) === null
 
   const isLalamove = info.shippingMethod === 'lalamove'
 
@@ -646,7 +655,9 @@ function CheckoutPage() {
       })
       return
     }
-    setInfo(submittable)
+    // result.data carries the normalised phone (see checkoutContactSchema's
+    // transform) — keep the form showing exactly what gets stored.
+    setInfo({ ...submittable, phone: result.data.phone })
     setPlacing(true)
     try {
       const placed = await placeOrder({
@@ -779,15 +790,45 @@ function CheckoutPage() {
                   {t.checkout.phone}
                   <input
                     required
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
                     placeholder={
-                      info.country === 'PH' ? '09171234567' : undefined
+                      info.country === 'PH' ? '0917 123 4567' : undefined
                     }
                     value={info.phone}
                     onChange={(e) =>
                       setInfo({ ...info, phone: e.target.value })
                     }
+                    onBlur={() => {
+                      setPhoneTouched(true)
+                      // Tidy a valid number into the stored format as soon
+                      // as they leave the field, so what they see is what
+                      // gets saved.
+                      if (info.country !== 'PH') return
+                      const normalized = normalizePhMobile(info.phone)
+                      if (normalized && normalized !== info.phone) {
+                        setInfo({ ...info, phone: normalized })
+                      }
+                    }}
+                    aria-invalid={phoneInvalid || undefined}
+                    aria-describedby="checkout-phone-hint"
                     className={inputClassName}
                   />
+                  {info.country === 'PH' && (
+                    <span
+                      id="checkout-phone-hint"
+                      className={`mt-1 block text-xs font-normal ${
+                        phoneInvalid
+                          ? 'text-red-700 dark:text-red-400'
+                          : 'text-neutral-500 dark:text-neutral-400'
+                      }`}
+                    >
+                      {phoneInvalid
+                        ? PH_MOBILE_ERROR_MESSAGE
+                        : 'e.g. 0917 123 4567'}
+                    </span>
+                  )}
                 </label>
               </div>
 

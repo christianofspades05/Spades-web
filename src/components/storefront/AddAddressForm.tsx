@@ -116,7 +116,10 @@ export function AddAddressForm({
         {t.checkout.phone}
         <input
           required
-          placeholder="09171234567"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="0917 123 4567"
           value={form.phone}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
           className={inputClassName}

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 
 /**
  * Philippine shipping/billing address input validation. Used server-side by
@@ -12,10 +13,8 @@ export const philippineAddressSchema = z.object({
   phone: z
     .string()
     .trim()
-    .regex(
-      /^(\+63|0)9\d{9}$/,
-      'Enter a valid PH mobile number, e.g. 09171234567',
-    ),
+    .refine((v) => normalizePhMobile(v) !== null, PH_MOBILE_ERROR_MESSAGE)
+    .transform((v) => normalizePhMobile(v) ?? v),
   region: z.string().trim().min(1).max(120),
   province: z.string().trim().min(1).max(120),
   city: z.string().trim().min(1).max(120),

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SUPPORTED_CURRENCIES } from '#/lib/utils/money'
+import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 
 /**
  * Checkout's own address schema — deliberately separate from
@@ -35,14 +36,14 @@ export const checkoutContactBaseSchema = z.object({
   lalamoveDropoffAddress: z.string().trim().max(300).optional(),
 })
 
-export const checkoutContactSchema = checkoutContactBaseSchema.superRefine(
-  (data, ctx) => {
+export const checkoutContactSchema = checkoutContactBaseSchema
+  .superRefine((data, ctx) => {
     if (data.country !== 'PH') return
-    if (!/^(\+63|0)9\d{9}$/.test(data.phone)) {
+    if (normalizePhMobile(data.phone) === null) {
       ctx.addIssue({
         code: 'custom',
         path: ['phone'],
-        message: 'Enter a valid PH mobile number, e.g. 09171234567',
+        message: PH_MOBILE_ERROR_MESSAGE,
       })
     }
     if (!data.region) {
@@ -71,8 +72,14 @@ export const checkoutContactSchema = checkoutContactBaseSchema.superRefine(
         message: 'Drop a pin for your Lalamove delivery location',
       })
     }
-  },
-)
+  })
+  // Store every PH number in one format (09XXXXXXXXX) however it was typed —
+  // validated above, so normalizePhMobile can't return null here.
+  .transform((data) =>
+    data.country === 'PH'
+      ? { ...data, phone: normalizePhMobile(data.phone) ?? data.phone }
+      : data,
+  )
 
 export type CheckoutContactInput = z.infer<typeof checkoutContactBaseSchema>
 
