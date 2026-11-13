@@ -14,6 +14,7 @@ import {
   STOREFRONT_BRAND_LABELS,
   STOREFRONT_BRANDS,
 } from '#/lib/validation/admin/storefront-sections'
+import { Badge } from '#/components/admin/Badge'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
@@ -30,6 +31,29 @@ const BRAND_OPTIONS = STOREFRONT_BRANDS.map((brand) => ({
   value: brand,
   label: STOREFRONT_BRAND_LABELS[brand],
 }))
+
+const CAMPAIGN_STATUS_FILTERS = ['active', 'inactive'] as const
+type CampaignStatusFilter = (typeof CAMPAIGN_STATUS_FILTERS)[number]
+
+const CAMPAIGN_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active campaigns' },
+  { value: 'inactive', label: 'Paused / off' },
+] as const satisfies readonly { value: CampaignStatusFilter; label: string }[]
+
+/** Meta's effective status, as reported by Windsor — anything other than
+ *  ACTIVE (PAUSED, CAMPAIGN_PAUSED, ARCHIVED, WITH_ISSUES, ...) means the
+ *  campaign isn't currently delivering. */
+function isCampaignActive(row: CampaignPerformanceRow): boolean {
+  return row.effectiveStatus === 'ACTIVE'
+}
+
+function campaignStatusLabel(status: string | null): string {
+  if (status === null) return 'No delivery'
+  const words = status.toLowerCase().split('_')
+  return words
+    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ')
+}
 
 // Same report-viewing timezone toggle as the Profit page (see
 // routes/admin/analytics/profit.tsx) — re-buckets the order/sales side of
@@ -63,8 +87,18 @@ export const Route = createFileRoute('/admin/analytics/ads-efficiency')({
     // Defaults to LA, unlike the Profit page's 'ph' default — requested
     // specifically for this page.
     tz: z.enum(['ph', 'la']).catch('la'),
+    // Filters only the Campaign performance table, client-side — the
+    // loader always returns every mapped campaign with its Meta status.
+    campaignStatus: z.enum(CAMPAIGN_STATUS_FILTERS).optional().catch(undefined),
   }),
-  loaderDeps: ({ search }) => search,
+  // Changing only the campaign filter shouldn't refetch Windsor/orders.
+  loaderDeps: ({ search }) => ({
+    range: search.range,
+    from: search.from,
+    to: search.to,
+    brand: search.brand,
+    tz: search.tz,
+  }),
   loader: async ({ deps }) => {
     const resolved = resolveDateRange(deps.range, {
       from: deps.from,
@@ -189,10 +223,24 @@ function TotalsGrid({
 }
 
 function CampaignPerformanceTable({
-  campaigns,
+  campaigns: allCampaigns,
+  statusFilter,
+  onStatusFilterChange,
 }: {
   campaigns: CampaignPerformanceRow[]
+  statusFilter: CampaignStatusFilter | undefined
+  onStatusFilterChange: (value: CampaignStatusFilter | undefined) => void
 }) {
+  const campaigns =
+    statusFilter === undefined
+      ? allCampaigns
+      : allCampaigns.filter((row) =>
+          statusFilter === 'active'
+            ? isCampaignActive(row)
+            : !isCampaignActive(row),
+        )
+  const activeCount = allCampaigns.filter(isCampaignActive).length
+
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between gap-2">
@@ -208,15 +256,31 @@ function CampaignPerformanceTable({
             include that product's sales from outside this campaign.
           </p>
         </div>
-        <Link
-          to="/admin/analytics/campaign-mapping"
-          className="shrink-0 text-xs font-medium text-neutral-600 underline hover:text-neutral-900"
-        >
-          Manage mapping →
-        </Link>
+        <div className="flex shrink-0 items-center gap-3">
+          {allCampaigns.length > 0 && (
+            <FilterDropdown
+              label={`All campaigns (${activeCount} active)`}
+              value={statusFilter}
+              options={CAMPAIGN_STATUS_OPTIONS}
+              onChange={onStatusFilterChange}
+            />
+          )}
+          <Link
+            to="/admin/analytics/campaign-mapping"
+            className="text-xs font-medium text-neutral-600 underline hover:text-neutral-900"
+          >
+            Manage mapping →
+          </Link>
+        </div>
       </div>
 
-      {campaigns.length === 0 ? (
+      {allCampaigns.length > 0 && campaigns.length === 0 ? (
+        <p className="mt-5 text-sm text-neutral-400">
+          {statusFilter === 'active'
+            ? 'No mapped campaigns are active right now.'
+            : 'Every mapped campaign is active right now.'}
+        </p>
+      ) : campaigns.length === 0 ? (
         <p className="mt-5 text-sm text-neutral-400">
           No campaigns mapped yet —{' '}
           <Link
@@ -235,6 +299,7 @@ function CampaignPerformanceTable({
                 <tr>
                   <th className={tableHeadClassName}>Product</th>
                   <th className={tableHeadClassName}>Campaign</th>
+                  <th className={tableHeadClassName}>Status</th>
                   <th className={`${tableHeadClassName} text-right`}>
                     Ads spend
                   </th>
@@ -268,6 +333,13 @@ function CampaignPerformanceTable({
                       </div>
                     </td>
                     <td className={tableCellClassName}>{row.campaignName}</td>
+                    <td className={tableCellClassName}>
+                      <Badge
+                        tone={isCampaignActive(row) ? 'success' : 'neutral'}
+                      >
+                        {campaignStatusLabel(row.effectiveStatus)}
+                      </Badge>
+                    </td>
                     <td className={`${tableCellClassName} text-right`}>
                       {formatCentsAsPHP(row.adsSpendCents)}
                     </td>
@@ -395,7 +467,13 @@ function AdsEfficiencyPage() {
         </div>
       </div>
 
-      <CampaignPerformanceTable campaigns={data.campaigns} />
+      <CampaignPerformanceTable
+        campaigns={data.campaigns}
+        statusFilter={search.campaignStatus}
+        onStatusFilterChange={(campaignStatus) =>
+          navigate({ search: (prev) => ({ ...prev, campaignStatus }) })
+        }
+      />
     </div>
   )
 }

@@ -14,6 +14,10 @@ interface WindsorAllRow {
   spend?: number
   campaign?: string
   date?: string
+  /** Meta's current effective status for the campaign (ACTIVE, PAUSED,
+   *  CAMPAIGN_PAUSED, ARCHIVED, ...) — today's status, repeated on every
+   *  row, not the status as of that row's date. */
+  campaign_effective_status?: string
 }
 
 export async function getMetaAdSpendCents(range: {
@@ -52,12 +56,20 @@ export async function getMetaAdSpendCents(range: {
  * *name* (the simplest thing for staff to read off Ads Manager directly),
  * which is also the same name Windsor reports here. Rows are summed per
  * campaign name across the whole range — Windsor returns one row per
- * campaign per day at this grain.
+ * campaign per day at this grain. Also carries each campaign's current
+ * Meta effective status, so the page can filter to campaigns still running.
  */
+export interface CampaignSpend {
+  spendCents: number
+  /** Uppercase Meta effective status (e.g. 'ACTIVE', 'PAUSED'), or null if
+   *  Windsor didn't report one. */
+  effectiveStatus: string | null
+}
+
 export async function getMetaCampaignSpendCents(range: {
   from: string
   to: string
-}): Promise<Map<string, number>> {
+}): Promise<Map<string, CampaignSpend>> {
   const apiKey = process.env.WINDSOR_API_KEY
   if (!apiKey) return new Map()
 
@@ -65,7 +77,10 @@ export async function getMetaCampaignSpendCents(range: {
   url.searchParams.set('api_key', apiKey)
   url.searchParams.set('date_from', range.from)
   url.searchParams.set('date_to', range.to)
-  url.searchParams.set('fields', 'source,campaign,spend')
+  url.searchParams.set(
+    'fields',
+    'source,campaign,campaign_effective_status,spend',
+  )
 
   const response = await fetch(url)
   if (!response.ok) {
@@ -73,18 +88,31 @@ export async function getMetaCampaignSpendCents(range: {
   }
   const body = (await response.json()) as { data?: WindsorAllRow[] }
 
-  const spendByCampaign = new Map<string, number>()
+  const byCampaign = new Map<
+    string,
+    { spend: number; effectiveStatus: string | null }
+  >()
   for (const row of body.data ?? []) {
     if (row.source !== 'facebook' || !row.campaign) continue
-    spendByCampaign.set(
-      row.campaign,
-      (spendByCampaign.get(row.campaign) ?? 0) + (row.spend ?? 0),
-    )
+    const existing = byCampaign.get(row.campaign)
+    const status = row.campaign_effective_status?.toUpperCase() ?? null
+    if (existing) {
+      existing.spend += row.spend ?? 0
+      existing.effectiveStatus ??= status
+    } else {
+      byCampaign.set(row.campaign, {
+        spend: row.spend ?? 0,
+        effectiveStatus: status,
+      })
+    }
   }
   return new Map(
-    Array.from(spendByCampaign.entries()).map(([name, spend]) => [
+    Array.from(byCampaign.entries()).map(([name, entry]) => [
       name,
-      majorUnitsToCents(spend, 'PHP'),
+      {
+        spendCents: majorUnitsToCents(entry.spend, 'PHP'),
+        effectiveStatus: entry.effectiveStatus,
+      },
     ]),
   )
 }

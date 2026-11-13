@@ -2022,6 +2022,10 @@ export interface CampaignPerformanceRow {
    *  to divide by). Same convention as AdsEfficiencyTotals.roas. */
   roas: number | null
   costPerPurchaseCents: number | null
+  /** Meta's current effective status for this campaign ('ACTIVE',
+   *  'PAUSED', 'ARCHIVED', ...) — null when Windsor reported no rows for it
+   *  in this range (e.g. it had no delivery at all in the window). */
+  effectiveStatus: string | null
 }
 
 export interface CampaignAdsPerformanceResult {
@@ -2170,7 +2174,8 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
       .map((row): CampaignPerformanceRow | null => {
         if (row.product === null) return null
         const sales = salesByProduct.get(row.product_id)
-        const adsSpendCents = spendByCampaign.get(row.campaign_name) ?? 0
+        const campaignSpend = spendByCampaign.get(row.campaign_name)
+        const adsSpendCents = campaignSpend?.spendCents ?? 0
         const grossSalesCents = sales?.grossSalesCents ?? 0
         const orderCount = sales?.orderCount ?? 0
         return {
@@ -2184,6 +2189,7 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
           roas: adsSpendCents > 0 ? grossSalesCents / adsSpendCents : null,
           costPerPurchaseCents:
             orderCount > 0 ? Math.round(adsSpendCents / orderCount) : null,
+          effectiveStatus: campaignSpend?.effectiveStatus ?? null,
         }
       })
       .filter((row): row is CampaignPerformanceRow => row !== null)
