@@ -107,16 +107,9 @@ export interface Translations {
     stackedWithSale: (saleTitle: string) => string
     total: string
     checkout: string
-    /** Cart order-summary shipping row (see lib/checkout/
-     *  cart-shipping-estimate.ts) — the exact fee once a PH region is known,
-     *  otherwise the lowest domestic rate as "From …". */
-    shipping: string
-    shippingFrom: (amount: string) => string
-    shippingFree: string
-    shippingAtCheckout: string
-    /** Total label when shipping isn't known exactly yet, so the figure
-     *  never looks like the final charge. */
-    totalBeforeShipping: string
+    /** Under the cart total — the fee depends on the address, which the
+     *  shopper only enters on the checkout form. */
+    shippingNote: string
   }
   checkout: {
     title: string
@@ -392,11 +385,7 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: 'Total',
       checkout: 'Checkout',
-      shipping: 'Shipping',
-      shippingFrom: (amount) => `From ${amount}`,
-      shippingFree: 'Free',
-      shippingAtCheckout: 'Calculated at checkout',
-      totalBeforeShipping: 'Total before shipping',
+      shippingNote: 'Shipping is calculated at checkout',
     },
     checkout: {
       title: 'Checkout',
@@ -680,11 +669,7 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '合計',
       checkout: 'レジに進む',
-      shipping: '送料',
-      shippingFrom: (amount) => `${amount}〜`,
-      shippingFree: '無料',
-      shippingAtCheckout: 'レジで計算されます',
-      totalBeforeShipping: '合計（送料別）',
+      shippingNote: '送料はレジで計算されます',
     },
     checkout: {
       title: 'レジに進む',
@@ -967,11 +952,7 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '합계',
       checkout: '결제하기',
-      shipping: '배송비',
-      shippingFrom: (amount) => `${amount}부터`,
-      shippingFree: '무료',
-      shippingAtCheckout: '결제 시 계산됩니다',
-      totalBeforeShipping: '합계 (배송비 별도)',
+      shippingNote: '배송비는 결제 시 계산됩니다',
     },
     checkout: {
       title: '결제하기',
@@ -1250,11 +1231,7 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '合計',
       checkout: '結帳',
-      shipping: '運費',
-      shippingFrom: (amount) => `${amount} 起`,
-      shippingFree: '免運費',
-      shippingAtCheckout: '結帳時計算',
-      totalBeforeShipping: '合計（未含運費）',
+      shippingNote: '運費將於結帳時計算',
     },
     checkout: {
       title: '結帳',

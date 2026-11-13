@@ -7,9 +7,6 @@ import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import { CartStockWarning } from '#/components/storefront/CartStockWarning'
 import { trackCheckoutEvent } from '#/lib/analytics/checkout-tracking'
-import { readSavedCheckoutDestination } from '#/lib/checkout/CheckoutContext'
-import { estimateCartShipping } from '#/lib/checkout/cart-shipping-estimate'
-import type { CartShippingEstimate } from '#/lib/checkout/cart-shipping-estimate'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -23,9 +20,7 @@ export const Route = createFileRoute('/cart/')({
 function CartPage() {
   const {
     formatPriceWithMarkup: formatPrice,
-    formatPrice: formatPlainPrice,
     freeShippingProgressForBrowsing,
-    browsingCountry,
   } = useCurrency()
   const { storefrontScope } = Route.useRouteContext()
   const { t } = useLanguage()
@@ -45,13 +40,6 @@ function CartPage() {
   const [discountInput, setDiscountInput] = useState('')
   const [discountError, setDiscountError] = useState<string | null>(null)
   const [applyingDiscount, setApplyingDiscount] = useState(false)
-  // Read after mount (sessionStorage isn't available during SSR) — a
-  // destination the shopper already entered at checkout this session.
-  const [savedDestination, setSavedDestination] =
-    useState<ReturnType<typeof readSavedCheckoutDestination>>(null)
-  useEffect(() => {
-    setSavedDestination(readSavedCheckoutDestination())
-  }, [])
 
   const cartId = cart?.id ?? null
   const hasItems = (cart?.items.length ?? 0) > 0
@@ -141,31 +129,6 @@ function CartPage() {
   }
 
   const discount = cart.discount
-  const shippingEstimate: CartShippingEstimate = estimateCartShipping({
-    country: savedDestination?.country ?? browsingCountry,
-    region: savedDestination?.region ?? '',
-    province: savedDestination?.province ?? '',
-    subtotalAfterDiscountCents: subtotalCents - discountCents,
-    itemCount,
-    excludeFreeShipping: discount?.excludesFreeShipping ?? false,
-  })
-  const shippingKnown =
-    shippingEstimate.kind === 'free' || shippingEstimate.kind === 'exact'
-  const shippingCents =
-    shippingEstimate.kind === 'exact' ? shippingEstimate.cents : 0
-  // Shipping is only ever estimated for PH (see estimateCartShipping), and
-  // is only added to the total once it's known exactly — otherwise the
-  // total is labelled "before shipping" so it never looks like the final
-  // charge.
-  const grandTotalLabel = formatPrice(totalCents + shippingCents)
-  const shippingLabel =
-    shippingEstimate.kind === 'free'
-      ? t.cart.shippingFree
-      : shippingEstimate.kind === 'exact'
-        ? formatPlainPrice(shippingEstimate.cents)
-        : shippingEstimate.kind === 'from'
-          ? t.cart.shippingFrom(formatPlainPrice(shippingEstimate.cents))
-          : t.cart.shippingAtCheckout
 
   function handleCheckoutClick() {
     if (!cart) return
@@ -385,26 +348,15 @@ function CartPage() {
             <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-neutral-600 dark:text-neutral-400">
-            {t.cart.shipping}
-          </span>
-          <span
-            className={
-              shippingEstimate.kind === 'free'
-                ? 'font-medium text-green-700 dark:text-green-400'
-                : 'text-neutral-900 dark:text-white'
-            }
-          >
-            {shippingLabel}
-          </span>
-        </div>
         <div className="mt-3 flex items-center justify-between border-t border-neutral-200 pt-3 text-lg font-semibold dark:border-neutral-800">
-          <span>
-            {shippingKnown ? t.cart.total : t.cart.totalBeforeShipping}
-          </span>
-          <span>{grandTotalLabel}</span>
+          <span>{t.cart.total}</span>
+          <span>{formatPrice(totalCents)}</span>
         </div>
+        {/* No fee shown here — the exact amount depends on the address,
+            which the shopper only gives on the checkout form. */}
+        <p className="mt-2 text-right text-xs text-neutral-500 dark:text-neutral-400">
+          {t.cart.shippingNote}
+        </p>
       </div>
 
       <FreeShippingNudge
@@ -431,12 +383,13 @@ function CartPage() {
           The spacer keeps the last bit of the page from hiding behind it. */}
       <div className="h-24 sm:hidden" aria-hidden="true" />
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:hidden dark:border-neutral-800 dark:bg-neutral-950/95">
-        <div className="mb-2 flex items-center justify-between text-sm">
+        <div className="mb-2 flex items-baseline justify-between text-sm">
           <span className="text-neutral-600 dark:text-neutral-400">
-            {shippingKnown ? t.cart.total : t.cart.totalBeforeShipping}
+            {t.cart.total}{' '}
+            <span className="text-xs">({t.cart.shippingNote})</span>
           </span>
           <span className="font-semibold text-neutral-900 dark:text-white">
-            {grandTotalLabel}
+            {formatPrice(totalCents)}
           </span>
         </div>
         <Link
