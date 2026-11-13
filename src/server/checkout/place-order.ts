@@ -463,7 +463,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
         province: data.contact.province,
         city: data.contact.city,
         barangay: data.contact.barangay ?? null,
-        postalCode: data.contact.postalCode,
+        postalCode: data.contact.postalCode || null,
         addressLine1: data.contact.addressLine1,
         addressLine2: data.contact.addressLine2 ?? null,
         landmark: data.contact.landmark ?? null,

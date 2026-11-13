@@ -127,7 +127,8 @@ export function isCheckoutInfoComplete(info: CheckoutInfo): boolean {
     info.phone &&
     info.city &&
     info.addressLine1 &&
-    info.postalCode,
+    // Postal code is optional for PH, required everywhere else.
+    (info.country === 'PH' || info.postalCode),
   )
   if (!hasCommon) return false
   if (info.shippingMethod === 'lalamove') {

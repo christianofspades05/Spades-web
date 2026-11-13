@@ -216,6 +216,19 @@ function CheckoutPage() {
   const [applyingDiscount, setApplyingDiscount] = useState(false)
   const [method, setMethod] = useState<PaymentMethod>('cod')
   const [placing, setPlacing] = useState(false)
+  // The collapsed "apartment, landmark, postal code or notes" section opens
+  // itself once any of those has a value (e.g. restored or prefilled info),
+  // but never closes itself — only the shopper does that.
+  const [optionalDetailsOpen, setOptionalDetailsOpen] = useState(false)
+  const hasOptionalDetails = Boolean(
+    info.addressLine2 ||
+    info.landmark ||
+    info.orderNotes ||
+    (info.country === 'PH' && info.postalCode),
+  )
+  useEffect(() => {
+    if (hasOptionalDetails) setOptionalDetailsOpen(true)
+  }, [hasOptionalDetails])
   // Only flag the phone once the shopper has left the field — not on every
   // keystroke while they're still typing it.
   const [phoneTouched, setPhoneTouched] = useState(false)
@@ -742,13 +755,26 @@ function CheckoutPage() {
 
       <CartStockWarning issues={cart.stockIssues} className="mt-4" />
 
+      {/* Reassurance before the form, where shoppers decide whether to
+          start filling it in. COD only claimed when it's actually offered
+          for this cart/destination. */}
+      <p className="mt-3 text-xs font-medium text-neutral-600 sm:text-sm dark:text-neutral-400">
+        {[
+          !codDisabledReason && 'Cash on delivery available',
+          'Easy exchange',
+          'Ships in 1–2 days',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+
       <form
         onSubmit={(event) => void handlePlaceOrder(event)}
         className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_380px]"
       >
         <div className="space-y-8">
-          <section>
-            <h2 className="mb-4 text-lg font-semibold">{t.checkout.contact}</h2>
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold">{t.checkout.contact}</h2>
             <label className={labelClassName}>
               {t.checkout.email}
               <input
@@ -775,6 +801,48 @@ function CheckoutPage() {
                 className={inputClassName}
               />
             </label>
+            <label className={labelClassName}>
+              {t.checkout.phone}
+              <input
+                required
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder={
+                  info.country === 'PH' ? '0917 123 4567' : undefined
+                }
+                value={info.phone}
+                onChange={(e) => setInfo({ ...info, phone: e.target.value })}
+                onBlur={() => {
+                  setPhoneTouched(true)
+                  // Tidy a valid number into the stored format as soon
+                  // as they leave the field, so what they see is what
+                  // gets saved.
+                  if (info.country !== 'PH') return
+                  const normalized = normalizePhMobile(info.phone)
+                  if (normalized && normalized !== info.phone) {
+                    setInfo({ ...info, phone: normalized })
+                  }
+                }}
+                aria-invalid={phoneInvalid || undefined}
+                aria-describedby="checkout-phone-hint"
+                className={inputClassName}
+              />
+              {info.country === 'PH' && (
+                <span
+                  id="checkout-phone-hint"
+                  className={`mt-1 block text-xs font-normal ${
+                    phoneInvalid
+                      ? 'text-red-700 dark:text-red-400'
+                      : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+                >
+                  {phoneInvalid
+                    ? PH_MOBILE_ERROR_MESSAGE
+                    : 'e.g. 0917 123 4567'}
+                </span>
+              )}
+            </label>
           </section>
 
           <section>
@@ -796,63 +864,17 @@ function CheckoutPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className={labelClassName}>
-                  {t.checkout.recipientName}
-                  <input
-                    required
-                    value={info.recipientName}
-                    onChange={(e) =>
-                      setInfo({ ...info, recipientName: e.target.value })
-                    }
-                    className={inputClassName}
-                  />
-                </label>
-                <label className={labelClassName}>
-                  {t.checkout.phone}
-                  <input
-                    required
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder={
-                      info.country === 'PH' ? '0917 123 4567' : undefined
-                    }
-                    value={info.phone}
-                    onChange={(e) =>
-                      setInfo({ ...info, phone: e.target.value })
-                    }
-                    onBlur={() => {
-                      setPhoneTouched(true)
-                      // Tidy a valid number into the stored format as soon
-                      // as they leave the field, so what they see is what
-                      // gets saved.
-                      if (info.country !== 'PH') return
-                      const normalized = normalizePhMobile(info.phone)
-                      if (normalized && normalized !== info.phone) {
-                        setInfo({ ...info, phone: normalized })
-                      }
-                    }}
-                    aria-invalid={phoneInvalid || undefined}
-                    aria-describedby="checkout-phone-hint"
-                    className={inputClassName}
-                  />
-                  {info.country === 'PH' && (
-                    <span
-                      id="checkout-phone-hint"
-                      className={`mt-1 block text-xs font-normal ${
-                        phoneInvalid
-                          ? 'text-red-700 dark:text-red-400'
-                          : 'text-neutral-500 dark:text-neutral-400'
-                      }`}
-                    >
-                      {phoneInvalid
-                        ? PH_MOBILE_ERROR_MESSAGE
-                        : 'e.g. 0917 123 4567'}
-                    </span>
-                  )}
-                </label>
-              </div>
+              <label className={labelClassName}>
+                {t.checkout.recipientName}
+                <input
+                  required
+                  value={info.recipientName}
+                  onChange={(e) =>
+                    setInfo({ ...info, recipientName: e.target.value })
+                  }
+                  className={inputClassName}
+                />
+              </label>
 
               {info.country === 'PH' ? (
                 <PHAddressFields
@@ -891,46 +913,26 @@ function CheckoutPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className={labelClassName}>
-                  {t.checkout.addressLine1}
-                  <input
-                    required
-                    placeholder={t.checkout.addressLine1Placeholder}
-                    value={info.addressLine1}
-                    onChange={(e) =>
-                      setInfo({ ...info, addressLine1: e.target.value })
-                    }
-                    className={inputClassName}
-                  />
-                </label>
-                <label className={labelClassName}>
-                  {t.checkout.addressLine2Optional}
-                  <input
-                    value={info.addressLine2}
-                    onChange={(e) =>
-                      setInfo({ ...info, addressLine2: e.target.value })
-                    }
-                    className={inputClassName}
-                  />
-                </label>
-              </div>
+              <label className={labelClassName}>
+                {t.checkout.addressLine1}
+                <input
+                  required
+                  autoComplete="address-line1"
+                  placeholder={t.checkout.addressLine1Placeholder}
+                  value={info.addressLine1}
+                  onChange={(e) =>
+                    setInfo({ ...info, addressLine1: e.target.value })
+                  }
+                  className={inputClassName}
+                />
+              </label>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className={labelClassName}>
-                  {t.checkout.landmarkOptional}
-                  <input
-                    value={info.landmark}
-                    onChange={(e) =>
-                      setInfo({ ...info, landmark: e.target.value })
-                    }
-                    className={inputClassName}
-                  />
-                </label>
+              {info.country !== 'PH' && (
                 <label className={labelClassName}>
                   {t.checkout.postalCode}
                   <input
                     required
+                    autoComplete="postal-code"
                     value={info.postalCode}
                     onChange={(e) =>
                       setInfo({ ...info, postalCode: e.target.value })
@@ -938,7 +940,74 @@ function CheckoutPage() {
                     className={inputClassName}
                   />
                 </label>
-              </div>
+              )}
+
+              {/* Everything optional lives behind one tap, so the required
+                  path stays short. Opens on its own if anything in it is
+                  already filled in (e.g. a returning shopper). */}
+              <details
+                open={optionalDetailsOpen}
+                onToggle={(e) => setOptionalDetailsOpen(e.currentTarget.open)}
+                className="group rounded-md border border-neutral-200 dark:border-neutral-800"
+              >
+                <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-neutral-700 select-none dark:text-neutral-300">
+                  <span className="mr-1 inline-block transition group-open:rotate-90">
+                    ›
+                  </span>
+                  Add apartment, landmark, postal code or delivery notes
+                  (optional)
+                </summary>
+                <div className="space-y-4 px-4 pb-4">
+                  <label className={labelClassName}>
+                    {t.checkout.addressLine2Optional}
+                    <input
+                      autoComplete="address-line2"
+                      value={info.addressLine2}
+                      onChange={(e) =>
+                        setInfo({ ...info, addressLine2: e.target.value })
+                      }
+                      className={inputClassName}
+                    />
+                  </label>
+                  <label className={labelClassName}>
+                    {t.checkout.landmarkOptional}
+                    <input
+                      value={info.landmark}
+                      onChange={(e) =>
+                        setInfo({ ...info, landmark: e.target.value })
+                      }
+                      className={inputClassName}
+                    />
+                  </label>
+                  {info.country === 'PH' && (
+                    <label className={labelClassName}>
+                      {t.account.postalCodeOptional}
+                      <input
+                        inputMode="numeric"
+                        autoComplete="postal-code"
+                        value={info.postalCode}
+                        onChange={(e) =>
+                          setInfo({ ...info, postalCode: e.target.value })
+                        }
+                        className={inputClassName}
+                      />
+                    </label>
+                  )}
+                  <label className={labelClassName}>
+                    Delivery notes (optional)
+                    <textarea
+                      rows={3}
+                      maxLength={500}
+                      value={info.orderNotes}
+                      onChange={(e) =>
+                        setInfo({ ...info, orderNotes: e.target.value })
+                      }
+                      placeholder="Delivery instructions, gift note, etc."
+                      className={inputClassName}
+                    />
+                  </label>
+                </div>
+              </details>
             </div>
           </section>
 
@@ -1124,23 +1193,6 @@ function CheckoutPage() {
                 </span>
               </label>
             </div>
-          </section>
-
-          <section>
-            <h2 className="mb-4 text-lg font-semibold">Order notes</h2>
-            <label className={labelClassName}>
-              Anything we should know? (optional)
-              <textarea
-                rows={3}
-                maxLength={500}
-                value={info.orderNotes}
-                onChange={(e) =>
-                  setInfo({ ...info, orderNotes: e.target.value })
-                }
-                placeholder="Delivery instructions, gift note, etc."
-                className={inputClassName}
-              />
-            </label>
           </section>
 
           {error && (

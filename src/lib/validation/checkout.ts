@@ -21,7 +21,10 @@ export const checkoutContactBaseSchema = z.object({
   province: z.string().trim().min(1).max(120),
   city: z.string().trim().min(1).max(120),
   barangay: z.string().trim().max(120).optional(),
-  postalCode: z.string().trim().min(1).max(12),
+  // Optional for PH (couriers route by barangay/city, and 39 shoppers hit a
+  // validation error on it in Nov 2026); required for international
+  // addresses — enforced in the superRefine below.
+  postalCode: z.string().trim().max(12).default(''),
   addressLine1: z.string().trim().min(1).max(200),
   addressLine2: z.string().trim().max(200).optional(),
   landmark: z.string().trim().max(200).optional(),
@@ -38,7 +41,16 @@ export const checkoutContactBaseSchema = z.object({
 
 export const checkoutContactSchema = checkoutContactBaseSchema
   .superRefine((data, ctx) => {
-    if (data.country !== 'PH') return
+    if (data.country !== 'PH') {
+      if (!data.postalCode) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['postalCode'],
+          message: 'Postal code is required',
+        })
+      }
+      return
+    }
     if (normalizePhMobile(data.phone) === null) {
       ctx.addIssue({
         code: 'custom',
