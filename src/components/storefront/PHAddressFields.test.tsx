@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { PHAddressFields } from './PHAddressFields'
 import type { PHAddressValue } from './PHAddressFields'
+import { normalizeSearchText } from '#/lib/utils/search-text'
 
 const json = readFileSync('public/data/ph-address.json', 'utf8')
 
@@ -15,6 +16,7 @@ beforeAll(() => {
       Promise.resolve({ json: () => Promise.resolve(JSON.parse(json)) }),
     ),
   )
+  Element.prototype.scrollIntoView = vi.fn()
 })
 afterEach(cleanup)
 
@@ -38,47 +40,63 @@ function Harness({ onValue }: { onValue: (v: PHAddressValue) => void }) {
   )
 }
 
-describe('PHAddressFields search', () => {
-  it('fills region, province, city and barangay from one pick', async () => {
+/** Open a dropdown by its label, type into its search box, pick an option. */
+async function pick(label: string, search: string, option: string) {
+  fireEvent.click(await screen.findByRole('combobox', { name: label }))
+  fireEvent.change(screen.getByRole('searchbox'), {
+    target: { value: search },
+  })
+  fireEvent.mouseDown(screen.getByRole('option', { name: option }))
+}
+
+describe('normalizeSearchText', () => {
+  it('ignores case, accents and punctuation', () => {
+    expect(normalizeSearchText('LAS PIÑAS')).toBe('las pinas')
+    expect(normalizeSearchText('Calaylayan (Pob.)')).toBe(
+      'calaylayan poblacion',
+    )
+  })
+})
+
+describe('PHAddressFields searchable dropdowns', () => {
+  it('shows the four dropdowns by default, in order', async () => {
+    render(<Harness onValue={() => {}} />)
+    expect(await screen.findByRole('combobox', { name: 'Region' })).toBeTruthy()
+    expect(
+      screen.getByRole('combobox', { name: 'City / Municipality' }),
+    ).toHaveProperty('disabled', true)
+    expect(screen.getByRole('combobox', { name: 'Barangay' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+  })
+
+  it('filters each list by typing and fills region → barangay', async () => {
     const onValue = vi.fn()
     render(<Harness onValue={onValue} />)
-    const input = await screen.findByPlaceholderText(
-      'Type your barangay or city',
-    )
-    fireEvent.focus(input)
-    fireEvent.change(input, { target: { value: 'abucay bangkal' } })
-    const option = await screen.findByRole('button', {
-      name: 'Bangkal, Abucay, Bataan',
-    })
-    fireEvent.mouseDown(option)
-
+    await pick('Region', 'central luzon', 'Region III (Central Luzon)')
+    await pick('Province', 'bata', 'Bataan')
+    await pick('City / Municipality', 'abu', 'Abucay')
+    await pick('Barangay', 'bang', 'Bangkal')
     expect(onValue).toHaveBeenLastCalledWith({
       region: 'REGION III (CENTRAL LUZON)',
       province: 'Bataan',
       city: 'Abucay',
       barangay: 'Bangkal',
     })
-    expect(screen.getByText('Bangkal, Abucay, Bataan')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Change' })).toBeTruthy()
   })
 
-  it('asks for the barangay after a city-only pick', async () => {
+  it('narrows a long barangay list as you type', async () => {
     render(<Harness onValue={() => {}} />)
-    const input = await screen.findByPlaceholderText(
-      'Type your barangay or city',
-    )
-    fireEvent.focus(input)
-    fireEvent.change(input, { target: { value: 'abucay' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    const select = await screen.findByRole('combobox', { name: 'Barangay' })
-    expect(select).toBeTruthy()
-  })
-
-  it('keeps the dropdowns as a fallback', async () => {
-    render(<Harness onValue={() => {}} />)
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Choose from lists instead' }),
-    )
-    expect(screen.getByRole('combobox', { name: 'Region' })).toBeTruthy()
+    await pick('Region', 'ncr', 'National Capital Region (NCR)')
+    await pick('City / Municipality', 'manila', 'City Of Manila')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Barangay' }))
+    const all = screen.getAllByRole('option').length
+    expect(all).toBeGreaterThan(800)
+    fireEvent.change(screen.getByRole('searchbox'), {
+      target: { value: 'barangay 105' },
+    })
+    expect(screen.getAllByRole('option')[0].textContent).toBe('Barangay 105')
+    expect(screen.getAllByRole('option').length).toBeLessThan(20)
   })
 })
