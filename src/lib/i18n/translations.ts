@@ -107,6 +107,16 @@ export interface Translations {
     stackedWithSale: (saleTitle: string) => string
     total: string
     checkout: string
+    /** Cart order-summary shipping row (see lib/checkout/
+     *  cart-shipping-estimate.ts) — the exact fee once a PH region is known,
+     *  otherwise the lowest domestic rate as "From …". */
+    shipping: string
+    shippingFrom: (amount: string) => string
+    shippingFree: string
+    shippingAtCheckout: string
+    /** Total label when shipping isn't known exactly yet, so the figure
+     *  never looks like the final charge. */
+    totalBeforeShipping: string
   }
   checkout: {
     title: string
@@ -176,6 +186,7 @@ export interface Translations {
     selectOptions: string
     adding: string
     addToCart: string
+    buyNow: string
   }
   languagePopup: {
     title: string
@@ -381,6 +392,11 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: 'Total',
       checkout: 'Checkout',
+      shipping: 'Shipping',
+      shippingFrom: (amount) => `From ${amount}`,
+      shippingFree: 'Free',
+      shippingAtCheckout: 'Calculated at checkout',
+      totalBeforeShipping: 'Total before shipping',
     },
     checkout: {
       title: 'Checkout',
@@ -425,7 +441,8 @@ export const translations: Record<Language, Translations> = {
       continueToPay: (amount) => `Continue to pay — ${amount}`,
       placeOrder: (amount) => `Place order — ${amount}`,
       missingDeliveryTitle: 'Missing delivery details',
-      missingDeliveryBody: 'Please fill in your contact and delivery information first.',
+      missingDeliveryBody:
+        'Please fill in your contact and delivery information first.',
       backToCheckout: 'Back to checkout',
       paymentFailedError:
         'Your online payment didn’t go through. You can try again or choose Cash on Delivery instead.',
@@ -448,6 +465,7 @@ export const translations: Record<Language, Translations> = {
       selectOptions: 'Select options',
       adding: 'Adding...',
       addToCart: 'Add to Cart',
+      buyNow: 'Buy Now',
     },
     languagePopup: {
       title: 'Choose your language',
@@ -482,8 +500,7 @@ export const translations: Record<Language, Translations> = {
       sending: 'Sending…',
       send: 'Send',
       customersHeading: 'Let customers speak for us',
-      fromReviews: (count) =>
-        `from ${count} review${count === 1 ? '' : 's'}`,
+      fromReviews: (count) => `from ${count} review${count === 1 ? '' : 's'}`,
       noReviewsYet:
         'No reviews yet — be the first to leave one after your order arrives.',
       verifiedBuyer: 'Verified buyer',
@@ -514,8 +531,7 @@ export const translations: Record<Language, Translations> = {
       cancelOrderBody: 'Let us know why — this helps us follow up if needed.',
       cancelReasonPlaceholder:
         'e.g. Ordered by mistake, found it cheaper elsewhere…',
-      cancelReasonRequired:
-        'Please tell us why you want to cancel this order.',
+      cancelReasonRequired: 'Please tell us why you want to cancel this order.',
       neverMind: 'Never mind',
       confirmCancellation: 'Confirm cancellation',
       cancelling: 'Cancelling…',
@@ -663,6 +679,11 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '合計',
       checkout: 'レジに進む',
+      shipping: '送料',
+      shippingFrom: (amount) => `${amount}〜`,
+      shippingFree: '無料',
+      shippingAtCheckout: 'レジで計算されます',
+      totalBeforeShipping: '合計（送料別）',
     },
     checkout: {
       title: 'レジに進む',
@@ -730,6 +751,7 @@ export const translations: Record<Language, Translations> = {
       selectOptions: 'オプションを選択',
       adding: '追加中...',
       addToCart: 'カートに追加',
+      buyNow: '今すぐ購入',
     },
     languagePopup: {
       title: '言語を選択してください',
@@ -756,7 +778,8 @@ export const translations: Record<Language, Translations> = {
     reviews: {
       feedbackHeading:
         'ご意見・ご要望はありますか？あなたの声で私たちをより良くしてください',
-      feedbackThanks: 'ありがとうございます — ご意見をお寄せいただき感謝いたします！',
+      feedbackThanks:
+        'ありがとうございます — ご意見をお寄せいただき感謝いたします！',
       name: 'お名前',
       email: 'メールアドレス *',
       phoneNumber: '電話番号',
@@ -944,6 +967,11 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '합계',
       checkout: '결제하기',
+      shipping: '배송비',
+      shippingFrom: (amount) => `${amount}부터`,
+      shippingFree: '무료',
+      shippingAtCheckout: '결제 시 계산됩니다',
+      totalBeforeShipping: '합계 (배송비 별도)',
     },
     checkout: {
       title: '결제하기',
@@ -1011,6 +1039,7 @@ export const translations: Record<Language, Translations> = {
       selectOptions: '옵션을 선택하세요',
       adding: '담는 중...',
       addToCart: '장바구니에 담기',
+      buyNow: '바로 구매',
     },
     languagePopup: {
       title: '언어를 선택하세요',
@@ -1035,7 +1064,8 @@ export const translations: Record<Language, Translations> = {
       blanks: '무지 아이템',
     },
     reviews: {
-      feedbackHeading: '추천하고 싶은 점이 있으신가요? 소중한 의견으로 저희를 발전시켜 주세요',
+      feedbackHeading:
+        '추천하고 싶은 점이 있으신가요? 소중한 의견으로 저희를 발전시켜 주세요',
       feedbackThanks: '감사합니다 — 소중한 의견 감사드립니다!',
       name: '이름',
       email: '이메일 *',
@@ -1045,7 +1075,8 @@ export const translations: Record<Language, Translations> = {
       send: '보내기',
       customersHeading: '고객들의 후기',
       fromReviews: (count) => `리뷰 ${count}개 기준`,
-      noReviewsYet: '아직 리뷰가 없습니다 — 주문하신 상품이 도착하면 첫 번째 리뷰를 남겨보세요.',
+      noReviewsYet:
+        '아직 리뷰가 없습니다 — 주문하신 상품이 도착하면 첫 번째 리뷰를 남겨보세요.',
       verifiedBuyer: '구매 확인됨',
       goToReviewPage: (page) => `리뷰 페이지 ${page}로 이동`,
     },
@@ -1073,7 +1104,8 @@ export const translations: Record<Language, Translations> = {
       cancelOrderTitle: '이 주문을 취소하시겠어요?',
       cancelOrderBody:
         '이유를 알려주세요 — 필요할 경우 후속 조치에 도움이 됩니다.',
-      cancelReasonPlaceholder: '예: 실수로 주문함, 다른 곳에서 더 저렴하게 발견함…',
+      cancelReasonPlaceholder:
+        '예: 실수로 주문함, 다른 곳에서 더 저렴하게 발견함…',
       cancelReasonRequired: '이 주문을 취소하려는 이유를 알려주세요.',
       neverMind: '취소하지 않기',
       confirmCancellation: '취소 확정',
@@ -1104,7 +1136,8 @@ export const translations: Record<Language, Translations> = {
       codeResent: '새 코드가 전송되었습니다.',
       forgotPassword: '비밀번호를 잊으셨나요?',
       forgotPasswordHeading: '비밀번호 재설정',
-      forgotPasswordBody: '이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.',
+      forgotPasswordBody:
+        '이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.',
       sendResetLink: '재설정 링크 보내기',
       sendingResetLink: '전송 중…',
       resetLinkSentBody:
@@ -1221,6 +1254,11 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       total: '合計',
       checkout: '結帳',
+      shipping: '運費',
+      shippingFrom: (amount) => `${amount} 起`,
+      shippingFree: '免運費',
+      shippingAtCheckout: '結帳時計算',
+      totalBeforeShipping: '合計（未含運費）',
     },
     checkout: {
       title: '結帳',
@@ -1267,8 +1305,7 @@ export const translations: Record<Language, Translations> = {
       missingDeliveryTitle: '缺少收件資訊',
       missingDeliveryBody: '請先填寫聯絡資訊與收件資訊。',
       backToCheckout: '返回結帳',
-      paymentFailedError:
-        '線上付款未完成。您可以重新嘗試，或改選貨到付款。',
+      paymentFailedError: '線上付款未完成。您可以重新嘗試，或改選貨到付款。',
     },
     confirmation: {
       orderPlaced: '訂單已送出！',
@@ -1288,6 +1325,7 @@ export const translations: Record<Language, Translations> = {
       selectOptions: '選擇規格',
       adding: '加入中...',
       addToCart: '加入購物車',
+      buyNow: '立即購買',
     },
     languagePopup: {
       title: '請選擇語言',
@@ -1312,8 +1350,7 @@ export const translations: Record<Language, Translations> = {
       blanks: '素面款',
     },
     reviews: {
-      feedbackHeading:
-        '有什麼建議嗎？歡迎分享您的想法，幫助我們做得更好',
+      feedbackHeading: '有什麼建議嗎？歡迎分享您的想法，幫助我們做得更好',
       feedbackThanks: '謝謝您 — 我們非常感謝您的意見！',
       name: '姓名',
       email: '電子郵件 *',
@@ -1323,8 +1360,7 @@ export const translations: Record<Language, Translations> = {
       send: '傳送',
       customersHeading: '顧客怎麼說',
       fromReviews: (count) => `來自${count}則評價`,
-      noReviewsYet:
-        '目前尚無評價 — 收到商品後，歡迎成為第一位留下評價的人。',
+      noReviewsYet: '目前尚無評價 — 收到商品後，歡迎成為第一位留下評價的人。',
       verifiedBuyer: '已驗證買家',
       goToReviewPage: (page) => `前往評價第${page}頁`,
     },
@@ -1351,8 +1387,7 @@ export const translations: Record<Language, Translations> = {
       writeReview: '撰寫評價',
       cancelOrderTitle: '確定要取消此訂單嗎？',
       cancelOrderBody: '請告訴我們原因 — 有助於我們在需要時進行後續處理。',
-      cancelReasonPlaceholder:
-        '例如：不小心下錯單、在別處找到更便宜的價格…',
+      cancelReasonPlaceholder: '例如：不小心下錯單、在別處找到更便宜的價格…',
       cancelReasonRequired: '請告訴我們您想取消此訂單的原因。',
       neverMind: '不用了',
       confirmCancellation: '確認取消',
@@ -1383,8 +1418,7 @@ export const translations: Record<Language, Translations> = {
       codeResent: '新的驗證碼已傳送。',
       forgotPassword: '忘記密碼？',
       forgotPasswordHeading: '重設您的密碼',
-      forgotPasswordBody:
-        '請輸入您的電子郵件，我們將傳送重設密碼的連結給您。',
+      forgotPasswordBody: '請輸入您的電子郵件，我們將傳送重設密碼的連結給您。',
       sendResetLink: '傳送重設連結',
       sendingResetLink: '傳送中…',
       resetLinkSentBody:
@@ -1399,8 +1433,7 @@ export const translations: Record<Language, Translations> = {
       updatePassword: '更新密碼',
       resetLinkExpired: '此重設連結無效或已過期，請重新申請。',
       thanksForReview: '感謝您的評價！',
-      reviewAppreciation:
-        '感謝您撥出時間 — 審核通過後將顯示於商品頁面。',
+      reviewAppreciation: '感謝您撥出時間 — 審核通過後將顯示於商品頁面。',
       backToAccount: '返回我的帳戶',
       allDone: '全部完成！',
       alreadyReviewed: (orderNumber) =>

@@ -15,11 +15,14 @@ export function AddedToCartPopup({
   itemCount,
   freeShippingProgress,
   onClose,
+  onCheckoutClick,
 }: {
   item: AddedToCartItem
   itemCount: number
   freeShippingProgress: FreeShippingProgress | null
   onClose: () => void
+  /** Fired when the shopper taps Check out (straight to /checkout). */
+  onCheckoutClick?: () => void
 }) {
   const { t } = useLanguage()
   return (
@@ -71,6 +74,7 @@ export function AddedToCartPopup({
         </Link>
         <Link
           to="/checkout"
+          onClick={onCheckoutClick}
           className="rounded-full bg-white px-4 py-2.5 text-center text-sm font-semibold text-neutral-950 transition hover:bg-neutral-200"
         >
           {t.addedToCart.checkOut}

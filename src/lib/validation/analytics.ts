@@ -26,6 +26,12 @@ export const EVENT_TYPES = [
   'checkout_order_error',
   'checkout_payment_redirect',
   'checkout_order_success',
+  // Cart page / add-to-cart popup — the step between checkout_start and
+  // checkout_view, where ~37% of shoppers dropped off in Nov 2026.
+  // cart_view: metadata { item_count, subtotal_cents, source }.
+  // cart_checkout_clicked: metadata { item_count, subtotal_cents, source }.
+  'cart_view',
+  'cart_checkout_clicked',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 

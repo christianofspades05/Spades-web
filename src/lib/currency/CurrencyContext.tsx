@@ -60,6 +60,9 @@ interface CurrencyContextValue {
    *  display currency on every other visit was a real, recurring bug, not
    *  a one-off. PHP stays the default for everyone; this only powers an
    *  explicit, dismissible suggestion (see CurrencySuggestionBanner). */
+  /** The geo-guessed visitor country (PH when unknown) — the same
+   *  browsing-only signal freeShippingProgressForBrowsing uses. */
+  browsingCountry: string
   suggestedCurrency: Currency | null
   showCurrencySuggestion: boolean
   acceptCurrencySuggestion: () => void
@@ -202,6 +205,7 @@ export function CurrencyProvider({
         formatPrice,
         formatPriceWithMarkup,
         freeShippingProgressForBrowsing,
+        browsingCountry: geoCountry ?? 'PH',
         suggestedCurrency: geoDefaultCurrency,
         showCurrencySuggestion,
         acceptCurrencySuggestion,

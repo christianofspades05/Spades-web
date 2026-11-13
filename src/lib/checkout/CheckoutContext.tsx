@@ -86,6 +86,31 @@ function readStoredInfo(
     : EMPTY_CHECKOUT_INFO
 }
 
+/** The destination a shopper already entered at checkout this session, if
+ *  any — read straight from sessionStorage so pages outside the checkout
+ *  route (where CheckoutProvider isn't mounted, e.g. the cart) can show an
+ *  exact shipping fee instead of an estimate. Null when nothing's saved. */
+export function readSavedCheckoutDestination(): {
+  country: string
+  region: string
+  province: string
+} | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const saved = JSON.parse(raw) as Partial<CheckoutInfo>
+    if (!saved.country) return null
+    return {
+      country: saved.country,
+      region: saved.region ?? '',
+      province: ncrProvinceFallback(saved.region ?? '', saved.province ?? ''),
+    }
+  } catch {
+    return null
+  }
+}
+
 /** NCR has no real province in the PSGC data (see PHAddressFields) — fill in a sensible label before this goes anywhere that requires one (validation, the order's address snapshot). */
 export function withSubmittableProvince(info: CheckoutInfo): CheckoutInfo {
   return {

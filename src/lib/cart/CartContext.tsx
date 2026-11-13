@@ -19,7 +19,9 @@ interface CartContextValue {
   codAvailable: boolean
   codUnavailableReason: string | null
   isLoading: boolean
-  addItem: (variantId: string, quantity: number) => Promise<void>
+  /** Resolves with the updated cart, so a caller that navigates right away
+   *  (Buy Now) can still tag its events with the cart's id. */
+  addItem: (variantId: string, quantity: number) => Promise<CartWithItems>
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>
   removeItem: (cartItemId: string) => Promise<void>
   applyDiscountCode: (code: string) => Promise<void>
@@ -94,6 +96,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       addItem: async (variantId, quantity) => {
         const updated = await addCartItem({ data: { variantId, quantity } })
         setCart(updated)
+        return updated
       },
       updateQuantity: async (cartItemId, quantity) => {
         const updated = await updateCartItemQuantity({

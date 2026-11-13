@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
@@ -6,6 +6,10 @@ import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import { CartStockWarning } from '#/components/storefront/CartStockWarning'
+import { trackCheckoutEvent } from '#/lib/analytics/checkout-tracking'
+import { readSavedCheckoutDestination } from '#/lib/checkout/CheckoutContext'
+import { estimateCartShipping } from '#/lib/checkout/cart-shipping-estimate'
+import type { CartShippingEstimate } from '#/lib/checkout/cart-shipping-estimate'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -19,8 +23,11 @@ export const Route = createFileRoute('/cart/')({
 function CartPage() {
   const {
     formatPriceWithMarkup: formatPrice,
+    formatPrice: formatPlainPrice,
     freeShippingProgressForBrowsing,
+    browsingCountry,
   } = useCurrency()
+  const { storefrontScope } = Route.useRouteContext()
   const { t } = useLanguage()
   const {
     cart,
@@ -38,6 +45,31 @@ function CartPage() {
   const [discountInput, setDiscountInput] = useState('')
   const [discountError, setDiscountError] = useState<string | null>(null)
   const [applyingDiscount, setApplyingDiscount] = useState(false)
+  // Read after mount (sessionStorage isn't available during SSR) — a
+  // destination the shopper already entered at checkout this session.
+  const [savedDestination, setSavedDestination] =
+    useState<ReturnType<typeof readSavedCheckoutDestination>>(null)
+  useEffect(() => {
+    setSavedDestination(readSavedCheckoutDestination())
+  }, [])
+
+  const cartId = cart?.id ?? null
+  const hasItems = (cart?.items.length ?? 0) > 0
+  useEffect(() => {
+    if (!cartId || !hasItems) return
+    trackCheckoutEvent({
+      cartId,
+      eventType: 'cart_view',
+      brand: storefrontScope.brand,
+      metadata: {
+        item_count: itemCount,
+        subtotal_cents: subtotalCents,
+        source: 'cart_page',
+      },
+    })
+    // Once per cart per session (trackCheckoutEvent dedupes) — only needs
+    // to run when a cart with items first shows up.
+  }, [cartId, hasItems])
 
   if (isLoading) {
     return (
@@ -109,6 +141,46 @@ function CartPage() {
   }
 
   const discount = cart.discount
+  const shippingEstimate: CartShippingEstimate = estimateCartShipping({
+    country: savedDestination?.country ?? browsingCountry,
+    region: savedDestination?.region ?? '',
+    province: savedDestination?.province ?? '',
+    subtotalAfterDiscountCents: subtotalCents - discountCents,
+    itemCount,
+    excludeFreeShipping: discount?.excludesFreeShipping ?? false,
+  })
+  const shippingKnown =
+    shippingEstimate.kind === 'free' || shippingEstimate.kind === 'exact'
+  const shippingCents =
+    shippingEstimate.kind === 'exact' ? shippingEstimate.cents : 0
+  // Shipping is only ever estimated for PH (see estimateCartShipping), and
+  // is only added to the total once it's known exactly — otherwise the
+  // total is labelled "before shipping" so it never looks like the final
+  // charge.
+  const grandTotalLabel = formatPrice(totalCents + shippingCents)
+  const shippingLabel =
+    shippingEstimate.kind === 'free'
+      ? t.cart.shippingFree
+      : shippingEstimate.kind === 'exact'
+        ? formatPlainPrice(shippingEstimate.cents)
+        : shippingEstimate.kind === 'from'
+          ? t.cart.shippingFrom(formatPlainPrice(shippingEstimate.cents))
+          : t.cart.shippingAtCheckout
+
+  function handleCheckoutClick() {
+    if (!cart) return
+    trackCheckoutEvent({
+      cartId: cart.id,
+      eventType: 'cart_checkout_clicked',
+      brand: storefrontScope.brand,
+      metadata: {
+        item_count: itemCount,
+        subtotal_cents: subtotalCents,
+        source: 'cart_page',
+      },
+    })
+  }
+
   function formatDiscountRate(type: string, value: number): string {
     return type === 'fixed_amount'
       ? `${formatPrice(value)} off`
@@ -315,9 +387,25 @@ function CartPage() {
             <span>-{formatPrice(discountCents)}</span>
           </div>
         )}
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-neutral-600 dark:text-neutral-400">
+            {t.cart.shipping}
+          </span>
+          <span
+            className={
+              shippingEstimate.kind === 'free'
+                ? 'font-medium text-green-700 dark:text-green-400'
+                : 'text-neutral-900 dark:text-white'
+            }
+          >
+            {shippingLabel}
+          </span>
+        </div>
         <div className="mt-3 flex items-center justify-between border-t border-neutral-200 pt-3 text-lg font-semibold dark:border-neutral-800">
-          <span>{t.cart.total}</span>
-          <span>{formatPrice(totalCents)}</span>
+          <span>
+            {shippingKnown ? t.cart.total : t.cart.totalBeforeShipping}
+          </span>
+          <span>{grandTotalLabel}</span>
         </div>
       </div>
 
@@ -329,12 +417,38 @@ function CartPage() {
         className="mt-6 mb-2 text-center text-xs font-medium text-neutral-600 dark:text-neutral-400"
       />
 
-      <Link
-        to="/checkout"
-        className={`${buttonPrimaryClassName} mt-6 w-full justify-center`}
-      >
-        {t.cart.checkout}
-      </Link>
+      {/* Desktop: inline, full width under the summary. */}
+      <div className="mt-6 hidden sm:block">
+        <Link
+          to="/checkout"
+          onClick={handleCheckoutClick}
+          className={`${buttonPrimaryClassName} w-full! py-4! text-base!`}
+        >
+          {t.cart.checkout}
+        </Link>
+      </div>
+
+      {/* Mobile: pinned to the bottom of the screen with the total, so the
+          next step is always one thumb-tap away however long the cart is.
+          The spacer keeps the last bit of the page from hiding behind it. */}
+      <div className="h-24 sm:hidden" aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:hidden dark:border-neutral-800 dark:bg-neutral-950/95">
+        <div className="mb-2 flex items-center justify-between text-sm">
+          <span className="text-neutral-600 dark:text-neutral-400">
+            {shippingKnown ? t.cart.total : t.cart.totalBeforeShipping}
+          </span>
+          <span className="font-semibold text-neutral-900 dark:text-white">
+            {grandTotalLabel}
+          </span>
+        </div>
+        <Link
+          to="/checkout"
+          onClick={handleCheckoutClick}
+          className={`${buttonPrimaryClassName} w-full! py-4! text-base!`}
+        >
+          {t.cart.checkout}
+        </Link>
+      </div>
     </div>
   )
 }
