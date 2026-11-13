@@ -2,6 +2,7 @@
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant } from '#/types/entities'
 import {
+  isDiscountRedeemable,
   resolveAutomaticDiscountsForCart,
   resolveDiscountForCart,
 } from './discount'
@@ -33,6 +34,10 @@ export interface CartWithItems {
   codAvailable: boolean
   codUnavailableReason: string | null
   stockIssues: CartStockIssue[]
+  /** Set only on the load that just dropped an expired/used-up code from
+   *  this cart (see detachUnredeemableDiscount) — lets place-order refuse to
+   *  charge a total the shopper never saw. */
+  removedDiscountCode: string | null
 }
 
 /** One query for every line's live stock, using the same rule as
@@ -105,8 +110,11 @@ export async function loadCartWithItems(
   if (cartError) throw cartError
   if (itemsError) throw itemsError
 
+  const { discountId: attachedDiscountId, removedCode } =
+    await detachUnredeemableDiscount(admin, cart.id, cart.discount_id)
+
   const [codeDiscount, cod, stockIssues] = await Promise.all([
-    resolveDiscountForCart(admin, cart.discount_id, items),
+    resolveDiscountForCart(admin, attachedDiscountId, items),
     resolveCodAvailability(admin, items),
     findCartStockIssues(admin, items),
   ])
@@ -126,7 +134,49 @@ export async function loadCartWithItems(
     codAvailable: cod.available,
     codUnavailableReason: cod.reason,
     stockIssues,
+    removedDiscountCode: removedCode,
   }
+}
+
+/**
+ * A code stays attached to a cart (carts.discount_id) after it's applied,
+ * but codes have end dates and usage caps — e.g. the email-capture welcome
+ * code lasts 24h, so a shopper who applied it and came back a day later
+ * used to keep seeing the discount in their totals, then get "This code has
+ * expired" at Place Order (place-order.ts re-checks it). Instead, quietly
+ * drop an unredeemable code from the cart as soon as it's loaded, so the
+ * totals shown are always the totals charged. Also frees the cart for
+ * resume.ts's abandoned-cart auto-apply, which only runs when no code is
+ * attached. Returns the discount id still worth resolving (or null), and
+ * the code just removed, if any.
+ *
+ * Cart-only on purpose: resolveDiscountForCart is also used to re-price an
+ * existing order's items (admin/orders.ts), where the code was already
+ * legitimately used and expiry since then mustn't strip it.
+ */
+async function detachUnredeemableDiscount(
+  admin: Admin,
+  cartId: string,
+  discountId: string | null,
+): Promise<{ discountId: string | null; removedCode: string | null }> {
+  if (!discountId) return { discountId: null, removedCode: null }
+  const { data: discount, error } = await admin
+    .from('discounts')
+    .select('*')
+    .eq('id', discountId)
+    .maybeSingle()
+  if (error) throw error
+  if (discount && isDiscountRedeemable(discount)) {
+    return { discountId, removedCode: null }
+  }
+
+  const { error: detachError } = await admin
+    .from('carts')
+    .update({ discount_id: null })
+    .eq('id', cartId)
+    .eq('discount_id', discountId)
+  if (detachError) throw detachError
+  return { discountId: null, removedCode: discount?.code ?? null }
 }
 
 /** Throws unless the cart identified by `cartId` belongs to the given guest session token. */

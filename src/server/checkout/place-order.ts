@@ -105,6 +105,11 @@ export const placeOrder = createServerFn({ method: 'POST' })
       if (cart.items.length === 0) {
         throw new Error(CART_ERROR_MESSAGES.cart_no_items)
       }
+      // Never charge a total the shopper didn't see: if this load just
+      // dropped a lapsed code, stop so the page can show the new total.
+      if (cart.removedDiscountCode) {
+        throw new Error(CART_ERROR_MESSAGES.discount_removed)
+      }
 
       // Re-verify stock right now — the cart's snapshot may be stale. Checked
       // in parallel rather than one round-trip per line — with a multi-item

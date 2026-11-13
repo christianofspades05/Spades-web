@@ -460,6 +460,17 @@ export function assertDiscountIsRedeemable(discount: Discount): void {
   }
 }
 
+/** Non-throwing form of assertDiscountIsRedeemable — inactive, not started
+ *  yet, expired, or out of uses all return false. */
+export function isDiscountRedeemable(discount: Discount): boolean {
+  try {
+    assertDiscountIsRedeemable(discount)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Validates a customer-entered code against a cart's current contents. Throws a user-facing message on failure. */
 export async function findValidDiscountByCode(
   admin: Admin,

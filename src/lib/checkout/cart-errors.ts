@@ -21,6 +21,12 @@ export const CART_ERROR_MESSAGES = {
   cart_not_active: 'Your cart has expired. Please add your items again.',
   /** Active cart, but it has no items. */
   cart_no_items: 'Your cart is empty',
+  /** The cart's code expired (or ran out of uses) while the shopper was on
+   *  checkout, so it was just removed and the total changed. Normally a
+   *  stale code is dropped quietly when the cart loads; this only happens
+   *  if it lapses between the checkout page loading and Place Order. */
+  discount_removed:
+    'Your discount code has expired, so we removed it. Please check your new total and place your order again.',
 } as const
 
 export type CartErrorReason = keyof typeof CART_ERROR_MESSAGES
