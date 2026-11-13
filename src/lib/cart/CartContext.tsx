@@ -24,6 +24,12 @@ interface CartContextValue {
   removeItem: (cartItemId: string) => Promise<void>
   applyDiscountCode: (code: string) => Promise<void>
   removeDiscountCode: () => Promise<void>
+  /** Re-reads the cart from the server. Used by checkout after an order is
+   *  placed (the cart is converted server-side, but a client-side
+   *  navigation never remounts this provider) and whenever checkout opens,
+   *  so a cart that already became an order — via Back, another tab, or a
+   *  bfcache restore — is never shown as still checkout-able. */
+  refresh: () => Promise<void>
 }
 
 const CartContext = createContext<CartContextValue | null>(null)
@@ -106,6 +112,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       removeDiscountCode: async () => {
         const updated = await removeDiscountCode()
         setCart(updated)
+      },
+      refresh: async () => {
+        setCart(await getCart())
       },
     }
   }, [cart, isLoading])

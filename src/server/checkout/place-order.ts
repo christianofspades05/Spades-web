@@ -66,6 +66,8 @@ import {
   orderConfirmationEmailSubject,
 } from '#/lib/email/templates/order-confirmation'
 
+import { CART_ERROR_MESSAGES } from '#/lib/checkout/cart-errors'
+
 export const placeOrder = createServerFn({ method: 'POST' })
   .validator(placeOrderSchema)
   .handler(
@@ -80,19 +82,29 @@ export const placeOrder = createServerFn({ method: 'POST' })
       const admin = getSupabaseAdminClient()
       const scope = await getStorefrontScope()
       const token = getCartToken()
-      if (!token) throw new Error('Your cart is empty')
+      if (!token) throw new Error(CART_ERROR_MESSAGES.no_cart_token)
 
+      // Looked up regardless of status (not just 'active') so a cart that
+      // already became an order gets its own clear message instead of a
+      // misleading "Your cart is empty" — see lib/checkout/cart-errors.ts.
       const { data: cartRow, error: cartLookupError } = await admin
         .from('carts')
-        .select('id')
+        .select('id, status')
         .eq('session_token', token)
-        .eq('status', 'active')
         .maybeSingle()
       if (cartLookupError) throw cartLookupError
-      if (!cartRow) throw new Error('Your cart is empty')
+      if (!cartRow) throw new Error(CART_ERROR_MESSAGES.no_cart_token)
+      if (cartRow.status === 'converted') {
+        throw new Error(CART_ERROR_MESSAGES.cart_already_ordered)
+      }
+      if (cartRow.status !== 'active') {
+        throw new Error(CART_ERROR_MESSAGES.cart_not_active)
+      }
 
       const cart = await loadCartWithItems(admin, cartRow.id)
-      if (cart.items.length === 0) throw new Error('Your cart is empty')
+      if (cart.items.length === 0) {
+        throw new Error(CART_ERROR_MESSAGES.cart_no_items)
+      }
 
       // Re-verify stock right now — the cart's snapshot may be stale. Checked
       // in parallel rather than one round-trip per line — with a multi-item

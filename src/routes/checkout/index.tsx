@@ -47,6 +47,7 @@ import {
   formatCentsAsPHP,
 } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
+import { cartErrorReasonOf } from '#/lib/checkout/cart-errors'
 import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
@@ -194,8 +195,17 @@ function CheckoutPage() {
     codUnavailableReason,
     applyDiscountCode,
     removeDiscountCode,
+    refresh: refreshCart,
   } = useCart()
   const { info, setInfo, clear } = useCheckout()
+
+  // The cart provider lives above the router and only fetches on a full page
+  // load, so arriving here by client-side navigation (Back from the
+  // confirmation page, a link from another page) could show a cart that
+  // already became an order. Re-read it once on every visit.
+  useEffect(() => {
+    void refreshCart()
+  }, [])
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(
     paymentFailed ? t.payment.paymentFailedError : null,
@@ -682,6 +692,9 @@ function CheckoutPage() {
         return
       }
       clear()
+      // The server converted this cart into the order; drop it from the
+      // client too, so going Back to this page can't resubmit it.
+      void refreshCart()
       void navigate({
         to: '/checkout/confirmation',
         search: {
@@ -699,6 +712,8 @@ function CheckoutPage() {
         },
       })
     } catch (err) {
+      const message = getErrorMessage(err)
+      const cartReason = cartErrorReasonOf(message)
       trackCheckoutEvent({
         cartId,
         eventType: 'checkout_order_error',
@@ -707,10 +722,14 @@ function CheckoutPage() {
         metadata: {
           method,
           error_code: errorCodeOf(err),
-          message: getErrorMessage(err).slice(0, 300),
+          message: message.slice(0, 300),
+          reason: cartReason ?? 'other',
         },
       })
-      setError(getErrorMessage(err))
+      setError(message)
+      // The page was showing a cart the server no longer has — re-read it so
+      // the summary matches reality instead of inviting another retry.
+      if (cartReason) void refreshCart()
     } finally {
       setPlacing(false)
     }
