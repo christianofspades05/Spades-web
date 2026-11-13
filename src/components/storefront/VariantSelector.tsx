@@ -110,6 +110,11 @@ export function VariantSelector({
                   key={value}
                   type="button"
                   disabled={!inStock}
+                  aria-label={
+                    inStock
+                      ? undefined
+                      : `${dim === 'size' ? formatSizeLabel(value) : value}, sold out`
+                  }
                   onClick={() =>
                     setSelected((prev) => ({ ...prev, [dim]: value }))
                   }
@@ -119,10 +124,17 @@ export function VariantSelector({
                       ? 'border-neutral-950 bg-neutral-950 text-white dark:border-white dark:bg-white dark:text-neutral-950'
                       : 'border-neutral-300 text-neutral-700 hover:border-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-white',
                     !inStock &&
-                      'cursor-not-allowed border-neutral-200 text-neutral-300 line-through hover:border-neutral-200 dark:border-neutral-800 dark:text-neutral-700 dark:hover:border-neutral-800',
+                      'cursor-not-allowed border-neutral-200 bg-neutral-50 text-neutral-400 hover:border-neutral-200 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-600 dark:hover:border-neutral-800',
                   )}
                 >
-                  {dim === 'size' ? formatSizeLabel(value) : value}
+                  <span className={inStock ? undefined : 'line-through'}>
+                    {dim === 'size' ? formatSizeLabel(value) : value}
+                  </span>
+                  {!inStock && (
+                    <span className="ml-1.5 text-[11px] font-normal">
+                      Sold out
+                    </span>
+                  )}
                 </button>
               )
             })}

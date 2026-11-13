@@ -48,6 +48,7 @@ import {
 } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { cartErrorReasonOf } from '#/lib/checkout/cart-errors'
+import { CartStockWarning } from '#/components/storefront/CartStockWarning'
 import { PH_MOBILE_ERROR_MESSAGE, normalizePhMobile } from '#/lib/utils/phone'
 import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
@@ -739,6 +740,8 @@ function CheckoutPage() {
     <div className="mx-auto max-w-5xl px-6 py-12">
       <h1 className="text-2xl font-bold tracking-tight">{t.checkout.title}</h1>
 
+      <CartStockWarning issues={cart.stockIssues} className="mt-4" />
+
       <form
         onSubmit={(event) => void handlePlaceOrder(event)}
         className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_380px]"
@@ -1148,7 +1151,9 @@ function CheckoutPage() {
 
           <button
             type="submit"
-            disabled={placing}
+            // place-order rejects a cart with a sold-out line anyway — keep
+            // the button off until the warning at the top is resolved.
+            disabled={placing || cart.stockIssues.length > 0}
             className={`${buttonPrimaryClassName} w-full justify-center`}
           >
             {placing

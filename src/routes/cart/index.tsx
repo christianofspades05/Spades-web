@@ -5,6 +5,7 @@ import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
+import { CartStockWarning } from '#/components/storefront/CartStockWarning'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -109,7 +110,9 @@ function CartPage() {
 
   const discount = cart.discount
   function formatDiscountRate(type: string, value: number): string {
-    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
+    return type === 'fixed_amount'
+      ? `${formatPrice(value)} off`
+      : `${value}% off`
   }
   const discountLabel = discount
     ? discount.type === 'free_shipping'
@@ -120,6 +123,8 @@ function CartPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
       <h1 className="text-3xl font-bold tracking-tight">{t.cart.title}</h1>
+
+      <CartStockWarning issues={cart.stockIssues} className="mt-4" />
 
       {error && (
         <p className="mt-4 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">

@@ -1,11 +1,29 @@
 /** Shared helpers for src/server/cart/queries.ts and mutations.ts. */
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant } from '#/types/entities'
-import { resolveAutomaticDiscountsForCart, resolveDiscountForCart } from './discount'
+import {
+  resolveAutomaticDiscountsForCart,
+  resolveDiscountForCart,
+} from './discount'
 import type { AppliedCartDiscount } from './discount'
 import { resolveCodAvailability } from './cod-restrictions'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
+
+/** A cart line asking for more than is available right now — the size sold
+ *  out (or ran low) after it was added. Surfaced at the top of the cart and
+ *  checkout pages so the shopper fixes it before filling in the form, not
+ *  after tapping Place Order (which re-checks the same thing and rejects). */
+export interface CartStockIssue {
+  cartItemId: string
+  productName: string
+  productSlug: string
+  /** e.g. "L" or "L / Black" — null for a single-variant product. */
+  variantLabel: string | null
+  requestedQuantity: number
+  /** 0 = sold out (or the variant was deactivated). */
+  availableQuantity: number
+}
 
 export interface CartWithItems {
   id: string
@@ -14,6 +32,54 @@ export interface CartWithItems {
   discount: AppliedCartDiscount | null
   codAvailable: boolean
   codUnavailableReason: string | null
+  stockIssues: CartStockIssue[]
+}
+
+/** One query for every line's live stock, using the same rule as
+ *  place-order.ts and addCartItem: a pre-order variant is checked against
+ *  its pre-order pool only, everything else against real stock. */
+async function findCartStockIssues(
+  admin: Admin,
+  items: CartItemWithVariant[],
+): Promise<CartStockIssue[]> {
+  if (items.length === 0) return []
+  const variantIds = Array.from(new Set(items.map((i) => i.variant_id)))
+  const { data: variants, error } = await admin
+    .from('product_variants')
+    .select(
+      'id, is_active, is_pre_order, pre_order_available, inventory(quantity_available)',
+    )
+    .in('id', variantIds)
+  if (error) throw error
+
+  const availableById = new Map(
+    variants.map((v) => [
+      v.id,
+      !v.is_active
+        ? 0
+        : v.is_pre_order
+          ? v.pre_order_available
+          : v.inventory.reduce((sum, inv) => sum + inv.quantity_available, 0),
+    ]),
+  )
+
+  return items
+    .map((item): CartStockIssue | null => {
+      const available = Math.max(0, availableById.get(item.variant_id) ?? 0)
+      if (available >= item.quantity) return null
+      const label = [item.variant.size, item.variant.color, item.variant.style]
+        .filter(Boolean)
+        .join(' / ')
+      return {
+        cartItemId: item.id,
+        productName: item.variant.product.name,
+        productSlug: item.variant.product.slug,
+        variantLabel: label || null,
+        requestedQuantity: item.quantity,
+        availableQuantity: available,
+      }
+    })
+    .filter((issue): issue is CartStockIssue => issue !== null)
 }
 
 export async function loadCartWithItems(
@@ -39,9 +105,10 @@ export async function loadCartWithItems(
   if (cartError) throw cartError
   if (itemsError) throw itemsError
 
-  const [codeDiscount, cod] = await Promise.all([
+  const [codeDiscount, cod, stockIssues] = await Promise.all([
     resolveDiscountForCart(admin, cart.discount_id, items),
     resolveCodAvailability(admin, items),
+    findCartStockIssues(admin, items),
   ])
   // A customer-entered code always wins if one's attached — never silently
   // swapped out for an automatic sale, even a bigger one, since applying a
@@ -58,6 +125,7 @@ export async function loadCartWithItems(
     discount,
     codAvailable: cod.available,
     codUnavailableReason: cod.reason,
+    stockIssues,
   }
 }
 
