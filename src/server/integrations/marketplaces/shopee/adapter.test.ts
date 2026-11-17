@@ -348,3 +348,61 @@ describe('shopeeAdapter.refreshPlatformFees', () => {
     expect(fees).toEqual([{ label: 'Commission fee', amountCents: 6700 }])
   })
 })
+
+describe('shopeeAdapter.updatePrice — Self Pick-up price cap', () => {
+  const selfPickupError = new Error(
+    'Shopee API call failed (/api/v2/product/update_price): {"error":"product.error_update_price_fail","response":{"failure_list":[{"model_id":149056272384,"failed_reason":"The max price of the product is over max limit. Channel detail:  Shopee Self Pick-up"}]}}',
+  )
+
+  beforeEach(() => {
+    mockCallShopeeApi.mockReset()
+  })
+
+  function pushedPrices(): number[] {
+    return mockCallShopeeApi.mock.calls.map((call) => {
+      const [opts] = call as [
+        { body: { price_list: { original_price: number }[] } },
+      ]
+      return opts.body.price_list[0].original_price
+    })
+  }
+
+  it('sends the full price when Shopee accepts it', async () => {
+    const { shopeeAdapter } = await import('./adapter')
+    mockCallShopeeApi.mockResolvedValue({})
+    await shopeeAdapter.updatePrice!(fakeConnection(), '1', '2', 205_875)
+    expect(pushedPrices()).toEqual([2058.75])
+  })
+
+  it('falls back to ₱2,000 when Self Pick-up rejects the price', async () => {
+    const { shopeeAdapter, SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS } = await import(
+      './adapter'
+    )
+    expect(SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS).toBe(200_000)
+    mockCallShopeeApi
+      .mockRejectedValueOnce(selfPickupError)
+      .mockResolvedValueOnce({})
+    await shopeeAdapter.updatePrice!(fakeConnection(), '1', '2', 205_875)
+    expect(pushedPrices()).toEqual([2058.75, 2000])
+  })
+
+  it('still fails on any other error (e.g. a stale model id)', async () => {
+    const { shopeeAdapter } = await import('./adapter')
+    mockCallShopeeApi.mockRejectedValue(
+      new Error('Shopee API call failed: model ID not exist in sku'),
+    )
+    await expect(
+      shopeeAdapter.updatePrice!(fakeConnection(), '1', '2', 205_875),
+    ).rejects.toThrow('model ID not exist')
+    expect(pushedPrices()).toEqual([2058.75])
+  })
+
+  it('does not retry when the price is already at or under ₱2,000', async () => {
+    const { shopeeAdapter } = await import('./adapter')
+    mockCallShopeeApi.mockRejectedValue(selfPickupError)
+    await expect(
+      shopeeAdapter.updatePrice!(fakeConnection(), '1', '2', 199_000),
+    ).rejects.toThrow('Self Pick-up')
+    expect(pushedPrices()).toEqual([1990])
+  })
+})

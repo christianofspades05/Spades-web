@@ -437,6 +437,19 @@ function mapIncomeToPlatformFees(
   )
 }
 
+/** The highest price Shopee accepts on a listing that has Shopee Self
+ *  Pick-up enabled — observed live: ₱1,976.40 was accepted, ₱2,058.75
+ *  rejected, so ₱2,000 is the cap prices fall back to (see updatePrice). */
+export const SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS = 200_000
+
+function isSelfPickupMaxPriceError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    message.includes('max price of the product is over max limit') &&
+    message.includes('Self Pick-up')
+  )
+}
+
 export const shopeeAdapter: MarketplaceAdapter = {
   marketplace: 'shopee',
 
@@ -489,11 +502,17 @@ export const shopeeAdapter: MarketplaceAdapter = {
     })
   },
 
-  /** Same item_id + model_id keying as pushInventory above — UNVERIFIED
-   *  against a live shop yet (no price-update call had been made from this
-   *  codebase before this was written); check sync_logs for the raw response
-   *  body if the first real call fails and adjust the body shape from there,
-   *  same as pushInventory/createProduct were previously debugged. */
+  /** Same item_id + model_id keying as pushInventory above.
+   *
+   *  A listing with Shopee Self Pick-up switched on can't be priced above
+   *  that channel's maximum — Shopee rejects the whole update with "The max
+   *  price of the product is over max limit. Channel detail: Shopee Self
+   *  Pick-up" (seen live Nov 2026 when the Shopee markup went 20% -> 25%
+   *  and ₱1,647 hoodies became ₱2,058.75). When that happens, retry the
+   *  same model once at SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS, so the listing
+   *  still gets the highest price its delivery options allow instead of
+   *  staying stuck on the old one. Listings without Self Pick-up never hit
+   *  this and get the full marked-up price. */
   async updatePrice(
     connection: MarketplaceConnection,
     externalProductId: string,
@@ -501,21 +520,34 @@ export const shopeeAdapter: MarketplaceAdapter = {
     priceCents: number,
   ) {
     const { accessToken, shopId } = requireCredentials(connection)
-    await callShopeeApi({
-      method: 'POST',
-      path: '/api/v2/product/update_price',
-      accessToken,
-      shopId,
-      body: {
-        item_id: Number(externalProductId),
-        price_list: [
-          {
-            model_id: Number(externalVariantId),
-            original_price: priceCents / 100,
-          },
-        ],
-      },
-    })
+    const push = (cents: number) =>
+      callShopeeApi({
+        method: 'POST',
+        path: '/api/v2/product/update_price',
+        accessToken,
+        shopId,
+        body: {
+          item_id: Number(externalProductId),
+          price_list: [
+            {
+              model_id: Number(externalVariantId),
+              original_price: cents / 100,
+            },
+          ],
+        },
+      })
+    try {
+      await push(priceCents)
+    } catch (err) {
+      if (
+        priceCents > SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS &&
+        isSelfPickupMaxPriceError(err)
+      ) {
+        await push(SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS)
+        return
+      }
+      throw err
+    }
   },
 
   async pullOrders(
