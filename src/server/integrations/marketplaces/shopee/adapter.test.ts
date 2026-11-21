@@ -37,39 +37,48 @@ function setupShopeeApi(orderSns: string[]) {
   const incomeCallsByOrderSn: Record<string, number> = {}
   const trackingCallsByOrderSn: Record<string, number> = {}
 
-  mockCallShopeeApi.mockImplementation(async ({ path, query }: { path: string; query?: Record<string, string> }) => {
-    if (path === '/api/v2/order/get_order_list') {
-      return {
-        order_list: orderSns.map((order_sn) => ({ order_sn })),
-        more: false,
-        next_cursor: '',
+  mockCallShopeeApi.mockImplementation(
+    async ({
+      path,
+      query,
+    }: {
+      path: string
+      query?: Record<string, string>
+    }) => {
+      if (path === '/api/v2/order/get_order_list') {
+        return {
+          order_list: orderSns.map((order_sn) => ({ order_sn })),
+          more: false,
+          next_cursor: '',
+        }
       }
-    }
-    if (path === '/api/v2/order/get_order_detail') {
-      const batch = (query?.order_sn_list ?? '').split(',').filter(Boolean)
-      return {
-        order_list: batch.map((order_sn) => ({
-          order_sn,
-          order_status: 'TO_SHIP',
-          create_time: 1700000000,
-          total_amount: 100,
-          item_list: [],
-          package_list: [],
-        })),
+      if (path === '/api/v2/order/get_order_detail') {
+        const batch = (query?.order_sn_list ?? '').split(',').filter(Boolean)
+        return {
+          order_list: batch.map((order_sn) => ({
+            order_sn,
+            order_status: 'TO_SHIP',
+            create_time: 1700000000,
+            total_amount: 100,
+            item_list: [],
+            package_list: [],
+          })),
+        }
       }
-    }
-    if (path === '/api/v2/logistics/get_tracking_number') {
-      const orderSn = query?.order_sn ?? ''
-      trackingCallsByOrderSn[orderSn] = (trackingCallsByOrderSn[orderSn] ?? 0) + 1
-      return { tracking_number: 'TRACK123' }
-    }
-    if (path === '/api/v2/payment/get_escrow_detail') {
-      const orderSn = query?.order_sn ?? ''
-      incomeCallsByOrderSn[orderSn] = (incomeCallsByOrderSn[orderSn] ?? 0) + 1
-      return { order_income: { commission_fee: 5 } }
-    }
-    throw new Error(`Unexpected Shopee path in test: ${path}`)
-  })
+      if (path === '/api/v2/logistics/get_tracking_number') {
+        const orderSn = query?.order_sn ?? ''
+        trackingCallsByOrderSn[orderSn] =
+          (trackingCallsByOrderSn[orderSn] ?? 0) + 1
+        return { tracking_number: 'TRACK123' }
+      }
+      if (path === '/api/v2/payment/get_escrow_detail') {
+        const orderSn = query?.order_sn ?? ''
+        incomeCallsByOrderSn[orderSn] = (incomeCallsByOrderSn[orderSn] ?? 0) + 1
+        return { order_income: { commission_fee: 5 } }
+      }
+      throw new Error(`Unexpected Shopee path in test: ${path}`)
+    },
+  )
 
   return { incomeCallsByOrderSn, trackingCallsByOrderSn }
 }
@@ -175,38 +184,56 @@ describe('shopeeAdapter.pullOrders — skip fetchOrderIncome for already-importe
 
   it('TRACKING: unchanged — still fetched for every order with a package, regardless of existing/new status', async () => {
     const adapter = await freshAdapter()
-    const { trackingCallsByOrderSn } = setupShopeeApi(['SN-EXISTING-WITH-PACKAGE'])
-    mockCallShopeeApi.mockImplementation(async ({ path, query }: { path: string; query?: Record<string, string> }) => {
-      if (path === '/api/v2/order/get_order_list') {
-        return { order_list: [{ order_sn: 'SN-EXISTING-WITH-PACKAGE' }], more: false, next_cursor: '' }
-      }
-      if (path === '/api/v2/order/get_order_detail') {
-        return {
-          order_list: [
-            {
-              order_sn: 'SN-EXISTING-WITH-PACKAGE',
-              order_status: 'SHIPPED',
-              create_time: 1700000000,
-              total_amount: 100,
-              item_list: [],
-              package_list: [{ package_number: 'PKG-1', shipping_carrier: 'J&T' }],
-            },
-          ],
+    const { trackingCallsByOrderSn } = setupShopeeApi([
+      'SN-EXISTING-WITH-PACKAGE',
+    ])
+    mockCallShopeeApi.mockImplementation(
+      async ({
+        path,
+        query,
+      }: {
+        path: string
+        query?: Record<string, string>
+      }) => {
+        if (path === '/api/v2/order/get_order_list') {
+          return {
+            order_list: [{ order_sn: 'SN-EXISTING-WITH-PACKAGE' }],
+            more: false,
+            next_cursor: '',
+          }
         }
-      }
-      if (path === '/api/v2/logistics/get_tracking_number') {
-        const orderSn = query?.order_sn ?? ''
-        trackingCallsByOrderSn[orderSn] = (trackingCallsByOrderSn[orderSn] ?? 0) + 1
-        return { tracking_number: 'TRACK-EXISTING' }
-      }
-      if (path === '/api/v2/payment/get_escrow_detail') {
-        throw new Error('should not be called for an existing order')
-      }
-      throw new Error(`Unexpected Shopee path in test: ${path}`)
-    })
+        if (path === '/api/v2/order/get_order_detail') {
+          return {
+            order_list: [
+              {
+                order_sn: 'SN-EXISTING-WITH-PACKAGE',
+                order_status: 'SHIPPED',
+                create_time: 1700000000,
+                total_amount: 100,
+                item_list: [],
+                package_list: [
+                  { package_number: 'PKG-1', shipping_carrier: 'J&T' },
+                ],
+              },
+            ],
+          }
+        }
+        if (path === '/api/v2/logistics/get_tracking_number') {
+          const orderSn = query?.order_sn ?? ''
+          trackingCallsByOrderSn[orderSn] =
+            (trackingCallsByOrderSn[orderSn] ?? 0) + 1
+          return { tracking_number: 'TRACK-EXISTING' }
+        }
+        if (path === '/api/v2/payment/get_escrow_detail') {
+          throw new Error('should not be called for an existing order')
+        }
+        throw new Error(`Unexpected Shopee path in test: ${path}`)
+      },
+    )
 
     await adapter.pullOrders(fakeConnection(), new Date(0), {
-      filterExistingExternalOrderIds: async () => new Set(['SN-EXISTING-WITH-PACKAGE']),
+      filterExistingExternalOrderIds: async () =>
+        new Set(['SN-EXISTING-WITH-PACKAGE']),
     })
 
     // Tracking is fetched exactly as before this optimization — untouched
@@ -267,9 +294,9 @@ describe('shopeeAdapter.pullOrders — invoice-pending orders', () => {
     })
 
     expect(result).toHaveLength(1)
-    expect(
-      (result[0] as { order_sn: string }).order_sn,
-    ).toBe('SN-PENDING-INVOICE')
+    expect((result[0] as { order_sn: string }).order_sn).toBe(
+      'SN-PENDING-INVOICE',
+    )
   })
 
   it("a failing get_pending_buyer_invoice_order_list call doesn't break the rest of the pull", async () => {
@@ -314,10 +341,7 @@ describe('shopeeAdapter.refreshPlatformFees', () => {
       throw new Error(`Unexpected Shopee path in test: ${path}`)
     })
 
-    const fees = await adapter.refreshPlatformFees!(
-      fakeConnection(),
-      'SN-123',
-    )
+    const fees = await adapter.refreshPlatformFees!(fakeConnection(), 'SN-123')
 
     expect(fees).toEqual([
       { label: 'Commission fee', amountCents: 6700 },
@@ -375,9 +399,8 @@ describe('shopeeAdapter.updatePrice — Self Pick-up price cap', () => {
   })
 
   it('falls back to ₱2,000 when Self Pick-up rejects the price', async () => {
-    const { shopeeAdapter, SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS } = await import(
-      './adapter'
-    )
+    const { shopeeAdapter, SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS } =
+      await import('./adapter')
     expect(SHOPEE_SELF_PICKUP_MAX_PRICE_CENTS).toBe(200_000)
     mockCallShopeeApi
       .mockRejectedValueOnce(selfPickupError)
@@ -404,5 +427,53 @@ describe('shopeeAdapter.updatePrice — Self Pick-up price cap', () => {
       shopeeAdapter.updatePrice!(fakeConnection(), '1', '2', 199_000),
     ).rejects.toThrow('Self Pick-up')
     expect(pushedPrices()).toEqual([1990])
+  })
+})
+
+describe('shopeeAdapter.pullOrders — invoice-pending lookup is bounded', () => {
+  beforeEach(() => {
+    mockCallShopeeApi.mockReset()
+  })
+
+  it('stops paging when Shopee keeps saying "more" with the same cursor', async () => {
+    const { shopeeAdapter } = await import('./adapter')
+    let pendingCalls = 0
+    mockCallShopeeApi.mockImplementation(async ({ path }: { path: string }) => {
+      if (path === '/api/v2/order/get_order_list') {
+        return { order_list: [], more: false, next_cursor: '' }
+      }
+      if (path === '/api/v2/order/get_pending_buyer_invoice_order_list') {
+        pendingCalls += 1
+        return { order_sn_list: [], more: true, next_cursor: 'same' }
+      }
+      throw new Error(`unexpected ${path}`)
+    })
+    const orders = await shopeeAdapter.pullOrders(
+      fakeConnection(),
+      new Date(Date.now() - 15 * 60_000),
+    )
+    expect(orders).toEqual([])
+    expect(pendingCalls).toBe(2)
+  })
+
+  it('caps the number of pages even with fresh cursors', async () => {
+    const { shopeeAdapter } = await import('./adapter')
+    let pendingCalls = 0
+    mockCallShopeeApi.mockImplementation(async ({ path }: { path: string }) => {
+      if (path === '/api/v2/order/get_order_list') {
+        return { order_list: [], more: false, next_cursor: '' }
+      }
+      pendingCalls += 1
+      return {
+        order_sn_list: [],
+        more: true,
+        next_cursor: `c${pendingCalls}`,
+      }
+    })
+    await shopeeAdapter.pullOrders(
+      fakeConnection(),
+      new Date(Date.now() - 15 * 60_000),
+    )
+    expect(pendingCalls).toBe(5)
   })
 })

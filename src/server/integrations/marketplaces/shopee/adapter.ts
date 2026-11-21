@@ -357,6 +357,13 @@ async function fetchTrackingNumber(
  * adjust; must never fail the whole order pull over this one lookup.
  */
 const PENDING_INVOICE_TIMEOUT_MS = 8_000
+/** Whole-lookup budget, not per request. Measured live (Nov 2026): this
+ *  lookup took ~51s every run while each individual request stayed under
+ *  the per-request timeout — the cursor loop kept paging (Shopee kept
+ *  answering `more: true`), so it's bounded by pages, by a repeated
+ *  cursor, and by total time. */
+const PENDING_INVOICE_BUDGET_MS = 8_000
+const PENDING_INVOICE_MAX_PAGES = 5
 
 async function fetchPendingInvoiceOrderSns(
   accessToken: string,
@@ -364,8 +371,12 @@ async function fetchPendingInvoiceOrderSns(
 ): Promise<string[]> {
   const orderSns: string[] = []
   let cursor = ''
+  const deadline = Date.now() + PENDING_INVOICE_BUDGET_MS
+  const seenCursors = new Set<string>()
+  let pages = 0
   try {
     do {
+      pages += 1
       const page = await callShopeeApi<{
         order_sn_list?: string[]
         more: boolean
@@ -382,7 +393,25 @@ async function fetchPendingInvoiceOrderSns(
         timeoutMs: PENDING_INVOICE_TIMEOUT_MS,
       })
       orderSns.push(...(page.order_sn_list ?? []))
-      cursor = page.more ? page.next_cursor : ''
+      const next = page.more ? page.next_cursor : ''
+      // Stop paging on a cursor we've already requested (Shopee handing
+      // back the same page forever), after a few pages, or once the time
+      // budget is spent — the rest is picked up on a later run.
+      if (
+        !next ||
+        seenCursors.has(next) ||
+        pages >= PENDING_INVOICE_MAX_PAGES ||
+        Date.now() >= deadline
+      ) {
+        if (next) {
+          console.warn(
+            `[shopee pendingInvoice] stopped paging: ${JSON.stringify({ pages, repeatedCursor: seenCursors.has(next), found: orderSns.length })}`,
+          )
+        }
+        break
+      }
+      seenCursors.add(next)
+      cursor = next
     } while (cursor)
   } catch {
     // Not every shop/region has invoice-pending orders (or this endpoint at
