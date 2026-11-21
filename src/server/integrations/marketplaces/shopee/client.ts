@@ -157,7 +157,14 @@ export interface SignedRequestOptions {
   shopId: string
   query?: Record<string, string>
   body?: Record<string, unknown>
+  /** Abort the request after this long. Defaults to
+   *  DEFAULT_SHOPEE_TIMEOUT_MS — a Shopee call normally returns in well
+   *  under a second, and without any limit one hung request used to hold a
+   *  whole 5-minute order pull open for ~a minute (see the cron route). */
+  timeoutMs?: number
 }
+
+export const DEFAULT_SHOPEE_TIMEOUT_MS = 25_000
 
 function buildSignedUrl(
   path: string,
@@ -195,6 +202,7 @@ export async function callShopeeApi<T>(
     method: options.method,
     headers: { 'content-type': 'application/json' },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_SHOPEE_TIMEOUT_MS),
   })
 
   const responseBody = await res.json()

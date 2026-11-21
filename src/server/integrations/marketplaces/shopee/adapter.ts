@@ -356,6 +356,8 @@ async function fetchTrackingNumber(
  * the field name or path turns out wrong, check sync_logs' raw response and
  * adjust; must never fail the whole order pull over this one lookup.
  */
+const PENDING_INVOICE_TIMEOUT_MS = 8_000
+
 async function fetchPendingInvoiceOrderSns(
   accessToken: string,
   shopId: string,
@@ -374,6 +376,10 @@ async function fetchPendingInvoiceOrderSns(
         accessToken,
         shopId,
         query: { page_size: '100', cursor },
+        // Best-effort lookup (see above) — never worth holding the whole
+        // order pull open for. A slow response here just means these
+        // orders are picked up on a later run.
+        timeoutMs: PENDING_INVOICE_TIMEOUT_MS,
       })
       orderSns.push(...(page.order_sn_list ?? []))
       cursor = page.more ? page.next_cursor : ''
@@ -568,6 +574,16 @@ export const shopeeAdapter: MarketplaceAdapter = {
     // windows and queried one at a time.
     const MAX_WINDOW_SECONDS = 14 * 24 * 60 * 60
     const orderSns = new Set<string>()
+    // Per-step timings, logged once per pull — the 5-minute cron's Shopee
+    // pull was taking ~58s even with nothing to import, so cron-job.org
+    // (30s limit) marked every run "Failed (timeout)". These show which
+    // call is the slow one in Vercel's runtime logs.
+    const startedAt = Date.now()
+    const timings = { listMs: 0, pendingInvoiceMs: 0, detailMs: 0 }
+    const logTimings = (orderCount: number) =>
+      console.log(
+        `[shopee pullOrders] ${JSON.stringify({ ...timings, totalMs: Date.now() - startedAt, orders: orderCount })}`,
+      )
     for (
       let windowStart = sinceSeconds;
       windowStart < nowSeconds;
@@ -601,18 +617,25 @@ export const shopeeAdapter: MarketplaceAdapter = {
       } while (cursor)
     }
 
+    timings.listMs = Date.now() - startedAt
+
     // Not time-windowed like get_order_list above — this lists whatever is
     // currently stuck awaiting an invoice upload, regardless of how old it
     // is, so it's checked every run rather than only within `since`. See
     // fetchPendingInvoiceOrderSns' own comment for why this call exists.
+    const pendingStartedAt = Date.now()
     for (const orderSn of await fetchPendingInvoiceOrderSns(
       accessToken,
       shopId,
     )) {
       orderSns.add(orderSn)
     }
+    timings.pendingInvoiceMs = Date.now() - pendingStartedAt
 
-    if (orderSns.size === 0) return []
+    if (orderSns.size === 0) {
+      logTimings(0)
+      return []
+    }
 
     // get_order_detail caps out at 50 order_sn per call.
     const orderSnList = Array.from(orderSns)
@@ -636,6 +659,7 @@ export const shopeeAdapter: MarketplaceAdapter = {
       existingExternalOrderIds = new Set<string>()
     }
 
+    const detailStartedAt = Date.now()
     const orders: Record<string, unknown>[] = []
     for (let i = 0; i < orderSnList.length; i += 50) {
       const batch = orderSnList.slice(i, i + 50)
@@ -699,6 +723,8 @@ export const shopeeAdapter: MarketplaceAdapter = {
         ...((order_list ?? []) as unknown as Record<string, unknown>[]),
       )
     }
+    timings.detailMs = Date.now() - detailStartedAt
+    logTimings(orders.length)
     return orders
   },
 
