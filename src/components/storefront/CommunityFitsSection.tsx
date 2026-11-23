@@ -4,15 +4,16 @@ import { ChevronLeft, ChevronRight, ShoppingBag, X } from 'lucide-react'
 import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import type { StorefrontCommunityFit } from '#/server/storefront/community-fits'
 
-// One of vercel.json's images.sizes — a tile is at most ~1/2 of a phone
-// screen or ~1/5 of a desktop one, so 640 covers 2x density on both.
-const TILE_IMAGE_WIDTH = 640
+// One of vercel.json's images.sizes — a tile is ~1/2 of a phone screen or
+// ~1/3 of a desktop one (up to ~640 CSS px), so 1080 stays sharp on both.
+const TILE_IMAGE_WIDTH = 1080
 // Full-size view — also one of vercel.json's images.sizes, and the width
 // the admin upload already resizes photos down to.
 const FULL_IMAGE_WIDTH = 1200
 // Small product photos under a tile (~30% of a tile, so under 130px wide).
 const PRODUCT_THUMB_WIDTH = 256
-// Auto-advance one photo at a time, looping back to the start at the end.
+// Auto-advance a full page (2 photos on mobile, 3 on desktop) at a time,
+// looping back to the start at the end.
 const AUTOPLAY_INTERVAL_MS = 3000
 // After someone swipes/taps/clicks an arrow, hold off auto-advancing for a
 // bit so the carousel doesn't move out from under them.
@@ -22,7 +23,7 @@ const AUTOPLAY_RESUME_AFTER_MS = 6000
  * Spades-only "COMMUNITY FITS" carousel: Instagram posts where customers
  * tagged Spades. Native horizontal scrolling with scroll-snap (so touch
  * swipe is the browser's own, smooth and accessible), 2 tiles per view on
- * mobile and 5 on desktop, plus arrow buttons on desktop. Tapping a photo
+ * mobile and 3 on desktop, plus arrow buttons on desktop. Tapping a photo
  * opens it full-size in a viewer; tapping the @handle opens the Instagram
  * post. Auto-advances every 3s while on screen, pausing on hover, after
  * any interaction, while the viewer is open, and for reduced-motion users.
@@ -88,12 +89,11 @@ export function CommunityFitsSection({
       }
       const maxScroll = el.scrollWidth - el.clientWidth
       if (maxScroll <= 4) return // everything already fits on screen
-      const step = (el.firstElementChild as HTMLElement | null)?.offsetWidth
-      if (!step) return
       if (el.scrollLeft >= maxScroll - 4) {
         el.scrollTo({ left: 0, behavior: 'smooth' })
       } else {
-        el.scrollBy({ left: step, behavior: 'smooth' })
+        // One full screen of photos — same as tapping the arrow.
+        el.scrollBy({ left: el.clientWidth, behavior: 'smooth' })
       }
     }, AUTOPLAY_INTERVAL_MS)
 
@@ -158,7 +158,7 @@ export function CommunityFitsSection({
           {fits.map((fit, index) => (
             <div
               key={fit.id}
-              className="w-1/2 shrink-0 snap-start px-px lg:w-1/5"
+              className="w-1/2 shrink-0 snap-start px-px lg:w-1/3"
             >
               <div className="relative overflow-hidden">
                 <button
