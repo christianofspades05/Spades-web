@@ -23,6 +23,40 @@ export const listUpcomingEvents = createServerFn({ method: 'GET' }).handler(
   },
 )
 
+export type HomepageEvent = Pick<
+  CommunityEventRow,
+  | 'id'
+  | 'slug'
+  | 'name'
+  | 'image_url'
+  | 'location_name'
+  | 'starts_at'
+  | 'ends_at'
+  | 'fee_cents'
+  | 'total_slots'
+  | 'slots_reserved'
+>
+
+/** Events still worth promoting on the homepage: anything that hasn't
+ *  ended yet, so an event that's already started still shows while it's
+ *  happening (unlike listUpcomingEvents, which drops it at start time).
+ *  Public, RLS-scoped the same way as listUpcomingEvents. */
+export const listOngoingEvents = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<HomepageEvent[]> => {
+    const supabase = getSupabaseServerClient()
+    const { data, error } = await supabase
+      .from('community_events')
+      .select(
+        'id, slug, name, image_url, location_name, starts_at, ends_at, fee_cents, total_slots, slots_reserved',
+      )
+      .gte('ends_at', new Date().toISOString())
+      .order('starts_at', { ascending: true })
+      .limit(4)
+    if (error) throw error
+    return data
+  },
+)
+
 export const getEventBySlug = createServerFn({ method: 'GET' })
   .validator(z.object({ slug: z.string() }))
   .handler(async ({ data }): Promise<CommunityEventRow | null> => {
