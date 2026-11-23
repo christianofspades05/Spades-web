@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, ShoppingBag } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ShoppingBag, X } from 'lucide-react'
 import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import type { StorefrontCommunityFit } from '#/server/storefront/community-fits'
 
 // One of vercel.json's images.sizes — a tile is at most ~1/2 of a phone
 // screen or ~1/5 of a desktop one, so 640 covers 2x density on both.
 const TILE_IMAGE_WIDTH = 640
+// Full-size view — also one of vercel.json's images.sizes, and the width
+// the admin upload already resizes photos down to.
+const FULL_IMAGE_WIDTH = 1200
 
 /**
  * Spades-only "COMMUNITY FITS" carousel: Instagram posts where customers
  * tagged Spades. Native horizontal scrolling with scroll-snap (so touch
  * swipe is the browser's own, smooth and accessible), 2 tiles per view on
- * mobile and 5 on desktop, plus arrow buttons on desktop.
+ * mobile and 5 on desktop, plus arrow buttons on desktop. Tapping a photo
+ * opens it full-size in a viewer (not Instagram).
  */
 export function CommunityFitsSection({
   fits,
@@ -22,6 +26,7 @@ export function CommunityFitsSection({
   const trackRef = useRef<HTMLDivElement>(null)
   const [canPrev, setCanPrev] = useState(false)
   const [canNext, setCanNext] = useState(false)
+  const [openIndex, setOpenIndex] = useState<number | null>(null)
 
   const updateArrows = useCallback(() => {
     const el = trackRef.current
@@ -75,17 +80,16 @@ export function CommunityFitsSection({
           onScroll={updateArrows}
           className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {fits.map((fit) => (
+          {fits.map((fit, index) => (
             <div
               key={fit.id}
               className="w-1/2 shrink-0 snap-start px-px lg:w-1/5"
             >
-              <a
-                href={fit.instagramUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`View @${fit.handle}'s post on Instagram`}
-                className="group relative block overflow-hidden"
+              <button
+                type="button"
+                onClick={() => setOpenIndex(index)}
+                aria-label={`View @${fit.handle}'s photo`}
+                className="group relative block w-full cursor-zoom-in overflow-hidden"
               >
                 <div className="aspect-[4/5] overflow-hidden bg-neutral-900">
                   <img
@@ -99,7 +103,7 @@ export function CommunityFitsSection({
                 <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-neutral-950 shadow-sm sm:right-auto sm:max-w-[calc(100%-1rem)]">
                   @{fit.handle}
                 </span>
-              </a>
+              </button>
               {fit.products.length > 0 && (
                 <ShopTheLook products={fit.products} />
               )}
@@ -117,6 +121,15 @@ export function CommunityFitsSection({
           <ChevronRight size={22} />
         </button>
       </div>
+
+      {openIndex !== null && fits[openIndex] && (
+        <FitViewer
+          fits={fits}
+          index={openIndex}
+          onChange={setOpenIndex}
+          onClose={() => setOpenIndex(null)}
+        />
+      )}
     </section>
   )
 }
@@ -153,6 +166,119 @@ function ShopTheLook({
           +{rest.length} more
         </Link>
       )}
+    </div>
+  )
+}
+
+/** Full-screen photo viewer: the whole photo (uncropped), the @handle and
+ *  every tagged product, with prev/next. Closes on Escape, the X, or a tap
+ *  on the dark backdrop. */
+function FitViewer({
+  fits,
+  index,
+  onChange,
+  onClose,
+}: {
+  fits: StorefrontCommunityFit[]
+  index: number
+  onChange: (index: number) => void
+  onClose: () => void
+}) {
+  const fit = fits[index]
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const hasPrev = index > 0
+  const hasNext = index < fits.length - 1
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft' && hasPrev) onChange(index - 1)
+      else if (e.key === 'ArrowRight' && hasNext) onChange(index + 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [index, hasPrev, hasNext, onChange, onClose])
+
+  // Lock page scroll while open, and put focus inside the viewer.
+  useEffect(() => {
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeRef.current?.focus()
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [])
+
+  const navClassName =
+    'absolute top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full bg-white/15 p-2 text-white transition hover:bg-white/30'
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Photo by @${fit.handle}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 p-4"
+    >
+      <button
+        ref={closeRef}
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute top-3 right-3 z-10 rounded-full bg-white/15 p-2 text-white transition hover:bg-white/30"
+      >
+        <X size={22} />
+      </button>
+
+      {hasPrev && (
+        <button
+          type="button"
+          aria-label="Previous photo"
+          onClick={() => onChange(index - 1)}
+          className={`${navClassName} left-2 sm:left-4`}
+        >
+          <ChevronLeft size={24} />
+        </button>
+      )}
+      {hasNext && (
+        <button
+          type="button"
+          aria-label="Next photo"
+          onClick={() => onChange(index + 1)}
+          className={`${navClassName} right-2 sm:right-4`}
+        >
+          <ChevronRight size={24} />
+        </button>
+      )}
+
+      <img
+        key={fit.id}
+        src={optimizedImageUrl(fit.imageUrl, FULL_IMAGE_WIDTH)}
+        alt={`Spades fit by @${fit.handle}`}
+        className="max-h-[75vh] max-w-full rounded-md object-contain"
+      />
+
+      <div className="mt-4 flex max-w-full flex-col items-center gap-2 text-center text-white">
+        <p className="text-sm font-semibold">@{fit.handle}</p>
+        {fit.products.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2">
+            {fit.products.map((product) => (
+              <Link
+                key={product.id}
+                to="/products/$slug"
+                params={{ slug: product.slug }}
+                preload={false}
+                className="flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-neutral-950 hover:bg-neutral-200"
+              >
+                <ShoppingBag size={13} className="shrink-0" aria-hidden />
+                Shop: {product.name}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

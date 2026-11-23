@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CommunityFitsSection } from './CommunityFitsSection'
 
 // A plain anchor stands in for the router's Link (no router context in a
@@ -31,7 +31,7 @@ describe('CommunityFitsSection', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('links each tile to its Instagram post in a new tab with the handle', () => {
+  it('shows the handle and product links, and opens the photo full-size', () => {
     render(
       <CommunityFitsSection
         fits={[
@@ -49,13 +49,25 @@ describe('CommunityFitsSection', () => {
       />,
     )
     expect(screen.getByRole('heading').textContent).toMatch(/community fits/i)
-    const link = screen.getByRole('link', { name: /@lowjell/ })
-    expect(link.getAttribute('href')).toBe('https://www.instagram.com/p/ABC/')
-    expect(link.getAttribute('target')).toBe('_blank')
-    expect(link.getAttribute('rel')).toContain('noopener')
+    // The photo itself isn't a link (no jump to Instagram) — just the handle.
     expect(screen.getByText('@lowjell')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /@lowjell/ })).toBeNull()
+    expect(document.querySelector('a[href*="instagram.com"]')).toBeNull()
     const shop = screen.getByRole('link', { name: /Shop: Boxy Tee/ })
     expect(shop.getAttribute('href')).toBe('/products/boxy-tee')
     expect(screen.getByRole('link', { name: '+1 more' })).toBeTruthy()
+
+    // Tapping the photo opens it full-size with every tagged product.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(
+      screen.getByRole('button', { name: "View @lowjell's photo" }),
+    )
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelector('img')).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: 'Shop: Jorts' }).getAttribute('href'),
+    ).toBe('/products/jorts')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
