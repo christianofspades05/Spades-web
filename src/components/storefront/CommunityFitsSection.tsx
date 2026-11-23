@@ -12,6 +12,11 @@ const TILE_IMAGE_WIDTH = 640
 const FULL_IMAGE_WIDTH = 1200
 // Small product photos under a tile (~30% of a tile, so under 130px wide).
 const PRODUCT_THUMB_WIDTH = 256
+// Auto-advance one photo at a time, looping back to the start at the end.
+const AUTOPLAY_INTERVAL_MS = 3000
+// After someone swipes/taps/clicks an arrow, hold off auto-advancing for a
+// bit so the carousel doesn't move out from under them.
+const AUTOPLAY_RESUME_AFTER_MS = 6000
 
 /**
  * Spades-only "COMMUNITY FITS" carousel: Instagram posts where customers
@@ -19,7 +24,8 @@ const PRODUCT_THUMB_WIDTH = 256
  * swipe is the browser's own, smooth and accessible), 2 tiles per view on
  * mobile and 5 on desktop, plus arrow buttons on desktop. Tapping a photo
  * opens it full-size in a viewer; tapping the @handle opens the Instagram
- * post.
+ * post. Auto-advances every 3s while on screen, pausing on hover, after
+ * any interaction, while the viewer is open, and for reduced-motion users.
  */
 export function CommunityFitsSection({
   fits,
@@ -30,6 +36,9 @@ export function CommunityFitsSection({
   const [canPrev, setCanPrev] = useState(false)
   const [canNext, setCanNext] = useState(false)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const hoveringRef = useRef(false)
+  const lastInteractionRef = useRef(0)
+  const onScreenRef = useRef(false)
 
   const updateArrows = useCallback(() => {
     const el = trackRef.current
@@ -44,7 +53,58 @@ export function CommunityFitsSection({
     return () => window.removeEventListener('resize', updateArrows)
   }, [updateArrows, fits.length])
 
+  const markInteraction = useCallback(() => {
+    lastInteractionRef.current = Date.now()
+  }, [])
+
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el || openIndex !== null) return
+    // Both missing only in non-browser test environments (jsdom).
+    if (
+      !('IntersectionObserver' in window) ||
+      !('matchMedia' in window) ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        onScreenRef.current = entry.isIntersecting
+      },
+      { threshold: 0.3 },
+    )
+    observer.observe(el)
+
+    const timer = window.setInterval(() => {
+      if (
+        !onScreenRef.current ||
+        hoveringRef.current ||
+        document.hidden ||
+        Date.now() - lastInteractionRef.current < AUTOPLAY_RESUME_AFTER_MS
+      ) {
+        return
+      }
+      const maxScroll = el.scrollWidth - el.clientWidth
+      if (maxScroll <= 4) return // everything already fits on screen
+      const step = (el.firstElementChild as HTMLElement | null)?.offsetWidth
+      if (!step) return
+      if (el.scrollLeft >= maxScroll - 4) {
+        el.scrollTo({ left: 0, behavior: 'smooth' })
+      } else {
+        el.scrollBy({ left: step, behavior: 'smooth' })
+      }
+    }, AUTOPLAY_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(timer)
+      observer.disconnect()
+    }
+  }, [openIndex, fits.length])
+
   function scrollByPage(direction: -1 | 1) {
+    markInteraction()
     const el = trackRef.current
     if (!el) return
     el.scrollBy({ left: direction * el.clientWidth, behavior: 'smooth' })
@@ -67,7 +127,19 @@ export function CommunityFitsSection({
         Community Fits
       </h2>
 
-      <div className="relative">
+      <div
+        className="relative"
+        onMouseEnter={() => {
+          hoveringRef.current = true
+        }}
+        onMouseLeave={() => {
+          hoveringRef.current = false
+        }}
+        onPointerDown={markInteraction}
+        onTouchStart={markInteraction}
+        onWheel={markInteraction}
+        onFocus={markInteraction}
+      >
         <button
           type="button"
           aria-label="Previous posts"
