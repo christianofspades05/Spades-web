@@ -1,8 +1,8 @@
 /**
- * Admin "Campaign -> Product" mapping (meta_campaign_product_mappings):
- * lets staff tell the Ads Efficiency page which product each Meta ad
- * campaign is advertising, so ROAS/cost-per-purchase can be shown per
- * campaign (see getCampaignAdsPerformance in analytics.ts, which matches
+ * Admin "Campaign -> Products" mapping (meta_campaign_product_mappings):
+ * lets staff tell the Ads Efficiency page which product(s) each Meta ad
+ * campaign is advertising (one row per campaign/product pair), so
+ * ROAS/cost-per-purchase can be shown per campaign (see getCampaignAdsPerformance in analytics.ts, which matches
  * sales by the mapped product's own order history, not click attribution).
  * Campaign discovery comes from Windsor.ai's per-campaign spend breakdown —
  * the actual list of campaigns in the connected Meta ad account — not from
@@ -25,6 +25,12 @@ const MANAGE_ROLES: StaffRole[] = ['super_admin', 'admin', 'manager']
 // paused campaigns that would otherwise swamp the list with nothing to map.
 const CAMPAIGN_DISCOVERY_WINDOW_DAYS = 90
 
+export interface CampaignMappedProduct {
+  id: string
+  name: string
+  image: string | null
+}
+
 export interface CampaignMappingRow {
   campaignName: string
   spendCents: number
@@ -32,9 +38,9 @@ export interface CampaignMappingRow {
    *  any spend for this campaign — not its actual start date in Ads
    *  Manager. Lets the admin screen sort by recency. */
   lastSpendDate: string
-  productId: string | null
-  productName: string | null
-  productImage: string | null
+  /** Every product this campaign advertises. The Ads Efficiency page splits
+   *  the campaign's spend evenly across them. */
+  products: CampaignMappedProduct[]
 }
 
 export const getCampaignMappings = createServerFn({ method: 'GET' }).handler(
@@ -49,41 +55,46 @@ export const getCampaignMappings = createServerFn({ method: 'GET' }).handler(
       }),
       admin
         .from('meta_campaign_product_mappings')
-        .select('campaign_name, product_id, product:products(name, images)')
+        .select(
+          'campaign_name, product_id, created_at, product:products(name, images)',
+        )
+        .order('created_at')
         .then(({ data, error }) => {
           if (error) throw error
           return data
         }),
     ])
 
-    const mappingByName = new Map(
-      mappingRows.map((row) => [row.campaign_name, row]),
-    )
+    const productsByCampaign = new Map<string, CampaignMappedProduct[]>()
+    for (const row of mappingRows) {
+      const list = productsByCampaign.get(row.campaign_name) ?? []
+      list.push({
+        id: row.product_id,
+        name: row.product.name,
+        image: row.product.images[0] ?? null,
+      })
+      productsByCampaign.set(row.campaign_name, list)
+    }
 
     return Array.from(campaignActivity.entries())
       .filter(([, activity]) => activity.spendCents > 0)
-      .map(([campaignName, activity]) => {
-        const mapping = mappingByName.get(campaignName)
-        return {
-          campaignName,
-          spendCents: activity.spendCents,
-          lastSpendDate: activity.lastSpendDate,
-          productId: mapping?.product_id ?? null,
-          productName: mapping?.product?.name ?? null,
-          productImage: mapping?.product?.images[0] ?? null,
-        }
-      })
+      .map(([campaignName, activity]) => ({
+        campaignName,
+        spendCents: activity.spendCents,
+        lastSpendDate: activity.lastSpendDate,
+        products: productsByCampaign.get(campaignName) ?? [],
+      }))
       .sort((a, b) => b.spendCents - a.spendCents)
   },
 )
 
-const upsertMappingSchema = z.object({
+const campaignProductSchema = z.object({
   campaignName: z.string().min(1).max(200),
-  productId: z.string().uuid().nullable(),
+  productId: z.string().uuid(),
 })
 
-export const upsertCampaignMapping = createServerFn({ method: 'POST' })
-  .validator(upsertMappingSchema)
+export const addCampaignProduct = createServerFn({ method: 'POST' })
+  .validator(campaignProductSchema)
   .handler(async ({ data }) => {
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
@@ -92,13 +103,35 @@ export const upsertCampaignMapping = createServerFn({ method: 'POST' })
       .from('meta_campaign_product_mappings')
       .upsert(
         { campaign_name: data.campaignName, product_id: data.productId },
-        { onConflict: 'campaign_name' },
+        { onConflict: 'campaign_name,product_id', ignoreDuplicates: true },
       )
     if (error) throw error
 
     await logStaffActivity(
       staff,
-      data.productId ? 'campaign_mapping.set' : 'campaign_mapping.clear',
+      'campaign_mapping.add_product',
+      'meta_campaign_product_mapping',
+      null,
+      { campaignName: data.campaignName, productId: data.productId },
+    )
+  })
+
+export const removeCampaignProduct = createServerFn({ method: 'POST' })
+  .validator(campaignProductSchema)
+  .handler(async ({ data }) => {
+    const staff = await requireStaff(MANAGE_ROLES)
+    const admin = getSupabaseAdminClient()
+
+    const { error } = await admin
+      .from('meta_campaign_product_mappings')
+      .delete()
+      .eq('campaign_name', data.campaignName)
+      .eq('product_id', data.productId)
+    if (error) throw error
+
+    await logStaffActivity(
+      staff,
+      'campaign_mapping.remove_product',
       'meta_campaign_product_mapping',
       null,
       { campaignName: data.campaignName, productId: data.productId },

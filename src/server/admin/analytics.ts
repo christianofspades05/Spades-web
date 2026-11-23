@@ -2015,7 +2015,13 @@ export interface CampaignPerformanceRow {
   productId: string
   productName: string
   productImage: string | null
+  /** This product's share of the campaign's spend: the campaign's total
+   *  spend divided evenly by `productCount`. */
   adsSpendCents: number
+  /** The campaign's full spend in range, before splitting. */
+  campaignSpendCents: number
+  /** How many products this campaign is mapped to (1 = not split). */
+  productCount: number
   grossSalesCents: number
   orderCount: number
   /** Null when ad spend was 0 in range — not a real 0x, undefined (nothing
@@ -2119,8 +2125,8 @@ const campaignAdsPerformanceCache =
 
 /**
  * Per-campaign ROAS/cost-per-purchase for the admin Ads Efficiency page.
- * Only returns campaigns staff have explicitly mapped to a product (see
- * server/admin/campaign-mapping.ts) — an unmapped campaign has no product
+ * One row per mapped campaign/product pair — only campaigns staff have
+ * explicitly mapped (see server/admin/campaign-mapping.ts) — an unmapped campaign has no product
  * to show, and campaign naming isn't reliable enough to auto-match. Ad
  * spend comes from Windsor's per-campaign breakdown for this exact date
  * range (so it moves with the page's own date picker/tz toggle, unlike the
@@ -2149,7 +2155,6 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
     const mappingRows = await admin
       .from('meta_campaign_product_mappings')
       .select('campaign_name, product_id, product:products(name, images)')
-      .not('product_id', 'is', null)
       .then(({ data: rows, error }) => {
         if (error) throw error
         return rows
@@ -2170,12 +2175,23 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
       getMetaCampaignSpendCents({ from: data.from, to: data.to }),
     ])
 
+    // A campaign mapped to several products splits its spend evenly
+    // across them, so each product row carries spend / productCount.
+    const productCountByCampaign = new Map<string, number>()
+    for (const row of mappingRows) {
+      productCountByCampaign.set(
+        row.campaign_name,
+        (productCountByCampaign.get(row.campaign_name) ?? 0) + 1,
+      )
+    }
+
     const campaigns: CampaignPerformanceRow[] = mappingRows
-      .map((row): CampaignPerformanceRow | null => {
-        if (row.product === null) return null
+      .map((row): CampaignPerformanceRow => {
         const sales = salesByProduct.get(row.product_id)
         const campaignSpend = spendByCampaign.get(row.campaign_name)
-        const adsSpendCents = campaignSpend?.spendCents ?? 0
+        const campaignSpendCents = campaignSpend?.spendCents ?? 0
+        const productCount = productCountByCampaign.get(row.campaign_name) ?? 1
+        const adsSpendCents = Math.round(campaignSpendCents / productCount)
         const grossSalesCents = sales?.grossSalesCents ?? 0
         const orderCount = sales?.orderCount ?? 0
         return {
@@ -2184,6 +2200,8 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
           productName: row.product.name,
           productImage: row.product.images[0] ?? null,
           adsSpendCents,
+          campaignSpendCents,
+          productCount,
           grossSalesCents,
           orderCount,
           roas: adsSpendCents > 0 ? grossSalesCents / adsSpendCents : null,
@@ -2192,7 +2210,6 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
           effectiveStatus: campaignSpend?.effectiveStatus ?? null,
         }
       })
-      .filter((row): row is CampaignPerformanceRow => row !== null)
       .sort((a, b) => b.adsSpendCents - a.adsSpendCents)
 
     const result: CampaignAdsPerformanceResult = {

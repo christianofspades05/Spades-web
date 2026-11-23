@@ -253,7 +253,8 @@ function CampaignPerformanceTable({
             — e.g. a "Denim Flare Best Seller" campaign mapped to the Denim
             product. Sales are that product's own order history across every
             channel in this range, not click-level attribution, so they also
-            include that product's sales from outside this campaign.
+            include that product's sales from outside this campaign. A campaign
+            mapped to several products splits its spend evenly between them.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -315,7 +316,10 @@ function CampaignPerformanceTable({
               </thead>
               <tbody>
                 {campaigns.map((row) => (
-                  <tr key={row.campaignName} className={tableRowClassName}>
+                  <tr
+                    key={`${row.campaignName}|${row.productId}`}
+                    className={tableRowClassName}
+                  >
                     <td className={tableCellClassName}>
                       <div className="flex items-center gap-2">
                         {row.productImage ? (
@@ -342,6 +346,12 @@ function CampaignPerformanceTable({
                     </td>
                     <td className={`${tableCellClassName} text-right`}>
                       {formatCentsAsPHP(row.adsSpendCents)}
+                      {row.productCount > 1 && (
+                        <div className="text-xs text-neutral-400">
+                          {formatCentsAsPHP(row.campaignSpendCents)} ÷{' '}
+                          {row.productCount} products
+                        </div>
+                      )}
                     </td>
                     <td className={`${tableCellClassName} text-right`}>
                       {formatCentsAsPHP(row.grossSalesCents)}

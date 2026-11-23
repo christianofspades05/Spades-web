@@ -1233,7 +1233,7 @@ export interface Database {
           Row: {
             id: string
             campaign_name: string
-            product_id: string | null
+            product_id: string
             created_at: string
             updated_at: string
           }
@@ -1241,6 +1241,7 @@ export interface Database {
             Database['public']['Tables']['meta_campaign_product_mappings']['Row']
           > & {
             campaign_name: string
+            product_id: string
           }
           Update: Partial<
             Database['public']['Tables']['meta_campaign_product_mappings']['Row']

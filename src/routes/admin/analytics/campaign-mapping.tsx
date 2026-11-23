@@ -9,8 +9,9 @@ import {
 } from 'lucide-react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import {
+  addCampaignProduct,
   getCampaignMappings,
-  upsertCampaignMapping,
+  removeCampaignProduct,
 } from '#/server/admin/campaign-mapping'
 import type { CampaignMappingRow } from '#/server/admin/campaign-mapping'
 import { searchProductsForPicker } from '#/server/admin/products'
@@ -53,69 +54,82 @@ function ProductSearchCell({ row }: { row: CampaignMappingRow }) {
     }
   }
 
-  async function handlePick(productId: string | null) {
+  const mappedIds = new Set(row.products.map((product) => product.id))
+
+  async function handleAdd(productId: string) {
     setSaving(true)
     try {
-      await upsertCampaignMapping({
+      await addCampaignProduct({
         data: { campaignName: row.campaignName, productId },
       })
       setOpen(false)
       setQuery('')
       setResults([])
-      router.invalidate()
+      await router.invalidate()
     } finally {
       setSaving(false)
     }
   }
 
-  if (!open) {
-    return (
-      <div className="flex items-center gap-2">
-        {row.productId ? (
-          <>
-            {row.productImage ? (
-              <img
-                src={row.productImage}
-                alt=""
-                className="size-7 rounded-md border border-neutral-200 object-cover"
-              />
-            ) : (
-              <div className="flex size-7 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
-                <Package size={12} className="text-neutral-300" />
-              </div>
-            )}
-            <span className="text-sm text-neutral-900">{row.productName}</span>
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              className="text-xs font-medium text-neutral-500 hover:text-neutral-900"
-            >
-              Change
-            </button>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => handlePick(null)}
-              className="text-xs font-medium text-neutral-400 hover:text-red-600"
-            >
-              Unmap
-            </button>
-          </>
-        ) : (
+  async function handleRemove(productId: string) {
+    setSaving(true)
+    try {
+      await removeCampaignProduct({
+        data: { campaignName: row.campaignName, productId },
+      })
+      await router.invalidate()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const mappedList = (
+    <div className="flex flex-wrap items-center gap-2">
+      {row.products.map((product) => (
+        <div
+          key={product.id}
+          className="flex items-center gap-1.5 rounded-md border border-neutral-200 py-1 pr-1 pl-1"
+        >
+          {product.image ? (
+            <img
+              src={product.image}
+              alt=""
+              className="size-6 rounded border border-neutral-200 object-cover"
+            />
+          ) : (
+            <div className="flex size-6 items-center justify-center rounded border border-neutral-200 bg-neutral-50">
+              <Package size={10} className="text-neutral-300" />
+            </div>
+          )}
+          <span className="text-sm text-neutral-900">{product.name}</span>
           <button
             type="button"
-            onClick={() => setOpen(true)}
-            className={`${buttonSecondaryClassName} px-2 py-1 text-xs`}
+            disabled={saving}
+            onClick={() => handleRemove(product.id)}
+            aria-label={`Remove ${product.name}`}
+            className="rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-red-600"
           >
-            Map a product
+            <X size={12} />
           </button>
-        )}
-      </div>
-    )
-  }
+        </div>
+      ))}
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`${buttonSecondaryClassName} px-2 py-1 text-xs`}
+        >
+          {row.products.length === 0 ? 'Map a product' : '+ Add product'}
+        </button>
+      )}
+    </div>
+  )
+
+  if (!open) return mappedList
 
   return (
     <div className="flex flex-col gap-2">
+      {row.products.length > 0 && mappedList}
       <form onSubmit={handleSearch} className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search
@@ -154,8 +168,8 @@ function ProductSearchCell({ row }: { row: CampaignMappingRow }) {
               <li key={product.id}>
                 <button
                   type="button"
-                  disabled={saving}
-                  onClick={() => handlePick(product.id)}
+                  disabled={saving || mappedIds.has(product.id)}
+                  onClick={() => handleAdd(product.id)}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-50"
                 >
                   {product.image ? (
@@ -170,6 +184,11 @@ function ProductSearchCell({ row }: { row: CampaignMappingRow }) {
                     </div>
                   )}
                   <span className="text-neutral-900">{product.name}</span>
+                  {mappedIds.has(product.id) && (
+                    <span className="ml-auto text-xs text-neutral-400">
+                      Added
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -281,7 +300,7 @@ function CampaignMappingPage() {
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         title="Campaign Mapping"
-        subtitle="Match each Meta ad campaign to the product it advertises, so the Ads Efficiency page can show ROAS and cost per purchase per campaign."
+        subtitle="Match each Meta ad campaign to the products it advertises, so the Ads Efficiency page can show ROAS and cost per purchase per campaign."
       />
 
       <Card className="mt-5 p-5">
@@ -290,7 +309,8 @@ function CampaignMappingPage() {
             Campaigns with any ad spend in the last 90 days. ROAS on the Ads
             Efficiency page is based on the mapped product's own order history —
             not click-level attribution — so it also includes that product's
-            sales from outside this specific campaign.
+            sales from outside this specific campaign. A campaign with several
+            products splits its spend evenly between them.
           </p>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-600">
@@ -360,7 +380,7 @@ function CampaignMappingPage() {
                         align="right"
                       />
                     </th>
-                    <th className={tableHeadClassName}>Mapped product</th>
+                    <th className={tableHeadClassName}>Mapped products</th>
                   </tr>
                 </thead>
                 <tbody>
