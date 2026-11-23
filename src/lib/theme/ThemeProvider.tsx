@@ -36,7 +36,13 @@ export function ThemeProvider({
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    setTheme(stored === 'dark' || stored === 'light' ? stored : defaultTheme)
+    const resolved =
+      stored === 'dark' || stored === 'light' ? stored : defaultTheme
+    setTheme(resolved)
+    // Re-apply the class, not just the state: React 19 resets <html>'s
+    // attributes to its own props while hydrating, which wipes the `dark`
+    // class the inline script in __root.tsx added before hydration.
+    applyThemeClass(resolved)
   }, [defaultTheme])
 
   function toggleTheme() {

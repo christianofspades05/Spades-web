@@ -114,7 +114,7 @@ const SCOPES: Record<Brand, StorefrontScope> = {
     promoBannerTextClassName: 'text-white',
     priceTextHex: null,
     priceTextDarkHex: null,
-    defaultTheme: 'light',
+    defaultTheme: 'dark',
     social: {
       facebook: 'https://www.facebook.com/spadesofficialph/',
       instagram: 'https://www.instagram.com/spades_officialph/',
