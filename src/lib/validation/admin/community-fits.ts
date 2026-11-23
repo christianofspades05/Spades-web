@@ -68,15 +68,25 @@ const handleSchema = z
     message: 'Enter the poster’s Instagram @handle',
   })
 
+const productIdsSchema = z
+  .array(z.string().uuid())
+  .max(10, 'Tag at most 10 products')
+  .refine((ids) => new Set(ids).size === ids.length, {
+    message: 'A product is tagged twice',
+  })
+
 export const createCommunityFitSchema = z.object({
   instagramUrl: instagramUrlSchema,
   handle: handleSchema,
   imageUrl: z.string().trim().url('Upload a photo first').max(1000),
+  /** Spades products shown in the photo, in display order. */
+  productIds: productIdsSchema.default([]),
 })
 export type CreateCommunityFitInput = z.input<typeof createCommunityFitSchema>
 
-export const updateCommunityFitSchema = createCommunityFitSchema.extend({
+export const setCommunityFitProductsSchema = z.object({
   id: z.string().uuid(),
+  productIds: productIdsSchema,
 })
 
 export const setCommunityFitActiveSchema = z.object({

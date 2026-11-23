@@ -35,6 +35,4 @@ export type SetStaffUserActiveInput = z.infer<typeof setStaffUserActiveSchema>
 export type ResetStaffUserPasswordInput = z.infer<
   typeof resetStaffUserPasswordSchema
 >
-export type ChangeStaffUserRoleInput = z.infer<
-  typeof changeStaffUserRoleSchema
->
+export type ChangeStaffUserRoleInput = z.infer<typeof changeStaffUserRoleSchema>

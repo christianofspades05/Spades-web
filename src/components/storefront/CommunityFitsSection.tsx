@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { ChevronLeft, ChevronRight, ShoppingBag } from 'lucide-react'
 import { optimizedImageUrl } from '#/lib/utils/image-optimize'
 import type { StorefrontCommunityFit } from '#/server/storefront/community-fits'
 
@@ -75,27 +76,34 @@ export function CommunityFitsSection({
           className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {fits.map((fit) => (
-            <a
+            <div
               key={fit.id}
-              href={fit.instagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`View @${fit.handle}'s post on Instagram`}
-              className="group relative w-1/2 shrink-0 snap-start overflow-hidden px-px lg:w-1/5"
+              className="w-1/2 shrink-0 snap-start px-px lg:w-1/5"
             >
-              <div className="aspect-[4/5] overflow-hidden bg-neutral-900">
-                <img
-                  src={optimizedImageUrl(fit.imageUrl, TILE_IMAGE_WIDTH)}
-                  alt={`Spades fit by @${fit.handle}`}
-                  loading="lazy"
-                  draggable={false}
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                />
-              </div>
-              <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-neutral-950 shadow-sm sm:right-auto sm:max-w-[calc(100%-1rem)]">
-                @{fit.handle}
-              </span>
-            </a>
+              <a
+                href={fit.instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`View @${fit.handle}'s post on Instagram`}
+                className="group relative block overflow-hidden"
+              >
+                <div className="aspect-[4/5] overflow-hidden bg-neutral-900">
+                  <img
+                    src={optimizedImageUrl(fit.imageUrl, TILE_IMAGE_WIDTH)}
+                    alt={`Spades fit by @${fit.handle}`}
+                    loading="lazy"
+                    draggable={false}
+                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                  />
+                </div>
+                <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-neutral-950 shadow-sm sm:right-auto sm:max-w-[calc(100%-1rem)]">
+                  @{fit.handle}
+                </span>
+              </a>
+              {fit.products.length > 0 && (
+                <ShopTheLook products={fit.products} />
+              )}
+            </div>
           ))}
         </div>
 
@@ -110,5 +118,41 @@ export function CommunityFitsSection({
         </button>
       </div>
     </section>
+  )
+}
+
+/** "Shop: <first product>" link under a tile, plus "+N" when the photo has
+ *  more tagged products — a 2-up phone tile only has room for one name. */
+function ShopTheLook({
+  products,
+}: {
+  products: StorefrontCommunityFit['products']
+}) {
+  const [first, ...rest] = products
+  return (
+    <div className="flex items-center gap-1 px-1.5 pt-2 text-xs">
+      <Link
+        to="/products/$slug"
+        params={{ slug: first.slug }}
+        preload={false}
+        className="flex min-w-0 items-center gap-1 font-semibold text-white hover:underline"
+      >
+        <ShoppingBag size={13} className="shrink-0" aria-hidden />
+        <span className="truncate">
+          <span className="text-neutral-400">Shop:</span> {first.name}
+        </span>
+      </Link>
+      {rest.length > 0 && (
+        <Link
+          to="/products/$slug"
+          params={{ slug: rest[0].slug }}
+          preload={false}
+          title={rest.map((p) => p.name).join(', ')}
+          className="shrink-0 rounded-full border border-white/30 px-1.5 text-[11px] text-neutral-300 hover:border-white hover:text-white"
+        >
+          +{rest.length} more
+        </Link>
+      )}
+    </div>
   )
 }

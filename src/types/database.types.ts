@@ -347,6 +347,23 @@ export interface Database {
           Update: Partial<Database['public']['Tables']['community_fits']['Row']>
           Relationships: []
         }
+        community_fit_products: {
+          Row: {
+            fit_id: string
+            product_id: string
+            sort_order: number
+          }
+          Insert: Partial<
+            Database['public']['Tables']['community_fit_products']['Row']
+          > & {
+            fit_id: string
+            product_id: string
+          }
+          Update: Partial<
+            Database['public']['Tables']['community_fit_products']['Row']
+          >
+          Relationships: []
+        }
         storefront_maintenance_mode: {
           Row: {
             brand: ProductBrand

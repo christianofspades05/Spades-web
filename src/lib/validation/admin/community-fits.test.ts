@@ -69,6 +69,19 @@ describe('createCommunityFitSchema', () => {
       instagramUrl: 'https://www.instagram.com/reel/ABC/',
       handle: 'lowjell',
       imageUrl: 'https://example.com/a.jpg',
+      productIds: [],
     })
+  })
+
+  it('rejects duplicate product tags', () => {
+    const id = '7db42714-0a93-4950-a758-30321c9e4812'
+    expect(
+      createCommunityFitSchema.safeParse({
+        instagramUrl: 'https://www.instagram.com/p/ABC/',
+        handle: 'x',
+        imageUrl: 'https://example.com/a.jpg',
+        productIds: [id, id],
+      }).success,
+    ).toBe(false)
   })
 })

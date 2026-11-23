@@ -7,7 +7,7 @@ import {
   deleteCommunityFitSchema,
   reorderCommunityFitsSchema,
   setCommunityFitActiveSchema,
-  updateCommunityFitSchema,
+  setCommunityFitProductsSchema,
 } from '#/lib/validation/admin/community-fits'
 import { invalidateCommunityFitsCache } from '#/server/storefront/community-fits'
 import type { Database } from '#/types/database.types'
@@ -28,17 +28,85 @@ const ALLOWED_EXTENSIONS = new Set([
 export type CommunityFitRow =
   Database['public']['Tables']['community_fits']['Row']
 
+export interface CommunityFitProduct {
+  id: string
+  name: string
+  image: string | null
+  status: string
+}
+
+export type CommunityFitWithProducts = CommunityFitRow & {
+  products: CommunityFitProduct[]
+}
+
+type AdminClient = ReturnType<typeof getSupabaseAdminClient>
+
+async function replaceFitProducts(
+  admin: AdminClient,
+  fitId: string,
+  productIds: string[],
+): Promise<void> {
+  const { error: deleteError } = await admin
+    .from('community_fit_products')
+    .delete()
+    .eq('fit_id', fitId)
+  if (deleteError) throw deleteError
+  if (productIds.length === 0) return
+  const { error } = await admin.from('community_fit_products').insert(
+    productIds.map((productId, index) => ({
+      fit_id: fitId,
+      product_id: productId,
+      sort_order: index,
+    })),
+  )
+  if (error) throw error
+}
+
 export const listCommunityFits = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<CommunityFitRow[]> => {
+  async (): Promise<CommunityFitWithProducts[]> => {
     await requireStaff()
     const admin = getSupabaseAdminClient()
-    const { data, error } = await admin
+    const { data: fits, error } = await admin
       .from('community_fits')
       .select('*')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: false })
     if (error) throw error
-    return data
+
+    // Flat queries + in-memory join (this project's Supabase types have empty
+    // Relationships metadata, which breaks embedded-select inference). The
+    // whole table is a hand-curated list, so it stays small.
+    const { data: links, error: linksError } = await admin
+      .from('community_fit_products')
+      .select('fit_id, product_id, sort_order')
+      .order('sort_order', { ascending: true })
+    if (linksError) throw linksError
+
+    const productIds = [...new Set(links.map((l) => l.product_id))]
+    const productsById = new Map<string, CommunityFitProduct>()
+    if (productIds.length > 0) {
+      const { data: products, error: productsError } = await admin
+        .from('products')
+        .select('id, name, images, status')
+        .in('id', productIds)
+      if (productsError) throw productsError
+      for (const p of products) {
+        productsById.set(p.id, {
+          id: p.id,
+          name: p.name,
+          image: p.images[0] ?? null,
+          status: p.status,
+        })
+      }
+    }
+
+    return fits.map((fit) => ({
+      ...fit,
+      products: links
+        .filter((l) => l.fit_id === fit.id)
+        .map((l) => productsById.get(l.product_id))
+        .filter((p): p is CommunityFitProduct => p !== undefined),
+    }))
   },
 )
 
@@ -68,6 +136,14 @@ export const createCommunityFit = createServerFn({ method: 'POST' })
       .select('*')
       .single()
     if (error) throw error
+    try {
+      await replaceFitProducts(admin, fit.id, data.productIds)
+    } catch (linkError) {
+      // Don't leave a half-saved post behind (e.g. a product deleted while
+      // the form was open) — roll back the fit so staff can just retry.
+      await admin.from('community_fits').delete().eq('id', fit.id)
+      throw linkError
+    }
 
     await invalidateCommunityFitsCache()
     await logStaffActivity(
@@ -78,41 +154,29 @@ export const createCommunityFit = createServerFn({ method: 'POST' })
       {
         instagramUrl: fit.instagram_url,
         handle: fit.handle,
+        productIds: data.productIds,
       },
     )
     return fit
   })
 
-export const updateCommunityFit = createServerFn({ method: 'POST' })
-  .validator(updateCommunityFitSchema)
-  .handler(async ({ data }): Promise<CommunityFitRow> => {
+/** Replaces the products tagged on a fit ("Shop the look" on its tile). */
+export const setCommunityFitProducts = createServerFn({ method: 'POST' })
+  .validator(setCommunityFitProductsSchema)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
-    const { data: fit, error } = await admin
-      .from('community_fits')
-      .update({
-        instagram_url: data.instagramUrl,
-        image_url: data.imageUrl,
-        handle: data.handle,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', data.id)
-      .select('*')
-      .single()
-    if (error) throw error
+    await replaceFitProducts(admin, data.id, data.productIds)
 
     await invalidateCommunityFitsCache()
     await logStaffActivity(
       staff,
-      'community_fit.update',
+      'community_fit.set_products',
       'community_fits',
-      fit.id,
-      {
-        instagramUrl: fit.instagram_url,
-        handle: fit.handle,
-      },
+      data.id,
+      { productIds: data.productIds },
     )
-    return fit
+    return { ok: true }
   })
 
 export const setCommunityFitActive = createServerFn({ method: 'POST' })
