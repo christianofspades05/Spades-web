@@ -1,7 +1,7 @@
 import type { RenderedStorefrontSection } from '#/server/storefront/sections'
 
 /**
- * Where the homepage "Join Event" block goes: right after the "Official Web
+ * Where the homepage "Community Events" block goes: right after the "Official Web
  * Store" tagline (the first tagline section), so it sits above the first
  * product grid. Falls back to before the first product grid, then to the
  * end of the page. Returns an index in [0, sections.length] — the block is

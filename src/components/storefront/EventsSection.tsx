@@ -23,7 +23,7 @@ function formatEventTime(event: HomepageEvent): string {
 }
 
 /**
- * Spades-only homepage "JOIN EVENT" block: community events that haven't
+ * Spades-only homepage "COMMUNITY EVENTS" block: community events that haven't
  * ended yet (up to 4), each card linking to the Events page.
  */
 export function EventsSection({ events }: { events: HomepageEvent[] }) {
@@ -32,20 +32,11 @@ export function EventsSection({ events }: { events: HomepageEvent[] }) {
   const [now, setNow] = useState<number | null>(null)
   useEffect(() => setNow(Date.now()), [])
   return (
-    <section className="bg-neutral-950 py-10 text-white sm:py-14">
+    <section className="bg-neutral-950 py-14 text-white sm:py-20">
       <div className="mx-auto max-w-5xl px-4 sm:px-6">
-        <div className="mb-5 flex items-end justify-between gap-3">
-          <h2 className="text-xl font-black uppercase tracking-tight sm:text-2xl">
-            Join Event
-          </h2>
-          <Link
-            to="/events"
-            className="flex items-center gap-0.5 text-xs font-semibold uppercase tracking-wider text-neutral-400 hover:text-white"
-          >
-            All events
-            <ChevronRight size={14} />
-          </Link>
-        </div>
+        <h2 className="mb-8 text-center text-sm font-bold uppercase tracking-[0.2em]">
+          Community Events
+        </h2>
 
         <div
           className={`grid grid-cols-1 gap-4 ${events.length > 1 ? 'lg:grid-cols-2' : ''}`}
@@ -108,6 +99,16 @@ export function EventsSection({ events }: { events: HomepageEvent[] }) {
               </Link>
             )
           })}
+        </div>
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            to="/events"
+            className="flex items-center gap-0.5 text-xs font-semibold uppercase tracking-[0.2em] text-neutral-400 hover:text-white"
+          >
+            All events
+            <ChevronRight size={14} />
+          </Link>
         </div>
       </div>
     </section>
