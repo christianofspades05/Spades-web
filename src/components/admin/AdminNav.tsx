@@ -14,6 +14,7 @@ import {
   Filter,
   Globe,
   Home,
+  Images,
   LayoutTemplate,
   Link2,
   LogOut,
@@ -680,12 +681,26 @@ export function AdminNav({
           onClick={onNavigate}
           title={collapsed ? 'Community' : undefined}
           className={navLinkClassName(
-            pathname.startsWith('/admin/community'),
+            pathname.startsWith('/admin/community') &&
+              !pathname.startsWith('/admin/community-fits'),
             collapsed,
           )}
         >
           <PartyPopper size={17} strokeWidth={2} className="shrink-0" />
           {!collapsed && 'Community'}
+        </Link>
+
+        <Link
+          to="/admin/community-fits"
+          onClick={onNavigate}
+          title={collapsed ? 'Community Fits' : undefined}
+          className={navLinkClassName(
+            pathname.startsWith('/admin/community-fits'),
+            collapsed,
+          )}
+        >
+          <Images size={17} strokeWidth={2} className="shrink-0" />
+          {!collapsed && 'Community Fits'}
         </Link>
 
         {collapsed ? (

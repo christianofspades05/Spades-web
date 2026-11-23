@@ -58,6 +58,7 @@ import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/cha
 import { Route as AdminCodCitiesIndexRouteImport } from './routes/admin/cod-cities/index'
 import { Route as AdminCollectionsIndexRouteImport } from './routes/admin/collections/index'
 import { Route as AdminCollectionsCollectionIdRouteImport } from './routes/admin/collections/$collectionId'
+import { Route as AdminCommunityFitsIndexRouteImport } from './routes/admin/community-fits/index'
 import { Route as AdminCommunityIndexRouteImport } from './routes/admin/community/index'
 import { Route as AdminCommunityEventIdRouteImport } from './routes/admin/community/$eventId'
 import { Route as AdminCommunityNewRouteImport } from './routes/admin/community/new'
@@ -368,6 +369,11 @@ const AdminCollectionsCollectionIdRoute =
     path: '/collections/$collectionId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminCommunityFitsIndexRoute = AdminCommunityFitsIndexRouteImport.update({
+  id: '/community-fits/',
+  path: '/community-fits/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCommunityIndexRoute = AdminCommunityIndexRouteImport.update({
   id: '/community/',
   path: '/community/',
@@ -738,6 +744,7 @@ export interface FileRoutesByFullPath {
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/community-fits/': typeof AdminCommunityFitsIndexRoute
   '/admin/community/': typeof AdminCommunityIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
@@ -841,6 +848,7 @@ export interface FileRoutesByTo {
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/cod-cities': typeof AdminCodCitiesIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
+  '/admin/community-fits': typeof AdminCommunityFitsIndexRoute
   '/admin/community': typeof AdminCommunityIndexRoute
   '/admin/creators': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies': typeof AdminCustomerRepliesIndexRoute
@@ -948,6 +956,7 @@ export interface FileRoutesById {
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
+  '/admin/community-fits/': typeof AdminCommunityFitsIndexRoute
   '/admin/community/': typeof AdminCommunityIndexRoute
   '/admin/creators/': typeof AdminCreatorsIndexRoute
   '/admin/customer-replies/': typeof AdminCustomerRepliesIndexRoute
@@ -1056,6 +1065,7 @@ export interface FileRouteTypes {
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
+    | '/admin/community-fits/'
     | '/admin/community/'
     | '/admin/creators/'
     | '/admin/customer-replies/'
@@ -1159,6 +1169,7 @@ export interface FileRouteTypes {
     | '/admin/channels'
     | '/admin/cod-cities'
     | '/admin/collections'
+    | '/admin/community-fits'
     | '/admin/community'
     | '/admin/creators'
     | '/admin/customer-replies'
@@ -1265,6 +1276,7 @@ export interface FileRouteTypes {
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
+    | '/admin/community-fits/'
     | '/admin/community/'
     | '/admin/creators/'
     | '/admin/customer-replies/'
@@ -1683,6 +1695,13 @@ declare module '@tanstack/react-router' {
       path: '/collections/$collectionId'
       fullPath: '/admin/collections/$collectionId'
       preLoaderRoute: typeof AdminCollectionsCollectionIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/community-fits/': {
+      id: '/admin/community-fits/'
+      path: '/community-fits'
+      fullPath: '/admin/community-fits/'
+      preLoaderRoute: typeof AdminCommunityFitsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/community/': {
@@ -2108,6 +2127,7 @@ interface AdminRouteChildren {
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCodCitiesIndexRoute: typeof AdminCodCitiesIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
+  AdminCommunityFitsIndexRoute: typeof AdminCommunityFitsIndexRoute
   AdminCommunityIndexRoute: typeof AdminCommunityIndexRoute
   AdminCreatorsIndexRoute: typeof AdminCreatorsIndexRoute
   AdminCustomerRepliesIndexRoute: typeof AdminCustomerRepliesIndexRoute
@@ -2163,6 +2183,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCodCitiesIndexRoute: AdminCodCitiesIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,
+  AdminCommunityFitsIndexRoute: AdminCommunityFitsIndexRoute,
   AdminCommunityIndexRoute: AdminCommunityIndexRoute,
   AdminCreatorsIndexRoute: AdminCreatorsIndexRoute,
   AdminCustomerRepliesIndexRoute: AdminCustomerRepliesIndexRoute,

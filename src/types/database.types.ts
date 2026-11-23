@@ -326,6 +326,27 @@ export interface Database {
           >
           Relationships: []
         }
+        community_fits: {
+          Row: {
+            id: string
+            instagram_url: string
+            image_url: string
+            handle: string
+            sort_order: number
+            is_active: boolean
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['community_fits']['Row']
+          > & {
+            instagram_url: string
+            image_url: string
+            handle: string
+          }
+          Update: Partial<Database['public']['Tables']['community_fits']['Row']>
+          Relationships: []
+        }
         storefront_maintenance_mode: {
           Row: {
             brand: ProductBrand
