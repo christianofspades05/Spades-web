@@ -50,11 +50,11 @@ export function CommunityFitsSection({
   return (
     <section
       aria-labelledby="community-fits-heading"
-      className="bg-black py-12 text-white sm:py-16"
+      className="bg-black py-14 text-white sm:py-20"
     >
       <h2
         id="community-fits-heading"
-        className="mb-8 px-6 text-center text-2xl font-black uppercase tracking-tight sm:mb-10 sm:text-3xl"
+        className="mb-8 px-6 text-center text-sm font-bold uppercase tracking-[0.2em]"
       >
         Community Fits
       </h2>
