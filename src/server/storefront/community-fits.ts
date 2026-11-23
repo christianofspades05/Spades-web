@@ -8,10 +8,21 @@ export interface StorefrontCommunityFit {
   imageUrl: string
   handle: string
   /** Active Spades products tagged in the photo, in staff-chosen order. */
-  products: { id: string; slug: string; name: string }[]
+  products: StorefrontCommunityFitProduct[]
 }
 
-const COMMUNITY_FITS_CACHE_KEY = 'storefront-community-fits'
+export interface StorefrontCommunityFitProduct {
+  id: string
+  slug: string
+  name: string
+  /** First product photo, for the small product row under the tile. */
+  image: string | null
+}
+
+// Tag is what admin writes invalidate; the key carries a shape version so
+// entries cached before a field was added are never read back.
+const COMMUNITY_FITS_CACHE_TAG = 'storefront-community-fits'
+const COMMUNITY_FITS_CACHE_KEY = `${COMMUNITY_FITS_CACHE_TAG}:v2`
 // Same shared-cache + explicit-invalidation approach as storefront
 // sections (see sections.ts): read on every Spades homepage load, only ever
 // changed by an admin edit, and every admin write in
@@ -35,7 +46,7 @@ function isCommunityFitArray(
 }
 
 export function invalidateCommunityFitsCache(): Promise<void> {
-  return communityFitsCache.invalidate([COMMUNITY_FITS_CACHE_KEY])
+  return communityFitsCache.invalidate([COMMUNITY_FITS_CACHE_TAG])
 }
 
 const fetchActiveCommunityFits = createServerOnlyFn(
@@ -72,18 +83,22 @@ const fetchActiveCommunityFits = createServerOnlyFn(
         if (linksError) throw linksError
 
         const productIds = [...new Set(links.map((l) => l.product_id))]
-        const productsById = new Map<
-          string,
-          { id: string; slug: string; name: string }
-        >()
+        const productsById = new Map<string, StorefrontCommunityFitProduct>()
         if (productIds.length > 0) {
           const { data: products, error: productsError } = await supabase
             .from('products')
-            .select('id, slug, name')
+            .select('id, slug, name, images')
             .in('id', productIds)
             .eq('status', 'active')
           if (productsError) throw productsError
-          for (const p of products) productsById.set(p.id, p)
+          for (const p of products) {
+            productsById.set(p.id, {
+              id: p.id,
+              slug: p.slug,
+              name: p.name,
+              image: p.images[0] ?? null,
+            })
+          }
         }
 
         return data.map((row) => ({
@@ -97,7 +112,7 @@ const fetchActiveCommunityFits = createServerOnlyFn(
             .filter((p) => p !== undefined),
         }))
       },
-      { tags: [COMMUNITY_FITS_CACHE_KEY], isValid: isCommunityFitArray },
+      { tags: [COMMUNITY_FITS_CACHE_TAG], isValid: isCommunityFitArray },
     ),
 )
 

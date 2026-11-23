@@ -10,13 +10,16 @@ const TILE_IMAGE_WIDTH = 640
 // Full-size view — also one of vercel.json's images.sizes, and the width
 // the admin upload already resizes photos down to.
 const FULL_IMAGE_WIDTH = 1200
+// Small product photos under a tile (~30% of a tile, so under 130px wide).
+const PRODUCT_THUMB_WIDTH = 256
 
 /**
  * Spades-only "COMMUNITY FITS" carousel: Instagram posts where customers
  * tagged Spades. Native horizontal scrolling with scroll-snap (so touch
  * swipe is the browser's own, smooth and accessible), 2 tiles per view on
  * mobile and 5 on desktop, plus arrow buttons on desktop. Tapping a photo
- * opens it full-size in a viewer (not Instagram).
+ * opens it full-size in a viewer; tapping the @handle opens the Instagram
+ * post.
  */
 export function CommunityFitsSection({
   fits,
@@ -85,25 +88,28 @@ export function CommunityFitsSection({
               key={fit.id}
               className="w-1/2 shrink-0 snap-start px-px lg:w-1/5"
             >
-              <button
-                type="button"
-                onClick={() => setOpenIndex(index)}
-                aria-label={`View @${fit.handle}'s photo`}
-                className="group relative block w-full cursor-zoom-in overflow-hidden"
-              >
-                <div className="aspect-[4/5] overflow-hidden bg-neutral-900">
-                  <img
-                    src={optimizedImageUrl(fit.imageUrl, TILE_IMAGE_WIDTH)}
-                    alt={`Spades fit by @${fit.handle}`}
-                    loading="lazy"
-                    draggable={false}
-                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                  />
-                </div>
-                <span className="pointer-events-none absolute right-2 bottom-2 left-2 truncate rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-neutral-950 shadow-sm sm:right-auto sm:max-w-[calc(100%-1rem)]">
-                  @{fit.handle}
-                </span>
-              </button>
+              <div className="relative overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setOpenIndex(index)}
+                  aria-label={`View @${fit.handle}'s photo`}
+                  className="group block w-full cursor-zoom-in"
+                >
+                  <div className="aspect-[4/5] overflow-hidden bg-neutral-900">
+                    <img
+                      src={optimizedImageUrl(fit.imageUrl, TILE_IMAGE_WIDTH)}
+                      alt={`Spades fit by @${fit.handle}`}
+                      loading="lazy"
+                      draggable={false}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                    />
+                  </div>
+                </button>
+                <HandleLink
+                  fit={fit}
+                  className="absolute right-2 bottom-2 left-2 truncate rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-neutral-950 shadow-sm hover:bg-white"
+                />
+              </div>
               {fit.products.length > 0 && (
                 <ShopTheLook products={fit.products} />
               )}
@@ -134,38 +140,77 @@ export function CommunityFitsSection({
   )
 }
 
-/** "Shop: <first product>" link under a tile, plus "+N" when the photo has
- *  more tagged products — a 2-up phone tile only has room for one name. */
+/** The poster's @handle, linking to the original Instagram post. */
+function HandleLink({
+  fit,
+  className,
+}: {
+  fit: StorefrontCommunityFit
+  className: string
+}) {
+  return (
+    <a
+      href={fit.instagramUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`@${fit.handle} on Instagram`}
+      className={className}
+    >
+      @{fit.handle}
+    </a>
+  )
+}
+
+/** Under a tile: "Shop: <first product>" plus a small swipeable row of every
+ *  tagged product's photo, each linking to its product page. */
 function ShopTheLook({
   products,
 }: {
   products: StorefrontCommunityFit['products']
 }) {
-  const [first, ...rest] = products
+  const [first] = products
   return (
-    <div className="flex items-center gap-1 px-1.5 pt-2 text-xs">
+    <div className="px-1.5 pt-2">
       <Link
         to="/products/$slug"
         params={{ slug: first.slug }}
         preload={false}
-        className="flex min-w-0 items-center gap-1 font-semibold text-white hover:underline"
+        className="flex min-w-0 items-center gap-1 text-xs font-semibold text-white hover:underline"
       >
         <ShoppingBag size={13} className="shrink-0" aria-hidden />
         <span className="truncate">
           <span className="text-neutral-400">Shop:</span> {first.name}
         </span>
       </Link>
-      {rest.length > 0 && (
-        <Link
-          to="/products/$slug"
-          params={{ slug: rest[0].slug }}
-          preload={false}
-          title={rest.map((p) => p.name).join(', ')}
-          className="shrink-0 rounded-full border border-white/30 px-1.5 text-[11px] text-neutral-300 hover:border-white hover:text-white"
-        >
-          +{rest.length} more
-        </Link>
-      )}
+      <div className="mt-2 flex gap-1.5 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {products.map((product) => (
+          <Link
+            key={product.id}
+            to="/products/$slug"
+            params={{ slug: product.slug }}
+            preload={false}
+            title={product.name}
+            aria-label={product.name}
+            className="block w-[30%] shrink-0 overflow-hidden bg-white transition hover:opacity-80"
+          >
+            <div className="aspect-square">
+              {product.image ? (
+                <img
+                  src={optimizedImageUrl(product.image, PRODUCT_THUMB_WIDTH)}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center p-1 text-center text-[10px] text-neutral-500">
+                  {product.name}
+                </div>
+              )}
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   )
 }
@@ -261,7 +306,10 @@ function FitViewer({
       />
 
       <div className="mt-4 flex max-w-full flex-col items-center gap-2 text-center text-white">
-        <p className="text-sm font-semibold">@{fit.handle}</p>
+        <HandleLink
+          fit={fit}
+          className="text-sm font-semibold text-white hover:underline"
+        />
         {fit.products.length > 0 && (
           <div className="flex flex-wrap justify-center gap-2">
             {fit.products.map((product) => (
