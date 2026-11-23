@@ -35,6 +35,10 @@ export interface EventRegistrationRow {
   cancel_token: string | null
   reminder_sent_at: string | null
   created_at: string
+  /** Why an otherwise-paid event was free for this registrant — set by
+   *  reserve_event_slot when the email matches an active affiliate
+   *  (creators) or website admin (staff_users). Null otherwise. */
+  fee_waiver: 'affiliate' | 'staff' | null
 }
 
 type Table<T> = {

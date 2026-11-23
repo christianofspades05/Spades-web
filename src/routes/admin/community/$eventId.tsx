@@ -27,6 +27,7 @@ import { formatCentsAsPHP } from '#/lib/utils/money'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { PageHeader } from '#/components/admin/PageHeader'
 import { Badge } from '#/components/admin/Badge'
+import { registrationPaymentLabel } from '#/lib/events/payment-label'
 import { Card } from '#/components/admin/Card'
 import { EventForm } from '#/components/admin/EventForm'
 import {
@@ -294,6 +295,7 @@ function EditEventPage() {
                   <th className={tableHeadClassName}>Phone</th>
                   <th className={tableHeadClassName}>Status</th>
                   <th className={`${tableHeadClassName} text-right`}>Fee</th>
+                  <th className={tableHeadClassName}>Payment</th>
                   <th className={tableHeadClassName}>Registered</th>
                   {attendanceMode && (
                     <th className={tableHeadClassName}>Attended</th>
@@ -323,6 +325,14 @@ function EditEventPage() {
                       {reg.fee_cents === 0
                         ? 'Free'
                         : formatCentsAsPHP(reg.fee_cents)}
+                    </td>
+                    <td className={tableCellClassName}>
+                      {(() => {
+                        const payment = registrationPaymentLabel(reg)
+                        return (
+                          <Badge tone={payment.tone}>{payment.label}</Badge>
+                        )
+                      })()}
                     </td>
                     <td className={`${tableCellClassName} text-neutral-500`}>
                       {new Date(reg.created_at).toLocaleString('en-US', {
