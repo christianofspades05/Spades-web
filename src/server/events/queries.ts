@@ -51,9 +51,13 @@ export const listOngoingEvents = createServerFn({ method: 'GET' }).handler(
       )
       .gte('ends_at', new Date().toISOString())
       .order('starts_at', { ascending: true })
-      .limit(4)
+      .limit(20)
     if (error) throw error
+    // Fully booked events are left off the homepage (they stay on /events).
+    // PostgREST can't compare two columns, so this filters in memory.
     return data
+      .filter((event) => event.slots_reserved < event.total_slots)
+      .slice(0, 4)
   },
 )
 
