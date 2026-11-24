@@ -2010,28 +2010,40 @@ export const getFacebookAdsSales = createServerFn({ method: 'GET' })
     return result
   })
 
-export interface CampaignPerformanceRow {
-  campaignName: string
+/** One mapped product's slice of a campaign. */
+export interface CampaignProductPerformance {
   productId: string
   productName: string
   productImage: string | null
   /** This product's share of the campaign's spend: the campaign's total
-   *  spend divided evenly by `productCount`. */
+   *  spend divided evenly across every product mapped to it. */
   adsSpendCents: number
-  /** The campaign's full spend in range, before splitting. */
-  campaignSpendCents: number
-  /** How many products this campaign is mapped to (1 = not split). */
-  productCount: number
   grossSalesCents: number
   orderCount: number
   /** Null when ad spend was 0 in range — not a real 0x, undefined (nothing
    *  to divide by). Same convention as AdsEfficiencyTotals.roas. */
   roas: number | null
   costPerPurchaseCents: number | null
+}
+
+/** One Meta campaign, with totals across every product mapped to it. */
+export interface CampaignPerformanceRow {
+  campaignName: string
+  /** The campaign's full spend in range. */
+  adsSpendCents: number
+  /** Sum of every mapped product's gross sales. */
+  grossSalesCents: number
+  /** Distinct orders containing any mapped product — an order with two of
+   *  the campaign's products counts once. */
+  orderCount: number
+  roas: number | null
+  costPerPurchaseCents: number | null
   /** Meta's current effective status for this campaign ('ACTIVE',
    *  'PAUSED', 'ARCHIVED', ...) — null when Windsor reported no rows for it
    *  in this range (e.g. it had no delivery at all in the window). */
   effectiveStatus: string | null
+  /** Per-product breakdown, highest gross sales first. */
+  products: CampaignProductPerformance[]
 }
 
 export interface CampaignAdsPerformanceResult {
@@ -2049,6 +2061,13 @@ export interface CampaignAdsPerformanceResult {
  * selling"), so it also counts that product's organic/other-channel
  * demand, not just traffic from this campaign.
  */
+interface ProductSales {
+  grossSalesCents: number
+  /** Distinct orders containing this product — kept as ids (not a count)
+   *  so a multi-product campaign can count an order once across products. */
+  orderIds: Set<string>
+}
+
 async function computeProductSalesByProductId(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   productIds: string[],
@@ -2056,11 +2075,8 @@ async function computeProductSalesByProductId(
   to: string,
   brandFilter: string | undefined,
   tz: ReportTimezone,
-): Promise<Map<string, { grossSalesCents: number; orderCount: number }>> {
-  const result = new Map<
-    string,
-    { grossSalesCents: number; orderCount: number }
-  >()
+): Promise<Map<string, ProductSales>> {
+  const result = new Map<string, ProductSales>()
   if (productIds.length === 0) return result
 
   const { start: rangeStart, end: rangeEnd } = reportRangeToUtcBounds(
@@ -2095,7 +2111,6 @@ async function computeProductSalesByProductId(
     return query
   })
 
-  const orderIdsByProduct = new Map<string, Set<string>>()
   for (const item of items) {
     if (item.variant_id === null || VOID_STATUSES.has(item.order.status))
       continue
@@ -2104,18 +2119,11 @@ async function computeProductSalesByProductId(
 
     const bucket = result.get(productId) ?? {
       grossSalesCents: 0,
-      orderCount: 0,
+      orderIds: new Set<string>(),
     }
     bucket.grossSalesCents += item.line_total_cents
+    bucket.orderIds.add(item.order_id)
     result.set(productId, bucket)
-
-    const orderIdSet = orderIdsByProduct.get(productId) ?? new Set<string>()
-    orderIdSet.add(item.order_id)
-    orderIdsByProduct.set(productId, orderIdSet)
-  }
-  for (const [productId, orderIdSet] of orderIdsByProduct) {
-    const bucket = result.get(productId)
-    if (bucket) bucket.orderCount = orderIdSet.size
   }
   return result
 }
@@ -2125,8 +2133,9 @@ const campaignAdsPerformanceCache =
 
 /**
  * Per-campaign ROAS/cost-per-purchase for the admin Ads Efficiency page.
- * One row per mapped campaign/product pair — only campaigns staff have
- * explicitly mapped (see server/admin/campaign-mapping.ts) — an unmapped campaign has no product
+ * One row per mapped campaign, with a per-product breakdown — only
+ * campaigns staff have explicitly mapped (see
+ * server/admin/campaign-mapping.ts) — an unmapped campaign has no product
  * to show, and campaign naming isn't reliable enough to auto-match. Ad
  * spend comes from Windsor's per-campaign breakdown for this exact date
  * range (so it moves with the page's own date picker/tz toggle, unlike the
@@ -2175,42 +2184,67 @@ export const getCampaignAdsPerformance = createServerFn({ method: 'GET' })
       getMetaCampaignSpendCents({ from: data.from, to: data.to }),
     ])
 
-    // A campaign mapped to several products splits its spend evenly
-    // across them, so each product row carries spend / productCount.
-    const productCountByCampaign = new Map<string, number>()
+    const productsByCampaign = new Map<string, typeof mappingRows>()
     for (const row of mappingRows) {
-      productCountByCampaign.set(
-        row.campaign_name,
-        (productCountByCampaign.get(row.campaign_name) ?? 0) + 1,
-      )
+      const list = productsByCampaign.get(row.campaign_name) ?? []
+      list.push(row)
+      productsByCampaign.set(row.campaign_name, list)
     }
 
-    const campaigns: CampaignPerformanceRow[] = mappingRows
-      .map((row): CampaignPerformanceRow => {
-        const sales = salesByProduct.get(row.product_id)
-        const campaignSpend = spendByCampaign.get(row.campaign_name)
-        const campaignSpendCents = campaignSpend?.spendCents ?? 0
-        const productCount = productCountByCampaign.get(row.campaign_name) ?? 1
-        const adsSpendCents = Math.round(campaignSpendCents / productCount)
-        const grossSalesCents = sales?.grossSalesCents ?? 0
-        const orderCount = sales?.orderCount ?? 0
+    // A campaign mapped to several products splits its spend evenly
+    // across them for the per-product breakdown; the campaign row itself
+    // carries the full spend against the combined sales.
+    const campaigns: CampaignPerformanceRow[] = Array.from(
+      productsByCampaign,
+      ([campaignName, rows]): CampaignPerformanceRow => {
+        const campaignSpend = spendByCampaign.get(campaignName)
+        const adsSpendCents = campaignSpend?.spendCents ?? 0
+        const productSpendCents = Math.round(adsSpendCents / rows.length)
+        const campaignOrderIds = new Set<string>()
+
+        const products = rows
+          .map((row): CampaignProductPerformance => {
+            const sales = salesByProduct.get(row.product_id)
+            const grossSalesCents = sales?.grossSalesCents ?? 0
+            const orderCount = sales?.orderIds.size ?? 0
+            sales?.orderIds.forEach((id) => campaignOrderIds.add(id))
+            return {
+              productId: row.product_id,
+              productName: row.product.name,
+              productImage: row.product.images[0] ?? null,
+              adsSpendCents: productSpendCents,
+              grossSalesCents,
+              orderCount,
+              roas:
+                productSpendCents > 0
+                  ? grossSalesCents / productSpendCents
+                  : null,
+              costPerPurchaseCents:
+                orderCount > 0
+                  ? Math.round(productSpendCents / orderCount)
+                  : null,
+            }
+          })
+          .sort((a, b) => b.grossSalesCents - a.grossSalesCents)
+
+        const grossSalesCents = products.reduce(
+          (sum, product) => sum + product.grossSalesCents,
+          0,
+        )
+        const orderCount = campaignOrderIds.size
         return {
-          campaignName: row.campaign_name,
-          productId: row.product_id,
-          productName: row.product.name,
-          productImage: row.product.images[0] ?? null,
+          campaignName,
           adsSpendCents,
-          campaignSpendCents,
-          productCount,
           grossSalesCents,
           orderCount,
           roas: adsSpendCents > 0 ? grossSalesCents / adsSpendCents : null,
           costPerPurchaseCents:
             orderCount > 0 ? Math.round(adsSpendCents / orderCount) : null,
           effectiveStatus: campaignSpend?.effectiveStatus ?? null,
+          products,
         }
-      })
-      .sort((a, b) => b.adsSpendCents - a.adsSpendCents)
+      },
+    ).sort((a, b) => b.adsSpendCents - a.adsSpendCents)
 
     const result: CampaignAdsPerformanceResult = {
       range: { from: data.from, to: data.to },

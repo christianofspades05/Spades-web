@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { z } from 'zod'
-import { Package } from 'lucide-react'
+import { ChevronDown, ChevronRight, Package } from 'lucide-react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { getAdsEfficiency } from '#/server/admin/ads-efficiency'
 import type { AdsEfficiencyTotals } from '#/server/admin/ads-efficiency'
-import type { CampaignPerformanceRow } from '#/server/admin/analytics'
+import type {
+  CampaignPerformanceRow,
+  CampaignProductPerformance,
+} from '#/server/admin/analytics'
 import {
   DATE_RANGE_PRESETS,
   percentChange,
@@ -222,6 +226,143 @@ function TotalsGrid({
   )
 }
 
+function ProductThumb({ image }: { image: string | null }) {
+  return image ? (
+    <img
+      src={image}
+      alt=""
+      className="size-7 shrink-0 rounded-md border border-neutral-200 bg-white object-cover"
+    />
+  ) : (
+    <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
+      <Package size={12} className="text-neutral-300" />
+    </div>
+  )
+}
+
+function formatRoas(roas: number | null): string {
+  return roas === null ? '—' : `${roas.toFixed(2)}x`
+}
+
+function formatCostPerPurchase(cents: number | null): string {
+  return cents === null ? '—' : formatCentsAsPHP(cents)
+}
+
+function MetricCells({
+  metrics,
+}: {
+  metrics: Pick<
+    CampaignProductPerformance,
+    | 'adsSpendCents'
+    | 'grossSalesCents'
+    | 'orderCount'
+    | 'roas'
+    | 'costPerPurchaseCents'
+  >
+}) {
+  return (
+    <>
+      <td className={`${tableCellClassName} text-right`}>
+        {formatCentsAsPHP(metrics.adsSpendCents)}
+      </td>
+      <td className={`${tableCellClassName} text-right`}>
+        {formatCentsAsPHP(metrics.grossSalesCents)}
+      </td>
+      <td className={`${tableCellClassName} text-right`}>
+        {metrics.orderCount}
+      </td>
+      <td className={`${tableCellClassName} text-right`}>
+        {formatRoas(metrics.roas)}
+      </td>
+      <td className={`${tableCellClassName} text-right`}>
+        {formatCostPerPurchase(metrics.costPerPurchaseCents)}
+      </td>
+    </>
+  )
+}
+
+/**
+ * One campaign row. A campaign with a single product shows that product
+ * inline; one with several shows combined numbers and opens into a row
+ * per product (spend split evenly between them).
+ */
+function CampaignRows({ row }: { row: CampaignPerformanceRow }) {
+  const [open, setOpen] = useState(false)
+  const multi = row.products.length > 1
+  const single = row.products.length === 1 ? row.products[0] : null
+  const statusCell = (
+    <td className={tableCellClassName}>
+      <Badge tone={isCampaignActive(row) ? 'success' : 'neutral'}>
+        {campaignStatusLabel(row.effectiveStatus)}
+      </Badge>
+    </td>
+  )
+
+  return (
+    <>
+      <tr
+        className={`${tableRowClassName} ${multi ? 'cursor-pointer' : ''}`}
+        onClick={multi ? () => setOpen((o) => !o) : undefined}
+      >
+        <td className={tableCellClassName}>
+          {single ? (
+            <div className="flex items-center gap-2">
+              <ProductThumb image={single.productImage} />
+              <span>{single.productName}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              aria-expanded={open}
+              className="flex items-center gap-2 text-left"
+            >
+              {open ? (
+                <ChevronDown size={14} className="shrink-0 text-neutral-500" />
+              ) : (
+                <ChevronRight size={14} className="shrink-0 text-neutral-500" />
+              )}
+              <div className="flex -space-x-2">
+                {row.products.slice(0, 3).map((product) => (
+                  <ProductThumb
+                    key={product.productId}
+                    image={product.productImage}
+                  />
+                ))}
+              </div>
+              <span className="font-medium">
+                {row.products.length} products
+              </span>
+            </button>
+          )}
+        </td>
+        <td className={tableCellClassName}>{row.campaignName}</td>
+        {statusCell}
+        <MetricCells metrics={row} />
+      </tr>
+      {multi &&
+        open &&
+        row.products.map((product) => (
+          <tr
+            key={product.productId}
+            className={`${tableRowClassName} bg-neutral-50`}
+          >
+            <td className={tableCellClassName}>
+              <div className="flex items-center gap-2 pl-6">
+                <ProductThumb image={product.productImage} />
+                <span>{product.productName}</span>
+              </div>
+            </td>
+            <td className={`${tableCellClassName} text-xs text-neutral-400`}>
+              ÷ {row.products.length} of campaign spend
+            </td>
+            <td className={tableCellClassName} />
+            <MetricCells metrics={product} />
+          </tr>
+        ))}
+    </>
+  )
+}
+
 function CampaignPerformanceTable({
   campaigns: allCampaigns,
   statusFilter,
@@ -253,8 +394,9 @@ function CampaignPerformanceTable({
             — e.g. a "Denim Flare Best Seller" campaign mapped to the Denim
             product. Sales are that product's own order history across every
             channel in this range, not click-level attribution, so they also
-            include that product's sales from outside this campaign. A campaign
-            mapped to several products splits its spend evenly between them.
+            include that product's sales from outside this campaign. Campaigns
+            with several products show their combined numbers; open one to see
+            each product, with the spend split evenly between them.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -316,58 +458,7 @@ function CampaignPerformanceTable({
               </thead>
               <tbody>
                 {campaigns.map((row) => (
-                  <tr
-                    key={`${row.campaignName}|${row.productId}`}
-                    className={tableRowClassName}
-                  >
-                    <td className={tableCellClassName}>
-                      <div className="flex items-center gap-2">
-                        {row.productImage ? (
-                          <img
-                            src={row.productImage}
-                            alt=""
-                            className="size-7 rounded-md border border-neutral-200 object-cover"
-                          />
-                        ) : (
-                          <div className="flex size-7 items-center justify-center rounded-md border border-neutral-200 bg-neutral-50">
-                            <Package size={12} className="text-neutral-300" />
-                          </div>
-                        )}
-                        <span>{row.productName}</span>
-                      </div>
-                    </td>
-                    <td className={tableCellClassName}>{row.campaignName}</td>
-                    <td className={tableCellClassName}>
-                      <Badge
-                        tone={isCampaignActive(row) ? 'success' : 'neutral'}
-                      >
-                        {campaignStatusLabel(row.effectiveStatus)}
-                      </Badge>
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {formatCentsAsPHP(row.adsSpendCents)}
-                      {row.productCount > 1 && (
-                        <div className="text-xs text-neutral-400">
-                          {formatCentsAsPHP(row.campaignSpendCents)} ÷{' '}
-                          {row.productCount} products
-                        </div>
-                      )}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {formatCentsAsPHP(row.grossSalesCents)}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.orderCount}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.roas === null ? '—' : `${row.roas.toFixed(2)}x`}
-                    </td>
-                    <td className={`${tableCellClassName} text-right`}>
-                      {row.costPerPurchaseCents === null
-                        ? '—'
-                        : formatCentsAsPHP(row.costPerPurchaseCents)}
-                    </td>
-                  </tr>
+                  <CampaignRows key={row.campaignName} row={row} />
                 ))}
               </tbody>
             </table>
