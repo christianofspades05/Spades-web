@@ -1,6 +1,7 @@
 import { createServerFn, createServerOnlyFn } from '@tanstack/react-start'
 import { getSupabaseServerClient } from '#/lib/supabase/server'
 import { createSharedCache } from '#/lib/utils/shared-cache'
+import { manilaDateKey, seededShuffle } from '#/lib/storefront/daily-shuffle'
 
 export interface StorefrontCommunityFit {
   id: string
@@ -116,12 +117,15 @@ const fetchActiveCommunityFits = createServerOnlyFn(
     ),
 )
 
-/** Active Community Fits for the Spades homepage carousel. Never throws —
- *  a failure here hides the section rather than breaking the homepage. */
+/** Active Community Fits for the Spades homepage carousel, shuffled into a
+ *  new order each day (Manila time; same order for everyone that day).
+ *  Never throws — a failure here hides the section rather than breaking
+ *  the homepage. */
 export const loadCommunityFits = createServerFn({ method: 'GET' }).handler(
   async (): Promise<StorefrontCommunityFit[]> => {
     try {
-      return await fetchActiveCommunityFits()
+      const fits = await fetchActiveCommunityFits()
+      return seededShuffle(fits, `community-fits:${manilaDateKey()}`)
     } catch (err) {
       console.error('Failed to load community fits:', err)
       return []
