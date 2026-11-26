@@ -12,7 +12,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { majorUnitsToCents } from '#/lib/utils/money'
-import { getXenditInvoice } from '#/lib/xendit/client'
+import { getXenditPaymentStatus } from '#/lib/xendit/client'
 import { mintOrderFromReservation } from '#/server/checkout/mint-order'
 import {
   previousPeriod,
@@ -2361,14 +2361,12 @@ export const recheckPendingPayments = createServerFn({
 
     for (const reservation of reservations) {
       try {
-        const liveInvoice = await getXenditInvoice(
-          reservation.xendit_invoice_id!,
+        // Invoice or Payment Session — `paid` covers SETTLED too, same
+        // check as expire-unpaid-orders.ts and the Xendit webhook itself.
+        const liveInvoice = await getXenditPaymentStatus(
+          reservation.xendit_invoice_id,
         )
-        // SETTLED, not just PAID — same check as expire-unpaid-orders.ts
-        // and the Xendit webhook itself.
-        if (liveInvoice.status !== 'PAID' && liveInvoice.status !== 'SETTLED') {
-          continue
-        }
+        if (!liveInvoice.paid) continue
         const chargedCurrency =
           liveInvoice.currency && liveInvoice.currency !== 'PHP'
             ? liveInvoice.currency

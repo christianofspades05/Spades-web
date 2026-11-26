@@ -55,7 +55,7 @@ import type {
   CheckoutReservationItem,
   LalamoveInfo,
 } from '#/types/database.types'
-import { createXenditInvoice } from '#/lib/xendit/client'
+import { createXenditHostedPayment } from '#/lib/xendit/client'
 import { createPayPalOrder } from '#/lib/paypal/client'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import {
@@ -797,10 +797,9 @@ export const placeOrder = createServerFn({ method: 'POST' })
           // display currency — browsing/checkout still shows their chosen
           // currency (see CurrencyContext.tsx), this is only about what
           // Xendit itself is told to charge.
-          const invoice = await createXenditInvoice({
-            externalId: reservation.id,
+          const hosted = await createXenditHostedPayment({
+            referenceId: reservation.id,
             amount: totalCents / 100,
-            currency: 'PHP',
             payerEmail: email,
             description: `${scope.name} order`,
             // cartId/method let confirmation.tsx fire checkout_order_success
@@ -808,17 +807,19 @@ export const placeOrder = createServerFn({ method: 'POST' })
             // tracked with (see lib/analytics/checkout-tracking.ts) —
             // encoded since cart.id is a UUID but still worth not trusting
             // blindly in a URL.
-            successRedirectUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP&cartId=${encodeURIComponent(cart.id)}&method=online`,
-            failureRedirectUrl: `${origin}/checkout?paymentFailed=true`,
+            successUrl: `${origin}/checkout/confirmation?reservation=${reservation.id}&value=${(totalCents / 100).toFixed(2)}&currency=PHP&cartId=${encodeURIComponent(cart.id)}&method=online`,
+            failureUrl: `${origin}/checkout?paymentFailed=true`,
             // Abandoned payments shouldn't leave stock reserved
-            // indefinitely — Xendit pushes an EXPIRED webhook event at
+            // indefinitely — Xendit pushes an expiry webhook event at
             // this point, which releases the reservation (xendit.ts).
-            invoiceDuration: 300,
+            // 5 minutes for invoices; Payment Sessions can't go below 10.
+            lifetimeSeconds: 300,
           })
-          invoiceUrl = invoice.invoice_url
+          invoiceUrl = hosted.url
+          // Holds an invoice id or a Payment Session id ("ps-...").
           await admin
             .from('checkout_reservations')
-            .update({ xendit_invoice_id: invoice.id })
+            .update({ xendit_invoice_id: hosted.id })
             .eq('id', reservation.id)
         } else {
           // Non-Philippines checkouts go through PayPal instead — it

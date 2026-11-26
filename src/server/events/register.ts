@@ -11,7 +11,7 @@ import { getRequestUrl } from '@tanstack/react-start/server'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { getStorefrontScope } from '#/server/storefront/domain'
 import { registerForEventSchema } from '#/lib/validation/events'
-import { createXenditInvoice } from '#/lib/xendit/client'
+import { createXenditHostedPayment } from '#/lib/xendit/client'
 import { centsToPesos } from '#/lib/utils/money'
 
 export const registerForEvent = createServerFn({ method: 'POST' })
@@ -69,19 +69,18 @@ export const registerForEvent = createServerFn({ method: 'POST' })
       }
 
       const origin = getRequestUrl().origin
-      const invoice = await createXenditInvoice({
-        externalId: registration.id,
+      const invoice = await createXenditHostedPayment({
+        referenceId: registration.id,
         amount: centsToPesos(registration.fee_cents),
-        currency: 'PHP',
         payerEmail: data.email,
         description: `${event.name} registration`,
-        successRedirectUrl: `${origin}/events/${event.slug}?registered=${registration.id}`,
-        failureRedirectUrl: `${origin}/events/${event.slug}?paymentFailed=true`,
+        successUrl: `${origin}/events/${event.slug}?registered=${registration.id}`,
+        failureUrl: `${origin}/events/${event.slug}?paymentFailed=true`,
         // Same 5-minute window checkout uses (place-order.ts) — the
         // stale-registration sweep in api/cron/expire-unpaid-orders.ts
-        // uses the same 15-minute cutoff that invoice duration is sized
+        // uses the same 20-minute cutoff that invoice duration is sized
         // against there, reused as-is for events too.
-        invoiceDuration: 300,
+        lifetimeSeconds: 300,
       })
 
       await admin
@@ -124,7 +123,7 @@ export const registerForEvent = createServerFn({ method: 'POST' })
       return {
         confirmed: false,
         registrationId: registration.id,
-        invoiceUrl: invoice.invoice_url,
+        invoiceUrl: invoice.url,
       }
     },
   )

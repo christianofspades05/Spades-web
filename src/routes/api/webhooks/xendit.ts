@@ -54,6 +54,30 @@ interface XenditInvoiceWebhookPayload {
   [key: string]: unknown
 }
 
+/** Payment Session webhook (payment_session.completed / .expired) — the
+ *  newer hosted checkout, see lib/xendit/client.ts. Normalized into the
+ *  invoice shape below so everything after it is shared. */
+interface XenditSessionWebhookPayload {
+  event: string
+  data: {
+    payment_session_id: string
+    reference_id: string
+    status: string
+    amount?: number
+    currency?: string
+    payment_id?: string | null
+  }
+}
+
+function isSessionWebhook(body: unknown): body is XenditSessionWebhookPayload {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as { event?: unknown }).event === 'string' &&
+    typeof (body as { data?: unknown }).data === 'object'
+  )
+}
+
 function mapPaymentProvider(
   payload: XenditInvoiceWebhookPayload,
 ): PaymentProvider {
@@ -71,8 +95,11 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { isValidXenditWebhookToken, getXenditInvoice } =
-          await import('#/lib/xendit/client')
+        const {
+          isValidXenditWebhookToken,
+          getXenditPaymentStatus,
+          getXenditPaymentChannel,
+        } = await import('#/lib/xendit/client')
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
 
         const callbackToken = request.headers.get('x-callback-token')
@@ -80,8 +107,40 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
           return new Response('Invalid callback token', { status: 401 })
         }
 
-        const payload = (await request.json()) as XenditInvoiceWebhookPayload
+        const rawBody: unknown = await request.json()
         const admin = getSupabaseAdminClient()
+
+        // Both Xendit systems post here: legacy invoices (flat payload with
+        // `status`) and Payment Sessions (`event` + `data`). Sessions are
+        // normalized to the invoice shape — COMPLETED becomes PAID — so the
+        // order/registration logic below handles both identically.
+        let payload: XenditInvoiceWebhookPayload
+        if (isSessionWebhook(rawBody)) {
+          const { event, data } = rawBody
+          if (
+            event !== 'payment_session.completed' &&
+            event !== 'payment_session.expired'
+          ) {
+            // Payment-level events (payment.capture etc.) duplicate the
+            // session events — acknowledged, not acted on.
+            return Response.json({ received: true, ignored: event })
+          }
+          const completed = event === 'payment_session.completed'
+          const channel =
+            completed && data.payment_id
+              ? await getXenditPaymentChannel(data.payment_id)
+              : null
+          payload = {
+            id: data.payment_session_id,
+            external_id: data.reference_id,
+            status: completed ? 'PAID' : 'EXPIRED',
+            currency: data.currency,
+            amount: data.amount,
+            payment_channel: channel ?? undefined,
+          }
+        } else {
+          payload = rawBody as XenditInvoiceWebhookPayload
+        }
 
         // Upsert, not insert — Xendit may retry the same event if we didn't
         // respond 200 in time, and (source, external_event_id, event_type)
@@ -96,7 +155,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
             source: 'payment_provider',
             event_type: payload.status,
             external_event_id: payload.id,
-            payload,
+            payload: rawBody as Record<string, unknown>,
             status: 'processing',
           },
           { onConflict: 'source,external_event_id,event_type' },
@@ -164,11 +223,8 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
               ) {
                 // Same live-re-check-before-releasing safety net as the
                 // reservation branch below — see its own comment for why.
-                const liveInvoice = await getXenditInvoice(payload.id)
-                if (
-                  liveInvoice.status === 'PAID' ||
-                  liveInvoice.status === 'SETTLED'
-                ) {
+                const live = await getXenditPaymentStatus(payload.id)
+                if (live.paid) {
                   moneyConfirmed = true
                   await mintEventRegistration(admin, registration.id)
                 } else {
@@ -193,7 +249,7 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 await mintOrderFromReservation(admin, reservation, {
                   provider: mapPaymentProvider(payload),
                   providerReference: payload.id,
-                  rawPayload: payload,
+                  rawPayload: rawBody as Record<string, unknown>,
                   chargedCurrency,
                   chargedAmountCents:
                     chargedCurrency && typeof payload.amount === 'number'
@@ -216,32 +272,31 @@ export const Route = createFileRoute('/api/webhooks/xendit')({
                 // (correct, but delayed) PAID webhook ever arrived to find
                 // it. Re-fetching here closes that race regardless of
                 // which side of Xendit's pipeline is slow.
-                const liveInvoice = await getXenditInvoice(payload.id)
-
-                // SETTLED, not just PAID — confirmed live that by the time
-                // this re-check runs, Xendit's own invoice can have already
-                // progressed past PAID into SETTLED (funds cleared to the
-                // merchant), so checking for PAID alone would still miss
-                // it.
-                if (
-                  liveInvoice.status === 'PAID' ||
-                  liveInvoice.status === 'SETTLED'
-                ) {
+                // (getXenditPaymentStatus counts SETTLED as paid too — an
+                // invoice can already have moved past PAID by now.)
+                const live = await getXenditPaymentStatus(payload.id)
+                if (live.paid) {
                   moneyConfirmed = true
                   const { majorUnitsToCents } =
                     await import('#/lib/utils/money')
                   const { mintOrderFromReservation } =
                     await import('#/server/checkout/mint-order')
                   const chargedCurrency =
-                    liveInvoice.currency && liveInvoice.currency !== 'PHP'
-                      ? liveInvoice.currency
+                    live.currency && live.currency !== 'PHP'
+                      ? live.currency
                       : null
+                  const liveChannel = live.paymentId
+                    ? await getXenditPaymentChannel(live.paymentId)
+                    : null
                   await mintOrderFromReservation(admin, reservation, {
-                    provider: mapPaymentProvider(payload),
-                    providerReference: liveInvoice.id,
+                    provider: mapPaymentProvider({
+                      ...payload,
+                      payment_channel: liveChannel ?? payload.payment_channel,
+                    }),
+                    providerReference: live.id,
                     chargedCurrency,
                     chargedAmountCents: chargedCurrency
-                      ? majorUnitsToCents(liveInvoice.amount, chargedCurrency)
+                      ? majorUnitsToCents(live.amount, chargedCurrency)
                       : null,
                   })
                 } else {

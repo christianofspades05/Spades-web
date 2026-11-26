@@ -34,10 +34,12 @@
  */
 import { createFileRoute } from '@tanstack/react-router'
 
-// Comfortably longer than the 5-minute invoice life + webhook delivery
-// time, so this doesn't race the webhook — but short enough to not leave
-// stock reserved for a full hour if the webhook genuinely never arrives.
-const EXPIRE_AFTER_MINUTES = 15
+// Comfortably longer than the payment page's own life (5 minutes for
+// invoices, just over 10 for Payment Sessions — see lib/xendit/client.ts)
+// plus webhook delivery time, so this doesn't race the webhook — but short
+// enough to not leave stock reserved for an hour if the webhook genuinely
+// never arrives.
+const EXPIRE_AFTER_MINUTES = 20
 
 function isAuthorized(request: Request): boolean {
   const expected = process.env.CRON_SECRET
@@ -57,7 +59,7 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
         }
 
         const { getSupabaseAdminClient } = await import('#/lib/supabase/admin')
-        const { getXenditInvoice } = await import('#/lib/xendit/client')
+        const { getXenditPaymentStatus } = await import('#/lib/xendit/client')
         const admin = getSupabaseAdminClient()
 
         const cutoff = new Date(
@@ -90,20 +92,15 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
             // releasing stock out from under a real sale.
             let livePaid = false
             if (reservation.xendit_invoice_id) {
-              const liveInvoice = await getXenditInvoice(
+              // Invoice or Payment Session — paid covers SETTLED too.
+              const liveInvoice = await getXenditPaymentStatus(
                 reservation.xendit_invoice_id,
               )
-              // SETTLED, not just PAID — see xendit.ts's own version of
-              // this same check for why.
-              if (
-                liveInvoice.status === 'PAID' ||
-                liveInvoice.status === 'SETTLED'
-              ) {
+              if (liveInvoice.paid) {
                 moneyConfirmed = true
                 const { majorUnitsToCents } = await import('#/lib/utils/money')
-                const { mintOrderFromReservation } = await import(
-                  '#/server/checkout/mint-order'
-                )
+                const { mintOrderFromReservation } =
+                  await import('#/server/checkout/mint-order')
                 const chargedCurrency =
                   liveInvoice.currency && liveInvoice.currency !== 'PHP'
                     ? liveInvoice.currency
@@ -122,9 +119,8 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
             }
 
             if (!livePaid) {
-              const { releaseReservationStock } = await import(
-                '#/server/checkout/release-reservation'
-              )
+              const { releaseReservationStock } =
+                await import('#/server/checkout/release-reservation')
               await releaseReservationStock(admin, reservation)
               expired.push(reservation.id)
             }
@@ -134,9 +130,8 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
               error: err instanceof Error ? err.message : String(err),
             })
             if (moneyConfirmed) {
-              const { alertPaymentMintFailure } = await import(
-                '#/server/checkout/alert-payment-mint-failure'
-              )
+              const { alertPaymentMintFailure } =
+                await import('#/server/checkout/alert-payment-mint-failure')
               await alertPaymentMintFailure({
                 provider: 'Xendit (cron backstop)',
                 externalId: reservation.id,
@@ -155,25 +150,23 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
 
         const registrationsExpired: string[] = []
         const registrationsMinted: string[] = []
-        const registrationFailures: { registrationId: string; error: string }[] =
-          []
+        const registrationFailures: {
+          registrationId: string
+          error: string
+        }[] = []
 
         for (const registration of staleRegistrations) {
           let moneyConfirmed = false
           try {
             let livePaid = false
             if (registration.xendit_invoice_id) {
-              const liveInvoice = await getXenditInvoice(
+              const liveInvoice = await getXenditPaymentStatus(
                 registration.xendit_invoice_id,
               )
-              if (
-                liveInvoice.status === 'PAID' ||
-                liveInvoice.status === 'SETTLED'
-              ) {
+              if (liveInvoice.paid) {
                 moneyConfirmed = true
-                const { mintEventRegistration } = await import(
-                  '#/server/events/mint-registration'
-                )
+                const { mintEventRegistration } =
+                  await import('#/server/events/mint-registration')
                 await mintEventRegistration(admin, registration.id)
                 registrationsMinted.push(registration.id)
                 livePaid = true
@@ -181,9 +174,8 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
             }
 
             if (!livePaid) {
-              const { releaseEventRegistration } = await import(
-                '#/server/events/release-registration'
-              )
+              const { releaseEventRegistration } =
+                await import('#/server/events/release-registration')
               await releaseEventRegistration(admin, registration.id)
               registrationsExpired.push(registration.id)
             }
@@ -193,9 +185,8 @@ export const Route = createFileRoute('/api/cron/expire-unpaid-orders')({
               error: err instanceof Error ? err.message : String(err),
             })
             if (moneyConfirmed) {
-              const { alertPaymentMintFailure } = await import(
-                '#/server/checkout/alert-payment-mint-failure'
-              )
+              const { alertPaymentMintFailure } =
+                await import('#/server/checkout/alert-payment-mint-failure')
               await alertPaymentMintFailure({
                 provider: 'Xendit (cron backstop — event registration)',
                 externalId: registration.id,
