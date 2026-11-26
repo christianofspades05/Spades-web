@@ -899,6 +899,8 @@ export interface Database {
             max_discounted_items: number | null
             excludes_free_shipping: boolean
             stacks_with_sale: boolean
+            /** Bundle deals only — see 0131_discount_bundle_min_quantity.sql. */
+            min_quantity: number | null
             created_at: string
             updated_at: string
           }
@@ -1485,6 +1487,8 @@ export interface Database {
           max_discounted_items: number | null
           excludes_free_shipping: boolean
           stacks_with_sale: boolean
+          /** Bundle deals only — see 0131_discount_bundle_min_quantity.sql. */
+          min_quantity: number | null
           created_at: string
           updated_at: string
           status: string

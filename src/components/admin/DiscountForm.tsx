@@ -24,13 +24,21 @@ export function DiscountForm({
   onSubmit: (data: DiscountInput) => Promise<void>
   submitLabel: string
 }) {
-  const [method, setMethod] = useState<'code' | 'store_sale' | 'collection_sale'>(
+  const [method, setMethod] = useState<
+    'code' | 'store_sale' | 'collection_sale' | 'bundle'
+  >(
     discount?.kind === 'automatic'
-      ? discount.scope === 'collection'
-        ? 'collection_sale'
-        : 'store_sale'
+      ? discount.min_quantity != null
+        ? 'bundle'
+        : discount.scope === 'collection'
+          ? 'collection_sale'
+          : 'store_sale'
       : 'code',
   )
+  const [minQuantity, setMinQuantity] = useState(discount?.min_quantity ?? 3)
+  // Store sales and bundle deals are both store-wide automatic discounts
+  // that can exclude collections and let codes stack on top.
+  const storeWide = method === 'store_sale' || method === 'bundle'
   const kind = method === 'code' ? 'code' : 'automatic'
   const [title, setTitle] = useState(discount?.title ?? '')
   const [code, setCode] = useState(discount?.code ?? '')
@@ -68,9 +76,9 @@ export function DiscountForm({
   const [excludedCollectionIds, setExcludedCollectionIds] = useState<string[]>(
     discount?.excluded_collection_ids ?? [],
   )
-  const [includedCollectionIds, setIncludedCollectionIds] = useState<
-    string[]
-  >(discount?.scope === 'collection' ? discount.scope_ids : [])
+  const [includedCollectionIds, setIncludedCollectionIds] = useState<string[]>(
+    discount?.scope === 'collection' ? discount.scope_ids : [],
+  )
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -108,9 +116,9 @@ export function DiscountForm({
           maxDiscountedItems === '' ? undefined : maxDiscountedItems,
         excludesFreeShipping,
         stacksWithSale,
+        minQuantity: method === 'bundle' ? minQuantity : undefined,
         isActive,
-        excludedCollectionIds:
-          method === 'store_sale' ? excludedCollectionIds : [],
+        excludedCollectionIds: storeWide ? excludedCollectionIds : [],
         includedCollectionIds:
           method === 'collection_sale' ? includedCollectionIds : [],
       })
@@ -172,8 +180,24 @@ export function DiscountForm({
               <span className="font-medium text-neutral-900">
                 Collection sale
               </span>{' '}
-              — applies automatically, no code needed, only to products in
-              the collections you pick (e.g. a clearance collection).
+              — applies automatically, no code needed, only to products in the
+              collections you pick (e.g. a clearance collection).
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-neutral-700">
+            <input
+              type="radio"
+              name="kind"
+              disabled={lockKind}
+              checked={method === 'bundle'}
+              onChange={() => setMethod('bundle')}
+              className="mt-1"
+            />
+            <span>
+              <span className="font-medium text-neutral-900">Bundle deal</span>{' '}
+              — buy a minimum number of items, get an extra discount
+              automatically in the cart (e.g. buy 3, extra 10% off). Adds on top
+              of any active store sale.
             </span>
           </label>
         </fieldset>
@@ -184,7 +208,13 @@ export function DiscountForm({
             required
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={kind === 'code' ? 'e.g. Summer10' : 'e.g. Summer Sale'}
+            placeholder={
+              kind === 'code'
+                ? 'e.g. Summer10'
+                : method === 'bundle'
+                  ? 'e.g. Buy 3, Get Extra 10% Off'
+                  : 'e.g. Summer Sale'
+            }
             className={inputClassName}
           />
         </label>
@@ -201,6 +231,26 @@ export function DiscountForm({
             />
             <span className="text-xs font-normal text-neutral-500">
               What customers type at checkout. Saved in uppercase.
+            </span>
+          </label>
+        )}
+
+        {method === 'bundle' && (
+          <label className={labelClassName}>
+            Minimum items in cart
+            <input
+              type="number"
+              min="2"
+              max="50"
+              required
+              value={minQuantity}
+              onChange={(e) => setMinQuantity(Number(e.target.value))}
+              className={`${inputClassName} w-24`}
+            />
+            <span className="text-xs font-normal text-neutral-500">
+              The discount applies once the cart has at least this many items
+              (counting quantity, e.g. 2 of the same shirt counts as 2). Items
+              in excluded collections don't count.
             </span>
           </label>
         )}
@@ -330,29 +380,31 @@ export function DiscountForm({
           </div>
         )}
 
-        {method === 'store_sale' && (
+        {storeWide && (
           <label className="flex items-center gap-2 text-sm text-neutral-700">
             <input
               type="checkbox"
               checked={stacksWithSale}
               onChange={(e) => setStacksWithSale(e.target.checked)}
             />
-            Allow discount codes to also apply on top of this sale
+            Allow discount codes to also apply on top of this{' '}
+            {method === 'bundle' ? 'deal' : 'sale'}
           </label>
         )}
-        {method === 'store_sale' && (
+        {storeWide && (
           <p className="-mt-2 text-xs font-normal text-neutral-500">
-            Off by default — a customer's code just replaces this sale's
-            price. Check this so codes add to it instead, e.g. this 15%
-            sale + a 10% Abandoned Cart code = 25% off. Controlled here so
-            you flip it once per sale instead of on every individual code.
+            Off by default — a customer's code just replaces this sale's price.
+            Check this so codes add to it instead, e.g. this 15% sale + a 10%
+            Abandoned Cart code = 25% off. Controlled here so you flip it once
+            per sale instead of on every individual code.
           </p>
         )}
 
-        {method === 'store_sale' && collections.length > 0 && (
+        {storeWide && collections.length > 0 && (
           <fieldset className="flex flex-col gap-1 rounded-lg border border-neutral-200 p-4">
             <legend className="mb-1 text-sm font-medium text-neutral-900">
-              Exclude collections from this sale
+              Exclude collections from this{' '}
+              {method === 'bundle' ? 'deal' : 'sale'}
             </legend>
             {collections.map((collection) => (
               <label
@@ -382,9 +434,9 @@ export function DiscountForm({
         )}
         {method === 'collection_sale' && (
           <p className="-mt-2 text-xs font-normal text-neutral-500">
-            Off by default (e.g. Clearance) — this sale's items only get
-            its own rate, ignoring any store-wide sale. Check this to add
-            the two together instead.
+            Off by default (e.g. Clearance) — this sale's items only get its own
+            rate, ignoring any store-wide sale. Check this to add the two
+            together instead.
           </p>
         )}
 

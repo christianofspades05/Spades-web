@@ -145,7 +145,9 @@ function CartPage() {
   }
 
   function formatDiscountRate(type: string, value: number): string {
-    return type === 'fixed_amount' ? `${formatPrice(value)} off` : `${value}% off`
+    return type === 'fixed_amount'
+      ? `${formatPrice(value)} off`
+      : `${value}% off`
   }
   const discountLabel = discount
     ? discount.type === 'free_shipping'
@@ -282,6 +284,14 @@ function CartPage() {
       </ul>
 
       <div className="mt-8 border-t border-neutral-200 pt-6 dark:border-neutral-800">
+        {cart.bundleNudge && (
+          <p className="mb-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            {t.cart.bundleNudge(
+              cart.bundleNudge.itemsNeeded,
+              formatDiscountRate(cart.bundleNudge.type, cart.bundleNudge.value),
+            )}
+          </p>
+        )}
         {/* Only a real customer-entered code gets the "applied [Remove]"
             treatment — an automatic store-wide/collection sale isn't
             something the customer did, so it just shows up in the price

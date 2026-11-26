@@ -35,6 +35,10 @@ export const discountInputSchema = z
     // (e.g. Clearance) — a different axis from the Store sale meaning,
     // sharing the same field since only one applies per discount's scope.
     stacksWithSale: z.boolean().default(false),
+    // Bundle deals only: the automatic discount applies once the cart holds
+    // at least this many eligible items (e.g. 3 → "buy 3, extra 10% off").
+    // Unset for every other kind of discount.
+    minQuantity: z.number().int().min(2).max(50).optional(),
     isActive: z.boolean().default(true),
     excludedCollectionIds: z.array(z.string().uuid()).default([]),
     includedCollectionIds: z.array(z.string().uuid()).default([]),

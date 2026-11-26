@@ -19,13 +19,16 @@ import type { Discount } from '#/types/entities'
 const PAGE_SIZE = 50
 
 type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'inactive'
-type DiscountTypeFilter = 'code' | 'store' | 'collection' | 'affiliate'
+type DiscountTypeFilter =
+  'code' | 'store' | 'collection' | 'bundle' | 'affiliate'
 
 export const Route = createFileRoute('/admin/discounts/')({
   validateSearch: z.object({
     q: z.string().optional(),
     status: z.enum(['active', 'scheduled', 'expired', 'inactive']).optional(),
-    type: z.enum(['code', 'store', 'collection', 'affiliate']).optional(),
+    type: z
+      .enum(['code', 'store', 'collection', 'bundle', 'affiliate'])
+      .optional(),
     page: z.number().int().min(1).catch(1),
   }),
   loaderDeps: ({ search }) => search,
@@ -148,6 +151,7 @@ function DiscountsPage() {
           <option value="affiliate">Affiliate code</option>
           <option value="store">Store sale</option>
           <option value="collection">Collection sale</option>
+          <option value="bundle">Bundle deal</option>
         </select>
       </div>
 
@@ -196,9 +200,11 @@ function DiscountsPage() {
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {discount.kind === 'code'
                           ? 'Discount code'
-                          : discount.scope === 'collection'
-                            ? 'Collection sale'
-                            : 'Store sale'}
+                          : discount.min_quantity != null
+                            ? `Bundle deal (${discount.min_quantity}+ items)`
+                            : discount.scope === 'collection'
+                              ? 'Collection sale'
+                              : 'Store sale'}
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {valueLabel(discount)}

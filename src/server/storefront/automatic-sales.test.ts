@@ -18,6 +18,7 @@ interface FakeDiscountRow {
   max_discounted_items: number | null
   excludes_free_shipping: boolean
   stacks_with_sale: boolean
+  min_quantity: number | null
   starts_at: string | null
   ends_at: string | null
 }
@@ -32,10 +33,12 @@ function createRealisticFakeCache() {
     store,
     tagsByKey,
     get: vi.fn(async (key: string) => store.get(key) ?? null),
-    set: vi.fn(async (key: string, value: unknown, options?: { tags?: string[] }) => {
-      store.set(key, value)
-      tagsByKey.set(key, options?.tags ?? [])
-    }),
+    set: vi.fn(
+      async (key: string, value: unknown, options?: { tags?: string[] }) => {
+        store.set(key, value)
+        tagsByKey.set(key, options?.tags ?? [])
+      },
+    ),
     delete: vi.fn(async (key: string) => {
       store.delete(key)
       tagsByKey.delete(key)
@@ -54,7 +57,10 @@ function createRealisticFakeCache() {
  *  same convention as market-pricing.test.ts's fakeSupabase(), which
  *  pre-filters by is_active rather than modeling PostgREST's query
  *  execution. */
-function fakeAdmin(fixture: { rows: FakeDiscountRow[]; queryCount: { count: number } }) {
+function fakeAdmin(fixture: {
+  rows: FakeDiscountRow[]
+  queryCount: { count: number }
+}) {
   return {
     from(table: string) {
       if (table !== 'discounts') throw new Error(`Unexpected table: ${table}`)
@@ -72,7 +78,9 @@ function fakeAdmin(fixture: { rows: FakeDiscountRow[]; queryCount: { count: numb
   }
 }
 
-function fakeDiscount(overrides: Partial<FakeDiscountRow> = {}): FakeDiscountRow {
+function fakeDiscount(
+  overrides: Partial<FakeDiscountRow> = {},
+): FakeDiscountRow {
   return {
     id: 'discount-1',
     code: null,
@@ -85,6 +93,7 @@ function fakeDiscount(overrides: Partial<FakeDiscountRow> = {}): FakeDiscountRow
     max_discounted_items: null,
     excludes_free_shipping: false,
     stacks_with_sale: false,
+    min_quantity: null,
     starts_at: null,
     ends_at: null,
     ...overrides,

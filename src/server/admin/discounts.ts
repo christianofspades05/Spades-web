@@ -67,6 +67,11 @@ function toRow(data: DiscountInput) {
     // completely different axis from the Store sale meaning, just sharing
     // the same column since only one applies per discount's own scope.
     stacks_with_sale: data.kind === 'automatic' ? data.stacksWithSale : false,
+    // Bundle deal: a store-wide automatic discount gated on item count.
+    min_quantity:
+      data.kind === 'automatic' && data.scope === 'all'
+        ? (data.minQuantity ?? null)
+        : null,
     starts_at: data.startsAt ? storeLocalDateTimeToUtcIso(data.startsAt) : null,
     ends_at: data.endsAt ? storeLocalDateTimeToUtcIso(data.endsAt) : null,
     is_active: data.isActive,
@@ -104,7 +109,9 @@ const discountsFilterSchema = z.object({
   // assignment, and "connected to an affiliate" is about the historical/
   // current link existing at all, not whether it's currently accepting
   // new attributions.
-  type: z.enum(['code', 'store', 'collection', 'affiliate']).optional(),
+  type: z
+    .enum(['code', 'store', 'collection', 'bundle', 'affiliate'])
+    .optional(),
 })
 
 /** Discount ids with at least one creator (affiliate) assignment — the
@@ -180,7 +187,13 @@ export const listDiscounts = createServerFn({ method: 'GET' })
     if (data.status) query = query.eq('status', data.status)
     if (data.type === 'code') query = query.eq('kind', 'code')
     if (data.type === 'store') {
-      query = query.eq('kind', 'automatic').eq('scope', 'all')
+      query = query
+        .eq('kind', 'automatic')
+        .eq('scope', 'all')
+        .is('min_quantity', null)
+    }
+    if (data.type === 'bundle') {
+      query = query.eq('kind', 'automatic').not('min_quantity', 'is', null)
     }
     if (data.type === 'collection') {
       query = query.eq('kind', 'automatic').eq('scope', 'collection')
@@ -223,7 +236,13 @@ export const getDiscountsCount = createServerFn({ method: 'GET' })
     if (data.status) query = query.eq('status', data.status)
     if (data.type === 'code') query = query.eq('kind', 'code')
     if (data.type === 'store') {
-      query = query.eq('kind', 'automatic').eq('scope', 'all')
+      query = query
+        .eq('kind', 'automatic')
+        .eq('scope', 'all')
+        .is('min_quantity', null)
+    }
+    if (data.type === 'bundle') {
+      query = query.eq('kind', 'automatic').not('min_quantity', 'is', null)
     }
     if (data.type === 'collection') {
       query = query.eq('kind', 'automatic').eq('scope', 'collection')

@@ -105,6 +105,9 @@ export interface Translations {
     /** Shown under the applied-discount banner when a code is stacked on
      *  top of an active store-wide sale — e.g. "+ Summer Sale". */
     stackedWithSale: (saleTitle: string) => string
+    /** Bundle deal hint, e.g. "Add 1 more item to get 10% off" — `rate` is
+     *  already formatted ("10% off" / "₱100 off"). */
+    bundleNudge: (itemsNeeded: number, rate: string) => string
     total: string
     checkout: string
     /** Under the cart total — the fee depends on the address, which the
@@ -383,6 +386,8 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `Discount applies to ${discounted} of ${total}`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      bundleNudge: (itemsNeeded, rate) =>
+        `Add ${itemsNeeded} more ${itemsNeeded === 1 ? 'item' : 'items'} to get an extra ${rate}`,
       total: 'Total',
       checkout: 'Checkout',
       shippingNote: 'Shipping is calculated at checkout',
@@ -430,7 +435,8 @@ export const translations: Record<Language, Translations> = {
       continueToPay: (amount) => `Continue to pay — ${amount}`,
       placeOrder: (amount) => `Place order — ${amount}`,
       missingDeliveryTitle: 'Missing delivery details',
-      missingDeliveryBody: 'Please fill in your contact and delivery information first.',
+      missingDeliveryBody:
+        'Please fill in your contact and delivery information first.',
       backToCheckout: 'Back to checkout',
       paymentFailedError:
         'Your online payment didn’t go through. You can try again or choose Cash on Delivery instead.',
@@ -488,8 +494,7 @@ export const translations: Record<Language, Translations> = {
       sending: 'Sending…',
       send: 'Send',
       customersHeading: 'Let customers speak for us',
-      fromReviews: (count) =>
-        `from ${count} review${count === 1 ? '' : 's'}`,
+      fromReviews: (count) => `from ${count} review${count === 1 ? '' : 's'}`,
       noReviewsYet:
         'No reviews yet — be the first to leave one after your order arrives.',
       verifiedBuyer: 'Verified buyer',
@@ -520,8 +525,7 @@ export const translations: Record<Language, Translations> = {
       cancelOrderBody: 'Let us know why — this helps us follow up if needed.',
       cancelReasonPlaceholder:
         'e.g. Ordered by mistake, found it cheaper elsewhere…',
-      cancelReasonRequired:
-        'Please tell us why you want to cancel this order.',
+      cancelReasonRequired: 'Please tell us why you want to cancel this order.',
       neverMind: 'Never mind',
       confirmCancellation: 'Confirm cancellation',
       cancelling: 'Cancelling…',
@@ -667,6 +671,8 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `割引は${total}点中${discounted}点に適用されます`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      bundleNudge: (itemsNeeded, rate) =>
+        `あと${itemsNeeded}点追加で、さらに${rate}`,
       total: '合計',
       checkout: 'レジに進む',
       shippingNote: '送料はレジで計算されます',
@@ -764,7 +770,8 @@ export const translations: Record<Language, Translations> = {
     reviews: {
       feedbackHeading:
         'ご意見・ご要望はありますか？あなたの声で私たちをより良くしてください',
-      feedbackThanks: 'ありがとうございます — ご意見をお寄せいただき感謝いたします！',
+      feedbackThanks:
+        'ありがとうございます — ご意見をお寄せいただき感謝いたします！',
       name: 'お名前',
       email: 'メールアドレス *',
       phoneNumber: '電話番号',
@@ -950,6 +957,8 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `할인은 ${total}개 중 ${discounted}개에 적용됩니다`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      bundleNudge: (itemsNeeded, rate) =>
+        `${itemsNeeded}개 더 담으면 추가 ${rate}`,
       total: '합계',
       checkout: '결제하기',
       shippingNote: '배송비는 결제 시 계산됩니다',
@@ -1045,7 +1054,8 @@ export const translations: Record<Language, Translations> = {
       blanks: '무지 아이템',
     },
     reviews: {
-      feedbackHeading: '추천하고 싶은 점이 있으신가요? 소중한 의견으로 저희를 발전시켜 주세요',
+      feedbackHeading:
+        '추천하고 싶은 점이 있으신가요? 소중한 의견으로 저희를 발전시켜 주세요',
       feedbackThanks: '감사합니다 — 소중한 의견 감사드립니다!',
       name: '이름',
       email: '이메일 *',
@@ -1055,7 +1065,8 @@ export const translations: Record<Language, Translations> = {
       send: '보내기',
       customersHeading: '고객들의 후기',
       fromReviews: (count) => `리뷰 ${count}개 기준`,
-      noReviewsYet: '아직 리뷰가 없습니다 — 주문하신 상품이 도착하면 첫 번째 리뷰를 남겨보세요.',
+      noReviewsYet:
+        '아직 리뷰가 없습니다 — 주문하신 상품이 도착하면 첫 번째 리뷰를 남겨보세요.',
       verifiedBuyer: '구매 확인됨',
       goToReviewPage: (page) => `리뷰 페이지 ${page}로 이동`,
     },
@@ -1083,7 +1094,8 @@ export const translations: Record<Language, Translations> = {
       cancelOrderTitle: '이 주문을 취소하시겠어요?',
       cancelOrderBody:
         '이유를 알려주세요 — 필요할 경우 후속 조치에 도움이 됩니다.',
-      cancelReasonPlaceholder: '예: 실수로 주문함, 다른 곳에서 더 저렴하게 발견함…',
+      cancelReasonPlaceholder:
+        '예: 실수로 주문함, 다른 곳에서 더 저렴하게 발견함…',
       cancelReasonRequired: '이 주문을 취소하려는 이유를 알려주세요.',
       neverMind: '취소하지 않기',
       confirmCancellation: '취소 확정',
@@ -1114,7 +1126,8 @@ export const translations: Record<Language, Translations> = {
       codeResent: '새 코드가 전송되었습니다.',
       forgotPassword: '비밀번호를 잊으셨나요?',
       forgotPasswordHeading: '비밀번호 재설정',
-      forgotPasswordBody: '이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.',
+      forgotPasswordBody:
+        '이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.',
       sendResetLink: '재설정 링크 보내기',
       sendingResetLink: '전송 중…',
       resetLinkSentBody:
@@ -1229,6 +1242,7 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `折扣適用於${total}件中的${discounted}件`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      bundleNudge: (itemsNeeded, rate) => `再加${itemsNeeded}件，額外享${rate}`,
       total: '合計',
       checkout: '結帳',
       shippingNote: '運費將於結帳時計算',
@@ -1278,8 +1292,7 @@ export const translations: Record<Language, Translations> = {
       missingDeliveryTitle: '缺少收件資訊',
       missingDeliveryBody: '請先填寫聯絡資訊與收件資訊。',
       backToCheckout: '返回結帳',
-      paymentFailedError:
-        '線上付款未完成。您可以重新嘗試，或改選貨到付款。',
+      paymentFailedError: '線上付款未完成。您可以重新嘗試，或改選貨到付款。',
     },
     confirmation: {
       orderPlaced: '訂單已送出！',
@@ -1324,8 +1337,7 @@ export const translations: Record<Language, Translations> = {
       blanks: '素面款',
     },
     reviews: {
-      feedbackHeading:
-        '有什麼建議嗎？歡迎分享您的想法，幫助我們做得更好',
+      feedbackHeading: '有什麼建議嗎？歡迎分享您的想法，幫助我們做得更好',
       feedbackThanks: '謝謝您 — 我們非常感謝您的意見！',
       name: '姓名',
       email: '電子郵件 *',
@@ -1335,8 +1347,7 @@ export const translations: Record<Language, Translations> = {
       send: '傳送',
       customersHeading: '顧客怎麼說',
       fromReviews: (count) => `來自${count}則評價`,
-      noReviewsYet:
-        '目前尚無評價 — 收到商品後，歡迎成為第一位留下評價的人。',
+      noReviewsYet: '目前尚無評價 — 收到商品後，歡迎成為第一位留下評價的人。',
       verifiedBuyer: '已驗證買家',
       goToReviewPage: (page) => `前往評價第${page}頁`,
     },
@@ -1363,8 +1374,7 @@ export const translations: Record<Language, Translations> = {
       writeReview: '撰寫評價',
       cancelOrderTitle: '確定要取消此訂單嗎？',
       cancelOrderBody: '請告訴我們原因 — 有助於我們在需要時進行後續處理。',
-      cancelReasonPlaceholder:
-        '例如：不小心下錯單、在別處找到更便宜的價格…',
+      cancelReasonPlaceholder: '例如：不小心下錯單、在別處找到更便宜的價格…',
       cancelReasonRequired: '請告訴我們您想取消此訂單的原因。',
       neverMind: '不用了',
       confirmCancellation: '確認取消',
@@ -1395,8 +1405,7 @@ export const translations: Record<Language, Translations> = {
       codeResent: '新的驗證碼已傳送。',
       forgotPassword: '忘記密碼？',
       forgotPasswordHeading: '重設您的密碼',
-      forgotPasswordBody:
-        '請輸入您的電子郵件，我們將傳送重設密碼的連結給您。',
+      forgotPasswordBody: '請輸入您的電子郵件，我們將傳送重設密碼的連結給您。',
       sendResetLink: '傳送重設連結',
       sendingResetLink: '傳送中…',
       resetLinkSentBody:
@@ -1411,8 +1420,7 @@ export const translations: Record<Language, Translations> = {
       updatePassword: '更新密碼',
       resetLinkExpired: '此重設連結無效或已過期，請重新申請。',
       thanksForReview: '感謝您的評價！',
-      reviewAppreciation:
-        '感謝您撥出時間 — 審核通過後將顯示於商品頁面。',
+      reviewAppreciation: '感謝您撥出時間 — 審核通過後將顯示於商品頁面。',
       backToAccount: '返回我的帳戶',
       allDone: '全部完成！',
       alreadyReviewed: (orderNumber) =>

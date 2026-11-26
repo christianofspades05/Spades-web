@@ -36,6 +36,7 @@ export type AutomaticDiscount = Pick<
   | 'max_discounted_items'
   | 'excludes_free_shipping'
   | 'stacks_with_sale'
+  | 'min_quantity'
 >
 
 /** Tag both the cache entry and its invalidation share — bumped by every
@@ -87,7 +88,10 @@ function isAutomaticDiscountRowArray(
         'type' in d &&
         'scope' in d &&
         'starts_at' in d &&
-        'ends_at' in d,
+        'ends_at' in d &&
+        // Rows cached before min_quantity existed would otherwise read back
+        // as "not a bundle" (undefined) — treat them as stale instead.
+        'min_quantity' in d,
     )
   )
 }
@@ -105,7 +109,7 @@ async function fetchActiveAutomaticDiscountRows(
   const { data, error } = await admin
     .from('discounts')
     .select(
-      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, stacks_with_sale, starts_at, ends_at',
+      'id, code, title, type, value, scope, scope_ids, excluded_collection_ids, max_discounted_items, excludes_free_shipping, stacks_with_sale, min_quantity, starts_at, ends_at',
     )
     .eq('kind', 'automatic')
     .eq('is_active', true)
@@ -113,9 +117,7 @@ async function fetchActiveAutomaticDiscountRows(
   return data
 }
 
-function applyActiveWindow(
-  rows: AutomaticDiscountRow[],
-): AutomaticDiscount[] {
+function applyActiveWindow(rows: AutomaticDiscountRow[]): AutomaticDiscount[] {
   const now = Date.now()
   return rows.filter((d) => {
     if (d.starts_at && new Date(d.starts_at).getTime() > now) return false
@@ -220,6 +222,9 @@ export async function resolveSalePrices(
   items: { id: string; productId?: string; priceCents: number }[],
 ): Promise<Map<string, ProductSale>> {
   const result = new Map<string, ProductSale>()
+  // Bundle deals (min_quantity set) never show as a product's own sale
+  // price — a single item doesn't qualify. They only apply in the cart.
+  activeDiscounts = activeDiscounts.filter((d) => d.min_quantity == null)
   if (activeDiscounts.length === 0 || items.length === 0) return result
 
   const products = items.map((item) => ({
@@ -265,17 +270,23 @@ export async function resolveSalePrices(
     }),
   )
 
-  const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(activeDiscounts)
+  const { additive, exclusive } =
+    splitAdditiveAndExclusiveDiscounts(activeDiscounts)
 
   for (const product of products) {
     let exclusiveBest: ProductSale | null = null
     for (const discount of exclusive) {
-      if (!eligibleProductIdsByDiscount.get(discount.id)?.has(product.productId)) {
+      if (
+        !eligibleProductIdsByDiscount.get(discount.id)?.has(product.productId)
+      ) {
         continue
       }
       const amountCents = discountAmountCents(discount, product.priceCents)
       if (amountCents <= 0) continue
-      if (!exclusiveBest || amountCents > product.priceCents - exclusiveBest.salePriceCents) {
+      if (
+        !exclusiveBest ||
+        amountCents > product.priceCents - exclusiveBest.salePriceCents
+      ) {
         exclusiveBest = {
           discountId: discount.id,
           discountTitle: discount.title,

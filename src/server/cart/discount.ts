@@ -106,12 +106,35 @@ function discountableBreakdown(
   }
 }
 
+function eligibleUnitCount(items: CartItemWithVariant[]): number {
+  return items.reduce((sum, item) => sum + item.quantity, 0)
+}
+
 async function eligibleItemsForDiscount(
   admin: Admin,
-  discount: Pick<Discount, 'scope' | 'scope_ids'>,
+  discount: Pick<Discount, 'scope' | 'scope_ids' | 'excluded_collection_ids'>,
   items: CartItemWithVariant[],
 ): Promise<CartItemWithVariant[]> {
-  if (discount.scope === 'all') return items
+  if (discount.scope === 'all') {
+    // A store-wide sale's excluded collections (see DiscountForm's "Exclude
+    // collections from this sale") must be left out here too, matching
+    // resolveSalePrices on the storefront — otherwise an excluded item
+    // shows full price on its product page but still gets the sale in the
+    // cart.
+    if (discount.excluded_collection_ids.length === 0) return items
+    const productIds = Array.from(
+      new Set(items.map((item) => item.variant.product.id)),
+    )
+    if (productIds.length === 0) return []
+    const excludedProductIds = await resolveCollectionScopedProductIds(
+      admin,
+      discount.excluded_collection_ids,
+      productIds,
+    )
+    return items.filter(
+      (item) => !excludedProductIds.has(item.variant.product.id),
+    )
+  }
 
   if (discount.scope === 'variant') {
     return items.filter((item) => discount.scope_ids.includes(item.variant_id))
@@ -150,13 +173,22 @@ async function appliedDiscountFor(
     | 'value'
     | 'scope'
     | 'scope_ids'
+    | 'excluded_collection_ids'
     | 'max_discounted_items'
     | 'excludes_free_shipping'
+    | 'min_quantity'
   >,
   items: CartItemWithVariant[],
 ): Promise<AppliedCartDiscount | null> {
   const eligible = await eligibleItemsForDiscount(admin, discount, items)
   if (eligible.length === 0) return null
+  // Bundle deal: only applies once the cart holds enough eligible items.
+  if (
+    discount.min_quantity != null &&
+    eligibleUnitCount(eligible) < discount.min_quantity
+  ) {
+    return null
+  }
   const { subtotalCents: eligibleSubtotalCents, units } = discountableBreakdown(
     eligible,
     discount.max_discounted_items,
@@ -239,8 +271,10 @@ async function combineAdditiveAndExclusiveDiscounts(
     | 'value'
     | 'scope'
     | 'scope_ids'
+    | 'excluded_collection_ids'
     | 'max_discounted_items'
     | 'excludes_free_shipping'
+    | 'min_quantity'
   >[],
   exclusiveDiscounts: Pick<
     Discount,
@@ -251,8 +285,10 @@ async function combineAdditiveAndExclusiveDiscounts(
     | 'value'
     | 'scope'
     | 'scope_ids'
+    | 'excluded_collection_ids'
     | 'max_discounted_items'
     | 'excludes_free_shipping'
+    | 'min_quantity'
   >[],
 ): Promise<AppliedCartDiscount | null> {
   const appliedAdditive: AppliedCartDiscount[] = []
@@ -411,13 +447,22 @@ export async function resolveDiscountForCart(
   const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(
     activeAutomaticDiscounts,
   )
-  const activeSaleAllowsCodeStacking = additive.some(
+  // Bundle deals carry their own "codes can stack on top" switch, so they're
+  // decided separately from regular sales: a bundle that allows it stays
+  // alongside the code; one that doesn't is replaced by the code.
+  const bundles = additive.filter((d) => d.min_quantity != null)
+  const sales = additive.filter((d) => d.min_quantity == null)
+  const activeSaleAllowsCodeStacking = sales.some(
     (d) => d.scope === 'all' && d.stacks_with_sale,
   )
   return combineAdditiveAndExclusiveDiscounts(
     admin,
     items,
-    activeSaleAllowsCodeStacking ? [discount, ...additive] : [discount],
+    [
+      discount,
+      ...(activeSaleAllowsCodeStacking ? sales : []),
+      ...bundles.filter((d) => d.stacks_with_sale),
+    ],
     exclusive,
   )
 }
@@ -440,6 +485,50 @@ export async function resolveAutomaticDiscountsForCart(
   const { additive, exclusive } =
     splitAdditiveAndExclusiveDiscounts(activeDiscounts)
   return combineAdditiveAndExclusiveDiscounts(admin, items, additive, exclusive)
+}
+
+export interface BundleNudge {
+  title: string
+  /** How many more eligible items the cart needs to unlock the deal. */
+  itemsNeeded: number
+  type: Discount['type']
+  value: number
+}
+
+/**
+ * The active bundle deal closest to being unlocked, for the cart's "add N
+ * more items" hint — null when there's no bundle deal running, or every
+ * one already applies. With a code attached, only bundles that let codes
+ * stack count (any other bundle is replaced by the code, so promising it
+ * would be wrong — see resolveDiscountForCart).
+ */
+export async function resolveBundleNudge(
+  admin: Admin,
+  items: CartItemWithVariant[],
+  hasCodeAttached: boolean,
+): Promise<BundleNudge | null> {
+  if (items.length === 0) return null
+  const bundles = (await getActiveAutomaticDiscounts(admin)).filter(
+    (d): d is typeof d & { min_quantity: number } =>
+      d.min_quantity != null && (!hasCodeAttached || d.stacks_with_sale),
+  )
+  if (bundles.length === 0) return null
+
+  let best: BundleNudge | null = null
+  for (const bundle of bundles) {
+    const eligible = await eligibleItemsForDiscount(admin, bundle, items)
+    const itemsNeeded = bundle.min_quantity - eligibleUnitCount(eligible)
+    if (itemsNeeded <= 0) continue
+    if (!best || itemsNeeded < best.itemsNeeded) {
+      best = {
+        title: bundle.title,
+        itemsNeeded,
+        type: bundle.type,
+        value: bundle.value,
+      }
+    }
+  }
+  return best
 }
 
 /** Throws a user-facing message if a discount is inactive, outside its date window, or has hit its usage cap. Shared by the cart-apply step and the final checkout re-check. */

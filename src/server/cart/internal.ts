@@ -4,9 +4,10 @@ import type { CartItemWithVariant } from '#/types/entities'
 import {
   isDiscountRedeemable,
   resolveAutomaticDiscountsForCart,
+  resolveBundleNudge,
   resolveDiscountForCart,
 } from './discount'
-import type { AppliedCartDiscount } from './discount'
+import type { AppliedCartDiscount, BundleNudge } from './discount'
 import { resolveCodAvailability } from './cod-restrictions'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
@@ -38,6 +39,8 @@ export interface CartWithItems {
    *  this cart (see detachUnredeemableDiscount) — lets place-order refuse to
    *  charge a total the shopper never saw. */
   removedDiscountCode: string | null
+  /** "Add N more items to get X off" — see resolveBundleNudge. */
+  bundleNudge: BundleNudge | null
 }
 
 /** One query for every line's live stock, using the same rule as
@@ -113,10 +116,11 @@ export async function loadCartWithItems(
   const { discountId: attachedDiscountId, removedCode } =
     await detachUnredeemableDiscount(admin, cart.id, cart.discount_id)
 
-  const [codeDiscount, cod, stockIssues] = await Promise.all([
+  const [codeDiscount, cod, stockIssues, bundleNudge] = await Promise.all([
     resolveDiscountForCart(admin, attachedDiscountId, items),
     resolveCodAvailability(admin, items),
     findCartStockIssues(admin, items),
+    resolveBundleNudge(admin, items, attachedDiscountId !== null),
   ])
   // A customer-entered code always wins if one's attached — never silently
   // swapped out for an automatic sale, even a bigger one, since applying a
@@ -135,6 +139,7 @@ export async function loadCartWithItems(
     codUnavailableReason: cod.reason,
     stockIssues,
     removedDiscountCode: removedCode,
+    bundleNudge,
   }
 }
 
