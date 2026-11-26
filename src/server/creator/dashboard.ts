@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { commissionRateLabel } from '#/lib/creators/commission-label'
 import { setResponseHeader } from '@tanstack/react-start/server'
 import { requireCreator } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
@@ -21,7 +22,9 @@ export const getCreatorDashboard = createServerFn({ method: 'GET' }).handler(
       fetchAllRows((offset) =>
         db
           .from('creator_discount_assignments')
-          .select('id, discount_id, commission_bps, is_active, brand')
+          .select(
+            'id, discount_id, commission_bps, sale_commission_bps, sale_discount_percent, is_active, brand',
+          )
           .eq('creator_id', creator.id)
           .range(offset, offset + 999),
       ),
@@ -29,7 +32,7 @@ export const getCreatorDashboard = createServerFn({ method: 'GET' }).handler(
         db
           .from('order_creator_attributions')
           .select(
-            'order_id, code_snapshot, commission_bps, status, product_revenue_cents, earned_cents, paid_cents, hold_reasons, eligible_at, created_at',
+            'order_id, code_snapshot, commission_bps, rate_breakdown, status, product_revenue_cents, earned_cents, paid_cents, hold_reasons, eligible_at, created_at',
           )
           .eq('creator_id', creator.id)
           .order('created_at', { ascending: false })
@@ -77,6 +80,7 @@ export const getCreatorDashboard = createServerFn({ method: 'GET' }).handler(
       codes: assignments.map((a) => ({
         code: codeById.get(a.discount_id) ?? '(deleted code)',
         commissionBps: a.commission_bps,
+        saleCommissionBps: a.sale_commission_bps,
         isActive: a.is_active,
         brand: a.brand,
       })),
@@ -90,6 +94,7 @@ export const getCreatorDashboard = createServerFn({ method: 'GET' }).handler(
       orders: attributions.map((a) => ({
         orderNumber: orderNumberById.get(a.order_id) ?? '(removed order)',
         code: a.code_snapshot,
+        commissionLabel: commissionRateLabel(a),
         status: a.status,
         productRevenueCents: a.product_revenue_cents,
         earnedCents: a.earned_cents,

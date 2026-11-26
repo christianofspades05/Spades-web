@@ -117,6 +117,14 @@ export interface Translations {
     freeGiftChosen: string
     freeGiftChange: string
     freeGiftPickSize: string
+    /** Affiliate code on a cart where some lines are already on sale. */
+    affiliateSaleOnly: (
+      code: string,
+      salePct: string,
+      normalPct: string,
+    ) => string
+    /** Extra line when the cart mixes sale and full-price items. */
+    affiliateSaleMixed: (normalPct: string, salePct: string) => string
     free: string
     total: string
     checkout: string
@@ -406,6 +414,10 @@ export const translations: Record<Language, Translations> = {
       freeGiftChosen: 'Your free item',
       freeGiftChange: 'Change',
       freeGiftPickSize: 'Pick a size',
+      affiliateSaleOnly: (code, salePct, normalPct) =>
+        `🔥 Store-wide sale is on! Your code ${code} adds an extra ${salePct} on sale items. The code's full ${normalPct} works again after the sale.`,
+      affiliateSaleMixed: (normalPct, salePct) =>
+        `Extra ${normalPct} on full-price items, ${salePct} on sale items.`,
       free: 'FREE',
       total: 'Total',
       checkout: 'Checkout',
@@ -701,6 +713,10 @@ export const translations: Record<Language, Translations> = {
       freeGiftChosen: '無料アイテム',
       freeGiftChange: '変更',
       freeGiftPickSize: 'サイズを選択',
+      affiliateSaleOnly: (code, salePct, normalPct) =>
+        `🔥 ストア全体セール中！コード${code}はセール商品にさらに${salePct}オフ。セール終了後は通常の${normalPct}オフに戻ります。`,
+      affiliateSaleMixed: (normalPct, salePct) =>
+        `通常価格の商品は${normalPct}、セール商品は${salePct}オフ。`,
       free: '無料',
       total: '合計',
       checkout: 'レジに進む',
@@ -997,6 +1013,10 @@ export const translations: Record<Language, Translations> = {
       freeGiftChosen: '무료 아이템',
       freeGiftChange: '변경',
       freeGiftPickSize: '사이즈 선택',
+      affiliateSaleOnly: (code, salePct, normalPct) =>
+        `🔥 전체 세일 중! 코드 ${code}는 세일 상품에 추가 ${salePct} 할인됩니다. 세일이 끝나면 다시 ${normalPct} 할인이 적용돼요.`,
+      affiliateSaleMixed: (normalPct, salePct) =>
+        `정가 상품은 추가 ${normalPct}, 세일 상품은 추가 ${salePct} 할인.`,
       free: '무료',
       total: '합계',
       checkout: '결제하기',
@@ -1289,6 +1309,10 @@ export const translations: Record<Language, Translations> = {
       freeGiftChosen: '您的免費商品',
       freeGiftChange: '更換',
       freeGiftPickSize: '選擇尺寸',
+      affiliateSaleOnly: (code, salePct, normalPct) =>
+        `🔥 全館特賣中！優惠碼 ${code} 可在特價商品上再折 ${salePct}。特賣結束後恢復 ${normalPct} 折扣。`,
+      affiliateSaleMixed: (normalPct, salePct) =>
+        `原價商品再折 ${normalPct}，特價商品再折 ${salePct}。`,
       free: '免費',
       total: '合計',
       checkout: '結帳',

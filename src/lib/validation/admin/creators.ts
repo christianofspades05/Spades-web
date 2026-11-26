@@ -24,6 +24,9 @@ export const creatorCommandSchema = z.discriminatedUnion('action', [
     creatorId: id,
     discountId: id,
     commissionBps: z.number().int().min(0).max(10000),
+    // Affiliate sale mode — rates on cart lines already on sale (0135).
+    saleDiscountPercent: z.number().min(0).max(100).default(1),
+    saleCommissionBps: z.number().int().min(0).max(10000).default(200),
     holdDays: z.number().int().min(0).max(365).default(14),
     brand: z.enum(['spades', 'ysrael', 'aspire365']),
     isActive: z.boolean(),

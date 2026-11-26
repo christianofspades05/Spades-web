@@ -289,6 +289,19 @@ export const creatorCommand = createServerFn({ method: 'POST' })
       p_data: payload,
     })
     if (error) throw new Error(error.message)
+    if (data.action === 'assign_code') {
+      // Sale-mode rates (0135) live on the assignment but aren't part of
+      // creator_admin_command's assign_code — saved right after it. Only
+      // affects new orders: each order line snapshots its rate at checkout.
+      const { error: rateError } = await db
+        .from('creator_discount_assignments')
+        .update({
+          sale_discount_percent: data.saleDiscountPercent,
+          sale_commission_bps: data.saleCommissionBps,
+        })
+        .eq('discount_id', data.discountId)
+      if (rateError) throw new Error(rateError.message)
+    }
     if (action === 'assign_code' || action === 'save_creator')
       await invalidateDiscountConfigCache()
     if (data.action === 'expense' && data.kind === 'gift' && data.variantId) {

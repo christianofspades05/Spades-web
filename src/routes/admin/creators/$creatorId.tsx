@@ -1,4 +1,5 @@
 import { creatorTotals } from '#/lib/creators/totals'
+import { commissionRateLabel } from '#/lib/creators/commission-label'
 import { useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import {
@@ -231,7 +232,7 @@ function CreatorPage() {
                         {o.order_id.slice(0, 8)}
                       </Link>
                       <div className="text-xs text-neutral-500">
-                        {o.code_snapshot} · {o.commission_bps / 100}%
+                        {o.code_snapshot} · {commissionRateLabel(o)}
                       </div>
                     </td>
                     <td className={cell}>{money(o.product_revenue_cents)}</td>
@@ -471,6 +472,8 @@ function CodeForm({
           creatorId,
           discountId: assignment?.discount_id ?? String(f.get('discount')),
           commissionBps: Math.round(Number(f.get('rate')) * 100),
+          saleDiscountPercent: Number(f.get('saleDiscount')),
+          saleCommissionBps: Math.round(Number(f.get('saleRate')) * 100),
           holdDays: Number(f.get('hold')),
           brand:
             assignment?.brand === 'ysrael'
@@ -514,6 +517,38 @@ function CodeForm({
           className={input}
         />
       </label>
+      <label className="text-sm">
+        During sale: extra discount %
+        <input
+          name="saleDiscount"
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          required
+          defaultValue={assignment ? assignment.sale_discount_percent : 1}
+          className={input}
+        />
+      </label>
+      <label className="text-sm">
+        During sale: commission %
+        <input
+          name="saleRate"
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          required
+          defaultValue={assignment ? assignment.sale_commission_bps / 100 : 2}
+          className={input}
+        />
+      </label>
+      <p className="text-xs text-neutral-500 sm:col-span-3">
+        Affiliate codes always work, even during a sale. Items already on sale
+        get the &quot;during sale&quot; discount and commission; full-price
+        items get the code&apos;s normal discount and the commission above.
+        Changes apply to new orders only.
+      </p>
       <label className="text-sm">
         Hold after delivery (days)
         <input

@@ -10,6 +10,7 @@ import {
   getActiveAutomaticDiscounts,
   splitAdditiveAndExclusiveDiscounts,
 } from '#/server/storefront/automatic-sales'
+import type { AutomaticDiscount } from '#/server/storefront/automatic-sales'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import type { CartItemWithVariant, Discount } from '#/types/entities'
@@ -63,6 +64,23 @@ export interface AppliedCartDiscount {
     type: Discount['type']
     value: number
   }[]
+  /** Set only for a creator (affiliate) code — see resolveAffiliateCode.
+   *  Which lines got the sale rate vs the code's normal rate, and the
+   *  commission each earns, for the cart message and the order's per-line
+   *  commission snapshot. */
+  affiliate?: AffiliateCodeRates
+}
+
+export interface AffiliateCodeRates {
+  code: string
+  normalPercent: number
+  salePercent: number
+  normalCommissionBps: number
+  saleCommissionBps: number
+  /** Cart item ids already on sale — they get salePercent/saleCommissionBps. */
+  saleItemIds: string[]
+  /** Cart item ids at full price — normalPercent/normalCommissionBps. */
+  normalItemIds: string[]
 }
 
 function itemLineTotalCents(item: CartItemWithVariant): number {
@@ -403,14 +421,27 @@ async function combineAdditiveAndExclusiveDiscounts(
  * that collection keeps its own flat collection-sale rate regardless of
  * any code — see combineAdditiveAndExclusiveDiscounts.
  */
-async function assertCreatorCodeEligible(admin: Admin, discountId: string) {
+interface CreatorAssignmentRates {
+  commission_bps: number
+  sale_discount_percent: number
+  sale_commission_bps: number
+}
+
+/** Throws unless a creator code can be used on this store; returns the
+ *  code's assignment (its rates), or null for a non-creator code. */
+async function assertCreatorCodeEligible(
+  admin: Admin,
+  discountId: string,
+): Promise<CreatorAssignmentRates | null> {
   const { data: assignment, error } = await admin
     .from('creator_discount_assignments')
-    .select('creator_id, brand, is_active')
+    .select(
+      'creator_id, brand, is_active, commission_bps, sale_discount_percent, sale_commission_bps',
+    )
     .eq('discount_id', discountId)
     .maybeSingle()
   if (error) throw error
-  if (!assignment) return
+  if (!assignment) return null
   const { getStorefrontScope } = await import('#/server/storefront/domain')
   const scope = await getStorefrontScope()
   const { data: creator, error: creatorError } = await admin
@@ -425,6 +456,127 @@ async function assertCreatorCodeEligible(admin: Admin, discountId: string) {
     assignment.brand !== scope.brand
   )
     throw new Error('This creator code is not available on this store')
+  return {
+    commission_bps: assignment.commission_bps,
+    sale_discount_percent: Number(assignment.sale_discount_percent),
+    sale_commission_bps: assignment.sale_commission_bps,
+  }
+}
+
+/** A line counts as on sale when a store-wide or collection sale already
+ *  discounts it, or it's marked down against a compare-at price — the same
+ *  sales that, for other codes, decide whether the code replaces the sale. */
+export function isLineOnSale(
+  item: CartItemWithVariant,
+  saleAmountCents: number,
+): boolean {
+  if (saleAmountCents > 0) return true
+  const compareAt = item.variant.compare_at_price_cents
+  return compareAt != null && compareAt > item.price_cents_snapshot
+}
+
+/**
+ * Affiliate code "sale mode". The code always applies on top of whatever
+ * automatic sales the cart already gets: lines already on sale get an extra
+ * `sale_discount_percent` (default 1%) of their sale price, full-price
+ * lines get the code's own value (e.g. 10%). Commission follows the same
+ * split (sale_commission_bps vs commission_bps) and is snapshotted per
+ * order line at checkout. Bundle deals stay on only when their own "codes
+ * can stack" switch is on, same as for any other code.
+ */
+export async function resolveAffiliateCode(
+  admin: Admin,
+  discount: Discount,
+  rates: CreatorAssignmentRates,
+  items: CartItemWithVariant[],
+  additive: AutomaticDiscount[],
+  exclusive: AutomaticDiscount[],
+): Promise<AppliedCartDiscount | null> {
+  // Bundle and free gift deals (min_quantity set) aren't "sales" here.
+  const sales = additive.filter((d) => d.min_quantity == null)
+  const stackingBundles = additive.filter(
+    (d) => d.min_quantity != null && d.stacks_with_sale,
+  )
+
+  const [saleOnly, automatic] = await Promise.all([
+    combineAdditiveAndExclusiveDiscounts(admin, items, sales, exclusive),
+    combineAdditiveAndExclusiveDiscounts(
+      admin,
+      items,
+      [...sales, ...stackingBundles],
+      exclusive,
+    ),
+  ])
+  const amountFor = (result: AppliedCartDiscount | null, itemId: string) =>
+    result?.itemBreakdown.find((e) => e.cartItemId === itemId)
+      ?.discountedAmountCents ?? 0
+
+  const saleItemIds: string[] = []
+  const normalItemIds: string[] = []
+  const itemBreakdown: ItemBreakdownEntry[] = []
+  let amountCents = 0
+  let codeAmountCents = 0
+  for (const item of items) {
+    const lineTotal = itemLineTotalCents(item)
+    const automaticCents = Math.min(amountFor(automatic, item.id), lineTotal)
+    const onSale = isLineOnSale(item, amountFor(saleOnly, item.id))
+    ;(onSale ? saleItemIds : normalItemIds).push(item.id)
+    const percent = onSale ? rates.sale_discount_percent : discount.value
+    const codeCents = Math.round(((lineTotal - automaticCents) * percent) / 100)
+    const lineCents = Math.min(lineTotal, automaticCents + codeCents)
+    codeAmountCents += lineCents - automaticCents
+    amountCents += lineCents
+    if (lineCents > 0) {
+      itemBreakdown.push({
+        cartItemId: item.id,
+        discountedUnits: item.quantity,
+        discountedAmountCents: lineCents,
+      })
+    }
+  }
+
+  const stackedWith: AppliedCartDiscount['stackedWith'] = []
+  if (automatic) {
+    const othersCents = automatic.stackedWith.reduce(
+      (sum, s) => sum + s.amountCents,
+      0,
+    )
+    stackedWith.push(
+      {
+        title: automatic.title,
+        amountCents: Math.max(0, automatic.amountCents - othersCents),
+        type: automatic.type,
+        value: automatic.value,
+      },
+      ...automatic.stackedWith,
+    )
+  }
+  if (amountCents <= 0 || codeAmountCents <= 0) {
+    // Nothing for the code to add (e.g. everything already free) — still
+    // report the sales so the cart total stays right.
+    if (!automatic) return null
+  }
+
+  return {
+    id: discount.id,
+    code: discount.code,
+    title: discount.title,
+    type: discount.type,
+    value: discount.value,
+    amountCents,
+    excludesFreeShipping: discount.excludes_free_shipping,
+    stackedWith,
+    itemBreakdown,
+    affiliate: {
+      code: discount.code ?? discount.title,
+      normalPercent: discount.value,
+      salePercent: rates.sale_discount_percent,
+      normalCommissionBps: rates.commission_bps,
+      saleCommissionBps: rates.sale_commission_bps,
+      saleItemIds,
+      normalItemIds,
+    },
+  }
 }
 
 export async function resolveDiscountForCart(
@@ -441,12 +593,29 @@ export async function resolveDiscountForCart(
     .maybeSingle()
   if (error) throw error
   if (!discount || !discount.is_active) return null
-  await assertCreatorCodeEligible(admin, discount.id)
+  const creatorRates = await assertCreatorCodeEligible(admin, discount.id)
 
   const activeAutomaticDiscounts = await getActiveAutomaticDiscounts(admin)
   const { additive, exclusive } = splitAdditiveAndExclusiveDiscounts(
     activeAutomaticDiscounts,
   )
+
+  // Affiliate codes always apply, sale or not (sale mode) — every other
+  // code keeps the stacking rules below.
+  if (
+    creatorRates &&
+    discount.type === 'percentage' &&
+    discount.scope === 'all'
+  ) {
+    return resolveAffiliateCode(
+      admin,
+      discount,
+      creatorRates,
+      items,
+      additive,
+      exclusive,
+    )
+  }
   // Bundle deals carry their own "codes can stack on top" switch, so they're
   // decided separately from regular sales: a bundle that allows it stays
   // alongside the code; one that doesn't is replaced by the code.

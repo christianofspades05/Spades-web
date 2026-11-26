@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { AffiliateSaleNote } from '#/components/storefront/AffiliateSaleNote'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
 import { CartStockWarning } from '#/components/storefront/CartStockWarning'
@@ -319,6 +320,7 @@ function CartPage() {
                   </span>
                 ))}
               </p>
+              <AffiliateSaleNote affiliate={discount.affiliate} />
             </div>
             <button
               type="button"

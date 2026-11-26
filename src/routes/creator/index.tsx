@@ -34,7 +34,8 @@ function CreatorDashboardPage() {
                 : 'border-neutral-200 bg-neutral-100 text-neutral-500'
             }`}
           >
-            {c.code} · {c.commissionBps / 100}% commission
+            {c.code} · {c.commissionBps / 100}% commission (
+            {c.saleCommissionBps / 100}% on sale items)
             {!c.isActive && ' · inactive'}
           </span>
         ))}
@@ -76,7 +77,12 @@ function CreatorDashboardPage() {
             <tbody>
               {data.orders.map((o, i) => (
                 <tr key={i}>
-                  <td className={cell}>{o.orderNumber}</td>
+                  <td className={cell}>
+                    {o.orderNumber}
+                    <div className="text-xs text-neutral-500">
+                      {o.commissionLabel}
+                    </div>
+                  </td>
                   <td className={cell}>
                     {new Date(o.createdAt).toLocaleDateString()}
                   </td>

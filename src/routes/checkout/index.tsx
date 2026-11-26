@@ -40,6 +40,7 @@ import {
 import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { AffiliateSaleNote } from '#/components/storefront/AffiliateSaleNote'
 import {
   centsToMajorUnits,
   convertCents,
@@ -1412,6 +1413,7 @@ function CheckoutPage() {
                       </span>
                     ))}
                   </p>
+                  <AffiliateSaleNote affiliate={discount.affiliate} />
                 </div>
                 <button
                   type="button"

@@ -548,6 +548,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             )?.discountedAmountCents ?? 0,
         })),
       )
+      const affiliate = cart.discount?.affiliate ?? null
       const itemsPayload: CheckoutReservationItem[] = cart.items.map(
         (item, index) => {
           const lineSubtotalCents = item.quantity * item.price_cents_snapshot
@@ -571,6 +572,13 @@ export const placeOrder = createServerFn({ method: 'POST' })
             lineTotalCents: lineSubtotalCents,
             ...chargedAmounts[index],
             unitCostCentsSnapshot: item.variant.cost_cents,
+            // Affiliate sale mode: the rate this line's commission is
+            // earned at, fixed now so later rate edits don't touch it.
+            creatorCommissionBps: affiliate
+              ? affiliate.saleItemIds.includes(item.id)
+                ? affiliate.saleCommissionBps
+                : affiliate.normalCommissionBps
+              : null,
             isPreOrder: preOrderVariantIds.has(item.variant_id),
           }
         },
@@ -664,6 +672,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           charged_product_cents: item.chargedProductCents,
           charged_discount_cents: item.chargedDiscountCents,
           unit_cost_cents_snapshot: item.unitCostCentsSnapshot,
+          creator_commission_bps: item.creatorCommissionBps ?? null,
           is_pre_order: item.isPreOrder,
         }))
         const { error: itemsError } = await admin

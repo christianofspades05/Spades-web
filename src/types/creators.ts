@@ -18,6 +18,10 @@ export interface CreatorAssignment {
   creator_id: string
   discount_id: string
   commission_bps: number
+  /** Affiliate sale mode (0135): extra % off on lines already on sale. */
+  sale_discount_percent: number
+  /** Commission on lines already on sale. */
+  sale_commission_bps: number
   hold_days: number | null
   brand: string
   is_active: boolean
@@ -41,6 +45,14 @@ export interface CreatorAttribution {
   approved_at: string | null
   approved_by: string | null
   revision: number
+  /** Blended rate the order actually earned at (0135); null when revenue 0. */
+  effective_commission_bps: number | null
+  /** Per-line rate audit trail (0135). */
+  rate_breakdown: {
+    order_item_id: string
+    rate_bps: number
+    revenue_cents: number
+  }[]
   created_at: string
   updated_at: string
 }

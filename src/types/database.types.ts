@@ -66,6 +66,9 @@ export interface CheckoutReservationItem {
   chargedProductCents?: number
   chargedDiscountCents?: number
   unitCostCentsSnapshot?: number | null
+  /** Affiliate commission rate for this line, set at checkout when an
+   *  affiliate code is used (sale vs normal rate — see 0135). */
+  creatorCommissionBps?: number | null
   /** Snapshotted at checkout — whether this was reserved against pre-order
    *  stock (reserve_pre_order_stock) rather than real inventory. Determines
    *  whether mintOrderFromReservation can commit_variant_stock for this
@@ -738,6 +741,8 @@ export interface Database {
             charged_product_cents: number | null
             charged_discount_cents: number | null
             unit_cost_cents_snapshot: number | null
+            /** Affiliate commission rate for this line (0135). */
+            creator_commission_bps: number | null
             external_variant_id: string | null
             is_pre_order: boolean
             pre_order_stock_arrived_at: string | null

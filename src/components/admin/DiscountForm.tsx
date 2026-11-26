@@ -462,10 +462,12 @@ export function DiscountForm({
         )}
         {storeWide && (
           <p className="-mt-2 text-xs font-normal text-neutral-500">
-            Off by default — a customer's code just replaces this sale's price.
-            Check this so codes add to it instead, e.g. this 15% sale + a 10%
-            Abandoned Cart code = 25% off. Controlled here so you flip it once
-            per sale instead of on every individual code.
+            For promo codes like Abandoned Cart and Welcome. Off by default —
+            the code just replaces this sale&apos;s price. Check this so they
+            add to it instead, e.g. this 15% sale + a 10% Abandoned Cart code =
+            25% off. Affiliate codes don&apos;t need this: they always work
+            during a sale, adding their own &quot;during sale&quot; extra
+            discount (set on the creator&apos;s page).
           </p>
         )}
 
