@@ -40,6 +40,7 @@ import {
 import { ncrProvinceFallback } from '#/lib/utils/ph-region'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { DiscountBreakdown } from '#/components/storefront/DiscountBreakdown'
 import { AffiliateSaleNote } from '#/components/storefront/AffiliateSaleNote'
 import {
   centsToMajorUnits,
@@ -1465,12 +1466,12 @@ function CheckoutPage() {
               </span>
               <span className="font-medium">{formatPrice(subtotalCents)}</span>
             </div>
-            {chargedDiscountCents > 0 && (
-              <div className="flex items-center justify-between text-green-700 dark:text-green-400">
-                <span>{t.payment.discount}</span>
-                <span>-{formatPrice(chargedDiscountCents)}</span>
-              </div>
-            )}
+            <DiscountBreakdown
+              discount={discount}
+              totalCents={chargedDiscountCents}
+              formatPrice={formatPrice}
+              label={t.payment.discount}
+            />
             <div className="flex items-center justify-between">
               <span className="text-neutral-600 dark:text-neutral-400">
                 {t.payment.shipping}

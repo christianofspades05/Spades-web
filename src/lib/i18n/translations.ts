@@ -105,6 +105,8 @@ export interface Translations {
     /** Shown under the applied-discount banner when a code is stacked on
      *  top of an active store-wide sale — e.g. "+ Summer Sale". */
     stackedWithSale: (saleTitle: string) => string
+    discountCodeLine: (code: string) => string
+    bundleLine: (rate: string, minQuantity: number) => string
     /** Bundle deal hint, e.g. "Add 1 more item to get 10% off" — `rate` is
      *  already formatted ("10% off" / "₱100 off"). */
     bundleNudge: (itemsNeeded: number, rate: string) => string
@@ -404,6 +406,9 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `Discount applies to ${discounted} of ${total}`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      discountCodeLine: (code) => `Code ${code}`,
+      bundleLine: (rate, minQuantity) =>
+        `Bundle deal: extra ${rate} (${minQuantity}+ items)`,
       bundleNudge: (itemsNeeded, rate) =>
         `Add ${itemsNeeded} more ${itemsNeeded === 1 ? 'item' : 'items'} to get an extra ${rate}`,
       freeGiftNudge: (itemsNeeded) =>
@@ -702,6 +707,9 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `割引は${total}点中${discounted}点に適用されます`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      discountCodeLine: (code) => `コード ${code}`,
+      bundleLine: (rate, minQuantity) =>
+        `まとめ買い: さらに${rate}（${minQuantity}点以上）`,
       bundleNudge: (itemsNeeded, rate) =>
         `あと${itemsNeeded}点追加で、さらに${rate}`,
       freeGiftNudge: (itemsNeeded) =>
@@ -1002,6 +1010,9 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `할인은 ${total}개 중 ${discounted}개에 적용됩니다`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      discountCodeLine: (code) => `코드 ${code}`,
+      bundleLine: (rate, minQuantity) =>
+        `묶음 할인: 추가 ${rate} (${minQuantity}개 이상)`,
       bundleNudge: (itemsNeeded, rate) =>
         `${itemsNeeded}개 더 담으면 추가 ${rate}`,
       freeGiftNudge: (itemsNeeded) =>
@@ -1301,6 +1312,9 @@ export const translations: Record<Language, Translations> = {
       discountAppliesTo: (discounted, total) =>
         `折扣適用於${total}件中的${discounted}件`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
+      discountCodeLine: (code) => `优惠码 ${code}`,
+      bundleLine: (rate, minQuantity) =>
+        `组合优惠：额外 ${rate}（${minQuantity} 件及以上）`,
       bundleNudge: (itemsNeeded, rate) => `再加${itemsNeeded}件，額外享${rate}`,
       freeGiftNudge: (itemsNeeded) => `再加${itemsNeeded}件即可獲得免費商品`,
       freeGiftUnlocked: '您已獲得免費商品 — 請在結帳時選擇',

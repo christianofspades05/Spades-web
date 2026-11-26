@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useCart } from '#/lib/cart/CartContext'
 import { useCurrency } from '#/lib/currency/CurrencyContext'
 import { useLanguage } from '#/lib/i18n/LanguageContext'
+import { DiscountBreakdown } from '#/components/storefront/DiscountBreakdown'
 import { AffiliateSaleNote } from '#/components/storefront/AffiliateSaleNote'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
@@ -361,12 +362,13 @@ function CartPage() {
             {formatPrice(subtotalCents)}
           </span>
         </div>
-        {discountCents > 0 && (
-          <div className="mt-2 flex items-center justify-between text-green-700 dark:text-green-400">
-            <span>{t.cart.discount}</span>
-            <span>-{formatPrice(discountCents)}</span>
-          </div>
-        )}
+        <DiscountBreakdown
+          discount={discount}
+          totalCents={discountCents}
+          formatPrice={formatPrice}
+          label={t.cart.discount}
+          className="mt-2 flex items-center justify-between text-green-700 dark:text-green-400"
+        />
         <div className="mt-3 flex items-center justify-between border-t border-neutral-200 pt-3 text-lg font-semibold dark:border-neutral-800">
           <span>{t.cart.total}</span>
           <span>{formatPrice(totalCents)}</span>

@@ -63,7 +63,12 @@ export interface AppliedCartDiscount {
     amountCents: number
     type: Discount['type']
     value: number
+    /** Set for a bundle deal (discounts.min_quantity) — lets the cart show
+     *  "+10% (3+ items)" on its own breakdown line. */
+    minQuantity?: number | null
   }[]
+  /** discounts.min_quantity of the leading discount (bundle deals). */
+  minQuantity?: number | null
   /** Set only for a creator (affiliate) code — see resolveAffiliateCode.
    *  Which lines got the sale rate vs the code's normal rate, and the
    *  commission each earns, for the cart message and the order's per-line
@@ -250,6 +255,7 @@ async function appliedDiscountFor(
     value: discount.value,
     amountCents,
     excludesFreeShipping: discount.excludes_free_shipping,
+    minQuantity: discount.min_quantity ?? null,
     stackedWith: [],
     itemBreakdown: Array.from(perItem, ([cartItemId, entry]) => ({
       cartItemId,
@@ -396,14 +402,27 @@ async function combineAdditiveAndExclusiveDiscounts(
     allApplied.reduce((best, applied) =>
       applied.amountCents > best.amountCents ? applied : best,
     )
+  // What each discount actually contributed to the combined total: an
+  // additive discount's cut on items an exclusive one took over doesn't
+  // count, and an exclusive one only counts on the items it won.
+  const contributionCents = (applied: AppliedCartDiscount) =>
+    applied.itemBreakdown.reduce((sum, entry) => {
+      const winner = exclusiveByItem.get(entry.cartItemId)
+      const counts = appliedExclusive.includes(applied)
+        ? winner === entry
+        : !winner
+      return counts ? sum + entry.discountedAmountCents : sum
+    }, 0)
   const stackedWith = allApplied
     .filter((applied) => applied.id !== primary.id)
     .map((applied) => ({
       title: applied.title,
-      amountCents: applied.amountCents,
+      amountCents: contributionCents(applied),
       type: applied.type,
       value: applied.value,
+      minQuantity: applied.minQuantity ?? null,
     }))
+    .filter((applied) => applied.amountCents > 0)
 
   return { ...primary, amountCents, stackedWith, itemBreakdown }
 }
@@ -547,6 +566,7 @@ export async function resolveAffiliateCode(
         amountCents: Math.max(0, automatic.amountCents - othersCents),
         type: automatic.type,
         value: automatic.value,
+        minQuantity: automatic.minQuantity ?? null,
       },
       ...automatic.stackedWith,
     )
