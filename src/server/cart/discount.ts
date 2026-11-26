@@ -106,11 +106,11 @@ function discountableBreakdown(
   }
 }
 
-function eligibleUnitCount(items: CartItemWithVariant[]): number {
+export function eligibleUnitCount(items: CartItemWithVariant[]): number {
   return items.reduce((sum, item) => sum + item.quantity, 0)
 }
 
-async function eligibleItemsForDiscount(
+export async function eligibleItemsForDiscount(
   admin: Admin,
   discount: Pick<Discount, 'scope' | 'scope_ids' | 'excluded_collection_ids'>,
   items: CartItemWithVariant[],
@@ -510,7 +510,9 @@ export async function resolveBundleNudge(
   if (items.length === 0) return null
   const bundles = (await getActiveAutomaticDiscounts(admin)).filter(
     (d): d is typeof d & { min_quantity: number } =>
-      d.min_quantity != null && (!hasCodeAttached || d.stacks_with_sale),
+      d.min_quantity != null &&
+      d.type !== 'free_gift' &&
+      (!hasCodeAttached || d.stacks_with_sale),
   )
   if (bundles.length === 0) return null
 

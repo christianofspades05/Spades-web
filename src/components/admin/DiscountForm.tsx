@@ -25,20 +25,26 @@ export function DiscountForm({
   submitLabel: string
 }) {
   const [method, setMethod] = useState<
-    'code' | 'store_sale' | 'collection_sale' | 'bundle'
+    'code' | 'store_sale' | 'collection_sale' | 'bundle' | 'free_gift'
   >(
     discount?.kind === 'automatic'
-      ? discount.min_quantity != null
-        ? 'bundle'
-        : discount.scope === 'collection'
-          ? 'collection_sale'
-          : 'store_sale'
+      ? discount.type === 'free_gift'
+        ? 'free_gift'
+        : discount.min_quantity != null
+          ? 'bundle'
+          : discount.scope === 'collection'
+            ? 'collection_sale'
+            : 'store_sale'
       : 'code',
   )
   const [minQuantity, setMinQuantity] = useState(discount?.min_quantity ?? 3)
+  const [giftCollectionIds, setGiftCollectionIds] = useState<string[]>(
+    discount?.gift_collection_ids ?? [],
+  )
   // Store sales and bundle deals are both store-wide automatic discounts
   // that can exclude collections and let codes stack on top.
   const storeWide = method === 'store_sale' || method === 'bundle'
+  const needsMinQuantity = method === 'bundle' || method === 'free_gift'
   const kind = method === 'code' ? 'code' : 'automatic'
   const [title, setTitle] = useState(discount?.title ?? '')
   const [code, setCode] = useState(discount?.code ?? '')
@@ -88,6 +94,12 @@ export function DiscountForm({
     )
   }
 
+  function toggleGiftCollection(id: string) {
+    setGiftCollectionIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
+    )
+  }
+
   function toggleIncluded(id: string) {
     setIncludedCollectionIds((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
@@ -104,7 +116,7 @@ export function DiscountForm({
         scope: method === 'collection_sale' ? 'collection' : 'all',
         title,
         code: kind === 'code' ? code : undefined,
-        discountType,
+        discountType: method === 'free_gift' ? 'free_gift' : discountType,
         percentageValue:
           discountType === 'percentage' ? percentageValue : undefined,
         amountPesos: discountType === 'fixed_amount' ? amountPesos : undefined,
@@ -116,9 +128,11 @@ export function DiscountForm({
           maxDiscountedItems === '' ? undefined : maxDiscountedItems,
         excludesFreeShipping,
         stacksWithSale,
-        minQuantity: method === 'bundle' ? minQuantity : undefined,
+        minQuantity: needsMinQuantity ? minQuantity : undefined,
+        giftCollectionIds: method === 'free_gift' ? giftCollectionIds : [],
         isActive,
-        excludedCollectionIds: storeWide ? excludedCollectionIds : [],
+        excludedCollectionIds:
+          storeWide || method === 'free_gift' ? excludedCollectionIds : [],
         includedCollectionIds:
           method === 'collection_sale' ? includedCollectionIds : [],
       })
@@ -200,6 +214,25 @@ export function DiscountForm({
               of any active store sale.
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm text-neutral-700">
+            <input
+              type="radio"
+              name="kind"
+              disabled={lockKind}
+              checked={method === 'free_gift'}
+              onChange={() => {
+                setMethod('free_gift')
+                if (!discount) setMinQuantity(8)
+              }}
+              className="mt-1"
+            />
+            <span>
+              <span className="font-medium text-neutral-900">Free gift</span> —
+              buy a minimum number of items, then pick one free item at checkout
+              from the collections you choose (e.g. buy 8, get a free item from
+              Essentials).
+            </span>
+          </label>
         </fieldset>
 
         <label className={labelClassName}>
@@ -213,7 +246,9 @@ export function DiscountForm({
                 ? 'e.g. Summer10'
                 : method === 'bundle'
                   ? 'e.g. Buy 3, Get Extra 10% Off'
-                  : 'e.g. Summer Sale'
+                  : method === 'free_gift'
+                    ? 'e.g. Buy 8, Get a Free Item'
+                    : 'e.g. Summer Sale'
             }
             className={inputClassName}
           />
@@ -235,7 +270,7 @@ export function DiscountForm({
           </label>
         )}
 
-        {method === 'bundle' && (
+        {needsMinQuantity && (
           <label className={labelClassName}>
             Minimum items in cart
             <input
@@ -248,14 +283,48 @@ export function DiscountForm({
               className={`${inputClassName} w-24`}
             />
             <span className="text-xs font-normal text-neutral-500">
-              The discount applies once the cart has at least this many items
-              (counting quantity, e.g. 2 of the same shirt counts as 2). Items
-              in excluded collections don't count.
+              {method === 'free_gift'
+                ? 'The customer can pick their free item'
+                : 'The discount applies'}{' '}
+              once the cart has at least this many items (counting quantity,
+              e.g. 2 of the same shirt counts as 2). Items in excluded
+              collections don't count.
             </span>
           </label>
         )}
 
-        <div className="flex gap-4">
+        {method === 'free_gift' && (
+          <fieldset className="flex flex-col gap-1 rounded-lg border border-neutral-200 p-4">
+            <legend className="mb-1 text-sm font-medium text-neutral-900">
+              Free items come from these collections
+            </legend>
+            {collections.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No collections yet — create one first under Collections.
+              </p>
+            ) : (
+              collections.map((collection) => (
+                <label
+                  key={collection.id}
+                  className="flex items-center gap-2 text-sm text-neutral-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={giftCollectionIds.includes(collection.id)}
+                    onChange={() => toggleGiftCollection(collection.id)}
+                  />
+                  {collection.name}
+                </label>
+              ))
+            )}
+            <p className="mt-1 text-xs font-normal text-neutral-500">
+              Customers choose any in-stock item (and size) from these
+              collections. One free item per order.
+            </p>
+          </fieldset>
+        )}
+
+        <div className={`flex gap-4 ${method === 'free_gift' ? 'hidden' : ''}`}>
           <label className="flex-1 text-sm font-medium text-neutral-700">
             Value
             <div className="mt-1 flex gap-2">
@@ -400,11 +469,12 @@ export function DiscountForm({
           </p>
         )}
 
-        {storeWide && collections.length > 0 && (
+        {(storeWide || method === 'free_gift') && collections.length > 0 && (
           <fieldset className="flex flex-col gap-1 rounded-lg border border-neutral-200 p-4">
             <legend className="mb-1 text-sm font-medium text-neutral-900">
-              Exclude collections from this{' '}
-              {method === 'bundle' ? 'deal' : 'sale'}
+              {method === 'free_gift'
+                ? "Don't count items from these collections"
+                : `Exclude collections from this ${method === 'bundle' ? 'deal' : 'sale'}`}
             </legend>
             {collections.map((collection) => (
               <label

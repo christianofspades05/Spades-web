@@ -108,6 +108,16 @@ export interface Translations {
     /** Bundle deal hint, e.g. "Add 1 more item to get 10% off" — `rate` is
      *  already formatted ("10% off" / "₱100 off"). */
     bundleNudge: (itemsNeeded: number, rate: string) => string
+    /** Free gift deal hint, e.g. "Add 3 more items to get a free item". */
+    freeGiftNudge: (itemsNeeded: number) => string
+    /** Shown once the cart qualifies — the pick itself happens at checkout. */
+    freeGiftUnlocked: string
+    freeGiftTitle: string
+    freeGiftHint: string
+    freeGiftChosen: string
+    freeGiftChange: string
+    freeGiftPickSize: string
+    free: string
     total: string
     checkout: string
     /** Under the cart total — the fee depends on the address, which the
@@ -388,6 +398,15 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       bundleNudge: (itemsNeeded, rate) =>
         `Add ${itemsNeeded} more ${itemsNeeded === 1 ? 'item' : 'items'} to get an extra ${rate}`,
+      freeGiftNudge: (itemsNeeded) =>
+        `Add ${itemsNeeded} more ${itemsNeeded === 1 ? 'item' : 'items'} to get a free item`,
+      freeGiftUnlocked: "You've unlocked a free item — choose it at checkout",
+      freeGiftTitle: 'Choose your free item',
+      freeGiftHint: 'Pick one item, on us.',
+      freeGiftChosen: 'Your free item',
+      freeGiftChange: 'Change',
+      freeGiftPickSize: 'Pick a size',
+      free: 'FREE',
       total: 'Total',
       checkout: 'Checkout',
       shippingNote: 'Shipping is calculated at checkout',
@@ -673,6 +692,16 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       bundleNudge: (itemsNeeded, rate) =>
         `あと${itemsNeeded}点追加で、さらに${rate}`,
+      freeGiftNudge: (itemsNeeded) =>
+        `あと${itemsNeeded}点追加で無料アイテムをプレゼント`,
+      freeGiftUnlocked:
+        '無料アイテムの対象です — チェックアウトで選んでください',
+      freeGiftTitle: '無料アイテムを選ぶ',
+      freeGiftHint: 'お好きなアイテムを1点お選びください。',
+      freeGiftChosen: '無料アイテム',
+      freeGiftChange: '変更',
+      freeGiftPickSize: 'サイズを選択',
+      free: '無料',
       total: '合計',
       checkout: 'レジに進む',
       shippingNote: '送料はレジで計算されます',
@@ -959,6 +988,16 @@ export const translations: Record<Language, Translations> = {
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       bundleNudge: (itemsNeeded, rate) =>
         `${itemsNeeded}개 더 담으면 추가 ${rate}`,
+      freeGiftNudge: (itemsNeeded) =>
+        `${itemsNeeded}개 더 담으면 무료 아이템 증정`,
+      freeGiftUnlocked:
+        '무료 아이템을 받을 수 있어요 — 결제 단계에서 선택하세요',
+      freeGiftTitle: '무료 아이템 선택',
+      freeGiftHint: '원하는 아이템 1개를 선택하세요.',
+      freeGiftChosen: '무료 아이템',
+      freeGiftChange: '변경',
+      freeGiftPickSize: '사이즈 선택',
+      free: '무료',
       total: '합계',
       checkout: '결제하기',
       shippingNote: '배송비는 결제 시 계산됩니다',
@@ -1243,6 +1282,14 @@ export const translations: Record<Language, Translations> = {
         `折扣適用於${total}件中的${discounted}件`,
       stackedWithSale: (saleTitle) => `+ ${saleTitle}`,
       bundleNudge: (itemsNeeded, rate) => `再加${itemsNeeded}件，額外享${rate}`,
+      freeGiftNudge: (itemsNeeded) => `再加${itemsNeeded}件即可獲得免費商品`,
+      freeGiftUnlocked: '您已獲得免費商品 — 請在結帳時選擇',
+      freeGiftTitle: '選擇您的免費商品',
+      freeGiftHint: '任選一件商品，免費贈送。',
+      freeGiftChosen: '您的免費商品',
+      freeGiftChange: '更換',
+      freeGiftPickSize: '選擇尺寸',
+      free: '免費',
       total: '合計',
       checkout: '結帳',
       shippingNote: '運費將於結帳時計算',

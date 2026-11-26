@@ -20,14 +20,14 @@ const PAGE_SIZE = 50
 
 type DiscountStatus = 'active' | 'scheduled' | 'expired' | 'inactive'
 type DiscountTypeFilter =
-  'code' | 'store' | 'collection' | 'bundle' | 'affiliate'
+  'code' | 'store' | 'collection' | 'bundle' | 'free_gift' | 'affiliate'
 
 export const Route = createFileRoute('/admin/discounts/')({
   validateSearch: z.object({
     q: z.string().optional(),
     status: z.enum(['active', 'scheduled', 'expired', 'inactive']).optional(),
     type: z
-      .enum(['code', 'store', 'collection', 'bundle', 'affiliate'])
+      .enum(['code', 'store', 'collection', 'bundle', 'free_gift', 'affiliate'])
       .optional(),
     page: z.number().int().min(1).catch(1),
   }),
@@ -63,6 +63,7 @@ const STATUS_TONE: Record<
 }
 
 function valueLabel(d: Discount): string {
+  if (d.type === 'free_gift') return 'Free item'
   return d.type === 'percentage'
     ? `${d.value}% off`
     : `${formatCentsAsPHP(d.value)} off`
@@ -152,6 +153,7 @@ function DiscountsPage() {
           <option value="store">Store sale</option>
           <option value="collection">Collection sale</option>
           <option value="bundle">Bundle deal</option>
+          <option value="free_gift">Free gift</option>
         </select>
       </div>
 
@@ -200,11 +202,13 @@ function DiscountsPage() {
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {discount.kind === 'code'
                           ? 'Discount code'
-                          : discount.min_quantity != null
-                            ? `Bundle deal (${discount.min_quantity}+ items)`
-                            : discount.scope === 'collection'
-                              ? 'Collection sale'
-                              : 'Store sale'}
+                          : discount.type === 'free_gift'
+                            ? `Free gift (${discount.min_quantity ?? 0}+ items)`
+                            : discount.min_quantity != null
+                              ? `Bundle deal (${discount.min_quantity}+ items)`
+                              : discount.scope === 'collection'
+                                ? 'Collection sale'
+                                : 'Store sale'}
                       </td>
                       <td className={`${tableCellClassName} text-neutral-500`}>
                         {valueLabel(discount)}

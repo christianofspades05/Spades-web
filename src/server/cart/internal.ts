@@ -9,6 +9,8 @@ import {
 } from './discount'
 import type { AppliedCartDiscount, BundleNudge } from './discount'
 import { resolveCodAvailability } from './cod-restrictions'
+import { resolveFreeGiftOffer } from './free-gift'
+import type { FreeGiftOffer } from './free-gift'
 
 type Admin = ReturnType<typeof getSupabaseAdminClient>
 
@@ -41,6 +43,9 @@ export interface CartWithItems {
   removedDiscountCode: string | null
   /** "Add N more items to get X off" — see resolveBundleNudge. */
   bundleNudge: BundleNudge | null
+  /** Active free gift deal for this cart, and the customer's pick — see
+   *  src/server/cart/free-gift.ts. */
+  freeGift: FreeGiftOffer | null
 }
 
 /** One query for every line's live stock, using the same rule as
@@ -98,7 +103,7 @@ export async function loadCartWithItems(
     await Promise.all([
       admin
         .from('carts')
-        .select('id, currency, discount_id')
+        .select('id, currency, discount_id, free_gift_variant_id')
         .eq('id', cartId)
         .single(),
       admin
@@ -116,12 +121,16 @@ export async function loadCartWithItems(
   const { discountId: attachedDiscountId, removedCode } =
     await detachUnredeemableDiscount(admin, cart.id, cart.discount_id)
 
-  const [codeDiscount, cod, stockIssues, bundleNudge] = await Promise.all([
-    resolveDiscountForCart(admin, attachedDiscountId, items),
-    resolveCodAvailability(admin, items),
-    findCartStockIssues(admin, items),
-    resolveBundleNudge(admin, items, attachedDiscountId !== null),
-  ])
+  const { getStorefrontScope } = await import('#/server/storefront/domain')
+  const { brand } = await getStorefrontScope()
+  const [codeDiscount, cod, stockIssues, bundleNudge, freeGift] =
+    await Promise.all([
+      resolveDiscountForCart(admin, attachedDiscountId, items),
+      resolveCodAvailability(admin, items),
+      findCartStockIssues(admin, items),
+      resolveBundleNudge(admin, items, attachedDiscountId !== null),
+      resolveFreeGiftOffer(admin, items, cart.free_gift_variant_id, brand),
+    ])
   // A customer-entered code always wins if one's attached — never silently
   // swapped out for an automatic sale, even a bigger one, since applying a
   // code was an explicit action (its own stacking, if any, is handled
@@ -140,6 +149,7 @@ export async function loadCartWithItems(
     stockIssues,
     removedDiscountCode: removedCode,
     bundleNudge,
+    freeGift,
   }
 }
 

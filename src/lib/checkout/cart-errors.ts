@@ -27,6 +27,12 @@ export const CART_ERROR_MESSAGES = {
    *  if it lapses between the checkout page loading and Place Order. */
   discount_removed:
     'Your discount code has expired, so we removed it. Please check your new total and place your order again.',
+  /** The cart qualifies for a free gift deal but no free item is picked
+   *  (or the pick is no longer available). */
+  choose_free_gift: 'Please choose your free item before placing your order.',
+  /** The picked free item sold out between picking and Place Order. */
+  free_gift_sold_out:
+    'Your free item just sold out. Please choose another one and place your order again.',
 } as const
 
 export type CartErrorReason = keyof typeof CART_ERROR_MESSAGES

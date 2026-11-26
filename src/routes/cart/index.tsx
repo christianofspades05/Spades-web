@@ -284,6 +284,13 @@ function CartPage() {
       </ul>
 
       <div className="mt-8 border-t border-neutral-200 pt-6 dark:border-neutral-800">
+        {cart.freeGift && (
+          <p className="mb-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            {cart.freeGift.itemsNeeded > 0
+              ? t.cart.freeGiftNudge(cart.freeGift.itemsNeeded)
+              : t.cart.freeGiftUnlocked}
+          </p>
+        )}
         {cart.bundleNudge && (
           <p className="mb-5 rounded-md bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
             {t.cart.bundleNudge(

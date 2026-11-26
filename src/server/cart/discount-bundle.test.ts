@@ -46,6 +46,7 @@ function discount(overrides: Partial<AutomaticDiscount>): AutomaticDiscount {
     excludes_free_shipping: false,
     stacks_with_sale: false,
     min_quantity: null,
+    gift_collection_ids: [],
     ...overrides,
   }
 }

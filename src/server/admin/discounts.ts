@@ -43,7 +43,9 @@ function toRow(data: DiscountInput) {
     value:
       data.discountType === 'percentage'
         ? Math.round(data.percentageValue ?? 0)
-        : pesosToCents(data.amountPesos ?? 0),
+        : data.discountType === 'free_gift'
+          ? 0
+          : pesosToCents(data.amountPesos ?? 0),
     scope: data.kind === 'automatic' ? data.scope : ('all' as const),
     scope_ids:
       data.kind === 'automatic' && data.scope === 'collection'
@@ -72,6 +74,8 @@ function toRow(data: DiscountInput) {
       data.kind === 'automatic' && data.scope === 'all'
         ? (data.minQuantity ?? null)
         : null,
+    gift_collection_ids:
+      data.discountType === 'free_gift' ? data.giftCollectionIds : [],
     starts_at: data.startsAt ? storeLocalDateTimeToUtcIso(data.startsAt) : null,
     ends_at: data.endsAt ? storeLocalDateTimeToUtcIso(data.endsAt) : null,
     is_active: data.isActive,
@@ -110,7 +114,7 @@ const discountsFilterSchema = z.object({
   // current link existing at all, not whether it's currently accepting
   // new attributions.
   type: z
-    .enum(['code', 'store', 'collection', 'bundle', 'affiliate'])
+    .enum(['code', 'store', 'collection', 'bundle', 'free_gift', 'affiliate'])
     .optional(),
 })
 
@@ -193,7 +197,13 @@ export const listDiscounts = createServerFn({ method: 'GET' })
         .is('min_quantity', null)
     }
     if (data.type === 'bundle') {
-      query = query.eq('kind', 'automatic').not('min_quantity', 'is', null)
+      query = query
+        .eq('kind', 'automatic')
+        .not('min_quantity', 'is', null)
+        .neq('type', 'free_gift')
+    }
+    if (data.type === 'free_gift') {
+      query = query.eq('kind', 'automatic').eq('type', 'free_gift')
     }
     if (data.type === 'collection') {
       query = query.eq('kind', 'automatic').eq('scope', 'collection')
@@ -242,7 +252,13 @@ export const getDiscountsCount = createServerFn({ method: 'GET' })
         .is('min_quantity', null)
     }
     if (data.type === 'bundle') {
-      query = query.eq('kind', 'automatic').not('min_quantity', 'is', null)
+      query = query
+        .eq('kind', 'automatic')
+        .not('min_quantity', 'is', null)
+        .neq('type', 'free_gift')
+    }
+    if (data.type === 'free_gift') {
+      query = query.eq('kind', 'automatic').eq('type', 'free_gift')
     }
     if (data.type === 'collection') {
       query = query.eq('kind', 'automatic').eq('scope', 'collection')

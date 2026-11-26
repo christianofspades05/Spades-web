@@ -19,6 +19,7 @@ interface FakeDiscountRow {
   excludes_free_shipping: boolean
   stacks_with_sale: boolean
   min_quantity: number | null
+  gift_collection_ids: string[]
   starts_at: string | null
   ends_at: string | null
 }
@@ -94,6 +95,7 @@ function fakeDiscount(
     excludes_free_shipping: false,
     stacks_with_sale: false,
     min_quantity: null,
+    gift_collection_ids: [],
     starts_at: null,
     ends_at: null,
     ...overrides,

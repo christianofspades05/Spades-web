@@ -10,7 +10,9 @@ export const discountInputSchema = z
     scope: z.enum(['all', 'collection']).default('all'),
     title: z.string().trim().min(1).max(200),
     code: z.string().trim().min(3).max(50).optional(),
-    discountType: z.enum(['percentage', 'fixed_amount']),
+    // 'free_gift': a free item the customer picks at checkout once the cart
+    // reaches minQuantity items — see giftCollectionIds.
+    discountType: z.enum(['percentage', 'fixed_amount', 'free_gift']),
     percentageValue: z.number().min(1).max(100).optional(),
     amountPesos: z.number().min(0).optional(),
     startsAt: z.string().optional(),
@@ -39,11 +41,36 @@ export const discountInputSchema = z
     // at least this many eligible items (e.g. 3 → "buy 3, extra 10% off").
     // Unset for every other kind of discount.
     minQuantity: z.number().int().min(2).max(50).optional(),
+    // Free gift deals only: the collections the free item is picked from.
+    giftCollectionIds: z.array(z.string().uuid()).default([]),
     isActive: z.boolean().default(true),
     excludedCollectionIds: z.array(z.string().uuid()).default([]),
     includedCollectionIds: z.array(z.string().uuid()).default([]),
   })
   .superRefine((data, ctx) => {
+    if (data.discountType === 'free_gift') {
+      if (data.kind !== 'automatic' || data.scope !== 'all') {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'A free gift deal must be an automatic, store-wide deal',
+          path: ['discountType'],
+        })
+      }
+      if (!data.minQuantity) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Enter the minimum number of items',
+          path: ['minQuantity'],
+        })
+      }
+      if (data.giftCollectionIds.length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Pick at least one collection for the free items',
+          path: ['giftCollectionIds'],
+        })
+      }
+    }
     if (data.kind === 'code' && !data.code) {
       ctx.addIssue({
         code: 'custom',

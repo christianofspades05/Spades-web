@@ -117,7 +117,12 @@ export type ShipmentStatus =
 export type ReturnStatus =
   'requested' | 'approved' | 'rejected' | 'received' | 'refunded'
 
-export type DiscountType = 'percentage' | 'fixed_amount' | 'free_shipping'
+export type DiscountType =
+  | 'percentage'
+  | 'fixed_amount'
+  | 'free_shipping'
+  /** Free item of the customer's choice — see 0132_free_gift_discounts.sql. */
+  | 'free_gift'
 export type DiscountKind = 'code' | 'automatic'
 export type DiscountScope = 'all' | 'collection' | 'product' | 'variant'
 export type CodRestrictionScope = 'collection' | 'product'
@@ -589,6 +594,8 @@ export interface Database {
             recovery_token: string | null
             unsubscribe_token: string | null
             abandoned_cart_discount_id: string | null
+            /** The customer's free-gift pick — see 0132_free_gift_discounts.sql. */
+            free_gift_variant_id: string | null
             created_at: string
             updated_at: string
             expires_at: string | null
@@ -901,6 +908,8 @@ export interface Database {
             stacks_with_sale: boolean
             /** Bundle deals only — see 0131_discount_bundle_min_quantity.sql. */
             min_quantity: number | null
+            /** Free gift deals only: collections the free item is picked from. */
+            gift_collection_ids: string[]
             created_at: string
             updated_at: string
           }
@@ -1489,6 +1498,8 @@ export interface Database {
           stacks_with_sale: boolean
           /** Bundle deals only — see 0131_discount_bundle_min_quantity.sql. */
           min_quantity: number | null
+          /** Free gift deals only: collections the free item is picked from. */
+          gift_collection_ids: string[]
           created_at: string
           updated_at: string
           status: string

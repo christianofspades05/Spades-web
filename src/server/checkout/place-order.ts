@@ -35,6 +35,12 @@ import {
   loadCartWithItems,
 } from '#/server/cart/internal'
 import { assertDiscountIsRedeemable } from '#/server/cart/discount'
+import {
+  getActiveGiftDiscount,
+  giftVariantIfAllowed,
+  listGiftChoices,
+} from '#/server/cart/free-gift'
+import type { GiftVariant } from '#/server/cart/free-gift'
 import { shippingCostCents } from '#/lib/checkout/shipping'
 import { applyMarketMarkup } from '#/lib/checkout/market-pricing'
 import {
@@ -141,6 +147,35 @@ export const placeOrder = createServerFn({ method: 'POST' })
           .map((item) => item.variant_id),
       )
       const hasPreOrderItems = preOrderVariantIds.size > 0
+
+      // Free gift deal: re-validate the customer's pick right now (still
+      // qualifying, still a gift item, still in stock). If the cart
+      // qualifies but nothing valid is picked while there are items to
+      // pick from, stop so the customer can choose instead of silently
+      // losing their free item.
+      let giftVariant: GiftVariant | null = null
+      if (cart.freeGift && cart.freeGift.itemsNeeded === 0) {
+        const gift = await getActiveGiftDiscount(
+          admin,
+          cart.freeGift.discountId,
+        )
+        if (gift) {
+          if (cart.freeGift.pick) {
+            giftVariant = await giftVariantIfAllowed(
+              admin,
+              gift,
+              cart.freeGift.pick.variantId,
+              scope.brand,
+            )
+          }
+          if (!giftVariant) {
+            const choices = await listGiftChoices(admin, gift, scope.brand)
+            if (choices.length > 0) {
+              throw new Error(CART_ERROR_MESSAGES.choose_free_gift)
+            }
+          }
+        }
+      }
 
       // Never trust the client's payment method choice alone — a stale page
       // (or a hand-crafted request) could still submit 'cod' after a staff
@@ -454,6 +489,25 @@ export const placeOrder = createServerFn({ method: 'POST' })
         throw new Error(`"${failed.item.variant.product.name}" just sold out`)
       }
 
+      // The free item is reserved like any other line, so it can't be
+      // promised to two orders at once.
+      if (giftVariant) {
+        const { data: ok, error } = await admin.rpc('reserve_variant_stock', {
+          p_variant_id: giftVariant.variantId,
+          p_quantity: 1,
+        })
+        if (error || !ok) {
+          await releaseAllReserved()
+          if (error) throw error
+          throw new Error(CART_ERROR_MESSAGES.free_gift_sold_out)
+        }
+        reserved.push({
+          variantId: giftVariant.variantId,
+          quantity: 1,
+          isPreOrder: false,
+        })
+      }
+
       const shippingAddress = {
         email,
         recipientName: data.contact.recipientName,
@@ -522,8 +576,32 @@ export const placeOrder = createServerFn({ method: 'POST' })
         },
       )
 
+      if (giftVariant) {
+        itemsPayload.push({
+          variantId: giftVariant.variantId,
+          productNameSnapshot: `${giftVariant.productName} (Free gift)`,
+          variantLabelSnapshot: giftVariant.variantLabel,
+          skuSnapshot: giftVariant.sku,
+          unitPriceCents: 0,
+          quantity: 1,
+          lineSubtotalCents: 0,
+          lineDiscountCents: 0,
+          lineTotalCents: 0,
+          chargedProductCents: 0,
+          chargedDiscountCents: 0,
+          unitCostCentsSnapshot: giftVariant.costCents,
+          isPreOrder: false,
+        })
+      }
+
       const origin = getRequestUrl().origin
-      const emailItems = cart.items.map((item) => ({
+      const emailItems: {
+        name: string
+        variantLabel: string | null
+        quantity: number
+        imageUrl: string | null
+        lineTotalCents: number
+      }[] = cart.items.map((item) => ({
         name: item.variant.product.name,
         variantLabel:
           [item.variant.size, item.variant.color, item.variant.style]
@@ -533,6 +611,15 @@ export const placeOrder = createServerFn({ method: 'POST' })
         imageUrl: item.variant.product.images[0] ?? null,
         lineTotalCents: item.quantity * item.price_cents_snapshot,
       }))
+      if (giftVariant) {
+        emailItems.push({
+          name: `${giftVariant.productName} (Free gift)`,
+          variantLabel: giftVariant.variantLabel,
+          quantity: 1,
+          imageUrl: giftVariant.imageUrl,
+          lineTotalCents: 0,
+        })
+      }
 
       // ---- COD: a real, confirmed order the moment it's placed ----
       if (data.paymentProvider === 'cod') {

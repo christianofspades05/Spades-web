@@ -1,3 +1,4 @@
+import type { DiscountType } from '#/types/database.types'
 /**
  * Mints a fresh, single-use discount code cloned from a "template" discount
  * for one specific email recipient — used by every lifecycle automation
@@ -22,7 +23,7 @@ import type { getSupabaseAdminClient } from '#/lib/supabase/admin'
 export interface MintedDiscount {
   id: string
   code: string
-  type: 'percentage' | 'fixed_amount' | 'free_shipping'
+  type: DiscountType
   value: number
   endsAt: string | null
 }

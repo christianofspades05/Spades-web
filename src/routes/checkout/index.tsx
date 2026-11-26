@@ -55,6 +55,7 @@ import { trackPixelEvent } from '#/lib/analytics/facebook-pixel'
 import { PHAddressFields } from '#/components/storefront/PHAddressFields'
 import { CountrySelect } from '#/components/storefront/CountrySelect'
 import { FreeShippingNudge } from '#/components/storefront/FreeShippingNudge'
+import { FreeGiftPicker } from '#/components/storefront/FreeGiftPicker'
 import { LalamoveAddressPicker } from '#/components/storefront/LalamoveAddressPicker'
 import {
   buttonPrimaryClassName,
@@ -1166,6 +1167,10 @@ function CheckoutPage() {
             )}
           </section>
 
+          {cart.freeGift && (
+            <FreeGiftPicker offer={cart.freeGift} onChanged={refreshCart} />
+          )}
+
           <section>
             <h2 className="mb-4 text-lg font-semibold">
               {t.payment.paymentMethod}
@@ -1351,6 +1356,37 @@ function CheckoutPage() {
                 </li>
               )
             })}
+            {cart.freeGift?.pick && (
+              <li className="flex gap-3">
+                <div className="relative h-16 w-14 shrink-0 overflow-hidden rounded-md bg-neutral-200 dark:bg-neutral-800">
+                  {cart.freeGift.pick.imageUrl && (
+                    <img
+                      src={cart.freeGift.pick.imageUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white dark:bg-white dark:text-neutral-950">
+                    1
+                  </span>
+                </div>
+                <div className="flex flex-1 items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-neutral-900 dark:text-white">
+                      {cart.freeGift.pick.productName}
+                    </p>
+                    {cart.freeGift.pick.variantLabel && (
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                        {cart.freeGift.pick.variantLabel}
+                      </p>
+                    )}
+                  </div>
+                  <p className="whitespace-nowrap text-sm font-semibold text-green-700 dark:text-green-400">
+                    {t.cart.free}
+                  </p>
+                </div>
+              </li>
+            )}
           </ul>
 
           {/* Same code-apply UI as the cart page — a customer who skipped
