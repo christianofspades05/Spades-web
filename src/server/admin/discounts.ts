@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { waitUntil } from '@vercel/functions'
 import { z } from 'zod'
 import {
   discountInputSchema,
@@ -25,11 +26,23 @@ const MANAGE_ROLES = ['super_admin', 'admin', 'manager'] as const
  *  never affect marketplace pricing, only automatic sales, so this is
  *  skipped entirely for those. Best-effort: a marketplace push failing
  *  shouldn't fail the discount save itself. */
-async function syncMarketplacePricesIfAutomatic(kind: string): Promise<void> {
-  if (kind !== 'automatic') return
-  await Promise.all(
-    IMPLEMENTED_MARKETPLACES.map((marketplace) =>
-      pushPriceForAllProducts(marketplace).catch(() => {}),
+function syncMarketplacePricesIfAutomatic(discount: {
+  kind: string
+  min_quantity: number | null
+}): void {
+  if (discount.kind !== 'automatic') return
+  // Bundle and free gift deals never change a product's own price (they
+  // only apply in the cart), so there's nothing to push.
+  if (discount.min_quantity != null) return
+  // Runs after the response is sent: repricing every marketplace product
+  // can take minutes, and awaiting it here left the admin's Save button
+  // stuck on "Saving…" the whole time. waitUntil keeps the function alive
+  // until the push finishes.
+  waitUntil(
+    Promise.all(
+      IMPLEMENTED_MARKETPLACES.map((marketplace) =>
+        pushPriceForAllProducts(marketplace).catch(() => {}),
+      ),
     ),
   )
 }
@@ -301,7 +314,7 @@ export const createDiscount = createServerFn({ method: 'POST' })
       kind: data.kind,
       title: data.title,
     })
-    await syncMarketplacePricesIfAutomatic(discount.kind)
+    syncMarketplacePricesIfAutomatic(discount)
     return discount
   })
 
@@ -327,7 +340,7 @@ export const updateDiscount = createServerFn({ method: 'POST' })
       discount.id,
       {},
     )
-    await syncMarketplacePricesIfAutomatic(discount.kind)
+    syncMarketplacePricesIfAutomatic(discount)
     return discount
   })
 
@@ -341,7 +354,7 @@ export const setDiscountActive = createServerFn({ method: 'POST' })
       .from('discounts')
       .update({ is_active: data.isActive })
       .eq('id', data.id)
-      .select('kind')
+      .select('kind, min_quantity')
       .single()
     if (error) throw error
 
@@ -349,5 +362,5 @@ export const setDiscountActive = createServerFn({ method: 'POST' })
     await logStaffActivity(staff, 'discount.set_active', 'discounts', data.id, {
       isActive: data.isActive,
     })
-    await syncMarketplacePricesIfAutomatic(discount.kind)
+    syncMarketplacePricesIfAutomatic(discount)
   })

@@ -11,6 +11,7 @@ import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { pesosToCents } from '#/lib/utils/money'
 import { storeRangeToUtcBounds } from '#/lib/utils/date-range'
+import { fetchAllRows } from '#/lib/utils/paginate'
 import { getMetaAdSpendCents } from '#/server/integrations/windsor/client'
 import { getTikTokFinanceSummary } from './tiktok-finance'
 import { logStaffActivity } from './activity-log'
@@ -31,13 +32,17 @@ export interface ExpensesSummary {
 async function getShopeeFeeCents(from: string, to: string): Promise<number> {
   const admin = getSupabaseAdminClient()
   const { start, end } = storeRangeToUtcBounds(from, to)
-  const { data, error } = await admin
-    .from('orders')
-    .select('platform_fees_cents')
-    .eq('source', 'shopee')
-    .gte('created_at', start)
-    .lt('created_at', end)
-  if (error) throw error
+  // Paged — a plain select stops at PostgREST's 1000-row cap.
+  const data = await fetchAllRows((offset) =>
+    admin
+      .from('orders')
+      .select('id, platform_fees_cents')
+      .eq('source', 'shopee')
+      .gte('created_at', start)
+      .lt('created_at', end)
+      .order('id')
+      .range(offset, offset + 999),
+  )
   return data.reduce((sum, row) => sum + row.platform_fees_cents, 0)
 }
 

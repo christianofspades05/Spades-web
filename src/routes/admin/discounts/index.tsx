@@ -30,8 +30,11 @@ export const Route = createFileRoute('/admin/discounts/')({
       .enum(['code', 'store', 'collection', 'bundle', 'free_gift', 'affiliate'])
       .optional(),
     page: z.number().int().min(1).catch(1),
+    /** Title of a discount that was just created/updated — shows the
+     *  "saved" banner. */
+    saved: z.string().optional(),
   }),
-  loaderDeps: ({ search }) => search,
+  loaderDeps: ({ search: { saved: _saved, ...search } }) => search,
   loader: async ({ deps }) => {
     const filters = { q: deps.q, status: deps.status, type: deps.type }
     const [discounts, { total }] = await Promise.all([
@@ -98,6 +101,26 @@ function DiscountsPage() {
           </Link>
         }
       />
+
+      {search.saved && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <span>
+            <span className="font-medium">“{search.saved}”</span> saved.
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              void navigate({
+                search: (prev) => ({ ...prev, saved: undefined }),
+                replace: true,
+              })
+            }
+            className="text-green-700 underline hover:text-green-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSearchSubmit} className="mb-4 w-full max-w-sm">
         <input

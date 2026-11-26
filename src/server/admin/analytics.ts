@@ -4244,25 +4244,29 @@ export const getConversionRateByCountry = createServerFn({ method: 'GET' })
     )
     const brand = data.brand ?? null
 
-    let ordersQuery = admin
-      .from('orders')
-      .select('shipping_address')
-      .eq('source', 'storefront')
-      .not('status', 'in', '(cancelled,failed)')
-      .gte('placed_at', rangeStart)
-      .lte('placed_at', rangeEnd)
-    if (brand) ordersQuery = ordersQuery.eq('brand', brand)
-
-    const [countryRows, ordersResult] = await Promise.all([
+    // Paged — a plain select stops at PostgREST's 1000-row cap, which made
+    // this table show exactly 1000 PH orders once a month passed that.
+    const [countryRows, storefrontOrders] = await Promise.all([
       admin.rpc('get_visitor_countries', {
         p_from: rangeStart,
         p_to: rangeEnd,
         p_brand: brand,
       }),
-      ordersQuery,
+      fetchAllRows((offset) => {
+        let query = admin
+          .from('orders')
+          .select('id, shipping_address')
+          .eq('source', 'storefront')
+          .not('status', 'in', '(cancelled,failed)')
+          .gte('placed_at', rangeStart)
+          .lte('placed_at', rangeEnd)
+          .order('id')
+          .range(offset, offset + 999)
+        if (brand) query = query.eq('brand', brand)
+        return query
+      }),
     ])
     if (countryRows.error) throw countryRows.error
-    if (ordersResult.error) throw ordersResult.error
 
     const visitorsByCountry = new Map(
       countryRows.data.map((row) => [row.country, row.unique_visitors]),
@@ -4272,7 +4276,7 @@ export const getConversionRateByCountry = createServerFn({ method: 'GET' })
     // international shipping existed — same "treat missing as PH"
     // convention as OrderShippingAddress's own doc comment.
     const ordersByCountry = new Map<string, number>()
-    for (const order of ordersResult.data) {
+    for (const order of storefrontOrders) {
       const address = order.shipping_address as { country?: string } | null
       const country = address?.country ?? 'PH'
       ordersByCountry.set(country, (ordersByCountry.get(country) ?? 0) + 1)

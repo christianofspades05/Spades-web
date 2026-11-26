@@ -17,8 +17,8 @@ function NewDiscountPage() {
   async function handleSubmit(data: DiscountInput) {
     const discount = await createDiscount({ data })
     await navigate({
-      to: '/admin/discounts/$discountId',
-      params: { discountId: discount.id },
+      to: '/admin/discounts',
+      search: { page: 1, saved: discount.title },
     })
   }
 

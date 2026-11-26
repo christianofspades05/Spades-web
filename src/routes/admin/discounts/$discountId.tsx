@@ -34,7 +34,10 @@ function EditDiscountPage() {
     // shortly after saving would show the pre-edit values again, even
     // though the database was already updated correctly.
     await router.invalidate()
-    await navigate({ to: '/admin/discounts' })
+    await navigate({
+      to: '/admin/discounts',
+      search: { page: 1, saved: data.title },
+    })
   }
 
   return (

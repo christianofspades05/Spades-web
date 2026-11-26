@@ -380,14 +380,20 @@ export const getProductsOverview = createServerFn({ method: 'GET' })
         .select(
           'id, status, variants:product_variants(id, inventory(quantity_on_hand, low_stock_threshold))',
         ),
-      admin
-        .from('orders')
-        .select('status, order_items(variant_id, quantity, line_total_cents)')
-        .gte('placed_at', rangeStart)
-        .lte('placed_at', rangeEnd),
+      // Paged — a plain select stops at PostgREST's 1000-row cap.
+      fetchAllRows((offset) =>
+        admin
+          .from('orders')
+          .select(
+            'id, status, order_items(variant_id, quantity, line_total_cents)',
+          )
+          .gte('placed_at', rangeStart)
+          .lte('placed_at', rangeEnd)
+          .order('id')
+          .range(offset, offset + 999),
+      ),
     ])
     if (products.error) throw products.error
-    if (orders.error) throw orders.error
 
     const variantToProduct = new Map<string, string>()
     const onHandByProduct = new Map<string, number>()
@@ -413,7 +419,7 @@ export const getProductsOverview = createServerFn({ method: 'GET' })
     const revenueByProduct = new Map<string, number>()
     let totalUnitsSold = 0
 
-    for (const order of orders.data) {
+    for (const order of orders) {
       if (order.status === 'cancelled' || order.status === 'failed') continue
       for (const item of order.order_items) {
         const productId = item.variant_id
