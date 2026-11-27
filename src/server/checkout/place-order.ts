@@ -35,7 +35,11 @@ import {
   getActiveVariantStock,
   loadCartWithItems,
 } from '#/server/cart/internal'
-import { assertDiscountIsRedeemable } from '#/server/cart/discount'
+import {
+  assertDiscountIsRedeemable,
+  isLineOnSale,
+} from '#/server/cart/discount'
+import { getCreatorRefFromCookie } from '#/server/analytics/creator-ref'
 import {
   getActiveGiftDiscount,
   giftVariantIfAllowed,
@@ -556,6 +560,17 @@ export const placeOrder = createServerFn({ method: 'POST' })
         })),
       )
       const affiliate = cart.discount?.affiliate ?? null
+      // Creator tracking link (?ref=, migration 0138): no creator code at
+      // checkout but a valid ref cookie → the order is attributed to that
+      // creator as a 'link' order, at the same rates as their code
+      // (discounted/sale lines earn the sale rate). The code itself is
+      // never applied here — the shopper pays exactly what they saw.
+      const linkRef = affiliate
+        ? null
+        : await getCreatorRefFromCookie(admin, scope.brand).catch(() => null)
+      const lineDiscountCents = (itemId: string) =>
+        cart.discount?.itemBreakdown.find((e) => e.cartItemId === itemId)
+          ?.discountedAmountCents ?? 0
       const itemsPayload: CheckoutReservationItem[] = cart.items.map(
         (item, index) => {
           const lineSubtotalCents = item.quantity * item.price_cents_snapshot
@@ -585,7 +600,11 @@ export const placeOrder = createServerFn({ method: 'POST' })
               ? affiliate.saleItemIds.includes(item.id)
                 ? affiliate.saleCommissionBps
                 : affiliate.normalCommissionBps
-              : null,
+              : linkRef
+                ? isLineOnSale(item, lineDiscountCents(item.id))
+                  ? linkRef.saleCommissionBps
+                  : linkRef.commissionBps
+                : null,
             isPreOrder: preOrderVariantIds.has(item.variant_id),
           }
         },
@@ -658,6 +677,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             customer_notes: data.contact.orderNotes || null,
             has_pre_order_items: hasPreOrderItems,
             fbclid: data.fbclid || null,
+            creator_ref_code: linkRef?.code ?? null,
           })
           .select('id, order_number')
           .single()
@@ -795,6 +815,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           lalamove_info: lalamoveInfo,
           customer_notes: data.contact.orderNotes || null,
           fbclid: data.fbclid || null,
+          creator_ref_code: linkRef?.code ?? null,
         })
         .select('id')
         .single()

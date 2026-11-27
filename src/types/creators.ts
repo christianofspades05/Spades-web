@@ -48,6 +48,9 @@ export interface CreatorAttribution {
   /** Blended rate the order actually earned at (0135); null when revenue 0. */
   effective_commission_bps: number | null
   /** Per-line rate audit trail (0135). */
+  /** How the order was tied to the creator (0137): their code, or a
+   *  ?ref= link visit with no code at checkout (0138). */
+  attribution_type: 'code' | 'link'
   rate_breakdown: {
     order_item_id: string
     rate_bps: number

@@ -43,6 +43,7 @@ import { Route as ReviewsIndexRouteImport } from './routes/reviews/index'
 import { Route as TrackOrderIdRouteImport } from './routes/track/$orderId'
 import { Route as UnsubscribeTokenRouteImport } from './routes/unsubscribe/$token'
 import { Route as AdminAnalyticsAdsEfficiencyRouteImport } from './routes/admin/analytics/ads-efficiency'
+import { Route as AdminAnalyticsAffiliatesRouteImport } from './routes/admin/analytics/affiliates'
 import { Route as AdminAnalyticsCampaignMappingRouteImport } from './routes/admin/analytics/campaign-mapping'
 import { Route as AdminAnalyticsCancelledReturnsRouteImport } from './routes/admin/analytics/cancelled-returns'
 import { Route as AdminAnalyticsCheckoutFunnelRouteImport } from './routes/admin/analytics/checkout-funnel'
@@ -284,6 +285,12 @@ const AdminAnalyticsAdsEfficiencyRoute =
   AdminAnalyticsAdsEfficiencyRouteImport.update({
     id: '/analytics/ads-efficiency',
     path: '/analytics/ads-efficiency',
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminAnalyticsAffiliatesRoute =
+  AdminAnalyticsAffiliatesRouteImport.update({
+    id: '/analytics/affiliates',
+    path: '/analytics/affiliates',
     getParentRoute: () => AdminRoute,
   } as any)
 const AdminAnalyticsCampaignMappingRoute =
@@ -697,6 +704,7 @@ export interface FileRoutesByFullPath {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
+  '/admin/analytics/affiliates': typeof AdminAnalyticsAffiliatesRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
@@ -801,6 +809,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsIndexRoute
   '/reviews': typeof ReviewsIndexRoute
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
+  '/admin/analytics/affiliates': typeof AdminAnalyticsAffiliatesRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
@@ -909,6 +918,7 @@ export interface FileRoutesById {
   '/products/': typeof ProductsIndexRoute
   '/reviews/': typeof ReviewsIndexRoute
   '/admin/analytics/ads-efficiency': typeof AdminAnalyticsAdsEfficiencyRoute
+  '/admin/analytics/affiliates': typeof AdminAnalyticsAffiliatesRoute
   '/admin/analytics/campaign-mapping': typeof AdminAnalyticsCampaignMappingRoute
   '/admin/analytics/cancelled-returns': typeof AdminAnalyticsCancelledReturnsRoute
   '/admin/analytics/checkout-funnel': typeof AdminAnalyticsCheckoutFunnelRoute
@@ -1018,6 +1028,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/ads-efficiency'
+    | '/admin/analytics/affiliates'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/checkout-funnel'
@@ -1122,6 +1133,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reviews'
     | '/admin/analytics/ads-efficiency'
+    | '/admin/analytics/affiliates'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/checkout-funnel'
@@ -1229,6 +1241,7 @@ export interface FileRouteTypes {
     | '/products/'
     | '/reviews/'
     | '/admin/analytics/ads-efficiency'
+    | '/admin/analytics/affiliates'
     | '/admin/analytics/campaign-mapping'
     | '/admin/analytics/cancelled-returns'
     | '/admin/analytics/checkout-funnel'
@@ -1590,6 +1603,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics/ads-efficiency'
       fullPath: '/admin/analytics/ads-efficiency'
       preLoaderRoute: typeof AdminAnalyticsAdsEfficiencyRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics/affiliates': {
+      id: '/admin/analytics/affiliates'
+      path: '/analytics/affiliates'
+      fullPath: '/admin/analytics/affiliates'
+      preLoaderRoute: typeof AdminAnalyticsAffiliatesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/analytics/campaign-mapping': {
@@ -2095,6 +2115,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAnalyticsAdsEfficiencyRoute: typeof AdminAnalyticsAdsEfficiencyRoute
+  AdminAnalyticsAffiliatesRoute: typeof AdminAnalyticsAffiliatesRoute
   AdminAnalyticsCampaignMappingRoute: typeof AdminAnalyticsCampaignMappingRoute
   AdminAnalyticsCancelledReturnsRoute: typeof AdminAnalyticsCancelledReturnsRoute
   AdminAnalyticsCheckoutFunnelRoute: typeof AdminAnalyticsCheckoutFunnelRoute
@@ -2151,6 +2172,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminAnalyticsAdsEfficiencyRoute: AdminAnalyticsAdsEfficiencyRoute,
+  AdminAnalyticsAffiliatesRoute: AdminAnalyticsAffiliatesRoute,
   AdminAnalyticsCampaignMappingRoute: AdminAnalyticsCampaignMappingRoute,
   AdminAnalyticsCancelledReturnsRoute: AdminAnalyticsCancelledReturnsRoute,
   AdminAnalyticsCheckoutFunnelRoute: AdminAnalyticsCheckoutFunnelRoute,

@@ -704,6 +704,8 @@ export interface Database {
             notes: string | null
             customer_notes: string | null
             fbclid: string | null
+            /** Creator ?ref= link code from the shopper's cookie (0138). */
+            creator_ref_code: string | null
             ad_campaign_name: string | null
             review_requested_at: string | null
             review_request_sent: boolean
@@ -793,6 +795,8 @@ export interface Database {
             lalamove_info: LalamoveInfo | null
             customer_notes: string | null
             fbclid: string | null
+            /** Creator ?ref= link code from the shopper's cookie (0138). */
+            creator_ref_code: string | null
             ad_campaign_name: string | null
             xendit_invoice_id: string | null
             paypal_order_id: string | null
@@ -1620,6 +1624,19 @@ export interface Database {
           p_data: Record<string, unknown>
         }
         Returns: string
+      }
+      creator_performance: {
+        Args: { p_start: string | null; p_end: string | null }
+        Returns: Record<string, unknown>[]
+      }
+      creator_detail: {
+        Args: {
+          p_creator_id: string
+          p_start: string | null
+          p_end: string | null
+          p_tz?: string
+        }
+        Returns: Record<string, unknown>
       }
       reconcile_creator_order: {
         Args: { p_order_id: string }
