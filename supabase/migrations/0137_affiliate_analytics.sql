@@ -1,5 +1,5 @@
 -- -----------------------------------------------------------------------------
--- Admin Analytics → Affiliates (/admin/analytics/affiliates).
+-- Admin Creators & Affiliates → Analytics (/admin/creators/analytics).
 --
 -- Answers "is this creator worth what we spend on them?". Read-only
 -- reporting functions on top of the creator tables from 0091/0135, plus the

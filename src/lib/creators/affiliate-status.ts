@@ -1,6 +1,6 @@
 /**
  * "Is this creator worth the money?" — the status badge and alert rules for
- * Analytics → Affiliates. Pure functions so they're unit-tested and shared
+ * Creators & Affiliates → Analytics. Pure functions so they're unit-tested and shared
  * by the page, the CSV export and the alerts list.
  */
 

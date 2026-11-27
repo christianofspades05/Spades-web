@@ -13,7 +13,7 @@ import {
 import type { AffiliateStatus } from '#/lib/creators/affiliate-status'
 
 /**
- * Analytics → Affiliates. Thin wrappers around the SQL functions from
+ * Creators & Affiliates → Analytics. Thin wrappers around the SQL functions from
  * migration 0137 (creator_performance / creator_detail), which do the
  * money math in one place — see that migration's header for the formulas
  * and why they match the Profit page.

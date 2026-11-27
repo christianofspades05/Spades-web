@@ -39,6 +39,7 @@ import { DATE_RANGE_PRESETS, resolveDateRange } from '#/lib/utils/date-range'
 import type { DateRangePreset } from '#/lib/utils/date-range'
 import { Card } from '#/components/admin/Card'
 import { PageHeader } from '#/components/admin/PageHeader'
+import { CreatorsTabs } from '#/components/admin/CreatorsTabs'
 import { DateRangePicker } from '#/components/admin/DateRangePicker'
 import { CopyButton } from '#/components/admin/CopyButton'
 import {
@@ -50,7 +51,7 @@ import {
   tableWrapperClassName,
 } from '#/components/admin/ui'
 
-export const Route = createFileRoute('/admin/analytics/affiliates')({
+export const Route = createFileRoute('/admin/creators/analytics')({
   validateSearch: z.object({
     range: z.enum(DATE_RANGE_PRESETS).catch('this_month'),
     from: z.string().optional(),
@@ -387,7 +388,7 @@ function AffiliatesPage() {
   return (
     <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
-        title="Affiliates"
+        title="Creators & Affiliates"
         subtitle="Is each creator worth what we spend on them?"
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -439,6 +440,7 @@ function AffiliatesPage() {
           </div>
         }
       />
+      <CreatorsTabs active="analytics" />
 
       {search.allTime && (
         <p className="-mt-3 mb-4 text-xs text-neutral-500">

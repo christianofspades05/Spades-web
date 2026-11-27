@@ -38,7 +38,6 @@ import {
   Users,
   Wallet,
   Warehouse,
-  Megaphone,
 } from 'lucide-react'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { listCustomerReplies } from '#/server/admin/order-emails'
@@ -63,11 +62,6 @@ const ANALYTICS_SUB_LINKS = [
     to: '/admin/analytics/product-analytics',
     label: 'Product Analytics',
     icon: PackageSearch,
-  },
-  {
-    to: '/admin/analytics/affiliates',
-    label: 'Affiliates',
-    icon: Megaphone,
   },
   {
     to: '/admin/analytics/cancelled-returns',

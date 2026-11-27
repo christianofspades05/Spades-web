@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { listCreators } from '#/server/admin/creators'
 import { CreatorProfileForm } from '#/components/admin/CreatorProfileForm'
 import { PageHeader } from '#/components/admin/PageHeader'
+import { CreatorsTabs } from '#/components/admin/CreatorsTabs'
 import { formatCentsAsPHP as money } from '#/lib/utils/money'
 import {
   buttonPrimaryClassName,
@@ -40,6 +41,7 @@ function CreatorsPage() {
           </button>
         }
       />
+      <CreatorsTabs active="creators" />
       {adding && (
         <div className="mb-6">
           <CreatorProfileForm
