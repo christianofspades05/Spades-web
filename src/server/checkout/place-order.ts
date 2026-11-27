@@ -25,6 +25,7 @@ import { chargedItemAmounts } from '#/lib/creators/money'
  *     deleted and stock released — nothing about the attempt ever touches
  *     `orders`.
  */
+import { buildDiscountBreakdown } from '#/lib/discounts/breakdown'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestUrl } from '@tanstack/react-start/server'
 import { placeOrderSchema } from '#/lib/validation/checkout'
@@ -344,6 +345,12 @@ export const placeOrder = createServerFn({ method: 'POST' })
         discountCents,
         marketMarkupPercent,
       )
+      // What each discount took off (sale, bundle deal, code), saved on
+      // the order for admin — same lines the customer saw at checkout.
+      const discountBreakdown = buildDiscountBreakdown(
+        cart.discount,
+        chargedDiscountCents,
+      )
 
       const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0)
       let shippingCents = shippingCostCents(
@@ -642,6 +649,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
             shipping_cents: shippingCents,
             total_cents: totalCents,
             discount_id: cart.discount?.id ?? null,
+            discount_breakdown: discountBreakdown,
             shipping_address: shippingAddress,
             is_cod: true,
             currency: data.currency,
@@ -779,6 +787,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
           shipping_cents: shippingCents,
           total_cents: totalCents,
           discount_id: cart.discount?.id ?? null,
+          discount_breakdown: discountBreakdown,
           market_markup_percent: marketMarkupPercent ?? null,
           shipping_address: shippingAddress,
           items: itemsPayload,

@@ -1,3 +1,4 @@
+import type { DiscountBreakdownPart } from '#/lib/discounts/breakdown'
 import type { CreatorTables } from './creators'
 import type { LivePlannerTables } from './live-planner'
 import type {
@@ -683,6 +684,8 @@ export interface Database {
             brand: string
             market_markup_percent: number | null
             discount_id: string | null
+            /** Per-discount lines saved at checkout (null on older orders). */
+            discount_breakdown: DiscountBreakdownPart[] | null
             shipping_address: Record<string, unknown>
             billing_address: Record<string, unknown> | null
             is_cod: boolean
@@ -782,6 +785,7 @@ export interface Database {
             shipping_cents: number
             total_cents: number
             discount_id: string | null
+            discount_breakdown: DiscountBreakdownPart[] | null
             market_markup_percent: number | null
             shipping_address: Record<string, unknown>
             items: CheckoutReservationItem[]

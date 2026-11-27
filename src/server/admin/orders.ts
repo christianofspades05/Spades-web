@@ -1629,6 +1629,9 @@ export const updateOrderItems = createServerFn({ method: 'POST' })
       .update({
         subtotal_cents: subtotalCents,
         discount_cents: discountCents,
+        // The saved per-discount lines no longer match after an edit; admin
+        // falls back to the single combined Discount line.
+        discount_breakdown: null,
         shipping_cents: shippingCents,
         total_cents: totalCents,
       })

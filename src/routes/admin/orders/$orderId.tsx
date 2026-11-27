@@ -1,4 +1,5 @@
 import { OrderCreatorFinance } from '#/components/admin/OrderCreatorFinance'
+import { discountBreakdownLabel } from '#/lib/discounts/breakdown'
 import { orderHasCreatorAttribution } from '#/server/admin/creators'
 import { useRef, useState } from 'react'
 import {
@@ -564,26 +565,43 @@ function OrderDetailPage() {
                               {formatCentsAsPHP(order.subtotal_cents)}
                             </span>
                           </div>
-                          {order.discount_cents > 0 && (
-                            <div className="flex justify-between text-neutral-600">
-                              <span>
-                                Discount
-                                {order.discount && (
-                                  <span className="text-neutral-400">
-                                    {' '}
-                                    ({order.discount.title}
-                                    {order.discount.code
-                                      ? ` – ${order.discount.code}`
-                                      : ''}
-                                    )
+                          {order.discount_breakdown?.length
+                            ? order.discount_breakdown.map((part, index) => (
+                                <div
+                                  key={index}
+                                  className="flex justify-between text-neutral-600"
+                                >
+                                  <span>
+                                    {discountBreakdownLabel(
+                                      part,
+                                      formatCentsAsPHP,
+                                    )}
                                   </span>
-                                )}
-                              </span>
-                              <span className="font-medium text-red-600">
-                                -{formatCentsAsPHP(order.discount_cents)}
-                              </span>
-                            </div>
-                          )}
+                                  <span className="font-medium text-red-600">
+                                    -{formatCentsAsPHP(part.amountCents)}
+                                  </span>
+                                </div>
+                              ))
+                            : order.discount_cents > 0 && (
+                                <div className="flex justify-between text-neutral-600">
+                                  <span>
+                                    Discount
+                                    {order.discount && (
+                                      <span className="text-neutral-400">
+                                        {' '}
+                                        ({order.discount.title}
+                                        {order.discount.code
+                                          ? ` – ${order.discount.code}`
+                                          : ''}
+                                        )
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="font-medium text-red-600">
+                                    -{formatCentsAsPHP(order.discount_cents)}
+                                  </span>
+                                </div>
+                              )}
                           {order.platform_discount_cents > 0 && (
                             <div className="flex justify-between text-neutral-600">
                               <span>
@@ -706,24 +724,38 @@ function OrderDetailPage() {
                         <span>Included in subtotal</span>
                       </div>
                     )}
-                    {order.discount_cents > 0 && (
-                      <div className="flex justify-between text-neutral-500">
-                        <span>
-                          Discount
-                          {order.discount && (
-                            <span className="text-neutral-400">
-                              {' '}
-                              ({order.discount.title}
-                              {order.discount.code
-                                ? ` – ${order.discount.code}`
-                                : ''}
-                              )
+                    {order.discount_breakdown?.length
+                      ? order.discount_breakdown.map((part, index) => (
+                          <div
+                            key={index}
+                            className="flex justify-between text-neutral-500"
+                          >
+                            <span>
+                              {discountBreakdownLabel(part, formatCentsAsPHP)}
                             </span>
-                          )}
-                        </span>
-                        <span>-{formatCentsAsPHP(order.discount_cents)}</span>
-                      </div>
-                    )}
+                            <span>-{formatCentsAsPHP(part.amountCents)}</span>
+                          </div>
+                        ))
+                      : order.discount_cents > 0 && (
+                          <div className="flex justify-between text-neutral-500">
+                            <span>
+                              Discount
+                              {order.discount && (
+                                <span className="text-neutral-400">
+                                  {' '}
+                                  ({order.discount.title}
+                                  {order.discount.code
+                                    ? ` – ${order.discount.code}`
+                                    : ''}
+                                  )
+                                </span>
+                              )}
+                            </span>
+                            <span>
+                              -{formatCentsAsPHP(order.discount_cents)}
+                            </span>
+                          </div>
+                        )}
                     {order.platform_discount_cents > 0 && (
                       <div className="flex justify-between text-neutral-500">
                         <span>Platform discount ({order.source})</span>
