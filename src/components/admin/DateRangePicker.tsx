@@ -18,8 +18,8 @@ import type { MonthRef, RangeSelection } from '#/lib/utils/calendar'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
-/** Double-digit sale days (10.10, 11.11, 12.12) — one-click single-day ranges. */
-const DOUBLE_DIGIT_SALES = [10, 11, 12] as const
+/** Double-digit sale days (1.1 through 12.12) — one-click single-day ranges. */
+const DOUBLE_DIGIT_SALES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 
 function doubleDigitSaleDate(year: number, month: number): string {
   const mm = String(month).padStart(2, '0')
@@ -223,7 +223,7 @@ export function DateRangePicker({
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 px-1">
+            <div className="grid grid-cols-4 gap-1.5 px-1">
               {DOUBLE_DIGIT_SALES.map((month) => {
                 const date = doubleDigitSaleDate(saleYear, month)
                 const active = from === date && to === date

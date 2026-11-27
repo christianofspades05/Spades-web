@@ -74,6 +74,9 @@ describe('DateRangePicker double-digit sales', () => {
     vi.setSystemTime(new Date('2026-11-27T04:00:00Z'))
     const onChange = open()
 
+    for (let m = 1; m <= 12; m++) {
+      expect(screen.getByRole('button', { name: `${m}.${m}` })).toBeTruthy()
+    }
     const dec = screen.getByRole('button', { name: '12.12' })
     expect((dec as HTMLButtonElement).disabled).toBe(true)
 
