@@ -65,3 +65,37 @@ describe('DateRangePicker custom range', () => {
     expect(onChange).toHaveBeenCalledWith('last_7_days')
   })
 })
+
+describe('DateRangePicker double-digit sales', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('applies a sale day for the chosen year and disables future ones', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-27T04:00:00Z'))
+    const onChange = open()
+
+    const dec = screen.getByRole('button', { name: '12.12' })
+    expect((dec as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '11.11' }))
+    expect(onChange).toHaveBeenLastCalledWith('custom', {
+      from: '2026-11-11',
+      to: '2026-11-11',
+    })
+  })
+
+  it('switches year from the dropdown', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-27T04:00:00Z'))
+    const onChange = open()
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Double-digit sale year' }),
+      { target: { value: '2025' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: '12.12' }))
+    expect(onChange).toHaveBeenLastCalledWith('custom', {
+      from: '2025-12-12',
+      to: '2025-12-12',
+    })
+  })
+})

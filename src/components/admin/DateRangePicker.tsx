@@ -18,6 +18,14 @@ import type { MonthRef, RangeSelection } from '#/lib/utils/calendar'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
+/** Double-digit sale days (10.10, 11.11, 12.12) — one-click single-day ranges. */
+const DOUBLE_DIGIT_SALES = [10, 11, 12] as const
+
+function doubleDigitSaleDate(year: number, month: number): string {
+  const mm = String(month).padStart(2, '0')
+  return `${year}-${mm}-${mm}`
+}
+
 function shortDate(date: string): string {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', {
     month: 'short',
@@ -133,6 +141,13 @@ export function DateRangePicker({
 }) {
   const [open, setOpen] = useState(false)
   const [selection, setSelection] = useState<RangeSelection>({ from, to })
+  const today = daysAgo(0)
+  const currentYear = Number(today.slice(0, 4))
+  const saleYears = [currentYear, currentYear - 1, currentYear - 2]
+  const [saleYear, setSaleYear] = useState(() => {
+    const y = Number(from.slice(0, 4))
+    return from === to && saleYears.includes(y) ? y : currentYear
+  })
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -189,6 +204,51 @@ export function DateRangePicker({
               </li>
             ))}
           </ul>
+
+          <div className="mt-2 border-t border-neutral-200 pt-2">
+            <div className="flex items-center justify-between px-1 pb-1.5">
+              <p className="text-xs font-medium text-neutral-500">
+                Double-digit sales
+              </p>
+              <select
+                aria-label="Double-digit sale year"
+                value={saleYear}
+                onChange={(e) => setSaleYear(Number(e.target.value))}
+                className="rounded-md border border-neutral-300 bg-white px-1.5 py-0.5 text-xs text-neutral-700"
+              >
+                {saleYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 px-1">
+              {DOUBLE_DIGIT_SALES.map((month) => {
+                const date = doubleDigitSaleDate(saleYear, month)
+                const active = from === date && to === date
+                return (
+                  <button
+                    key={month}
+                    type="button"
+                    disabled={date > today}
+                    title={date > today ? 'Not here yet' : undefined}
+                    onClick={() => {
+                      onChange('custom', { from: date, to: date })
+                      setOpen(false)
+                    }}
+                    className={`rounded-md border px-2 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
+                      active
+                        ? 'border-neutral-900 bg-neutral-900 text-white'
+                        : 'border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                    }`}
+                  >
+                    {month}.{month}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           <div className="mt-2 border-t border-neutral-200 pt-2">
             <p className="px-1 pb-1.5 text-xs font-medium text-neutral-500">
