@@ -39,7 +39,7 @@ import {
   assertDiscountIsRedeemable,
   isLineOnSale,
 } from '#/server/cart/discount'
-import { getCreatorRefFromCookie } from '#/server/analytics/creator-ref'
+import { getCreatorRefFromCookie } from '#/server/analytics/creator-ref.server'
 import {
   getActiveGiftDiscount,
   giftVariantIfAllowed,
