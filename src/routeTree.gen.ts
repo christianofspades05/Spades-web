@@ -53,6 +53,10 @@ import { Route as AdminAnalyticsProfitRouteImport } from './routes/admin/analyti
 import { Route as AdminAnalyticsSalesRouteImport } from './routes/admin/analytics/sales'
 import { Route as AdminAnalyticsTiktokFinanceRouteImport } from './routes/admin/analytics/tiktok-finance'
 import { Route as AdminAnalyticsVisitorsRouteImport } from './routes/admin/analytics/visitors'
+import { Route as AdminAttendanceIndexRouteImport } from './routes/admin/attendance/index'
+import { Route as AdminAttendancePayrollRouteImport } from './routes/admin/attendance/payroll'
+import { Route as AdminAttendanceStaffRouteImport } from './routes/admin/attendance/staff'
+import { Route as AdminAttendanceTeamRouteImport } from './routes/admin/attendance/team'
 import { Route as AdminChannelsIndexRouteImport } from './routes/admin/channels/index'
 import { Route as AdminChannelsMarketplaceRouteImport } from './routes/admin/channels/$marketplace'
 import { Route as AdminCodCitiesIndexRouteImport } from './routes/admin/cod-cities/index'
@@ -341,6 +345,26 @@ const AdminAnalyticsTiktokFinanceRoute =
 const AdminAnalyticsVisitorsRoute = AdminAnalyticsVisitorsRouteImport.update({
   id: '/analytics/visitors',
   path: '/analytics/visitors',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAttendanceIndexRoute = AdminAttendanceIndexRouteImport.update({
+  id: '/attendance/',
+  path: '/attendance/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAttendancePayrollRoute = AdminAttendancePayrollRouteImport.update({
+  id: '/attendance/payroll',
+  path: '/attendance/payroll',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAttendanceStaffRoute = AdminAttendanceStaffRouteImport.update({
+  id: '/attendance/staff',
+  path: '/attendance/staff',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAttendanceTeamRoute = AdminAttendanceTeamRouteImport.update({
+  id: '/attendance/team',
+  path: '/attendance/team',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminChannelsIndexRoute = AdminChannelsIndexRouteImport.update({
@@ -713,6 +737,9 @@ export interface FileRoutesByFullPath {
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
+  '/admin/attendance/payroll': typeof AdminAttendancePayrollRoute
+  '/admin/attendance/staff': typeof AdminAttendanceStaffRoute
+  '/admin/attendance/team': typeof AdminAttendanceTeamRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/community/$eventId': typeof AdminCommunityEventIdRoute
@@ -748,6 +775,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/events/cancel/$token': typeof EventsCancelTokenRoute
+  '/admin/attendance/': typeof AdminAttendanceIndexRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -818,6 +846,9 @@ export interface FileRoutesByTo {
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
+  '/admin/attendance/payroll': typeof AdminAttendancePayrollRoute
+  '/admin/attendance/staff': typeof AdminAttendanceStaffRoute
+  '/admin/attendance/team': typeof AdminAttendanceTeamRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/community/$eventId': typeof AdminCommunityEventIdRoute
@@ -853,6 +884,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/events/cancel/$token': typeof EventsCancelTokenRoute
+  '/admin/attendance': typeof AdminAttendanceIndexRoute
   '/admin/channels': typeof AdminChannelsIndexRoute
   '/admin/cod-cities': typeof AdminCodCitiesIndexRoute
   '/admin/collections': typeof AdminCollectionsIndexRoute
@@ -927,6 +959,9 @@ export interface FileRoutesById {
   '/admin/analytics/sales': typeof AdminAnalyticsSalesRoute
   '/admin/analytics/tiktok-finance': typeof AdminAnalyticsTiktokFinanceRoute
   '/admin/analytics/visitors': typeof AdminAnalyticsVisitorsRoute
+  '/admin/attendance/payroll': typeof AdminAttendancePayrollRoute
+  '/admin/attendance/staff': typeof AdminAttendanceStaffRoute
+  '/admin/attendance/team': typeof AdminAttendanceTeamRoute
   '/admin/channels/$marketplace': typeof AdminChannelsMarketplaceRoute
   '/admin/collections/$collectionId': typeof AdminCollectionsCollectionIdRoute
   '/admin/community/$eventId': typeof AdminCommunityEventIdRoute
@@ -962,6 +997,7 @@ export interface FileRoutesById {
   '/api/webhooks/xendit': typeof ApiWebhooksXenditRoute
   '/cart/resume/$token': typeof CartResumeTokenRoute
   '/events/cancel/$token': typeof EventsCancelTokenRoute
+  '/admin/attendance/': typeof AdminAttendanceIndexRoute
   '/admin/channels/': typeof AdminChannelsIndexRoute
   '/admin/cod-cities/': typeof AdminCodCitiesIndexRoute
   '/admin/collections/': typeof AdminCollectionsIndexRoute
@@ -1037,6 +1073,9 @@ export interface FileRouteTypes {
     | '/admin/analytics/sales'
     | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
+    | '/admin/attendance/payroll'
+    | '/admin/attendance/staff'
+    | '/admin/attendance/team'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/community/$eventId'
@@ -1072,6 +1111,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/events/cancel/$token'
+    | '/admin/attendance/'
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
@@ -1142,6 +1182,9 @@ export interface FileRouteTypes {
     | '/admin/analytics/sales'
     | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
+    | '/admin/attendance/payroll'
+    | '/admin/attendance/staff'
+    | '/admin/attendance/team'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/community/$eventId'
@@ -1177,6 +1220,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/events/cancel/$token'
+    | '/admin/attendance'
     | '/admin/channels'
     | '/admin/cod-cities'
     | '/admin/collections'
@@ -1250,6 +1294,9 @@ export interface FileRouteTypes {
     | '/admin/analytics/sales'
     | '/admin/analytics/tiktok-finance'
     | '/admin/analytics/visitors'
+    | '/admin/attendance/payroll'
+    | '/admin/attendance/staff'
+    | '/admin/attendance/team'
     | '/admin/channels/$marketplace'
     | '/admin/collections/$collectionId'
     | '/admin/community/$eventId'
@@ -1285,6 +1332,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/xendit'
     | '/cart/resume/$token'
     | '/events/cancel/$token'
+    | '/admin/attendance/'
     | '/admin/channels/'
     | '/admin/cod-cities/'
     | '/admin/collections/'
@@ -1672,6 +1720,34 @@ declare module '@tanstack/react-router' {
       path: '/analytics/visitors'
       fullPath: '/admin/analytics/visitors'
       preLoaderRoute: typeof AdminAnalyticsVisitorsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/attendance/': {
+      id: '/admin/attendance/'
+      path: '/attendance'
+      fullPath: '/admin/attendance/'
+      preLoaderRoute: typeof AdminAttendanceIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/attendance/payroll': {
+      id: '/admin/attendance/payroll'
+      path: '/attendance/payroll'
+      fullPath: '/admin/attendance/payroll'
+      preLoaderRoute: typeof AdminAttendancePayrollRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/attendance/staff': {
+      id: '/admin/attendance/staff'
+      path: '/attendance/staff'
+      fullPath: '/admin/attendance/staff'
+      preLoaderRoute: typeof AdminAttendanceStaffRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/attendance/team': {
+      id: '/admin/attendance/team'
+      path: '/attendance/team'
+      fullPath: '/admin/attendance/team'
+      preLoaderRoute: typeof AdminAttendanceTeamRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/channels/': {
@@ -2124,6 +2200,9 @@ interface AdminRouteChildren {
   AdminAnalyticsSalesRoute: typeof AdminAnalyticsSalesRoute
   AdminAnalyticsTiktokFinanceRoute: typeof AdminAnalyticsTiktokFinanceRoute
   AdminAnalyticsVisitorsRoute: typeof AdminAnalyticsVisitorsRoute
+  AdminAttendancePayrollRoute: typeof AdminAttendancePayrollRoute
+  AdminAttendanceStaffRoute: typeof AdminAttendanceStaffRoute
+  AdminAttendanceTeamRoute: typeof AdminAttendanceTeamRoute
   AdminChannelsMarketplaceRoute: typeof AdminChannelsMarketplaceRoute
   AdminCollectionsCollectionIdRoute: typeof AdminCollectionsCollectionIdRoute
   AdminCommunityEventIdRoute: typeof AdminCommunityEventIdRoute
@@ -2144,6 +2223,7 @@ interface AdminRouteChildren {
   AdminProductsProductIdRoute: typeof AdminProductsProductIdRoute
   AdminProductsBulkEditRoute: typeof AdminProductsBulkEditRoute
   AdminProductsNewRoute: typeof AdminProductsNewRoute
+  AdminAttendanceIndexRoute: typeof AdminAttendanceIndexRoute
   AdminChannelsIndexRoute: typeof AdminChannelsIndexRoute
   AdminCodCitiesIndexRoute: typeof AdminCodCitiesIndexRoute
   AdminCollectionsIndexRoute: typeof AdminCollectionsIndexRoute
@@ -2181,6 +2261,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAnalyticsSalesRoute: AdminAnalyticsSalesRoute,
   AdminAnalyticsTiktokFinanceRoute: AdminAnalyticsTiktokFinanceRoute,
   AdminAnalyticsVisitorsRoute: AdminAnalyticsVisitorsRoute,
+  AdminAttendancePayrollRoute: AdminAttendancePayrollRoute,
+  AdminAttendanceStaffRoute: AdminAttendanceStaffRoute,
+  AdminAttendanceTeamRoute: AdminAttendanceTeamRoute,
   AdminChannelsMarketplaceRoute: AdminChannelsMarketplaceRoute,
   AdminCollectionsCollectionIdRoute: AdminCollectionsCollectionIdRoute,
   AdminCommunityEventIdRoute: AdminCommunityEventIdRoute,
@@ -2201,6 +2284,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminProductsProductIdRoute: AdminProductsProductIdRoute,
   AdminProductsBulkEditRoute: AdminProductsBulkEditRoute,
   AdminProductsNewRoute: AdminProductsNewRoute,
+  AdminAttendanceIndexRoute: AdminAttendanceIndexRoute,
   AdminChannelsIndexRoute: AdminChannelsIndexRoute,
   AdminCodCitiesIndexRoute: AdminCodCitiesIndexRoute,
   AdminCollectionsIndexRoute: AdminCollectionsIndexRoute,

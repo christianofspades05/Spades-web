@@ -168,6 +168,11 @@ export interface EmailBlock {
   buttonUrl?: string
 }
 
+export type StaffPayType = 'hourly' | 'monthly'
+export type AttendanceSource = 'self' | 'manual'
+export type AttendanceDayMarkKind = 'holiday' | 'leave'
+export type PayrollPeriodStatus = 'draft' | 'finalized' | 'paid'
+
 export type StaffRole =
   'super_admin' | 'admin' | 'manager' | 'packer' | 'support'
 
@@ -333,6 +338,164 @@ export interface Database {
           Update: Partial<
             Database['public']['Tables']['storefront_sections']['Row']
           >
+          Relationships: []
+        }
+        payroll_employees: {
+          Row: {
+            id: string
+            full_name: string
+            staff_user_id: string | null
+            is_active: boolean
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['payroll_employees']['Row']
+          > & {
+            full_name: string
+          }
+          Update: Partial<
+            Database['public']['Tables']['payroll_employees']['Row']
+          >
+          Relationships: []
+        }
+        staff_pay_profiles: {
+          Row: {
+            id: string
+            employee_id: string
+            pay_type: StaffPayType
+            hourly_rate_cents: number | null
+            monthly_salary_cents: number | null
+            work_days_per_week: number
+            rest_days: number[]
+            scheduled_start: string | null
+            scheduled_hours_per_day: number
+            unpaid_break_minutes: number
+            late_grace_minutes: number
+            deduct_lates: boolean
+            overtime_enabled: boolean
+            overtime_multiplier: number
+            effective_from: string
+            effective_to: string | null
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['staff_pay_profiles']['Row']
+          > & {
+            employee_id: string
+            pay_type: StaffPayType
+            effective_from: string
+          }
+          Update: Partial<
+            Database['public']['Tables']['staff_pay_profiles']['Row']
+          >
+          Relationships: []
+        }
+        attendance_logs: {
+          Row: {
+            id: string
+            employee_id: string
+            clock_in_at: string
+            clock_out_at: string | null
+            work_date: string
+            break_minutes: number | null
+            source: AttendanceSource
+            note: string | null
+            edited_by: string | null
+            flagged: boolean
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['attendance_logs']['Row']
+          > & {
+            employee_id: string
+            clock_in_at: string
+          }
+          Update: Partial<
+            Database['public']['Tables']['attendance_logs']['Row']
+          >
+          Relationships: []
+        }
+        attendance_day_marks: {
+          Row: {
+            id: string
+            employee_id: string | null
+            mark_date: string
+            kind: AttendanceDayMarkKind
+            note: string | null
+            created_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['attendance_day_marks']['Row']
+          > & {
+            mark_date: string
+            kind: AttendanceDayMarkKind
+          }
+          Update: Partial<
+            Database['public']['Tables']['attendance_day_marks']['Row']
+          >
+          Relationships: []
+        }
+        payroll_periods: {
+          Row: {
+            id: string
+            start_date: string
+            end_date: string
+            status: PayrollPeriodStatus
+            computed_at: string | null
+            finalized_at: string | null
+            finalized_by: string | null
+            paid_at: string | null
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['payroll_periods']['Row']
+          > & {
+            start_date: string
+            end_date: string
+          }
+          Update: Partial<
+            Database['public']['Tables']['payroll_periods']['Row']
+          >
+          Relationships: []
+        }
+        payroll_items: {
+          Row: {
+            id: string
+            period_id: string
+            employee_id: string
+            pay_type: StaffPayType
+            rate_snapshot_cents: number
+            days_worked: number
+            regular_hours: number
+            overtime_hours: number
+            late_minutes: number
+            undertime_minutes: number
+            absent_days: number
+            base_pay_cents: number
+            overtime_pay_cents: number
+            late_deduction_cents: number
+            undertime_deduction_cents: number
+            absence_deduction_cents: number
+            adjustments: Array<{ label: string; amount_cents: number }>
+            gross_pay_cents: number
+            net_pay_cents: number
+            notes: string | null
+            created_at: string
+            updated_at: string
+          }
+          Insert: Partial<
+            Database['public']['Tables']['payroll_items']['Row']
+          > & {
+            period_id: string
+            employee_id: string
+            pay_type: StaffPayType
+            rate_snapshot_cents: number
+          }
+          Update: Partial<Database['public']['Tables']['payroll_items']['Row']>
           Relationships: []
         }
         community_fits: {
@@ -1147,6 +1310,7 @@ export interface Database {
             full_name: string
             role: StaffRole
             is_active: boolean
+            can_manage_payroll: boolean
             created_at: string
             updated_at: string
           }

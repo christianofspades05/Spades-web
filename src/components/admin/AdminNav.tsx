@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Clock,
   Eye,
   EyeOff,
   Filter,
@@ -742,6 +743,19 @@ export function AdminNav({
           <Truck size={17} strokeWidth={2} className="shrink-0" />
           {!collapsed && 'Shipmate'}
         </a>
+
+        <Link
+          to="/admin/attendance"
+          onClick={onNavigate}
+          title={collapsed ? 'Attendance & Payroll' : undefined}
+          className={navLinkClassName(
+            pathname.startsWith('/admin/attendance'),
+            collapsed,
+          )}
+        >
+          <Clock size={17} strokeWidth={2} className="shrink-0" />
+          {!collapsed && 'Attendance & Payroll'}
+        </Link>
 
         <Link
           to="/admin/customer-replies"
