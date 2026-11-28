@@ -16,6 +16,7 @@ import { formatCentsAsPHP, pesosToCents } from '#/lib/utils/money'
 import { formatManilaDate, formatPeriod } from '#/lib/payroll/format'
 import { payrollCsv, payslipHtml } from '#/lib/payroll/export'
 import {
+  ATTENDANCE_PAGE_CLASS,
   AttendanceTabs,
   OwnerOnlyError,
 } from '#/components/admin/AttendanceTabs'
@@ -84,6 +85,8 @@ function PayrollPage() {
     }
   }
 
+  const totalNet = data.items.reduce((s, i) => s + i.net_pay_cents, 0)
+
   function downloadCsv() {
     const blob = new Blob([payrollCsv(data.items)], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -101,16 +104,19 @@ function PayrollPage() {
     w.document.close()
   }
 
-  const totalNet = data.items.reduce((s, i) => s + i.net_pay_cents, 0)
-
   return (
-    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
-      <PageHeader title="Attendance & Payroll" />
+    <div className={ATTENDANCE_PAGE_CLASS}>
+      <h1 className="mb-4 text-lg font-semibold text-neutral-900 md:hidden">
+        Payroll
+      </h1>
+      <div className="hidden md:block">
+        <PageHeader title="Attendance & Payroll" />
+      </div>
       <AttendanceTabs active="payroll" isOwner />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
         <select
-          className={inputClassName}
+          className={`${inputClassName} w-full md:w-auto`}
           value={period.id}
           onChange={(e) => navigate({ search: { period: e.target.value } })}
         >
@@ -121,10 +127,17 @@ function PayrollPage() {
             </option>
           ))}
         </select>
-        <Badge tone={STATUS_TONE[period.status]}>
-          {STATUS_LABEL[period.status]}
-        </Badge>
-        <div className="ml-auto flex flex-wrap gap-2">
+        <div className="flex items-center justify-between gap-2 md:contents">
+          <Badge tone={STATUS_TONE[period.status]}>
+            {STATUS_LABEL[period.status]}
+          </Badge>
+          {data.items.length > 0 && (
+            <p className="text-sm font-semibold md:hidden">
+              Total {money(totalNet)}
+            </p>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2 md:ml-auto md:flex md:flex-wrap [&>button]:w-full md:[&>button]:w-fit [&>button]:py-3 md:[&>button]:py-2">
           {isDraft && (
             <button
               type="button"
@@ -210,144 +223,280 @@ function PayrollPage() {
             : 'No payroll items in this period.'}
         </Card>
       ) : (
-        <div className={`${tableWrapperClassName} overflow-x-auto`}>
-          <table className="w-full">
-            <thead>
-              <tr>
-                {[
-                  'Staff',
-                  'Days',
-                  'Hours',
-                  'OT',
-                  'Late',
-                  'Absent',
-                  'Base',
-                  'Deductions',
-                  'Adjustments',
-                  'Net',
-                  '',
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className={`${tableHeadClassName} whitespace-nowrap`}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((i) => {
-                const deductions =
-                  i.late_deduction_cents +
-                  i.undertime_deduction_cents +
-                  i.absence_deduction_cents
-                const adj = i.adjustments.reduce(
-                  (s, a) => s + a.amount_cents,
-                  0,
-                )
-                return (
-                  <Fragment key={i.id}>
-                    <tr className={tableRowClassName}>
-                      <td className={tableCellClassName}>
-                        <p className="font-medium">{i.employeeName}</p>
-                        <p className="text-xs text-neutral-500">
-                          {i.pay_type === 'hourly' ? 'Hourly' : 'Monthly'}
-                        </p>
-                      </td>
-                      <td className={tableCellClassName}>{i.days_worked}</td>
-                      <td className={tableCellClassName}>
-                        {Number(i.regular_hours)}
-                      </td>
-                      <td className={tableCellClassName}>
-                        {Number(i.overtime_hours) || ''}
-                        {i.overtime_pay_cents > 0 && (
+        <>
+          {/* Phones: one card per staff member, tap for the breakdown. */}
+          <div className="flex flex-col gap-2 md:hidden">
+            {data.items.map((i) => (
+              <MobilePayCard
+                key={i.id}
+                item={i}
+                isDraft={isDraft}
+                editing={editing === i.id}
+                onAdjust={() => setEditing(editing === i.id ? null : i.id)}
+                onDone={() => setEditing(null)}
+                onPayslip={() => openPayslip(i)}
+              />
+            ))}
+          </div>
+          <div
+            className={`${tableWrapperClassName} hidden overflow-x-auto md:block`}
+          >
+            <table className="w-full">
+              <thead>
+                <tr>
+                  {[
+                    'Staff',
+                    'Days',
+                    'Hours',
+                    'OT',
+                    'Late',
+                    'Absent',
+                    'Base',
+                    'Deductions',
+                    'Adjustments',
+                    'Net',
+                    '',
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className={`${tableHeadClassName} whitespace-nowrap`}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((i) => {
+                  const deductions =
+                    i.late_deduction_cents +
+                    i.undertime_deduction_cents +
+                    i.absence_deduction_cents
+                  const adj = i.adjustments.reduce(
+                    (s, a) => s + a.amount_cents,
+                    0,
+                  )
+                  return (
+                    <Fragment key={i.id}>
+                      <tr className={tableRowClassName}>
+                        <td className={tableCellClassName}>
+                          <p className="font-medium">{i.employeeName}</p>
                           <p className="text-xs text-neutral-500">
-                            {money(i.overtime_pay_cents)}
+                            {i.pay_type === 'hourly' ? 'Hourly' : 'Monthly'}
                           </p>
-                        )}
-                      </td>
-                      <td className={tableCellClassName}>
-                        {i.late_minutes + i.undertime_minutes > 0
-                          ? `${i.late_minutes + i.undertime_minutes}m`
-                          : ''}
-                      </td>
-                      <td className={tableCellClassName}>
-                        {i.absent_days || ''}
-                      </td>
-                      <td className={`${tableCellClassName} whitespace-nowrap`}>
-                        {money(i.base_pay_cents)}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} whitespace-nowrap text-red-600`}
-                      >
-                        {deductions > 0 ? `−${money(deductions)}` : ''}
-                      </td>
-                      <td className={`${tableCellClassName} whitespace-nowrap`}>
-                        {adj !== 0 &&
-                          (adj > 0 ? '+' : '−') + money(Math.abs(adj))}
-                      </td>
-                      <td
-                        className={`${tableCellClassName} whitespace-nowrap font-semibold`}
-                      >
-                        {money(i.net_pay_cents)}
-                      </td>
-                      <td className={`${tableCellClassName} whitespace-nowrap`}>
-                        <div className="flex gap-3">
-                          {isDraft && (
+                        </td>
+                        <td className={tableCellClassName}>{i.days_worked}</td>
+                        <td className={tableCellClassName}>
+                          {Number(i.regular_hours)}
+                        </td>
+                        <td className={tableCellClassName}>
+                          {Number(i.overtime_hours) || ''}
+                          {i.overtime_pay_cents > 0 && (
+                            <p className="text-xs text-neutral-500">
+                              {money(i.overtime_pay_cents)}
+                            </p>
+                          )}
+                        </td>
+                        <td className={tableCellClassName}>
+                          {i.late_minutes + i.undertime_minutes > 0
+                            ? `${i.late_minutes + i.undertime_minutes}m`
+                            : ''}
+                        </td>
+                        <td className={tableCellClassName}>
+                          {i.absent_days || ''}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap`}
+                        >
+                          {money(i.base_pay_cents)}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap text-red-600`}
+                        >
+                          {deductions > 0 ? `−${money(deductions)}` : ''}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap`}
+                        >
+                          {adj !== 0 &&
+                            (adj > 0 ? '+' : '−') + money(Math.abs(adj))}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap font-semibold`}
+                        >
+                          {money(i.net_pay_cents)}
+                        </td>
+                        <td
+                          className={`${tableCellClassName} whitespace-nowrap`}
+                        >
+                          <div className="flex gap-3">
+                            {isDraft && (
+                              <button
+                                type="button"
+                                className="text-sm text-neutral-700 underline"
+                                onClick={() =>
+                                  setEditing(editing === i.id ? null : i.id)
+                                }
+                              >
+                                Adjust
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="text-sm text-neutral-700 underline"
-                              onClick={() =>
-                                setEditing(editing === i.id ? null : i.id)
-                              }
+                              onClick={() => openPayslip(i)}
                             >
-                              Adjust
+                              Payslip
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            className="text-sm text-neutral-700 underline"
-                            onClick={() => openPayslip(i)}
-                          >
-                            Payslip
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {editing === i.id && (
-                      <tr>
-                        <td colSpan={11} className="bg-neutral-50 px-4 py-3">
-                          <AdjustmentsEditor
-                            item={i}
-                            onDone={() => setEditing(null)}
-                          />
+                          </div>
                         </td>
                       </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-              <tr className="border-t border-neutral-200 bg-neutral-50">
-                <td
-                  colSpan={9}
-                  className={`${tableCellClassName} text-right font-semibold`}
-                >
-                  Total net
-                </td>
-                <td
-                  className={`${tableCellClassName} whitespace-nowrap font-semibold`}
-                >
-                  {money(totalNet)}
-                </td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                      {editing === i.id && (
+                        <tr>
+                          <td colSpan={11} className="bg-neutral-50 px-4 py-3">
+                            <AdjustmentsEditor
+                              item={i}
+                              onDone={() => setEditing(null)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+                <tr className="border-t border-neutral-200 bg-neutral-50">
+                  <td
+                    colSpan={9}
+                    className={`${tableCellClassName} text-right font-semibold`}
+                  >
+                    Total net
+                  </td>
+                  <td
+                    className={`${tableCellClassName} whitespace-nowrap font-semibold`}
+                  >
+                    {money(totalNet)}
+                  </td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <DayMarks data={data} />
+    </div>
+  )
+}
+
+function MobilePayCard({
+  item,
+  isDraft,
+  editing,
+  onAdjust,
+  onDone,
+  onPayslip,
+}: {
+  item: Item
+  isDraft: boolean
+  editing: boolean
+  onAdjust: () => void
+  onDone: () => void
+  onPayslip: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const row = (label: string, value: string, tone = '') => (
+    <div className="flex justify-between py-1 text-sm">
+      <span className="text-neutral-500">{label}</span>
+      <span className={tone}>{value}</span>
+    </div>
+  )
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 p-4 text-left"
+      >
+        <div className="min-w-0">
+          <p className="font-medium text-neutral-900">{item.employeeName}</p>
+          <p className="text-xs text-neutral-500">
+            {item.pay_type === 'hourly' ? 'Hourly' : 'Monthly'} ·{' '}
+            {item.days_worked} days · {Number(item.regular_hours)} hrs
+            {item.absent_days > 0 && ` · ${item.absent_days} absent`}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-lg font-semibold">{money(item.net_pay_cents)}</p>
+          <p className="text-xs text-neutral-400">
+            {open ? 'Hide' : 'Details'}
+          </p>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-neutral-100 px-4 py-3">
+          {row('Base pay', money(item.base_pay_cents))}
+          {item.overtime_pay_cents > 0 &&
+            row(
+              `Overtime (${Number(item.overtime_hours)} hrs)`,
+              money(item.overtime_pay_cents),
+            )}
+          {item.late_deduction_cents > 0 &&
+            row(
+              `Late (${item.late_minutes}m)`,
+              `−${money(item.late_deduction_cents)}`,
+              'text-red-600',
+            )}
+          {item.undertime_deduction_cents > 0 &&
+            row(
+              `Undertime (${item.undertime_minutes}m)`,
+              `−${money(item.undertime_deduction_cents)}`,
+              'text-red-600',
+            )}
+          {item.absence_deduction_cents > 0 &&
+            row(
+              `Absences (${item.absent_days})`,
+              `−${money(item.absence_deduction_cents)}`,
+              'text-red-600',
+            )}
+          {item.adjustments.map((a, idx) => (
+            <div key={idx}>
+              {row(
+                a.label,
+                `${a.amount_cents < 0 ? '−' : '+'}${money(Math.abs(a.amount_cents))}`,
+                a.amount_cents < 0 ? 'text-red-600' : '',
+              )}
+            </div>
+          ))}
+          <div className="mt-1 flex justify-between border-t border-neutral-200 pt-2 font-semibold">
+            <span>Net pay</span>
+            <span>{money(item.net_pay_cents)}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {isDraft && (
+              <button
+                type="button"
+                className={`${buttonSecondaryClassName} w-full py-3`}
+                onClick={onAdjust}
+              >
+                Adjust
+              </button>
+            )}
+            <button
+              type="button"
+              className={`${buttonSecondaryClassName} w-full py-3 ${isDraft ? '' : 'col-span-2'}`}
+              onClick={onPayslip}
+            >
+              Payslip
+            </button>
+          </div>
+          {editing && (
+            <div className="mt-3">
+              <AdjustmentsEditor item={item} onDone={onDone} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Plus } from 'lucide-react'
 import { z } from 'zod'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
@@ -19,6 +20,7 @@ import {
   formatMinutes,
 } from '#/lib/payroll/format'
 import {
+  ATTENDANCE_PAGE_CLASS,
   AttendanceTabs,
   OwnerOnlyError,
 } from '#/components/admin/AttendanceTabs'
@@ -109,19 +111,33 @@ function TeamPage() {
   }
 
   return (
-    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
-      <PageHeader
-        title="Attendance & Payroll"
-        action={
-          <button
-            type="button"
-            className={buttonPrimaryClassName}
-            onClick={startAdd}
-          >
-            Add shift
-          </button>
-        }
-      />
+    <div className={ATTENDANCE_PAGE_CLASS}>
+      <h1 className="mb-4 text-lg font-semibold text-neutral-900 md:hidden">
+        Team attendance
+      </h1>
+      <div className="hidden md:block">
+        <PageHeader
+          title="Attendance & Payroll"
+          action={
+            <button
+              type="button"
+              className={buttonPrimaryClassName}
+              onClick={startAdd}
+            >
+              Add shift
+            </button>
+          }
+        />
+      </div>
+      {/* Phones: floating add button above the bottom tab bar. */}
+      <button
+        type="button"
+        onClick={startAdd}
+        aria-label="Add shift"
+        className="fixed right-4 bottom-20 z-30 flex size-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg active:scale-95 md:hidden"
+      >
+        <Plus size={26} />
+      </button>
       <AttendanceTabs active="team" isOwner />
 
       <Card className="mb-6 p-4">
@@ -157,7 +173,7 @@ function TeamPage() {
         />
       )}
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <DateRangePicker
           preset={search.range}
           from={data.range.from}
@@ -174,7 +190,7 @@ function TeamPage() {
           }
         />
         <select
-          className={inputClassName}
+          className={`${inputClassName} w-full sm:w-auto`}
           value={search.staff ?? ''}
           onChange={(e) =>
             navigate({
@@ -207,7 +223,64 @@ function TeamPage() {
         </label>
       </div>
 
-      <div className={`${tableWrapperClassName} overflow-x-auto`}>
+      {/* Phones: one card per shift, tap to edit. */}
+      <div className="flex flex-col gap-2 md:hidden">
+        {data.rows.length === 0 && (
+          <Card className="p-4 text-sm text-neutral-500">
+            No shifts in this range.
+          </Card>
+        )}
+        {data.rows.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            disabled={r.locked}
+            onClick={() => startEdit(r, r.clock_out_at === null)}
+            className="flex w-full items-start justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-4 text-left shadow-sm active:bg-neutral-50 disabled:active:bg-white"
+          >
+            <div className="min-w-0">
+              <p className="font-medium text-neutral-900">{r.employeeName}</p>
+              <p className="text-sm text-neutral-500">
+                {formatManilaDate(r.work_date)} ·{' '}
+                {formatManilaTime(r.clock_in_at)} –{' '}
+                {r.clock_out_at ? formatManilaTime(r.clock_out_at) : 'now'}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {r.lateMinutes > 0 && (
+                  <Badge tone="warning">Late {r.lateMinutes}m</Badge>
+                )}
+                {r.longOpen && <Badge tone="critical">Open 14h+</Badge>}
+                {r.flagged && !r.longOpen && (
+                  <Badge tone="warning">Flagged</Badge>
+                )}
+                {r.source === 'manual' && <Badge tone="neutral">Manual</Badge>}
+                {r.locked && <Badge tone="info">Locked</Badge>}
+              </div>
+              {r.note && (
+                <p className="mt-1 truncate text-xs text-neutral-500">
+                  {r.note}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-semibold text-neutral-900">
+                {r.workedMinutes === null
+                  ? 'On shift'
+                  : formatMinutes(r.workedMinutes)}
+              </p>
+              {!r.locked && (
+                <p className="mt-1 text-xs text-neutral-500 underline">
+                  {r.clock_out_at ? 'Edit' : 'Close shift'}
+                </p>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div
+        className={`${tableWrapperClassName} hidden overflow-x-auto md:block`}
+      >
         <table className="w-full">
           <thead>
             <tr>
@@ -350,97 +423,105 @@ function EditForm({
   }
 
   return (
-    <Card className="mb-6 p-4">
-      <h2 className="mb-3 text-sm font-semibold text-neutral-900">
-        {edit.id ? 'Edit shift' : 'Add shift'}
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <label className={labelClassName}>
-          Staff
-          <select
-            className={inputClassName}
-            value={edit.employeeId}
-            disabled={!!edit.id}
-            onChange={(e) => set({ employeeId: e.target.value })}
-          >
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.full_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={labelClassName}>
-          Clock in
-          <input
-            type="datetime-local"
-            className={inputClassName}
-            value={edit.clockIn}
-            onChange={(e) => set({ clockIn: e.target.value })}
-          />
-        </label>
-        <label className={labelClassName}>
-          Clock out
-          <input
-            type="datetime-local"
-            className={inputClassName}
-            value={edit.clockOut}
-            onChange={(e) => set({ clockOut: e.target.value })}
-          />
-        </label>
-        <label className={labelClassName}>
-          Break (min)
-          <input
-            type="number"
-            min={0}
-            placeholder="Default"
-            className={inputClassName}
-            value={edit.breakMinutes}
-            onChange={(e) => set({ breakMinutes: e.target.value })}
-          />
-        </label>
-        <label className={labelClassName}>
-          Note (required)
-          <input
-            className={inputClassName}
-            value={edit.note}
-            placeholder="e.g. Forgot to clock out"
-            onChange={(e) => set({ note: e.target.value })}
-          />
-        </label>
-      </div>
-      <p className="mt-2 text-xs text-neutral-500">
-        Times are Manila time. Leave Break empty to use the usual rule (unpaid
-        break taken only on shifts over 5 hrs).
-      </p>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          className={buttonPrimaryClassName}
-          disabled={busy || !edit.employeeId || !edit.note.trim()}
-          onClick={save}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          className={buttonSecondaryClassName}
-          onClick={() => setEdit(null)}
-        >
-          Cancel
-        </button>
-        {edit.id && (
+    <>
+      {/* Phones: dimmed backdrop behind the bottom sheet. */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 md:hidden"
+        onClick={() => setEdit(null)}
+      />
+      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl md:static md:z-auto md:mb-6 md:max-h-none md:overflow-visible md:rounded-xl md:border md:border-neutral-200 md:pb-4 md:shadow-sm">
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-300 md:hidden" />
+        <h2 className="mb-3 text-base font-semibold text-neutral-900 md:text-sm">
+          {edit.id ? 'Edit shift' : 'Add shift'}
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className={labelClassName}>
+            Staff
+            <select
+              className={inputClassName}
+              value={edit.employeeId}
+              disabled={!!edit.id}
+              onChange={(e) => set({ employeeId: e.target.value })}
+            >
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.full_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={labelClassName}>
+            Clock in
+            <input
+              type="datetime-local"
+              className={inputClassName}
+              value={edit.clockIn}
+              onChange={(e) => set({ clockIn: e.target.value })}
+            />
+          </label>
+          <label className={labelClassName}>
+            Clock out
+            <input
+              type="datetime-local"
+              className={inputClassName}
+              value={edit.clockOut}
+              onChange={(e) => set({ clockOut: e.target.value })}
+            />
+          </label>
+          <label className={labelClassName}>
+            Break (min)
+            <input
+              type="number"
+              min={0}
+              placeholder="Default"
+              className={inputClassName}
+              value={edit.breakMinutes}
+              onChange={(e) => set({ breakMinutes: e.target.value })}
+            />
+          </label>
+          <label className={labelClassName}>
+            Note (required)
+            <input
+              className={inputClassName}
+              value={edit.note}
+              placeholder="e.g. Forgot to clock out"
+              onChange={(e) => set({ note: e.target.value })}
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-neutral-500">
+          Times are Manila time. Leave Break empty to use the usual rule (unpaid
+          break taken only on shifts over 5 hrs).
+        </p>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row [&>button]:w-full sm:[&>button]:w-fit [&>button]:py-3 sm:[&>button]:py-2">
           <button
             type="button"
-            className={buttonDangerClassName}
-            disabled={busy}
-            onClick={remove}
+            className={buttonPrimaryClassName}
+            disabled={busy || !edit.employeeId || !edit.note.trim()}
+            onClick={save}
           >
-            Delete
+            Save
           </button>
-        )}
+          <button
+            type="button"
+            className={buttonSecondaryClassName}
+            onClick={() => setEdit(null)}
+          >
+            Cancel
+          </button>
+          {edit.id && (
+            <button
+              type="button"
+              className={buttonDangerClassName}
+              disabled={busy}
+              onClick={remove}
+            >
+              Delete
+            </button>
+          )}
+        </div>
       </div>
-    </Card>
+    </>
   )
 }

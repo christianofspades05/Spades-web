@@ -13,6 +13,7 @@ import { daysAgo } from '#/lib/utils/date-range'
 import { WEEKDAYS, formatManilaDate } from '#/lib/payroll/format'
 import { periodForDate } from '#/lib/payroll/compute'
 import {
+  ATTENDANCE_PAGE_CLASS,
   AttendanceTabs,
   OwnerOnlyError,
 } from '#/components/admin/AttendanceTabs'
@@ -46,21 +47,35 @@ function PayRatesPage() {
   const [adding, setAdding] = useState(false)
 
   return (
-    <div className="w-full px-4 py-6 sm:px-8 sm:py-10">
-      <PageHeader
-        title="Attendance & Payroll"
-        action={
-          !adding && (
-            <button
-              type="button"
-              className={buttonPrimaryClassName}
-              onClick={() => setAdding(true)}
-            >
-              Add staff
-            </button>
-          )
-        }
-      />
+    <div className={ATTENDANCE_PAGE_CLASS}>
+      <div className="mb-4 flex items-center justify-between md:hidden">
+        <h1 className="text-lg font-semibold text-neutral-900">Pay rates</h1>
+        {!adding && (
+          <button
+            type="button"
+            className={buttonPrimaryClassName}
+            onClick={() => setAdding(true)}
+          >
+            Add staff
+          </button>
+        )}
+      </div>
+      <div className="hidden md:block">
+        <PageHeader
+          title="Attendance & Payroll"
+          action={
+            !adding && (
+              <button
+                type="button"
+                className={buttonPrimaryClassName}
+                onClick={() => setAdding(true)}
+              >
+                Add staff
+              </button>
+            )
+          }
+        />
+      </div>
       <AttendanceTabs active="staff" isOwner />
 
       {adding && (
