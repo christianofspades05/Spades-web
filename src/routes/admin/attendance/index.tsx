@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { LogIn, LogOut } from 'lucide-react'
-import { clockIn, clockOut, getMyAttendance } from '#/server/admin/attendance'
+import {
+  clockIn,
+  clockOut,
+  createClockInPhotoUpload,
+  getMyAttendance,
+} from '#/server/admin/attendance'
+import { getSupabaseBrowserClient } from '#/lib/supabase/client'
+import { ATTENDANCE_PHOTO_BUCKET } from '#/lib/payroll/photos'
+import { SelfieCapture } from '#/components/admin/SelfieCapture'
 import { getErrorMessage } from '#/lib/utils/errors'
 import { formatCentsAsPHP } from '#/lib/utils/money'
 import {
@@ -54,15 +62,42 @@ function MyTimePage() {
   const [error, setError] = useState<string | null>(null)
   const now = useNow(15_000)
 
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+
   async function toggle() {
-    setBusy(true)
     setError(null)
+    // Clocking in needs a selfie first; clocking out doesn't.
+    if (!data.openShift) {
+      setCameraError(null)
+      setCameraOpen(true)
+      return
+    }
+    setBusy(true)
     try {
-      if (data.openShift) await clockOut()
-      else await clockIn()
+      await clockOut()
       await router.invalidate()
     } catch (err) {
       setError(getErrorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function clockInWithPhoto(photo: Blob) {
+    setBusy(true)
+    setCameraError(null)
+    try {
+      const { path, token } = await createClockInPhotoUpload()
+      const { error: uploadError } = await getSupabaseBrowserClient()
+        .storage.from(ATTENDANCE_PHOTO_BUCKET)
+        .uploadToSignedUrl(path, token, photo, { contentType: 'image/jpeg' })
+      if (uploadError) throw uploadError
+      await clockIn({ data: { photoPath: path } })
+      setCameraOpen(false)
+      await router.invalidate()
+    } catch (err) {
+      setCameraError(getErrorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -76,6 +111,14 @@ function MyTimePage() {
 
   return (
     <div className={ATTENDANCE_PAGE_CLASS}>
+      {cameraOpen && (
+        <SelfieCapture
+          busy={busy}
+          error={cameraError}
+          onConfirm={clockInWithPhoto}
+          onCancel={() => setCameraOpen(false)}
+        />
+      )}
       <div className="hidden md:block">
         <PageHeader
           title="Attendance & Payroll"
@@ -154,6 +197,11 @@ function MyTimePage() {
                 </>
               )}
             </button>
+            {!onShift && data.employee.is_active && (
+              <p className="mt-3 text-xs text-neutral-500">
+                You’ll take a quick selfie to clock in.
+              </p>
+            )}
             {!data.employee.is_active && (
               <p className="mt-3 text-sm text-neutral-500">
                 Your attendance is turned off.

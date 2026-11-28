@@ -79,6 +79,10 @@ function TeamPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [edit, setEdit] = useState<EditState | null>(null)
+  const [viewPhoto, setViewPhoto] = useState<{
+    url: string
+    caption: string
+  } | null>(null)
 
   const activeEmployees = data.employees.filter((e) => e.is_active)
 
@@ -139,6 +143,20 @@ function TeamPage() {
         <Plus size={26} />
       </button>
       <AttendanceTabs active="team" isOwner />
+      {viewPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/90 p-4"
+          onClick={() => setViewPhoto(null)}
+        >
+          <img
+            src={viewPhoto.url}
+            alt={viewPhoto.caption}
+            className="max-h-[80vh] max-w-full rounded-xl object-contain"
+          />
+          <p className="text-sm text-white">{viewPhoto.caption}</p>
+          <p className="text-xs text-neutral-400">Tap anywhere to close</p>
+        </div>
+      )}
 
       <Card className="mb-6 p-4">
         <h2 className="mb-2 text-sm font-semibold text-neutral-900">
@@ -151,8 +169,19 @@ function TeamPage() {
             {data.onShiftNow.map((s) => (
               <li
                 key={s.employeeName + s.since}
-                className="rounded-full bg-green-50 px-3 py-1 text-sm text-green-800"
+                className="flex items-center gap-2 rounded-full bg-green-50 py-1 pr-3 pl-1 text-sm text-green-800"
               >
+                <PhotoThumb
+                  url={s.photoUrl}
+                  size="sm"
+                  onOpen={() =>
+                    s.photoUrl &&
+                    setViewPhoto({
+                      url: s.photoUrl,
+                      caption: `${s.employeeName} · clocked in ${formatManilaTime(s.since)}`,
+                    })
+                  }
+                />
                 {s.employeeName} · since {formatManilaTime(s.since)}
                 {s.longOpen && (
                   <span className="ml-1 font-semibold text-red-600">
@@ -231,50 +260,67 @@ function TeamPage() {
           </Card>
         )}
         {data.rows.map((r) => (
-          <button
+          <div
             key={r.id}
-            type="button"
-            disabled={r.locked}
-            onClick={() => startEdit(r, r.clock_out_at === null)}
-            className="flex w-full items-start justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-4 text-left shadow-sm active:bg-neutral-50 disabled:active:bg-white"
+            className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm"
           >
-            <div className="min-w-0">
-              <p className="font-medium text-neutral-900">{r.employeeName}</p>
-              <p className="text-sm text-neutral-500">
-                {formatManilaDate(r.work_date)} ·{' '}
-                {formatManilaTime(r.clock_in_at)} –{' '}
-                {r.clock_out_at ? formatManilaTime(r.clock_out_at) : 'now'}
-              </p>
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {r.lateMinutes > 0 && (
-                  <Badge tone="warning">Late {r.lateMinutes}m</Badge>
+            <PhotoThumb
+              url={r.photoUrl}
+              manual={r.source === 'manual' && !r.photoUrl}
+              onOpen={() =>
+                r.photoUrl &&
+                setViewPhoto({
+                  url: r.photoUrl,
+                  caption: `${r.employeeName} · ${formatManilaDate(r.work_date)} ${formatManilaTime(r.clock_in_at)}`,
+                })
+              }
+            />
+            <button
+              type="button"
+              disabled={r.locked}
+              onClick={() => startEdit(r, r.clock_out_at === null)}
+              className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left"
+            >
+              <div className="min-w-0">
+                <p className="font-medium text-neutral-900">{r.employeeName}</p>
+                <p className="text-sm text-neutral-500">
+                  {formatManilaDate(r.work_date)} ·{' '}
+                  {formatManilaTime(r.clock_in_at)} –{' '}
+                  {r.clock_out_at ? formatManilaTime(r.clock_out_at) : 'now'}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {r.lateMinutes > 0 && (
+                    <Badge tone="warning">Late {r.lateMinutes}m</Badge>
+                  )}
+                  {r.longOpen && <Badge tone="critical">Open 14h+</Badge>}
+                  {r.flagged && !r.longOpen && (
+                    <Badge tone="warning">Flagged</Badge>
+                  )}
+                  {r.source === 'manual' && (
+                    <Badge tone="neutral">Manual</Badge>
+                  )}
+                  {r.locked && <Badge tone="info">Locked</Badge>}
+                </div>
+                {r.note && (
+                  <p className="mt-1 truncate text-xs text-neutral-500">
+                    {r.note}
+                  </p>
                 )}
-                {r.longOpen && <Badge tone="critical">Open 14h+</Badge>}
-                {r.flagged && !r.longOpen && (
-                  <Badge tone="warning">Flagged</Badge>
-                )}
-                {r.source === 'manual' && <Badge tone="neutral">Manual</Badge>}
-                {r.locked && <Badge tone="info">Locked</Badge>}
               </div>
-              {r.note && (
-                <p className="mt-1 truncate text-xs text-neutral-500">
-                  {r.note}
+              <div className="shrink-0 text-right">
+                <p className="font-semibold text-neutral-900">
+                  {r.workedMinutes === null
+                    ? 'On shift'
+                    : formatMinutes(r.workedMinutes)}
                 </p>
-              )}
-            </div>
-            <div className="shrink-0 text-right">
-              <p className="font-semibold text-neutral-900">
-                {r.workedMinutes === null
-                  ? 'On shift'
-                  : formatMinutes(r.workedMinutes)}
-              </p>
-              {!r.locked && (
-                <p className="mt-1 text-xs text-neutral-500 underline">
-                  {r.clock_out_at ? 'Edit' : 'Close shift'}
-                </p>
-              )}
-            </div>
-          </button>
+                {!r.locked && (
+                  <p className="mt-1 text-xs text-neutral-500 underline">
+                    {r.clock_out_at ? 'Edit' : 'Close shift'}
+                  </p>
+                )}
+              </div>
+            </button>
+          </div>
         ))}
       </div>
 
@@ -284,20 +330,28 @@ function TeamPage() {
         <table className="w-full">
           <thead>
             <tr>
-              {['Staff', 'Date', 'In', 'Out', 'Hours', 'Late', 'Flags', ''].map(
-                (h) => (
-                  <th key={h} className={tableHeadClassName}>
-                    {h}
-                  </th>
-                ),
-              )}
+              {[
+                '',
+                'Staff',
+                'Date',
+                'In',
+                'Out',
+                'Hours',
+                'Late',
+                'Flags',
+                '',
+              ].map((h) => (
+                <th key={h} className={tableHeadClassName}>
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {data.rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className={`${tableCellClassName} text-neutral-500`}
                 >
                   No shifts in this range.
@@ -306,6 +360,19 @@ function TeamPage() {
             )}
             {data.rows.map((r) => (
               <tr key={r.id} className={tableRowClassName}>
+                <td className={`${tableCellClassName} w-14`}>
+                  <PhotoThumb
+                    url={r.photoUrl}
+                    manual={r.source === 'manual' && !r.photoUrl}
+                    onOpen={() =>
+                      r.photoUrl &&
+                      setViewPhoto({
+                        url: r.photoUrl,
+                        caption: `${r.employeeName} · ${formatManilaDate(r.work_date)} ${formatManilaTime(r.clock_in_at)}`,
+                      })
+                    }
+                  />
+                </td>
                 <td className={tableCellClassName}>{r.employeeName}</td>
                 <td className={`${tableCellClassName} whitespace-nowrap`}>
                   {formatManilaDate(r.work_date)}
@@ -361,6 +428,41 @@ function TeamPage() {
         </table>
       </div>
     </div>
+  )
+}
+
+/** Clock-in selfie thumbnail; tap to see it full size. */
+function PhotoThumb({
+  url,
+  manual = false,
+  size = 'md',
+  onOpen,
+}: {
+  url: string | null
+  manual?: boolean
+  size?: 'sm' | 'md'
+  onOpen: () => void
+}) {
+  const box = size === 'sm' ? 'size-7' : 'size-12'
+  if (!url) {
+    return (
+      <div
+        className={`${box} flex shrink-0 items-center justify-center rounded-full bg-neutral-100 text-[10px] text-neutral-400`}
+        title={manual ? 'Added by owner' : 'No photo'}
+      >
+        {manual ? 'Manual' : size === 'sm' ? '' : 'No photo'}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label="View clock-in photo"
+      className={`${box} shrink-0 overflow-hidden rounded-full ring-2 ring-white`}
+    >
+      <img src={url} alt="" className="h-full w-full object-cover" />
+    </button>
   )
 }
 

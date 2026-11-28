@@ -404,6 +404,7 @@ export interface Database {
             note: string | null
             edited_by: string | null
             flagged: boolean
+            clock_in_photo_path: string | null
             created_at: string
             updated_at: string
           }

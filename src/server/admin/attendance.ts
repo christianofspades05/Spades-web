@@ -5,6 +5,7 @@
  * also enforced by the attendance_logs_lock_guard trigger (migration 0140).
  */
 import { createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
 import { requireStaff } from '#/lib/auth/guards'
 import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import { fetchAllRows } from '#/lib/utils/paginate'
@@ -27,6 +28,7 @@ import {
   saveAttendanceEntrySchema,
   teamAttendanceSchema,
 } from '#/lib/validation/admin/payroll'
+import { ATTENDANCE_PHOTO_BUCKET } from '#/lib/payroll/photos'
 import { logStaffActivity } from './activity-log'
 import { requirePayrollOwner } from './payroll-access'
 import type { Database } from '#/types/database.types'
@@ -206,20 +208,57 @@ export const getMyAttendance = createServerFn({ method: 'GET' }).handler(
   },
 )
 
-export const clockIn = createServerFn({ method: 'POST' }).handler(async () => {
+async function requireOwnActiveEmployee() {
   const staff = await requireStaff()
   const employee = await findOwnEmployee(staff.id)
   if (!employee) throw new Error('Your login is not set up for attendance yet')
   if (!employee.is_active) throw new Error('Your attendance is turned off')
-  const admin = getSupabaseAdminClient()
-  const { error } = await admin.from('attendance_logs').insert({
-    employee_id: employee.id,
-    clock_in_at: new Date().toISOString(),
-    source: 'self',
-  })
-  if (error) throw friendlyDbError(error)
-  return { ok: true }
+  return employee
+}
+
+/** Step 1 of clocking in: a one-time upload URL for the selfie, inside the
+ *  caller's own folder. Uploading goes straight from the phone to storage
+ *  (never base64 through a server function). */
+export const createClockInPhotoUpload = createServerFn({
+  method: 'POST',
+}).handler(async (): Promise<{ path: string; token: string }> => {
+  const employee = await requireOwnActiveEmployee()
+  const today = storeLocalDateKey(new Date().toISOString())
+  const path = `${employee.id}/${today}/${crypto.randomUUID()}.jpg`
+  const { data, error } = await getSupabaseAdminClient()
+    .storage.from(ATTENDANCE_PHOTO_BUCKET)
+    .createSignedUploadUrl(path)
+  if (error) throw error
+  return { path, token: data.token }
 })
+
+/** Step 2: clock in, with the selfie just uploaded. A photo is required for
+ *  every self clock-in. */
+export const clockIn = createServerFn({ method: 'POST' })
+  .validator(z.object({ photoPath: z.string().min(1).max(300) }))
+  .handler(async ({ data }) => {
+    const employee = await requireOwnActiveEmployee()
+    const today = storeLocalDateKey(new Date().toISOString())
+    // Must be a photo taken today, in this person's own folder.
+    if (!data.photoPath.startsWith(`${employee.id}/${today}/`)) {
+      throw new Error('Please take a new photo to clock in')
+    }
+    const admin = getSupabaseAdminClient()
+    const { data: exists, error: existsError } = await admin.storage
+      .from(ATTENDANCE_PHOTO_BUCKET)
+      .exists(data.photoPath)
+    if (existsError || !exists) {
+      throw new Error('Photo didn’t upload — please try again')
+    }
+    const { error } = await admin.from('attendance_logs').insert({
+      employee_id: employee.id,
+      clock_in_at: new Date().toISOString(),
+      source: 'self',
+      clock_in_photo_path: data.photoPath,
+    })
+    if (error) throw friendlyDbError(error)
+    return { ok: true }
+  })
 
 export const clockOut = createServerFn({ method: 'POST' }).handler(async () => {
   const staff = await requireStaff()
@@ -248,18 +287,46 @@ export const clockOut = createServerFn({ method: 'POST' }).handler(async () => {
 // Team (owner only)
 // ---------------------------------------------------------------------------
 
+/** Signed view URLs (1 hr) for clock-in selfies, keyed by storage path. */
+async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const unique = [...new Set(paths)]
+  const storage = getSupabaseAdminClient().storage.from(ATTENDANCE_PHOTO_BUCKET)
+  for (let i = 0; i < unique.length; i += 100) {
+    const { data, error } = await storage.createSignedUrls(
+      unique.slice(i, i + 100),
+      3600,
+    )
+    if (error) throw error
+    for (const d of data) {
+      if (d.path && d.signedUrl) out.set(d.path, d.signedUrl)
+    }
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
 export interface TeamAttendanceRow extends AttendanceLog {
   employeeName: string
   workedMinutes: number | null
   lateMinutes: number
   longOpen: boolean
   locked: boolean
+  /** Short-lived signed URL for the clock-in selfie, if there is one. */
+  photoUrl: string | null
 }
 
 export interface TeamAttendance {
   employees: Array<Pick<PayrollEmployee, 'id' | 'full_name' | 'is_active'>>
   rows: TeamAttendanceRow[]
-  onShiftNow: Array<{ employeeName: string; since: string; longOpen: boolean }>
+  onShiftNow: Array<{
+    employeeName: string
+    since: string
+    longOpen: boolean
+    photoUrl: string | null
+  }>
 }
 
 export const getTeamAttendance = createServerFn({ method: 'GET' })
@@ -316,6 +383,12 @@ export const getTeamAttendance = createServerFn({ method: 'GET' })
       profilesBy.set(p.employee_id, list)
     }
 
+    const photoUrls = await signPhotoUrls(
+      [...logs, ...openRes.data]
+        .map((s) => s.clock_in_photo_path)
+        .filter((p): p is string => !!p),
+    )
+
     const rows = logs.map((s): TeamAttendanceRow => {
       const own = profilesBy.get(s.employee_id) ?? []
       const profile = profileOn(own, s.work_date)
@@ -331,6 +404,9 @@ export const getTeamAttendance = createServerFn({ method: 'GET' })
             : 0,
         longOpen,
         locked: isDateLocked(s.work_date, locked),
+        photoUrl: s.clock_in_photo_path
+          ? (photoUrls.get(s.clock_in_photo_path) ?? null)
+          : null,
       }
     })
 
@@ -342,6 +418,9 @@ export const getTeamAttendance = createServerFn({ method: 'GET' })
           employeeName: names.get(s.employee_id) ?? 'Unknown',
           since: s.clock_in_at,
           longOpen: isLongOpen(s, nowMs),
+          photoUrl: s.clock_in_photo_path
+            ? (photoUrls.get(s.clock_in_photo_path) ?? null)
+            : null,
         }))
         .sort((a, b) => a.since.localeCompare(b.since)),
     }
