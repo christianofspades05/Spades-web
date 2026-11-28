@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createCommunityFitSchema,
+  instagramShortcode,
   normalizeInstagramHandle,
   normalizeInstagramPostUrl,
 } from './community-fits'
@@ -83,5 +84,29 @@ describe('createCommunityFitSchema', () => {
         productIds: [id, id],
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('instagramShortcode', () => {
+  it('treats link variants of the same post as one shortcode', () => {
+    const variants = [
+      'https://www.instagram.com/p/DAbc_12-x/',
+      'https://www.instagram.com/p/DAbc_12-x',
+      'https://instagram.com/p/DAbc_12-x/?igsh=abc123',
+      'https://www.instagram.com/p/DAbc_12-x/?img_index=2',
+      'https://www.instagram.com/reel/DAbc_12-x/',
+      'https://www.instagram.com/reels/DAbc_12-x/',
+      'https://www.instagram.com/some.user/p/DAbc_12-x/',
+    ]
+    for (const url of variants) {
+      expect(instagramShortcode(url)).toBe('DAbc_12-x')
+    }
+  })
+
+  it('keeps different posts apart and ignores non-post links', () => {
+    expect(instagramShortcode('https://www.instagram.com/p/AAA/')).not.toBe(
+      instagramShortcode('https://www.instagram.com/p/BBB/'),
+    )
+    expect(instagramShortcode('https://www.instagram.com/spades/')).toBeNull()
   })
 })

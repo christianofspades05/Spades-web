@@ -5,6 +5,9 @@ import { getSupabaseAdminClient } from '#/lib/supabase/admin'
 import {
   createCommunityFitSchema,
   deleteCommunityFitSchema,
+  duplicateFitMessage,
+  instagramPostUrlVariants,
+  instagramShortcode,
   reorderCommunityFitsSchema,
   setCommunityFitActiveSchema,
   setCommunityFitProductsSchema,
@@ -116,6 +119,21 @@ export const createCommunityFit = createServerFn({ method: 'POST' })
     const staff = await requireStaff(MANAGE_ROLES)
     const admin = getSupabaseAdminClient()
 
+    // Block the same post being added twice — /p/ and /reel/ links with the
+    // same shortcode count as one post. The unique index from migration 0139
+    // backs this up if two staff add the same post at the same moment.
+    const shortcode = instagramShortcode(data.instagramUrl)
+    if (shortcode) {
+      const { data: existing, error: existingError } = await admin
+        .from('community_fits')
+        .select('handle')
+        .in('instagram_url', instagramPostUrlVariants(shortcode))
+        .limit(1)
+        .maybeSingle()
+      if (existingError) throw existingError
+      if (existing) throw new Error(duplicateFitMessage(existing.handle))
+    }
+
     // New posts go to the front of the carousel.
     const { data: first, error: firstError } = await admin
       .from('community_fits')
@@ -135,7 +153,12 @@ export const createCommunityFit = createServerFn({ method: 'POST' })
       })
       .select('*')
       .single()
-    if (error) throw error
+    if (error) {
+      // 23505 = unique violation: someone added this post a moment ago.
+      if (error.code === '23505')
+        throw new Error(duplicateFitMessage(data.handle))
+      throw error
+    }
     try {
       await replaceFitProducts(admin, fit.id, data.productIds)
     } catch (linkError) {

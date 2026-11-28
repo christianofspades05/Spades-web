@@ -34,6 +34,28 @@ export function normalizeInstagramPostUrl(raw: string): string | null {
   return `https://www.instagram.com/${kind}/${code}/`
 }
 
+/**
+ * The post's shortcode (the "CODE" in /p/CODE/ or /reel/CODE/), used to
+ * spot the same post pasted twice: /p/ and /reel/ links with the same code
+ * are the same post. null for anything that isn't a post/reel link.
+ */
+export function instagramShortcode(raw: string): string | null {
+  const normalized = normalizeInstagramPostUrl(raw)
+  return normalized ? (normalized.split('/').at(-2) ?? null) : null
+}
+
+/** Both canonical forms a post can be saved under (/p/ and /reel/). */
+export function instagramPostUrlVariants(shortcode: string): string[] {
+  return [
+    `https://www.instagram.com/p/${shortcode}/`,
+    `https://www.instagram.com/reel/${shortcode}/`,
+  ]
+}
+
+export function duplicateFitMessage(handle: string): string {
+  return `This post is already added (@${handle})`
+}
+
 /** "@Some.User" / "some.user" / an instagram.com profile link → "some.user". */
 export function normalizeInstagramHandle(raw: string): string {
   let value = raw.trim()

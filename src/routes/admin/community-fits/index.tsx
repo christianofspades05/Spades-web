@@ -11,7 +11,11 @@ import {
   setCommunityFitProducts,
 } from '#/server/admin/community-fits'
 import type { CommunityFitWithProducts } from '#/server/admin/community-fits'
-import { createCommunityFitSchema } from '#/lib/validation/admin/community-fits'
+import {
+  createCommunityFitSchema,
+  duplicateFitMessage,
+  instagramShortcode,
+} from '#/lib/validation/admin/community-fits'
 import { getSupabaseBrowserClient } from '#/lib/supabase/client'
 import { resizeImageFile } from '#/lib/utils/file'
 import { getErrorMessage } from '#/lib/utils/errors'
@@ -67,7 +71,7 @@ function CommunityFitsPage() {
         subtitle="Instagram posts where customers tagged Spades, with the Spades products in each photo. Shown as a swipeable carousel on the Spades homepage, above New Release. The section hides itself when nothing is shown."
       />
 
-      <AddFitForm onAdded={() => router.invalidate()} />
+      <AddFitForm existing={fits} onAdded={() => router.invalidate()} />
 
       <h2 className="mt-8 mb-3 text-sm font-semibold text-neutral-900">
         Posts ({fits.length})
@@ -252,7 +256,13 @@ function FitRow({
   )
 }
 
-function AddFitForm({ onAdded }: { onAdded: () => Promise<void> }) {
+function AddFitForm({
+  existing,
+  onAdded,
+}: {
+  existing: CommunityFitWithProducts[]
+  onAdded: () => Promise<void>
+}) {
   const [instagramUrl, setInstagramUrl] = useState('')
   const [handle, setHandle] = useState('')
   const [imageUrl, setImageUrl] = useState('')
@@ -261,6 +271,16 @@ function AddFitForm({ onAdded }: { onAdded: () => Promise<void> }) {
   const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Same post already in the list? (/p/ and /reel/ links with the same code
+  // count as one post.) Shown as soon as the link is pasted, before staff
+  // spend time uploading a photo; the server enforces it too.
+  const pastedShortcode = instagramShortcode(instagramUrl)
+  const duplicate = pastedShortcode
+    ? existing.find(
+        (fit) => instagramShortcode(fit.instagram_url) === pastedShortcode,
+      )
+    : undefined
 
   async function handleImageUpload(file: File) {
     setUploading(true)
@@ -288,6 +308,10 @@ function AddFitForm({ onAdded }: { onAdded: () => Promise<void> }) {
   // can't nest.
   async function handleSubmit() {
     setError(null)
+    if (duplicate) {
+      setError(duplicateFitMessage(duplicate.handle))
+      return
+    }
     const input = {
       instagramUrl,
       handle,
@@ -332,6 +356,11 @@ function AddFitForm({ onAdded }: { onAdded: () => Promise<void> }) {
             inputMode="url"
             className={`${inputClassName} w-full`}
           />
+          {duplicate && (
+            <p className="mt-1 text-sm text-red-600">
+              {duplicateFitMessage(duplicate.handle)}
+            </p>
+          )}
         </div>
 
         <div>
@@ -396,7 +425,7 @@ function AddFitForm({ onAdded }: { onAdded: () => Promise<void> }) {
         <button
           type="button"
           onClick={() => void handleSubmit()}
-          disabled={submitting || uploading}
+          disabled={submitting || uploading || duplicate !== undefined}
           className={buttonPrimaryClassName}
         >
           {submitting ? 'Adding…' : 'Add post'}
